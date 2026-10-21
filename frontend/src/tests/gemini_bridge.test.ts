@@ -21,7 +21,6 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
   it('exclusively utilizes Lucide icons for UI symbols', () => {
     assert.ok(content.includes("from 'lucide-react'"))
     assert.ok(content.includes('<Radio'))
-    assert.ok(content.includes('<KeyRound'))
     assert.ok(content.includes('<Bot'))
     assert.ok(content.includes('<Layers'))
     assert.ok(content.includes('<Terminal'))
@@ -43,10 +42,14 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
   })
 
   it('uses tunnel lifecycle as the only operational bridge control', () => {
-    assert.ok(content.includes('Verify Bridge'))
+    assert.ok(content.includes('Enable Remote Access'))
+    assert.ok(content.includes('ariaLabel="Enable Remote Access"'))
     assert.ok(content.includes('Gateway Status'))
     assert.ok(content.includes('Operating Mode'))
-    assert.ok(content.includes('Remote Internet Pipe'))
+    assert.strictEqual(content.includes('Verify Bridge'), false, 'verify button must be replaced by the header toggle')
+    assert.strictEqual(content.includes('Remote Internet Pipe'), false, 'remote pipe metric card must be removed')
+    assert.strictEqual(content.includes('Start Remote Access'), false, 'start tunnel button must be replaced by the header toggle')
+    assert.strictEqual(content.includes('Stop Remote Access'), false, 'stop tunnel button must be replaced by the header toggle')
     assert.strictEqual(content.includes('Enable Bridge'), false)
     assert.strictEqual(content.includes('handleToggleEnable'), false)
     assert.strictEqual(content.includes('api.updateBridgeConfig'), false)
@@ -54,8 +57,9 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.strictEqual(content.includes('Account Shield Active'), false)
   })
 
-  it('reports verification failures and does not render fabricated credentials', () => {
-    assert.ok(content.includes('isError: !res?.success'))
+  it('reports request failures and does not render fabricated credentials', () => {
+    assert.ok(content.includes('isError: true'))
+    assert.strictEqual(content.includes('api.testBridgeConnection'), false)
     assert.strictEqual(content.includes("'582914'"), false)
     assert.strictEqual(content.includes("'swiss-gemini-auth-token'"), false)
   })
@@ -69,6 +73,14 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.strictEqual(content.includes('Copy PIN'), false, 'Copy PIN button must be removed from Pairing PIN gadget')
     assert.ok(content.includes('status?.pairing_pin'))
     assert.ok(content.includes('status?.auth_token'))
+    assert.ok(content.includes("gridTemplateColumns: '2fr 1fr'"))
+
+    const endpointIndex = content.indexOf('Active Endpoint')
+    const pairingPinIndex = content.indexOf('Pairing PIN (Quick Setup)')
+    const credentialsIndex = content.indexOf('Authentication & Pairing Credentials')
+    assert.ok(endpointIndex >= 0)
+    assert.ok(pairingPinIndex > endpointIndex, 'Pairing PIN must be next to Active Endpoint in Card 1')
+    assert.ok(pairingPinIndex < credentialsIndex, 'Pairing PIN gadget must be removed from the credentials card')
   })
 
   it('renders OAuth 2.0 guidance and OAuth Client ID credentials', () => {
@@ -77,6 +89,9 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.ok(content.includes('OAuth 2.0'))
     assert.ok(content.includes('status?.oauth_client_id'))
     assert.ok(content.includes('Copy Client ID'))
+    assert.ok(content.includes("'AGY Bridge':"))
+    assert.ok(content.includes('OAuth Client Secret / Bearer Token'))
+    assert.ok(content.includes('Streamable HTTPS'))
   })
 
   it('provides mode switching between Hybrid, Lead/Messenger, and Direct Actuator', () => {
@@ -89,6 +104,22 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
   it('includes active Antigravity lead session monitor with response forwarding', () => {
     assert.ok(content.includes('active_lead_session'))
     assert.ok(content.includes('Forwarded Antigravity Response Preview'))
+  })
+
+  it('catalogs the expanded lead, fleet, and local search tools without removed test surfaces', () => {
+    for (const tool of [
+      'antigravity_lead_compact_conversation',
+      'antigravity_lead_stop_conversation',
+      'antigravity_fleet_get_quota',
+      'antigravity_fleet_switch_account',
+      'local_search_files',
+    ]) {
+      assert.ok(content.includes(tool), `${tool} must be present in the exposed tool catalog`)
+    }
+
+    assert.strictEqual(content.includes('Test Remote Task Dispatch'), false)
+    assert.strictEqual(content.includes('Surface Connectivity Matrix'), false)
+    assert.strictEqual(content.includes('How to direct Gemini in chat:'), false)
   })
 
   it('avoids banned AI buzzwords and enforces concise technical copy', () => {

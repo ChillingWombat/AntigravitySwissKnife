@@ -175,6 +175,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 }) => {
   const [config, setConfig] = useState<EnhancementsConfig | null>(null)
   const [guiConfig, setGuiConfig] = useState<GUIConfig | null>(null)
+  const [chatNavigatorMode, setChatNavigatorMode] = useState<'panel' | 'line'>('panel')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -251,6 +252,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
       setConfig(data)
       setProjects((projList || []).map((p) => p.name))
       if (gData) {
+        setChatNavigatorMode(gData.chat_navigator_mode === 'line' ? 'line' : 'panel')
         setGuiConfig({
           ...gData,
           enabled: gData.enabled ?? true,
@@ -270,6 +272,16 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   const isValidHexColor = (c?: string) => {
     if (!c) return true
     return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c.trim())
+  }
+
+  const handleUpdateNavigatorMode = async (nextMode: 'panel' | 'line') => {
+    setChatNavigatorMode(nextMode)
+    try {
+      await api.updateGUIConfig({ chat_navigator_mode: nextMode })
+      setGuiConfig((current) => (current ? { ...current, chat_navigator_mode: nextMode } : current))
+    } catch (err: any) {
+      setStatusMsg({ text: 'Failed to save Chat Navigator mode: ' + err.message, type: 'error' })
+    }
   }
 
   const handleSaveAndApply = async () => {
@@ -435,7 +447,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 }}
               >
                 <div>
-                  <span style={{ fontWeight: 500 }}>Pulse Highlight Target Prompt Card on Jump</span>
+                  <span style={{ fontWeight: 500 }}>Pulse Highlight Target Prompt Card On Jump</span>
                   <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
                     Briefly highlights the target prompt card with an accent focus outline for 1.2s when jumping.
                   </p>
@@ -451,6 +463,53 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   }
                 />
               </label>
+            </div>
+
+            {/* Chat navigator display mode */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                padding: '12px 16px',
+                marginBottom: '20px',
+                border: '1px solid var(--border)',
+                borderRadius: '10px',
+                background: 'var(--canvas)',
+              }}
+            >
+              <div>
+                <label
+                  htmlFor="chat-navigator-mode"
+                  style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--text)' }}
+                >
+                  Chat Navigator
+                </label>
+                <div style={{ marginTop: '2px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  {chatNavigatorMode === 'line'
+                    ? 'Show the rail as plain dashes.'
+                    : 'Hover the left rail to expand the prompt list.'}
+                </div>
+              </div>
+              <select
+                id="chat-navigator-mode"
+                aria-label="Chat Navigator"
+                value={chatNavigatorMode}
+                onChange={(e) => handleUpdateNavigatorMode(e.target.value === 'line' ? 'line' : 'panel')}
+                style={{
+                  padding: '6px 10px',
+                  fontSize: '12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: '#ffffff',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="panel">Panel (Default)</option>
+                <option value="line">Single Line</option>
+              </select>
             </div>
 
             {/* 2-Column Layout: Settings on Left, Fixed Vertical Divider, Interactive Gutter Preview on Right */}
@@ -742,7 +801,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             fontSize: '13px',
                           }}
                         />
-                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 14)</span>
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (Default: 14)</span>
                       </div>
                     </div>
 
@@ -772,7 +831,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             fontSize: '13px',
                           }}
                         />
-                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 2.5)</span>
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (Default: 2.5)</span>
                       </div>
                     </div>
 
@@ -802,7 +861,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                             fontSize: '13px',
                           }}
                         />
-                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (default: 1.5)</span>
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (Default: 1.5)</span>
                       </div>
                     </div>
                   </div>
@@ -894,11 +953,11 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         )}
       </div>
 
-      {/* Feature 2: Thinking Process & Tool Calls Color Density */}
+      {/* Feature 2: Tool Call Density Control */}
       <div className="google-card">
         <div style={{ marginBottom: '16px' }}>
           <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-            Thinking & Tool Execution Visual Density
+            Tool Call Density Control
           </h2>
           <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
             Compact intermediate tool runs, commands, and thinking steps to keep chat answers clean and readable.
@@ -956,12 +1015,12 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         </div>
       </div>
 
-      {/* Feature 3: Conversation Turn Breaker Line */}
+      {/* Feature 3: Turn Breaker Line */}
       <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-              Conversation Turn Breaker Line
+              Turn Breaker Line
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
               Add a subtle horizontal divider above each user prompt to clearly separate turns.
@@ -1202,7 +1261,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       fontWeight: 500,
                     }}
                   >
-                    <span>Bold text on current open conversation tab</span>
+                    <span>Bold Text On Current Open Conversation Tab</span>
                     <ToggleSwitch
                       size="sm"
                       checked={guiConfig.active_conversation_bold ?? false}
@@ -1455,7 +1514,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               >
                 <div>
                   <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                    Simplicity Replacement for "See all" / "See less"
+                    Simplicity Replacement For "See All" / "See Less"
                   </div>
                   <p style={{ margin: '3px 0 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
                     Replace 'See all' and 'See less' text buttons with a 1px divider and expand/collapse indicator.
@@ -1472,7 +1531,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 />
               </div>
 
-              {/* Divider Separation Below All Projects Zone */}
+              {/* Consistent Project Spacing */}
               <div
                 style={{
                   padding: '14px 16px',
@@ -1487,7 +1546,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               >
                 <div>
                   <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
-                    Divider Separation Below All Projects
+                    Consistent Project Spacing
                   </div>
                   <p style={{ margin: '3px 0 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
                     Add horizontal divider lines below uncontracted projects for consistent spacing.
@@ -1552,7 +1611,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 </p>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
-                  <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Tabs per project:</label>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Tabs Per Project:</label>
                   <select
                     value={guiConfig.conversation_tabs_fixed_limit || 6}
                     onChange={(e) =>
@@ -1616,7 +1675,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }} onClick={(e) => e.stopPropagation()}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Active within:</label>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Active Within:</label>
                     <select
                       value={guiConfig.conversation_tabs_age_threshold || '14d'}
                       onChange={(e) =>
@@ -1638,17 +1697,17 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         cursor: 'pointer',
                       }}
                     >
-                      <option value="1d">1 day</option>
-                      <option value="3d">3 days</option>
-                      <option value="7d">7 days</option>
-                      <option value="14d">14 days</option>
-                      <option value="30d">30 days</option>
+                      <option value="1d">1 Day</option>
+                      <option value="3d">3 Days</option>
+                      <option value="7d">7 Days</option>
+                      <option value="14d">14 Days</option>
+                      <option value="30d">30 Days</option>
                     </select>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Min tabs:</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Min Tabs:</label>
                       <select
                         value={guiConfig.conversation_tabs_min ?? 3}
                         onChange={(e) =>
@@ -1680,7 +1739,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Max tabs:</label>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Max Tabs:</label>
                       <select
                         value={guiConfig.conversation_tabs_max ?? 6}
                         onChange={(e) =>
@@ -1969,12 +2028,12 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   minWidth: '140px',
                 }}
               >
-                <option value="3d">3 days</option>
-                <option value="7d">7 days</option>
-                <option value="14d">14 days</option>
-                <option value="30d">30 days</option>
-                <option value="60d">60 days</option>
-                <option value="90d">90 days</option>
+                <option value="3d">3 Days</option>
+                <option value="7d">7 Days</option>
+                <option value="14d">14 Days</option>
+                <option value="30d">30 Days</option>
+                <option value="60d">60 Days</option>
+                <option value="90d">90 Days</option>
               </select>
               <ToggleSwitch
                 checked={guiConfig.auto_archive_conversations ?? true}
@@ -2033,7 +2092,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-              Default Project for New Conversations
+              Default Project For New Conversations
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '600px', lineHeight: 1.5 }}>
               Set a default project for new chats (Ctrl+N / Cmd+N) instead of the current active project.
@@ -2119,7 +2178,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>
-                <span>Just an Icon (Compact)</span>
+                <span>Just An Icon (Compact)</span>
               </div>
               <input
                 type="radio"
@@ -2233,7 +2292,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>
-                <span>Icon and Name</span>
+                <span>Icon And Name</span>
               </div>
               <input
                 type="radio"
@@ -2351,7 +2410,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         >
           <div>
             <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-              Overview Panel Section Division
+              Overview Panel Customization
             </h2>
           </div>
         </div>

@@ -1,19 +1,18 @@
 /**
- * chat_navigator_setting.test.ts — Chat navigator display-mode selector (#162)
+ * chat_navigator_setting.test.ts - Chat Navigator display-mode selector (#162)
  *
- * Covers the "Chat navigator" select added to the in-chat settings section of the
- * Token Monitor page:
- *   - the select renders with a Panel (default) / Single line choice;
- *   - the daemon value seeds the control and the default is Panel;
- *   - changing it POSTs `chat_navigator_mode: "line"` through the existing
- *     GUI-config save path (no dedicated save button).
+ * Covers the Chat Navigator select under App Enhancements > Chat View >
+ * Quick Prompt Jump Bar:
+ *   - the select renders with Panel (Default) / Single Line choices;
+ *   - the daemon value seeds the control and defaults to panel;
+ *   - changing it POSTs `chat_navigator_mode: "line"` immediately.
  */
 
 import { describe, it, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import React, { act } from 'react'
 import { initDOM, mount, type RenderResult } from '../test-dom'
-import TokenMonitorPage from '../pages/TokenMonitorPage'
+import { AppEnhancementsPage } from '../pages/AppEnhancementsPage'
 import { cancelAllInFlightRequests } from '../api'
 
 interface RecordedCall {
@@ -22,22 +21,39 @@ interface RecordedCall {
   body?: any
 }
 
-const TELEMETRY_FIXTURE = {
-  total_tokens: 0,
-  input_tokens: 0,
-  cached_input_tokens: 0,
-  output_tokens: 0,
-  total_cost_usd: 0,
-  saved_cost_usd: 0,
-  avg_tps: 0,
-  requests_count: 0,
-  unpriced_models: [],
-  model_breakdowns: [],
-  project_breakdowns: [],
-  telemetry_events: [],
+const ENHANCEMENTS_FIXTURE = {
+  version: '1.0.0',
+  enabled: true,
+  prompt_jump_bar: {
+    enabled: true,
+    show_tooltip: true,
+    focus_pulse: true,
+    sync_scroll: true,
+    position: 'gutter',
+    dash_width: 14,
+    dash_thickness: 2.5,
+    inactive_thickness: 1.5,
+    color_mode: 'default',
+    custom_color: '#0b57d0',
+  },
+  overview_panel: {
+    enabled: true,
+    division_style: 'divider_line',
+    zone_border_radius: 8,
+    zone_border_color: '#e2e8f0',
+    zone_background_contrast: 'whiter',
+    zone_padding: 10,
+    zone_gap: 10,
+    replace_see_all_triangle: true,
+    aux_tabs_format: 'icon',
+  },
+  tool_density_mode: 'normal',
+  breaker_line_enabled: false,
+  scroll_to_bottom: false,
+  turn_counter: false,
 }
 
-/** Installs a fetch stub that answers the endpoints TokenMonitorPage hits on mount. */
+/** Installs a fetch stub that answers the endpoints AppEnhancementsPage hits on mount. */
 function installFetch(guiConfig: Record<string, unknown>): RecordedCall[] {
   const calls: RecordedCall[] = []
   globalThis.fetch = (async (url: any, opts: any) => {
@@ -49,9 +65,12 @@ function installFetch(guiConfig: Record<string, unknown>): RecordedCall[] {
     let payload: any = {}
     if (target.includes('/api/gui/config')) {
       payload = method === 'POST' ? { ...guiConfig, ...body } : guiConfig
-    } else if (target.includes('/api/tokens/summary')) {
-      payload = TELEMETRY_FIXTURE
+    } else if (target.includes('/api/gui/projects')) {
+      payload = []
+    } else if (target.includes('/api/enhancements')) {
+      payload = ENHANCEMENTS_FIXTURE
     }
+
     return { ok: true, status: 200, json: async () => payload } as any
   }) as any
   return calls
@@ -65,8 +84,9 @@ const flush = async () => {
 
 const mountPage = async (guiConfig: Record<string, unknown>) => {
   const calls = installFetch(guiConfig)
-  // Tab 1 hosts the in-chat settings gadget.
-  const view = await mount(React.createElement(TokenMonitorPage, { activeTab: 1 }))
+  const view = await mount(
+    React.createElement(AppEnhancementsPage, { activeCategoryTab: 0 })
+  )
   await flush()
   return { view, calls }
 }
@@ -75,9 +95,9 @@ const guiConfigPosts = (calls: RecordedCall[]) =>
   calls.filter((c) => c.url.includes('/api/gui/config') && c.method === 'POST')
 
 const findNavigatorSelect = (view: RenderResult) =>
-  view.querySelector<HTMLSelectElement>('select[aria-label="Chat navigator"]')
+  view.querySelector<HTMLSelectElement>('select#chat-navigator-mode')
 
-describe('Chat navigator display-mode selector', () => {
+describe('Chat Navigator display-mode selector', () => {
   const originalFetch = globalThis.fetch
   let view: RenderResult | null = null
 
@@ -88,22 +108,28 @@ describe('Chat navigator display-mode selector', () => {
     cancelAllInFlightRequests()
   })
 
-  it('renders the select with Panel (default) / Single line and defaults to Panel', async () => {
+  it('renders under Quick Prompt Jump Bar with Title Case options and defaults to Panel', async () => {
     initDOM()
     const { view: mounted } = await mountPage({})
     view = mounted
 
     const select = findNavigatorSelect(view!)
-    assert.ok(select, 'Chat navigator select must render')
-    assert.equal(select!.value, 'panel', 'Chat navigator select must default to panel')
+    assert.ok(select, 'Chat Navigator select must render')
+    assert.equal(select!.value, 'panel', 'Chat Navigator select must default to panel')
+
+    const card = select!.closest('.google-card')
+    assert.ok(
+      card?.textContent?.includes('Quick Prompt Jump Bar'),
+      'Chat Navigator select must render inside the Quick Prompt Jump Bar card'
+    )
+
+    const label = view!.querySelector<HTMLLabelElement>('label[for="chat-navigator-mode"]')
+    assert.equal(label?.textContent?.trim(), 'Chat Navigator')
 
     const options = Array.from(select!.querySelectorAll('option')).map((o) => (o.textContent || '').trim())
-    assert.deepEqual(options, ['Panel (default)', 'Single line'], `Unexpected options: ${options.join(', ')}`)
-
-    const text = view!.container.textContent || ''
-    assert.ok(text.includes('Chat navigator'), 'Chat navigator label must render')
+    assert.deepEqual(options, ['Panel (Default)', 'Single Line'])
     assert.ok(
-      text.includes('Hover the left rail to expand the prompt list.'),
+      (view!.container.textContent || '').includes('Hover the left rail to expand the prompt list.'),
       'panel mode description must render'
     )
   })
@@ -112,6 +138,7 @@ describe('Chat navigator display-mode selector', () => {
     initDOM()
     const first = await mountPage({ chat_navigator_mode: 'line' })
     view = first.view
+
     assert.equal(findNavigatorSelect(view!)!.value, 'line', 'daemon-reported line mode must seed the select')
     assert.ok(
       (view!.container.textContent || '').includes('Show the rail as plain dashes.'),

@@ -75,12 +75,16 @@ func GetLocalSessionToken() (string, error) {
 //
 // Parameters:
 //   - p: URL path from http.Request.
+//
 // Returns:
 //   - bool: true if path is publicly accessible without a session token; false otherwise.
 func isPublicPath(p string) bool {
 	clean := path.Clean(p)
 	// 1. Root and standard UI static assets
-	if clean == "." || clean == "/" || clean == "/index.html" || clean == "/favicon.ico" || clean == "/health" || clean == "/healthz" {
+	if clean == "." || clean == "/" || clean == "/index.html" || clean == "/health" || clean == "/healthz" {
+		return true
+	}
+	if isPublicIconPath(clean) {
 		return true
 	}
 	// 2. Bundled frontend static assets (CSS, JS, images, logos)
@@ -119,6 +123,14 @@ func isPublicPath(p string) bool {
 	return false
 }
 
+func isPublicIconPath(clean string) bool {
+	switch clean {
+	case "/favicon.ico", "/favicon.svg", "/favicon.png", "/logo.png", "/apple-touch-icon.png", "/antigravity_logo.png":
+		return true
+	}
+	return strings.HasPrefix(clean, "/logo/")
+}
+
 // validateRequestAuth validates credentials supplied in headers or query parameters.
 // Acceptable credentials include:
 // 1. X-Session-Token header matching the local startup token or an active session token.
@@ -127,6 +139,7 @@ func isPublicPath(p string) bool {
 //
 // Parameters:
 //   - r: incoming http.Request.
+//
 // Returns:
 //   - bool: true if request is authorized; false if unauthorized.
 func (s *Server) validateRequestAuth(r *http.Request) bool {
@@ -201,6 +214,7 @@ func (s *Server) validateRequestAuth(r *http.Request) bool {
 //
 // Parameters:
 //   - next: the downstream http.Handler (e.g. ServeMux).
+//
 // Returns:
 //   - http.Handler: wrapping handler that validates authentication before invoking next.
 func (s *Server) authMiddleware(next http.Handler) http.Handler {

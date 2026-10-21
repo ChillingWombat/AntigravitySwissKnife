@@ -121,8 +121,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   const [chatTelemetryCacheHitRatio, setChatTelemetryCacheHitRatio] = useState<boolean>(true)
   const [chatTelemetryGenerationSpeed, setChatTelemetryGenerationSpeed] = useState<boolean>(true)
   const [chatTelemetryScope, setChatTelemetryScope] = useState<'aggregated' | 'main_only'>('aggregated')
-  // Chat navigator (left rail prompt list) display mode
-  const [chatNavigatorMode, setChatNavigatorMode] = useState<'panel' | 'line'>('panel')
 
   // Telemetry Log filter state (All, Main Agent, Sub-Agents)
   const [logFilter, setLogFilter] = useState<'all' | 'main' | 'subagents'>('all')
@@ -177,7 +175,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         if (guiConfigData.chat_telemetry_cache_hit_ratio !== undefined) setChatTelemetryCacheHitRatio(guiConfigData.chat_telemetry_cache_hit_ratio)
         if (guiConfigData.chat_telemetry_generation_speed !== undefined) setChatTelemetryGenerationSpeed(guiConfigData.chat_telemetry_generation_speed)
         if (guiConfigData.chat_telemetry_scope !== undefined) setChatTelemetryScope(guiConfigData.chat_telemetry_scope)
-        if (guiConfigData.chat_navigator_mode !== undefined) setChatNavigatorMode(guiConfigData.chat_navigator_mode === 'line' ? 'line' : 'panel')
       }
 
       if (rulesData) {
@@ -238,9 +235,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
       } else if (key === 'scope') {
         setChatTelemetryScope(value)
         updates.chat_telemetry_scope = value
-      } else if (key === 'navigator') {
-        setChatNavigatorMode(value)
-        updates.chat_navigator_mode = value
       }
       const updated = await api.updateGUIConfig(updates)
       if (updated) {
@@ -249,7 +243,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         if (updated.chat_telemetry_cache_hit_ratio !== undefined) setChatTelemetryCacheHitRatio(updated.chat_telemetry_cache_hit_ratio)
         if (updated.chat_telemetry_generation_speed !== undefined) setChatTelemetryGenerationSpeed(updated.chat_telemetry_generation_speed)
         if (updated.chat_telemetry_scope !== undefined) setChatTelemetryScope(updated.chat_telemetry_scope)
-        if (updated.chat_navigator_mode !== undefined) setChatNavigatorMode(updated.chat_navigator_mode === 'line' ? 'line' : 'panel')
       }
     } catch (err) {
       console.warn('Failed to update in-chat telemetry setting:', err)
@@ -1704,7 +1697,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    Aggregated (Main + Sub-agents)
+                    Aggregated (Main + Sub-Agents)
                   </button>
                   <button
                     type="button"
@@ -1821,61 +1814,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               </div>
             </div>
 
-            {/* Chat Navigator (left rail prompt list) display mode */}
-            <div
-              style={{
-                marginTop: '16px',
-                paddingTop: '16px',
-                borderTop: '1px solid var(--border)',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '12px 14px',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  backgroundColor: '#ffffff',
-                }}
-              >
-                <div>
-                  <label
-                    htmlFor="chat-navigator-mode"
-                    style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}
-                  >
-                    Chat navigator
-                  </label>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    {chatNavigatorMode === 'line'
-                      ? 'Show the rail as plain dashes.'
-                      : 'Hover the left rail to expand the prompt list.'}
-                  </div>
-                </div>
-                <select
-                  id="chat-navigator-mode"
-                  aria-label="Chat navigator"
-                  value={chatNavigatorMode}
-                  onChange={(e) =>
-                    handleUpdateTelemetrySetting('navigator', e.target.value === 'line' ? 'line' : 'panel')
-                  }
-                  style={{
-                    padding: '6px 10px',
-                    fontSize: '12px',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border)',
-                    backgroundColor: '#ffffff',
-                    color: 'var(--text)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <option value="panel">Panel (default)</option>
-                  <option value="line">Single line</option>
-                </select>
-              </div>
-            </div>
           </div>
 
           {/* 6. Live Telemetry Stream Log */}

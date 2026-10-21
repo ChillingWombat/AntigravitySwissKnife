@@ -5,13 +5,7 @@ import {
   AlertCircle,
   Terminal,
   Copy,
-  Send,
   RefreshCw,
-  Laptop,
-  Code2,
-  KeyRound,
-  Play,
-  Square,
   Bot,
   Layers,
   FileText,
@@ -88,6 +82,7 @@ export const GeminiBridgePage: React.FC = () => {
   const [copiedConfig, setCopiedConfig] = useState<boolean>(false)
   const [copiedToken, setCopiedToken] = useState<boolean>(false)
   const [copiedClientId, setCopiedClientId] = useState<boolean>(false)
+  const [actionFeedback, setActionFeedback] = useState<{ text: string; isError: boolean } | null>(null)
 
   // Tunnel controls
   const [tunnelType, setTunnelType] = useState<string>('quick')
@@ -99,11 +94,6 @@ export const GeminiBridgePage: React.FC = () => {
   const [modeLoading, setModeLoading] = useState<boolean>(false)
   const [pinModeLoading, setPinModeLoading] = useState<boolean>(false)
   const [rotatingAuth, setRotatingAuth] = useState<boolean>(false)
-  const [testPrompt, setTestPrompt] = useState<string>('List current project status and verify bridge connectivity')
-  const [testTool, setTestTool] = useState<string>('antigravity_lead_create_conversation')
-  const [dispatching, setDispatching] = useState<boolean>(false)
-  const [dispatchResult, setDispatchResult] = useState<string | null>(null)
-  const [testingConnection, setTestingConnection] = useState<boolean>(false)
   const wasTunnelActiveRef = React.useRef<boolean>(false)
 
   const loadStatus = async () => {
@@ -139,27 +129,6 @@ export const GeminiBridgePage: React.FC = () => {
     }, 6000)
     return () => clearInterval(timer)
   }, [])
-
-  const [actionFeedback, setActionFeedback] = useState<{ text: string; isError: boolean } | null>(null)
-
-  const handleTestConnection = async () => {
-    try {
-      setTestingConnection(true)
-      setActionFeedback(null)
-      const res = await api.testBridgeConnection()
-      if (res && res.status) {
-        setStatus(res.status)
-      }
-      setActionFeedback({
-        text: res?.message || (res?.success ? 'Gemini Bridge connection verified successfully.' : 'Gemini Bridge verification failed.'),
-        isError: !res?.success,
-      })
-    } catch (err: any) {
-      setActionFeedback({ text: `Verification failed: ${err?.message || 'Network error'}`, isError: true })
-    } finally {
-      setTestingConnection(false)
-    }
-  }
 
   const handleStartTunnel = async () => {
     try {
@@ -259,32 +228,10 @@ export const GeminiBridgePage: React.FC = () => {
     }
   }
 
-  const handleDispatch = async () => {
-    if (!testPrompt.trim()) return
-    try {
-      setDispatching(true)
-      setDispatchResult(null)
-      const res = await api.dispatchBridgeTask({
-        prompt: testPrompt.trim(),
-        target: testTool,
-      })
-      if (res.success) {
-        setDispatchResult(res.result || 'Task dispatched successfully!')
-        loadStatus()
-      } else {
-        setDispatchResult(`Error: ${res.error || 'Failed to dispatch task'}`)
-      }
-    } catch (err: any) {
-      setDispatchResult(`Dispatch failed: ${err?.message || 'Server error'}`)
-    } finally {
-      setDispatching(false)
-    }
-  }
-
   const mcpConfigSnippet = JSON.stringify(
     {
       mcpServers: {
-        antigravity: {
+        'AGY Bridge': {
           url: status?.gateway_url || '',
           headers: {
             Authorization: `Bearer ${status?.auth_token || ''}`,
@@ -330,20 +277,22 @@ export const GeminiBridgePage: React.FC = () => {
               </h2>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Exposes a live Streamable HTTP Model Context Protocol (MCP) gateway so Google Gemini App and Web can orchestrate your local Antigravity 2.0 Desktop, CLI, and workspace across account switches.
+              Exposes a live Streamable HTTPS Model Context Protocol (MCP) gateway so Google Gemini App and Web can orchestrate your local Antigravity 2.0 Desktop, CLI, and workspace across account switches.
             </p>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button
-              onClick={handleTestConnection}
-              disabled={testingConnection}
-              className="btn-pill-tonal"
-            >
-              <RefreshCw size={14} className={testingConnection ? 'animate-spin' : ''} />
-              <span>Verify Bridge</span>
-            </button>
-          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
+            <span style={{ whiteSpace: 'nowrap' }}>Enable Remote Access</span>
+            <ToggleSwitch
+              checked={isTunnelActive}
+              onChange={(checked) => {
+                if (checked) handleStartTunnel()
+                else handleStopTunnel()
+              }}
+              disabled={tunnelActionLoading}
+              ariaLabel="Enable Remote Access"
+            />
+          </label>
         </div>
 
         {actionFeedback && (
@@ -373,7 +322,7 @@ export const GeminiBridgePage: React.FC = () => {
               Gateway Status
             </div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: status?.enabled ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
-              {status?.enabled ? 'Streamable HTTP' : 'Standby'}
+              {status?.enabled ? 'Streamable HTTPS' : 'Standby'}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
               Port 8765 MCP Server
@@ -392,69 +341,134 @@ export const GeminiBridgePage: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-              Remote Internet Pipe
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: isTunnelActive ? 'var(--primary)' : 'var(--text-muted)', marginTop: '4px' }}>
-              {isTunnelActive ? (status?.tunnel?.type || 'active').toUpperCase() : 'INACTIVE'}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              {isTunnelActive ? (status?.tunnel?.type === 'tailscale' ? 'Tailscale Public Funnel' : 'Public HTTPS Tunnel') : 'Remote Access Off'}
-            </div>
-          </div>
-
         </div>
 
-        {/* Live Gateway URL & Copy */}
-        <div
-          style={{
-            backgroundColor: 'var(--canvas)',
-            borderRadius: '8px',
-            border: '1px solid var(--border)',
-            padding: '12px 14px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '12px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '320px', flex: 1 }}>
-            <Radio size={16} color="var(--primary)" />
-            {activeEndpoint ? (
-              <>
-                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
-                  Active Endpoint:
+        {/* Live Gateway URL & Pairing PIN */}
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+          <div
+            style={{
+              backgroundColor: 'var(--canvas)',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+              padding: '12px 14px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '0', flex: 1 }}>
+              <Radio size={16} color="var(--primary)" />
+              {activeEndpoint ? (
+                <>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                    Active Endpoint:
+                  </span>
+                  <code style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: 600, wordBreak: 'break-all' }}>
+                    {activeEndpoint}
+                  </code>
+                </>
+              ) : (
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Not exposed to the internet — enable Remote Access to get an HTTPS endpoint
                 </span>
-                <code style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: 600, wordBreak: 'break-all' }}>
-                  {activeEndpoint}
-                </code>
-              </>
-            ) : (
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                Not exposed to the internet — start Remote Access to get an https endpoint
-              </span>
-            )}
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                onClick={() => copyToClipboard(activeEndpoint, setCopiedUrl)}
+                disabled={!activeEndpoint}
+                className="btn-pill-tonal"
+                style={{ padding: '6px 12px', fontSize: '12px', opacity: activeEndpoint ? 1 : 0.5, cursor: activeEndpoint ? 'pointer' : 'not-allowed' }}
+              >
+                {copiedUrl ? <CheckCircle2 size={13} color="var(--green)" /> : <Copy size={13} />}
+                <span>{copiedUrl ? 'Copied' : 'Copy Endpoint'}</span>
+              </button>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              onClick={() => copyToClipboard(activeEndpoint, setCopiedUrl)}
-              disabled={!activeEndpoint}
-              className="btn-pill-tonal"
-              style={{ padding: '6px 12px', fontSize: '12px', opacity: activeEndpoint ? 1 : 0.5, cursor: activeEndpoint ? 'pointer' : 'not-allowed' }}
-            >
-              {copiedUrl ? <CheckCircle2 size={13} color="var(--green)" /> : <Copy size={13} />}
-              <span>{copiedUrl ? 'Copied' : 'Copy Endpoint'}</span>
-            </button>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              gap: '8px',
+              backgroundColor: 'var(--canvas)',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              padding: '12px 14px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                Pairing PIN (Quick Setup)
+              </span>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  opacity: appPasswordEnabled ? 1 : 0.5,
+                }}
+                title={
+                  appPasswordEnabled
+                    ? 'Toggle between your 8-character Pairing PIN and your App Access Password'
+                    : 'Set an App Access Password in General Settings to enable this option'
+                }
+              >
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  Use App Password
+                </span>
+                <ToggleSwitch
+                  size="sm"
+                  checked={useAppPassword}
+                  onChange={handleToggleUseAppPassword}
+                  disabled={!appPasswordEnabled || pinModeLoading}
+                  ariaLabel="Use App Password as Pairing PIN"
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              <span
+                style={{
+                  fontSize: useAppPassword ? '14px' : '20px',
+                  fontWeight: 700,
+                  letterSpacing: useAppPassword ? '0.5px' : '2px',
+                  color: 'var(--primary)',
+                  fontFamily: 'monospace',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {useAppPassword ? 'App Password' : (status?.pairing_pin || '--------')}
+              </span>
+              <button
+                onClick={handleRotateCredentials}
+                disabled={rotatingAuth || useAppPassword}
+                className="btn-pill-tonal"
+                style={{
+                  marginLeft: 'auto',
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  opacity: useAppPassword ? 0.5 : 1,
+                  cursor: rotatingAuth || useAppPassword ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <RefreshCw size={12} className={rotatingAuth ? 'animate-spin' : ''} />
+                <span>Rotate PIN</span>
+              </button>
+            </div>
+            <p style={{ margin: '6px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
+              Pass as header <code>X-Pairing-PIN</code> or URL query <code>?pin={status?.pairing_pin}</code>.
+            </p>
           </div>
         </div>
       </div>
 
       {/* 2. Zero-Setup Remote Tunneling */}
       <div className="google-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: '12px', marginBottom: '10px' }}>
+        <div style={{ marginBottom: '10px' }}>
           <div>
             <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
               Remote Internet Access (Zero-Setup)
@@ -464,27 +478,6 @@ export const GeminiBridgePage: React.FC = () => {
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-            {isTunnelActive ? (
-              <button
-                onClick={handleStopTunnel}
-                disabled={tunnelActionLoading}
-                className="btn-pill-danger"
-              >
-                <Square size={13} />
-                <span>{tunnelActionLoading ? 'Stopping...' : 'Stop Remote Access'}</span>
-              </button>
-            ) : (
-              <button
-                onClick={handleStartTunnel}
-                disabled={tunnelActionLoading}
-                className="btn-pill-primary"
-              >
-                <Play size={13} />
-                <span>{tunnelActionLoading ? 'Connecting...' : 'Start Remote Access'}</span>
-              </button>
-            )}
-          </div>
         </div>
 
         {/* Tunnel Selection Grid */}
@@ -607,7 +600,7 @@ export const GeminiBridgePage: React.FC = () => {
             >
               {status?.tunnel?.logs && status.tunnel.logs.length > 0
                 ? status.tunnel.logs.join('\n')
-                : 'No tunnel logs yet. Click Start Remote Access to generate an HTTPS endpoint.'}
+                : 'No tunnel logs yet. Enable Remote Access to generate an HTTPS endpoint.'}
             </pre>
           )}
         </div>
@@ -647,85 +640,6 @@ export const GeminiBridgePage: React.FC = () => {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
-          {/* Pairing PIN */}
-          <div
-            style={{
-              padding: '14px',
-              backgroundColor: 'var(--canvas)',
-              borderRadius: '8px',
-              border: '1px solid var(--border)',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-              gap: '8px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <KeyRound size={14} color="var(--primary)" />
-                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
-                  Pairing PIN (Quick Setup)
-                </span>
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  opacity: appPasswordEnabled ? 1 : 0.5,
-                }}
-                title={
-                  appPasswordEnabled
-                    ? 'Toggle between your 8-character Pairing PIN and your App Access Password'
-                    : 'Set an App Access Password in General Settings to enable this option'
-                }
-              >
-                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                  Use App Password
-                </span>
-                <ToggleSwitch
-                  size="sm"
-                  checked={useAppPassword}
-                  onChange={handleToggleUseAppPassword}
-                  disabled={!appPasswordEnabled || pinModeLoading}
-                  ariaLabel="Use App Password as Pairing PIN"
-                />
-              </div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-              <div
-                style={{
-                  fontSize: useAppPassword ? '16px' : '24px',
-                  letterSpacing: useAppPassword ? '0.5px' : '3px',
-                  fontWeight: 700,
-                  color: 'var(--text)',
-                  fontFamily: 'monospace',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {useAppPassword ? 'App Password' : (status?.pairing_pin || '--------')}
-              </div>
-              <button
-                onClick={handleRotateCredentials}
-                disabled={rotatingAuth || useAppPassword}
-                className="btn-pill-tonal"
-                style={{
-                  marginLeft: 'auto',
-                  padding: '4px 10px',
-                  fontSize: '11px',
-                  opacity: useAppPassword ? 0.5 : 1,
-                  cursor: rotatingAuth || useAppPassword ? 'not-allowed' : 'pointer',
-                }}
-              >
-                <RefreshCw size={12} className={rotatingAuth ? 'animate-spin' : ''} />
-                <span>Rotate PIN</span>
-              </button>
-            </div>
-            <p style={{ margin: '6px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
-              Pass as header <code>X-Pairing-PIN</code> or URL query <code>?pin={status?.pairing_pin}</code>.
-            </p>
-          </div>
-
           {/* OAuth Client ID */}
           <div
             style={{
@@ -889,29 +803,6 @@ export const GeminiBridgePage: React.FC = () => {
           </div>
         </div>
 
-        {/* User Interaction Guide */}
-        <div
-          style={{
-            marginTop: '14px',
-            backgroundColor: 'var(--canvas)',
-            borderRadius: '8px',
-            border: '1px solid var(--border)',
-            padding: '12px 14px',
-            fontSize: '12px',
-          }}
-        >
-          <span style={{ fontWeight: 600, color: 'var(--text)' }}>
-            How to direct Gemini in chat:
-          </span>
-          <ul style={{ margin: '6px 0 0', paddingLeft: '18px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            <li>
-              <strong>To command Antigravity:</strong> <em>"Ask Antigravity to refactor auth and run tests"</em> or <em>"Start a new Antigravity task to inspect bug #12"</em>.
-            </li>
-            <li>
-              <strong>To work on PC directly:</strong> <em>"Work on my PC directly and check git log"</em> or <em>"Directly inspect file /pkg/bridge/bridge.go"</em>.
-            </li>
-          </ul>
-        </div>
       </div>
 
       {/* 5. Live Antigravity Lead / Messenger Monitor */}
@@ -969,151 +860,7 @@ export const GeminiBridgePage: React.FC = () => {
         </div>
       )}
 
-      {/* 6. Surface Connectivity Matrix */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: '16px',
-        }}
-      >
-        {/* Surface 1: Desktop App */}
-        <div className="google-card" style={{ padding: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Laptop size={16} color="var(--primary)" />
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                Antigravity 2.0 Desktop
-              </span>
-            </div>
-            <span className={`badge-chip ${status?.surfaces?.desktop_app_connected ? 'badge-green' : 'badge-neutral'}`}>
-              {status?.surfaces?.desktop_app_connected ? 'CDP Connected' : 'Standby'}
-            </span>
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-            Port: <code style={{ color: 'var(--text)' }}>{status?.surfaces?.desktop_cdp_port || '35779'}</code>
-            {status?.surfaces?.desktop_active_title && (
-              <div style={{ marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                Window: {status.surfaces.desktop_active_title}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Surface 2: CLI */}
-        <div className="google-card" style={{ padding: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Terminal size={16} color="var(--primary)" />
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                Antigravity CLI (agy)
-              </span>
-            </div>
-            <span className={`badge-chip ${status?.surfaces?.agy_cli_installed ? 'badge-green' : 'badge-neutral'}`}>
-              {status?.surfaces?.agy_cli_installed ? 'Ready' : 'Not on PATH'}
-            </span>
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-            Path: <code style={{ color: 'var(--text)' }}>{status?.surfaces?.agy_cli_path || '~/.local/bin/agy'}</code>
-          </div>
-        </div>
-
-        {/* Surface 3: VS Code Extension */}
-        <div className="google-card" style={{ padding: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Code2 size={16} color="var(--primary)" />
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
-                VS Code Extension
-              </span>
-            </div>
-            <span className={`badge-chip ${status?.surfaces?.vscode_connected ? 'badge-green' : 'badge-neutral'}`}>
-              {status?.surfaces?.vscode_connected ? 'Detected' : 'Not Connected'}
-            </span>
-          </div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-            {status?.surfaces?.vscode_connected
-              ? 'VS Code workspace process detected on host.'
-              : 'VS Code process or extension socket not detected.'}
-          </div>
-        </div>
-      </div>
-
-      {/* 7. Test Dispatch Console */}
-      <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
-          Test Remote Task Dispatch
-        </div>
-        <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
-          Simulate a remote request from Gemini App to steer local Antigravity.
-        </p>
-
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
-          <select
-            value={testTool}
-            onChange={(e) => setTestTool(e.target.value)}
-            style={{
-              padding: '8px 12px',
-              fontSize: '12px',
-              borderRadius: '6px',
-              border: '1px solid var(--border)',
-              backgroundColor: '#ffffff',
-              color: 'var(--text)',
-              outline: 'none',
-            }}
-          >
-            <option value="antigravity_lead_create_conversation">Lead: Create New Conversation</option>
-            <option value="antigravity_lead_send_message">Lead: Send Follow-Up Message</option>
-            <option value="local_run_command">Direct: Run Local Command</option>
-          </select>
-
-          <input
-            type="text"
-            value={testPrompt}
-            onChange={(e) => setTestPrompt(e.target.value)}
-            placeholder="Type prompt to dispatch..."
-            style={{
-              flex: 1,
-              minWidth: '240px',
-              padding: '8px 12px',
-              fontSize: '12px',
-              borderRadius: '6px',
-              border: '1px solid var(--border)',
-              outline: 'none',
-              backgroundColor: '#ffffff',
-              color: 'var(--text)',
-            }}
-          />
-
-          <button
-            onClick={handleDispatch}
-            disabled={dispatching || !testPrompt.trim()}
-            className="btn-pill-primary"
-          >
-            <Send size={13} />
-            <span>{dispatching ? 'Dispatching...' : 'Dispatch Task'}</span>
-          </button>
-        </div>
-
-        {dispatchResult && (
-          <div
-            style={{
-              padding: '10px 14px',
-              backgroundColor: 'var(--canvas)',
-              border: '1px solid var(--border)',
-              borderRadius: '6px',
-              fontSize: '12px',
-              fontFamily: 'monospace',
-              color: 'var(--text)',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
-            {dispatchResult}
-          </div>
-        )}
-      </div>
-
-      {/* 8. Exposed Tools Catalog */}
+      {/* 6. Exposed Tools Catalog */}
       <div className="google-card">
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
           Exposed Model Context Protocol Tools
@@ -1142,6 +889,26 @@ export const GeminiBridgePage: React.FC = () => {
               desc: 'Inspects real-time step status, thinking, and completion state of an active Antigravity session.',
             },
             {
+              name: 'antigravity_lead_compact_conversation',
+              type: 'Lead',
+              desc: 'Runs the native compact command in the active Antigravity conversation to reduce context history.',
+            },
+            {
+              name: 'antigravity_lead_stop_conversation',
+              type: 'Lead',
+              desc: 'Stops or cancels an in-progress Antigravity generation turn.',
+            },
+            {
+              name: 'antigravity_fleet_get_quota',
+              type: 'Fleet',
+              desc: 'Returns live quota health and active Google account status across the Antigravity account fleet.',
+            },
+            {
+              name: 'antigravity_fleet_switch_account',
+              type: 'Fleet',
+              desc: 'Switches the active Antigravity account to a specified email or the next healthy standby.',
+            },
+            {
               name: 'local_run_command',
               type: 'Direct',
               desc: 'Directly executes a safe shell command on the host machine with timeout protection.',
@@ -1155,6 +922,11 @@ export const GeminiBridgePage: React.FC = () => {
               name: 'local_write_file',
               type: 'Direct',
               desc: 'Writes or updates file contents on the local computer.',
+            },
+            {
+              name: 'local_search_files',
+              type: 'Direct',
+              desc: 'Searches local files for text or regular expressions and returns matching paths, lines, and snippets.',
             },
             {
               name: 'local_computer_use',
@@ -1190,7 +962,7 @@ export const GeminiBridgePage: React.FC = () => {
         </div>
       </div>
 
-      {/* 9. Recent Invocations & Access Audit Logs */}
+      {/* 7. Recent Invocations & Access Audit Logs */}
       <div className="google-card">
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
           Remote Invocations & Access Audit ({status?.invocations_count || 0})
@@ -1212,7 +984,7 @@ export const GeminiBridgePage: React.FC = () => {
               {(!status?.recent_invocations || status.recent_invocations.length === 0) ? (
                 <tr>
                   <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                    No remote invocations yet. Use the Test Dispatch console above or invoke tools from Gemini App.
+                    No remote invocations yet. Invoke tools from Gemini App to populate this log.
                   </td>
                 </tr>
               ) : (

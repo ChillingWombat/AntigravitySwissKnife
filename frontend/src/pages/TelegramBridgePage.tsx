@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
 import {
-  RotateCw,
   Check,
   Power,
   Eye,
@@ -113,25 +112,6 @@ export const TelegramBridgePage: React.FC = () => {
     }
   }
 
-  const handleTestConnection = async () => {
-    setLoading(true)
-    setTestResult(null)
-    try {
-      const res = await api.testChannel('telegram')
-      setTestResult(res)
-      if (res?.status) {
-        setStatus(res.status)
-      }
-      if (res?.success) {
-        await fetchStatusAndConfig()
-      }
-    } catch (err: any) {
-      setTestResult({ success: false, error: err?.message || 'Connection test failed' })
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const tgStatus = status?.telegram || {}
 
   return (
@@ -151,14 +131,6 @@ export const TelegramBridgePage: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button
-              onClick={handleTestConnection}
-              disabled={loading}
-              className="btn-pill-tonal"
-            >
-              <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
-              <span>Test Bot</span>
-            </button>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
               <span style={{ whiteSpace: 'nowrap' }}>Enable Bridge</span>
               <ToggleSwitch

@@ -60,8 +60,22 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	}
 	resMap := initResp["result"].(map[string]interface{})
 	serverInfo := resMap["serverInfo"].(map[string]interface{})
-	if serverInfo["name"] != "antigravity-gemini-bridge" {
+	if serverInfo["name"] != "AGY Bridge" {
 		t.Errorf("unexpected serverInfo name: %v", serverInfo["name"])
+	}
+	if serverInfo["title"] != "AGY Bridge" {
+		t.Errorf("unexpected serverInfo title: %v", serverInfo["title"])
+	}
+	if serverInfo["icon"] != "/logo.png" {
+		t.Errorf("unexpected serverInfo icon: %v", serverInfo["icon"])
+	}
+	icons, ok := serverInfo["icons"].([]interface{})
+	if !ok || len(icons) != 2 {
+		t.Fatalf("expected two serverInfo icons, got %#v", serverInfo["icons"])
+	}
+	firstIcon := icons[0].(map[string]interface{})
+	if firstIcon["src"] != "/logo.png" || firstIcon["mimeType"] != "image/png" {
+		t.Errorf("unexpected first serverInfo icon: %#v", firstIcon)
 	}
 
 	// 3. Test MCP tools/list in hybrid mode
@@ -76,6 +90,25 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	if len(toolsList) < 10 {
 		t.Errorf("expected at least 10 tools in hybrid mode, got %d", len(toolsList))
 	}
+	toolNames := make(map[string]bool)
+	for _, raw := range toolsList {
+		if tool, ok := raw.(map[string]interface{}); ok {
+			if name, ok := tool["name"].(string); ok {
+				toolNames[name] = true
+			}
+		}
+	}
+	for _, name := range []string{
+		"antigravity_lead_compact_conversation",
+		"antigravity_lead_stop_conversation",
+		"antigravity_fleet_get_quota",
+		"antigravity_fleet_switch_account",
+		"local_search_files",
+	} {
+		if !toolNames[name] {
+			t.Errorf("expected hybrid tools/list to include %s", name)
+		}
+	}
 
 	// 4. Test mode switching
 	if err := svc.SetOperatingMode("lead"); err != nil {
@@ -84,10 +117,26 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	leadTools := svc.ToolManifest()
 	hasLeadTool := false
 	hasDirectTool := false
+	hasCompactTool := false
+	hasStopTool := false
+	hasQuotaTool := false
+	hasSwitchTool := false
 	for _, tl := range leadTools {
 		name := tl["name"].(string)
 		if name == "antigravity_lead_create_conversation" {
 			hasLeadTool = true
+		}
+		if name == "antigravity_lead_compact_conversation" {
+			hasCompactTool = true
+		}
+		if name == "antigravity_lead_stop_conversation" {
+			hasStopTool = true
+		}
+		if name == "antigravity_fleet_get_quota" {
+			hasQuotaTool = true
+		}
+		if name == "antigravity_fleet_switch_account" {
+			hasSwitchTool = true
 		}
 		if name == "local_run_command" {
 			hasDirectTool = true
@@ -98,6 +147,36 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	}
 	if hasDirectTool {
 		t.Errorf("did not expect local_run_command in lead-only mode")
+	}
+	if !hasCompactTool || !hasStopTool || !hasQuotaTool || !hasSwitchTool {
+		t.Errorf("expected compact, stop, quota, and switch tools in lead mode")
+	}
+
+	// Direct mode keeps quota available but removes lead and switch controls.
+	if err := svc.SetOperatingMode("direct"); err != nil {
+		t.Fatalf("set operating mode direct failed: %v", err)
+	}
+	directTools := svc.ToolManifest()
+	directHasSearch := false
+	directHasQuota := false
+	directHasSwitch := false
+	for _, tl := range directTools {
+		name := tl["name"].(string)
+		if name == "local_search_files" {
+			directHasSearch = true
+		}
+		if name == "antigravity_fleet_get_quota" {
+			directHasQuota = true
+		}
+		if name == "antigravity_fleet_switch_account" {
+			directHasSwitch = true
+		}
+	}
+	if !directHasSearch || !directHasQuota {
+		t.Errorf("expected local_search_files and fleet quota tools in direct mode")
+	}
+	if directHasSwitch {
+		t.Errorf("did not expect fleet switch tool in direct-only mode")
 	}
 
 	// Switch back to hybrid
@@ -137,7 +216,35 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 		t.Errorf("expected non-empty command output")
 	}
 
-	// 7. Test Auth validation
+	// 7. Test local file search
+	searchDir := filepath.Join(tmpDir, "search")
+	if err := os.MkdirAll(searchDir, 0755); err != nil {
+		t.Fatalf("create search directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(searchDir, "sample.txt"), []byte("first line\nbridge_search_match\nthird line\n"), 0644); err != nil {
+		t.Fatalf("write search fixture: %v", err)
+	}
+	searchRes, err := svc.CallTool("local_search_files", map[string]interface{}{
+		"pattern":     "bridge_search_match",
+		"path":        searchDir,
+		"max_results": float64(5),
+	})
+	if err != nil {
+		t.Fatalf("local_search_files failed: %v", err)
+	}
+	var searchMatches []struct {
+		Path    string `json:"path"`
+		Line    int    `json:"line"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(searchRes), &searchMatches); err != nil {
+		t.Fatalf("decode local_search_files result: %v", err)
+	}
+	if len(searchMatches) != 1 || searchMatches[0].Line != 2 || !strings.Contains(searchMatches[0].Content, "bridge_search_match") {
+		t.Errorf("unexpected local_search_files result: %s", searchRes)
+	}
+
+	// 8. Test Auth validation
 	rawToken := svc.GetRawAuthToken()
 	rawPIN := svc.GetRawPairingPIN()
 
@@ -167,7 +274,7 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 		t.Errorf("expected invalid token to be rejected")
 	}
 
-	// 8. Test Rotate Credentials
+	// 9. Test Rotate Credentials
 	oldToken := rawToken
 	newToken, newPIN, err := svc.RotateCredentials()
 	if err != nil {
@@ -197,6 +304,70 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	}
 	if stAfterStop.GatewayURL != "" {
 		t.Errorf("expected no gateway URL after stop, got %s", stAfterStop.GatewayURL)
+	}
+}
+
+func TestBridge_LoadConfigMergesDefaultTools(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "gemini_bridge.json")
+	persisted := Config{
+		Enabled:       false,
+		Port:          8765,
+		OperatingMode: "hybrid",
+		AuthToken:     "existing-token",
+		PairingPIN:    "ABCDEFGH",
+		AllowedTools:  []string{"custom_tool"},
+	}
+	data, err := json.MarshalIndent(persisted, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal existing config: %v", err)
+	}
+	if err := os.WriteFile(cfgPath, data, 0644); err != nil {
+		t.Fatalf("write existing config: %v", err)
+	}
+
+	svc, err := NewService(cfgPath)
+	if err != nil {
+		t.Fatalf("load existing config: %v", err)
+	}
+	allowed := make(map[string]bool)
+	for _, name := range svc.GetConfig().AllowedTools {
+		allowed[name] = true
+	}
+	for _, name := range []string{
+		"antigravity_lead_compact_conversation",
+		"antigravity_lead_stop_conversation",
+		"antigravity_fleet_get_quota",
+		"antigravity_fleet_switch_account",
+		"local_search_files",
+		"custom_tool",
+	} {
+		if !allowed[name] {
+			t.Errorf("expected loaded AllowedTools to include %s", name)
+		}
+	}
+	persistedData, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read migrated config: %v", err)
+	}
+	var migrated Config
+	if err := json.Unmarshal(persistedData, &migrated); err != nil {
+		t.Fatalf("decode migrated config: %v", err)
+	}
+	persistedAllowed := make(map[string]bool)
+	for _, name := range migrated.AllowedTools {
+		persistedAllowed[name] = true
+	}
+	for _, name := range []string{
+		"antigravity_lead_compact_conversation",
+		"antigravity_lead_stop_conversation",
+		"antigravity_fleet_get_quota",
+		"antigravity_fleet_switch_account",
+		"local_search_files",
+	} {
+		if !persistedAllowed[name] {
+			t.Errorf("expected migrated config on disk to include %s", name)
+		}
 	}
 }
 
@@ -508,7 +679,6 @@ func TestBridge_FindMostRecentConversationID(t *testing.T) {
 		}
 	}
 }
-
 
 func TestBridge_GetStatusUnmaskedToken(t *testing.T) {
 	tmpDir := t.TempDir()
