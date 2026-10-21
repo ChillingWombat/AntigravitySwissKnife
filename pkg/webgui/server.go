@@ -641,7 +641,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
-			if !isAllowedLoopbackOrigin(origin) {
+			if !isAllowedLoopbackOrigin(origin) && !isExternalOriginAllowedPath(r.URL.Path) {
 				if r.Method == http.MethodOptions {
 					w.WriteHeader(http.StatusForbidden)
 					return
@@ -652,7 +652,8 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Origin, Accept, Access-Control-Request-Private-Network, X-Bridge-Token, X-Pairing-PIN, X-App-Password, X-Session-Token")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Origin, Accept, Access-Control-Request-Private-Network, X-Bridge-Token, X-Pairing-PIN, X-App-Password, X-Session-Token, Mcp-Session-Id")
+			w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
 			w.Header().Set("Access-Control-Allow-Private-Network", "true")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
@@ -664,6 +665,35 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isExternalOriginAllowedPath(p string) bool {
+	clean := path.Clean(p)
+	if clean == "/oauth" || strings.HasPrefix(clean, "/oauth/") {
+		return true
+	}
+	if strings.HasPrefix(clean, "/.well-known/") {
+		return true
+	}
+	if strings.HasPrefix(clean, "/api/bridge/oauth/") {
+		return true
+	}
+	if clean == "/api/bridge/mcp" || strings.HasPrefix(clean, "/api/bridge/mcp/") {
+		return true
+	}
+	if clean == "/mcp" || strings.HasPrefix(clean, "/mcp/") {
+		return true
+	}
+	if clean == "/remote" || strings.HasPrefix(clean, "/remote/") {
+		return true
+	}
+	if clean == "/favicon.ico" || clean == "/favicon.svg" {
+		return true
+	}
+	if clean == "/api/bridge/channels/webhook" || strings.HasPrefix(clean, "/api/bridge/channels/webhook/") {
+		return true
+	}
+	return false
 }
 
 func isAllowedLoopbackOrigin(origin string) bool {
