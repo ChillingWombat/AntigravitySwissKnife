@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -373,5 +374,122 @@ func TestChallengerBridge_WebGUI_RemoteConsoleRouteAndAuth(t *testing.T) {
 	}
 	if len(bridgeSvc.GetStatus().RecentAttempts) != 0 {
 		t.Errorf("keep-alive probe must not record failed auth attempts, got %d", len(bridgeSvc.GetStatus().RecentAttempts))
+	}
+}
+
+func TestChallengerBridge_ExternalOriginAllowedOnOAuthAndMCP(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "gemini_bridge.json")
+	bridgeSvc, err := bridge.NewService(cfgPath)
+	if err != nil {
+		t.Fatalf("failed to create bridge service: %v", err)
+	}
+
+	srv := NewServer("127.0.0.1:0", "")
+	srv.bridgeService = bridgeSvc
+	mux := srv.setupRoutes()
+	handler := srv.corsMiddleware(srv.authMiddleware(mux))
+
+	// 1. POST /oauth/authorize with Origin: https://david-linux.lionfish-catfish.ts.net
+	// Valid PIN posted must return 302 Found redirect with code, NOT 403 Forbidden origin.
+	tailscaleOrigin := "https://david-linux.lionfish-catfish.ts.net"
+	authForm := url.Values{
+		"client_id":    {"test-gemini-client"},
+		"redirect_uri": {"https://gemini.google.com/oauth/callback"},
+		"state":        {"state-xyz-123"},
+		"pin":          {bridgeSvc.GetRawPairingPIN()},
+	}
+	reqAuth := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(authForm.Encode()))
+	reqAuth.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqAuth.Header.Set("Origin", tailscaleOrigin)
+	wAuth := httptest.NewRecorder()
+	handler.ServeHTTP(wAuth, reqAuth)
+
+	if wAuth.Code != http.StatusFound {
+		t.Fatalf("expected 302 Found on POST /oauth/authorize, got: %d (body: %s)", wAuth.Code, wAuth.Body.String())
+	}
+	loc := wAuth.Header().Get("Location")
+	if !strings.Contains(loc, "code=") || !strings.Contains(loc, "state=state-xyz-123") {
+		t.Errorf("expected redirect location to contain code and state, got: %s", loc)
+	}
+	if wAuth.Header().Get("Access-Control-Allow-Origin") != tailscaleOrigin {
+		t.Errorf("expected Access-Control-Allow-Origin %q, got: %q", tailscaleOrigin, wAuth.Header().Get("Access-Control-Allow-Origin"))
+	}
+
+	// 2. POST /oauth/token with Origin: https://gemini.google.com is NOT blocked with 403 Forbidden origin.
+	geminiOrigin := "https://gemini.google.com"
+	tokenForm := url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_id":     {"test-gemini-client"},
+		"client_secret": {bridgeSvc.GetRawAuthToken()},
+	}
+	reqToken := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(tokenForm.Encode()))
+	reqToken.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqToken.Header.Set("Origin", geminiOrigin)
+	wToken := httptest.NewRecorder()
+	handler.ServeHTTP(wToken, reqToken)
+
+	if wToken.Code == http.StatusForbidden && strings.Contains(wToken.Body.String(), "Forbidden origin") {
+		t.Fatalf("POST /oauth/token was blocked with 403 Forbidden origin: %s", wToken.Body.String())
+	}
+	if wToken.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on POST /oauth/token, got: %d (body: %s)", wToken.Code, wToken.Body.String())
+	}
+	if allow := wToken.Header().Get("Access-Control-Allow-Origin"); allow != geminiOrigin && allow != "*" {
+		t.Errorf("expected Access-Control-Allow-Origin to allow origin, got: %q", allow)
+	}
+
+	// 3. GET /.well-known/oauth-protected-resource and GET /.well-known/oauth-authorization-server with Origin: https://gemini.google.com return 200 OK.
+	for _, wellKnownPath := range []string{
+		"/.well-known/oauth-protected-resource",
+		"/.well-known/oauth-authorization-server",
+	} {
+		reqWK := httptest.NewRequest(http.MethodGet, wellKnownPath, nil)
+		reqWK.Header.Set("Origin", geminiOrigin)
+		wWK := httptest.NewRecorder()
+		handler.ServeHTTP(wWK, reqWK)
+
+		if wWK.Code != http.StatusOK {
+			t.Errorf("expected 200 OK for %s with Origin %s, got: %d (body: %s)", wellKnownPath, geminiOrigin, wWK.Code, wWK.Body.String())
+		}
+		if allow := wWK.Header().Get("Access-Control-Allow-Origin"); allow != geminiOrigin && allow != "*" {
+			t.Errorf("expected Access-Control-Allow-Origin to allow origin for %s, got: %q", wellKnownPath, allow)
+		}
+	}
+
+	// 4. POST /api/bridge/mcp with Origin: https://gemini.google.com and valid Bearer token returns 200 OK.
+	mcpBody := []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}`)
+	reqMCP := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp", bytes.NewReader(mcpBody))
+	reqMCP.Header.Set("Content-Type", "application/json")
+	reqMCP.Header.Set("Origin", geminiOrigin)
+	reqMCP.Header.Set("Authorization", "Bearer "+bridgeSvc.GetRawAuthToken())
+	wMCP := httptest.NewRecorder()
+	handler.ServeHTTP(wMCP, reqMCP)
+
+	if wMCP.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for POST /api/bridge/mcp, got: %d (body: %s)", wMCP.Code, wMCP.Body.String())
+	}
+	if wMCP.Header().Get("Access-Control-Allow-Origin") != geminiOrigin {
+		t.Errorf("expected Access-Control-Allow-Origin %q, got: %q", geminiOrigin, wMCP.Header().Get("Access-Control-Allow-Origin"))
+	}
+	if !strings.Contains(wMCP.Header().Get("Access-Control-Expose-Headers"), "Mcp-Session-Id") {
+		t.Errorf("expected Mcp-Session-Id in Access-Control-Expose-Headers, got: %q", wMCP.Header().Get("Access-Control-Expose-Headers"))
+	}
+
+	// 5. Protected local routes (e.g. GET /api/accounts) with Origin: https://evil.example.com are STILL rejected with 403 Forbidden origin!
+	evilOrigin := "https://evil.example.com"
+	reqEvil := httptest.NewRequest(http.MethodGet, "/api/accounts", nil)
+	reqEvil.Header.Set("Origin", evilOrigin)
+	wEvil := httptest.NewRecorder()
+	handler.ServeHTTP(wEvil, reqEvil)
+
+	if wEvil.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for protected route with evil origin, got: %d", wEvil.Code)
+	}
+	if !strings.Contains(wEvil.Body.String(), "Forbidden origin") {
+		t.Errorf("expected 'Forbidden origin' in error response, got: %q", wEvil.Body.String())
+	}
+	if wEvil.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Errorf("expected no Access-Control-Allow-Origin on rejected origin, got: %q", wEvil.Header().Get("Access-Control-Allow-Origin"))
 	}
 }

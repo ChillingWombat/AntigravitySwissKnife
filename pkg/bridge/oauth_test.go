@@ -122,15 +122,15 @@ func TestOAuthMetadata_AuthorizationServerAndOpenID(t *testing.T) {
 	}
 
 	var meta struct {
-		Issuer                             string   `json:"issuer"`
-		AuthorizationEndpoint              string   `json:"authorization_endpoint"`
-		TokenEndpoint                      string   `json:"token_endpoint"`
-		RegistrationEndpoint               string   `json:"registration_endpoint"`
-		ResponseTypesSupported             []string `json:"response_types_supported"`
-		GrantTypesSupported                []string `json:"grant_types_supported"`
-		TokenEndpointAuthMethodsSupported  []string `json:"token_endpoint_auth_methods_supported"`
-		CodeChallengeMethodsSupported      []string `json:"code_challenge_methods_supported"`
-		ScopesSupported                    []string `json:"scopes_supported"`
+		Issuer                            string   `json:"issuer"`
+		AuthorizationEndpoint             string   `json:"authorization_endpoint"`
+		TokenEndpoint                     string   `json:"token_endpoint"`
+		RegistrationEndpoint              string   `json:"registration_endpoint"`
+		ResponseTypesSupported            []string `json:"response_types_supported"`
+		GrantTypesSupported               []string `json:"grant_types_supported"`
+		TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
+		CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported"`
+		ScopesSupported                   []string `json:"scopes_supported"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &meta); err != nil {
 		t.Fatalf("failed to decode metadata JSON: %v", err)
@@ -224,8 +224,12 @@ func TestOAuthEndToEnd_AuthorizePKCEAndMCPCall(t *testing.T) {
 		t.Fatalf("expected 200 OK from GET /oauth/authorize, got %d", getW.Code)
 	}
 	htmlBody := getW.Body.String()
-	if !strings.Contains(htmlBody, "Gemini Bridge Authorization") || !strings.Contains(htmlBody, "name=\"pin\"") {
-		t.Fatalf("expected authorize page HTML, got: %s", htmlBody)
+	if !strings.Contains(htmlBody, "Welcome to Antigravity") ||
+		!strings.Contains(htmlBody, "clip0_6153_71") ||
+		!strings.Contains(htmlBody, "agy-unlock-btn") ||
+		!strings.Contains(htmlBody, "togglePinVisibility") ||
+		!strings.Contains(htmlBody, "name=\"pin\"") {
+		t.Fatalf("expected official Antigravity 2.0 entrance page HTML, got: %s", htmlBody)
 	}
 
 	// 2. GET /oauth/authorize fast-path with valid ?pin= immediately returns 302 redirect
@@ -479,8 +483,8 @@ func TestBridgeMCP_UnauthorizedReturnsWWWAuthenticateHeader(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"error":   "unauthorized",
-				"reason":  reason,
+				"error":  "unauthorized",
+				"reason": reason,
 			})
 			return
 		}
@@ -500,5 +504,86 @@ func TestBridgeMCP_UnauthorizedReturnsWWWAuthenticateHeader(t *testing.T) {
 	expected := "Bearer realm=\"Antigravity Swiss Knife MCP\", resource_metadata=\"https://gemini-mcp.trycloudflare.com/.well-known/oauth-protected-resource\""
 	if authHeader != expected {
 		t.Errorf("expected WWW-Authenticate header %q, got %q", expected, authHeader)
+	}
+}
+
+func TestOAuthAuthorize_AntigravityEntranceStyle(t *testing.T) {
+	svc := setupTestBridgeService(t)
+
+	redirectURI := "https://gemini.google.com/oauth/callback"
+	state := "test-state-style"
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/oauth/authorize?client_id=antigravity-gemini-bridge&redirect_uri=%s&state=%s&response_type=code&scope=mcp&code_challenge=xyz&code_challenge_method=S256", url.QueryEscape(redirectURI), state), nil)
+	w := httptest.NewRecorder()
+	svc.ServeOAuthAuthorize(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	requiredSnippets := []struct {
+		desc    string
+		snippet string
+	}{
+		{"favicon link", `<link rel="icon" type="image/svg+xml" href="/favicon.svg">`},
+		{"light theme variable", `--background: #F9F9F9;`},
+		{"dark theme variable", `--background: #101010;`},
+		{"prefers-color-scheme media query", `@media (prefers-color-scheme: dark)`},
+		{"auth wrapper", `class="auth-wrapper"`},
+		{"auth card", `class="auth-card"`},
+		{"logo stage", `class="agy-logo-stage"`},
+		{"glow backdrop", `class="agy-glow-backdrop"`},
+		{"96x96 delta clip path", `clip0_6153_71`},
+		{"title", `<div class="auth-title">Welcome to Antigravity</div>`},
+		{"subtitle", `<div class="auth-desc">Antigravity Gemini Bridge — Enter your Security PIN</div>`},
+		{"entrance auth panel form", `<form id="authForm" class="entrance-auth-panel"`},
+		{"empty msg banner", `<div id="authError" class="msg-banner"></div>`},
+		{"hidden client_id", `<input type="hidden" name="client_id" value="antigravity-gemini-bridge">`},
+		{"hidden redirect_uri", fmt.Sprintf(`<input type="hidden" name="redirect_uri" value="%s">`, redirectURI)},
+		{"hidden state", `<input type="hidden" name="state" value="test-state-style">`},
+		{"hidden code_challenge", `<input type="hidden" name="code_challenge" value="xyz">`},
+		{"hidden code_challenge_method", `<input type="hidden" name="code_challenge_method" value="S256">`},
+		{"hidden scope", `<input type="hidden" name="scope" value="mcp">`},
+		{"hidden response_type", `<input type="hidden" name="response_type" value="code">`},
+		{"pin input field", `<input type="password" id="pinInput" name="pin" class="input-text pin-input" autocomplete="off" placeholder="••••••••" autofocus required>`},
+		{"pin eye toggle button", `onclick="togglePinVisibility()"`},
+		{"unlock button with lock icon", `<button type="submit" class="agy-unlock-btn">`},
+		{"authorize connection text", `<span>Authorize Connection</span>`},
+		{"toggle pin script", `function togglePinVisibility()`},
+	}
+
+	for _, item := range requiredSnippets {
+		if !strings.Contains(body, item.snippet) {
+			t.Errorf("missing %s: %q in response", item.desc, item.snippet)
+		}
+	}
+
+	// Verify error rendering on wrong PIN
+	invalidForm := url.Values{
+		"client_id":             {"antigravity-gemini-bridge"},
+		"redirect_uri":          {redirectURI},
+		"state":                 {state},
+		"code_challenge":        {"xyz"},
+		"code_challenge_method": {"S256"},
+		"scope":                 {"mcp"},
+		"response_type":         {"code"},
+		"pin":                   {"wrongpin"},
+	}
+	invalidReq := httptest.NewRequest("POST", "/oauth/authorize", strings.NewReader(invalidForm.Encode()))
+	invalidReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	invalidW := httptest.NewRecorder()
+	svc.ServeOAuthAuthorize(invalidW, invalidReq)
+
+	if invalidW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized, got %d", invalidW.Code)
+	}
+
+	errBody := invalidW.Body.String()
+	if !strings.Contains(errBody, `<div id="authError" class="msg-banner error">Invalid Security PIN`) {
+		t.Errorf("expected error banner with class 'msg-banner error', got: %s", errBody)
+	}
+	if !strings.Contains(errBody, `<input type="hidden" name="response_type" value="code">`) {
+		t.Errorf("expected preserved response_type hidden input in error page")
 	}
 }
