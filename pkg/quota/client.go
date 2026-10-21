@@ -1367,9 +1367,11 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 	}
 
+	catalogResolvedTier := false
 	if breakdown != nil {
 		resolvedTier := resolveTierFromQuotaAccess(tier, breakdown)
-		if breakdown.SubscriptionTier != "" || breakdown.ExplicitTrial {
+		catalogResolvedTier = breakdown.ModelCatalogKnown && (resolvedTier == PlanTierPro || resolvedTier == PlanTierProTrial)
+		if breakdown.SubscriptionTier != "" || breakdown.ExplicitTrial || breakdown.ModelCatalogKnown {
 			tier = resolvedTier
 		}
 		if breakdown.Credits > 0 {
@@ -1385,7 +1387,7 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	// Step 3: The paid tier label alone cannot distinguish paid Pro from a
 	// family-shared trial. Probe model access for Pro candidates and for
 	// accounts where loadCodeAssist could only name an allowed tier.
-	if apiErr == nil && !explicitTrial && (tier == "" || tier == PlanTierPro || tier == PlanTierProTrial) {
+	if apiErr == nil && !explicitTrial && !catalogResolvedTier && (tier == "" || tier == PlanTierPro || tier == PlanTierProTrial) {
 		if modelTier, mErr := DetectTierFromAvailableModels(accessToken); mErr == nil && modelTier != "" {
 			if tier == "" {
 				tier = modelTier

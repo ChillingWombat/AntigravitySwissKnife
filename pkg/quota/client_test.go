@@ -763,7 +763,6 @@ func TestPollAccountLiveQuota_ProLabelUsesModelCatalogToSeparatePaidAndTrial(t *
 				},
 				Quota: tierTestQuotaPayload(map[string]interface{}{
 					"subscriptionTier": "Pro",
-					"models":           tc.models,
 				}),
 				Models: map[string]interface{}{
 					"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}},
@@ -786,6 +785,73 @@ func TestPollAccountLiveQuota_ProLabelUsesModelCatalogToSeparatePaidAndTrial(t *
 			}
 			if modelCalls != 1 {
 				t.Fatalf("expected one model probe for a Pro candidate, got %d", modelCalls)
+			}
+		})
+	}
+}
+
+func TestPollAccountLiveQuota_QuotaCatalogTakesPrecedenceOverModelProbe(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	tests := []struct {
+		name        string
+		quotaModels map[string]interface{}
+		probeModels map[string]interface{}
+		wantTier    string
+	}{
+		{
+			name: "quota paid catalog wins over legacy-only probe",
+			quotaModels: map[string]interface{}{
+				"claude-sonnet-5-5": map[string]string{"displayName": "Claude Sonnet 5.5 (Thinking)"},
+			},
+			probeModels: map[string]interface{}{
+				"claude-sonnet-4-6": map[string]string{"displayName": "Claude Sonnet 4.6 (Thinking)"},
+			},
+			wantTier: PlanTierPro,
+		},
+		{
+			name: "quota trial catalog wins over paid-only probe",
+			quotaModels: map[string]interface{}{
+				"claude-sonnet-4-6": map[string]string{"displayName": "Claude Sonnet 4.6 (Thinking)"},
+			},
+			probeModels: map[string]interface{}{
+				"claude-sonnet-5-5": map[string]string{"displayName": "Claude Sonnet 5.5 (Thinking)"},
+			},
+			wantTier: PlanTierProTrial,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			modelCalls := 0
+			newTierTestServer(t, tierTestPayloads{
+				Load: map[string]interface{}{
+					"cloudaicompanionProject": "projects/catalog",
+					"paidTier":                map[string]interface{}{"name": "Google AI Pro"},
+				},
+				Quota: tierTestQuotaPayload(map[string]interface{}{
+					"models": tc.quotaModels,
+				}),
+				Models: map[string]interface{}{
+					"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}},
+					"models":         tc.probeModels,
+				},
+				ModelCalls: &modelCalls,
+			})
+
+			summary, err := PollAccountLiveQuota(&keyring.Account{
+				Email:        "catalog@example.com",
+				AccessToken:  "mock-token",
+				RefreshToken: "mock-refresh",
+				PlanTier:     PlanTierPro,
+			})
+			if err != nil {
+				t.Fatalf("PollAccountLiveQuota failed: %v", err)
+			}
+			if summary.PlanTier != tc.wantTier {
+				t.Fatalf("expected quota catalog tier %q, got %q", tc.wantTier, summary.PlanTier)
+			}
+			if modelCalls != 0 {
+				t.Fatalf("quota catalog evidence must avoid a redundant model probe, got %d calls", modelCalls)
 			}
 		})
 	}
