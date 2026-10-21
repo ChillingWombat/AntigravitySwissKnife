@@ -74,7 +74,8 @@ func TestDetermineDefaultPlanTier(t *testing.T) {
 		// Explicit override takes precedence and normalizes legacy strings
 		{"user@stanford.edu", "Ultra 20X", "Ultra 20X"},
 		{"random@gmail.com", "Pro - Trial", "Pro - Trial"},
-		{"random@gmail.com", "Google AI Pro", "Pro - Trial"},
+		{"random@gmail.com", "Google AI Pro", "Pro"},
+		{"random@gmail.com", "Google AI Plus", "Plus"},
 		{"random@gmail.com", "Google AI Ultra", "Ultra 20X"},
 		{"random@gmail.com", "", "Free"}, // fallback defaults to Free
 	}
@@ -99,7 +100,8 @@ func TestNormalizePlanTier(t *testing.T) {
 		{"Plus", "Plus"},
 		{"pro", "Pro"},
 		{"Pro", "Pro"},
-		{"Google AI Pro", "Pro - Trial"},
+		{"Google AI Pro", "Pro"},
+		{"Google AI Plus", "Plus"},
 		{"PRO", "Pro"},
 		{"Pro - Trial", "Pro - Trial"},
 		{"trial", "Pro - Trial"},
@@ -521,20 +523,20 @@ func TestCooldownAccountLifecycleAndRanking(t *testing.T) {
 
 	// 3. RankStandbyAccounts and RankStandbyAccountsWithMode strictly exclude COOLDOWN accounts
 	standbyHealthy := AccountQuotaState{
-		Email:           "healthy@example.com",
-		Status:          core.AccountStatusStandby,
-		IsActive:        false,
-		PlanTier:        "Pro",
-		Quota5hCurrent:  0.80,
-		QuotaWeekly:     0.80,
+		Email:          "healthy@example.com",
+		Status:         core.AccountStatusStandby,
+		IsActive:       false,
+		PlanTier:       "Pro",
+		Quota5hCurrent: 0.80,
+		QuotaWeekly:    0.80,
 	}
 	standbyCooldown := AccountQuotaState{
-		Email:           "cooldown@example.com",
-		Status:          core.AccountStatusCooldown,
-		IsActive:        false,
-		PlanTier:        "Pro",
-		Quota5hCurrent:  0.95, // High quota should still be excluded if status is COOLDOWN
-		QuotaWeekly:     0.95,
+		Email:          "cooldown@example.com",
+		Status:         core.AccountStatusCooldown,
+		IsActive:       false,
+		PlanTier:       "Pro",
+		Quota5hCurrent: 0.95, // High quota should still be excluded if status is COOLDOWN
+		QuotaWeekly:    0.95,
 	}
 
 	candidates := RankStandbyAccounts([]AccountQuotaState{standbyCooldown, standbyHealthy}, 0.05)
@@ -568,12 +570,12 @@ func TestCooldownAccountLifecycleAndRanking(t *testing.T) {
 
 	// 4. EvaluateAutoSwitch excludes COOLDOWN accounts
 	activeExhausted := AccountQuotaState{
-		Email:           "active@example.com",
-		Status:          core.AccountStatusActive,
-		IsActive:        true,
-		PlanTier:        "Pro",
-		Quota5hCurrent:  0.02,
-		QuotaWeekly:     0.50,
+		Email:          "active@example.com",
+		Status:         core.AccountStatusActive,
+		IsActive:       true,
+		PlanTier:       "Pro",
+		Quota5hCurrent: 0.02,
+		QuotaWeekly:    0.50,
 	}
 
 	// When only COOLDOWN accounts exist, should not switch
@@ -668,12 +670,12 @@ func TestWeeklyThreshold_EvaluationAndExclusion(t *testing.T) {
 
 	// 2. Standby candidate with weekly quota below threshold is excluded from candidates
 	standbyWeeklyLow := AccountQuotaState{
-		Email:            "standby_weekly_low@example.com",
-		IsActive:         false,
-		PlanTier:         "Pro",
-		Status:           "STANDBY",
-		Quota5hCurrent:   1.0,
-		QuotaWeekly:      0.04, // below weekly threshold 0.05
+		Email:          "standby_weekly_low@example.com",
+		IsActive:       false,
+		PlanTier:       "Pro",
+		Status:         "STANDBY",
+		Quota5hCurrent: 1.0,
+		QuotaWeekly:    0.04, // below weekly threshold 0.05
 	}
 	candidates := RankStandbyAccountsWithThresholds(
 		[]AccountQuotaState{standbyWeeklyLow, standbyHealthy},
@@ -762,7 +764,7 @@ func TestSortAccountQuotaStates_CooldownVsWeeklyDepleted(t *testing.T) {
 		Status:                 "STANDBY",
 		Quota5hCurrent:         0.0,
 		Quota5hAvailable:       0.34,
-		QuotaWeekly:            0.83, // 83% weekly - tons of quota!
+		QuotaWeekly:            0.83,  // 83% weekly - tons of quota!
 		ResetSeconds:           12000, // 3h 20m
 		ResetSecondsWeekly:     500000,
 		ResetHorizonText:       "Resets in 3h 20m",
@@ -966,31 +968,31 @@ func TestEvaluateAutoSwitchForApp_UnusedStandbyPriority(t *testing.T) {
 	// acc3: healthy quota (70%), standby and unused by ANY app
 	accounts := []AccountQuotaState{
 		{
-			Email:             "acc1@google.com",
-			Status:            "ACTIVE",
-			Quota5hCurrent:    0.03,
-			Quota5hAvailable:  0.03,
-			QuotaWeekly:       0.80,
-			PlanTier:          "Free",
-			Priority:          "High",
+			Email:            "acc1@google.com",
+			Status:           "ACTIVE",
+			Quota5hCurrent:   0.03,
+			Quota5hAvailable: 0.03,
+			QuotaWeekly:      0.80,
+			PlanTier:         "Free",
+			Priority:         "High",
 		},
 		{
-			Email:             "acc2@google.com",
-			Status:            "STANDBY",
-			Quota5hCurrent:    0.80,
-			Quota5hAvailable:  0.80,
-			QuotaWeekly:       0.90,
-			PlanTier:          "Free",
-			Priority:          "High",
+			Email:            "acc2@google.com",
+			Status:           "STANDBY",
+			Quota5hCurrent:   0.80,
+			Quota5hAvailable: 0.80,
+			QuotaWeekly:      0.90,
+			PlanTier:         "Free",
+			Priority:         "High",
 		},
 		{
-			Email:             "acc3@google.com",
-			Status:            "STANDBY",
-			Quota5hCurrent:    0.70,
-			Quota5hAvailable:  0.70,
-			QuotaWeekly:       0.85,
-			PlanTier:          "Free",
-			Priority:          "High",
+			Email:            "acc3@google.com",
+			Status:           "STANDBY",
+			Quota5hCurrent:   0.70,
+			Quota5hAvailable: 0.70,
+			QuotaWeekly:      0.85,
+			PlanTier:         "Free",
+			Priority:         "High",
 		},
 	}
 
@@ -1025,22 +1027,22 @@ func TestEvaluateAutoSwitchForApp_FallbackToShared(t *testing.T) {
 	// No other accounts available.
 	accounts := []AccountQuotaState{
 		{
-			Email:             "acc1@google.com",
-			Status:            "ACTIVE",
-			Quota5hCurrent:    0.02,
-			Quota5hAvailable:  0.02,
-			QuotaWeekly:       0.80,
-			PlanTier:          "Free",
-			Priority:          "High",
+			Email:            "acc1@google.com",
+			Status:           "ACTIVE",
+			Quota5hCurrent:   0.02,
+			Quota5hAvailable: 0.02,
+			QuotaWeekly:      0.80,
+			PlanTier:         "Free",
+			Priority:         "High",
 		},
 		{
-			Email:             "acc2@google.com",
-			Status:            "STANDBY",
-			Quota5hCurrent:    0.85,
-			Quota5hAvailable:  0.85,
-			QuotaWeekly:       0.90,
-			PlanTier:          "Free",
-			Priority:          "High",
+			Email:            "acc2@google.com",
+			Status:           "STANDBY",
+			Quota5hCurrent:   0.85,
+			Quota5hAvailable: 0.85,
+			QuotaWeekly:      0.90,
+			PlanTier:         "Free",
+			Priority:         "High",
 		},
 	}
 
@@ -1228,6 +1230,3 @@ func TestNonGeminiCooldownBypassAndRanking(t *testing.T) {
 		t.Errorf("expected active account with 0%% Gemini to switch when allowNonGemini=false, got switch=%v, successor=%v", shouldSwitchOff, successor)
 	}
 }
-
-
-

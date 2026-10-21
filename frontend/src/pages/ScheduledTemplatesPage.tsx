@@ -2,7 +2,15 @@ import React, { useEffect, useState } from 'react'
 import { Clock, Trash2, AlertCircle, CheckCircle2, Edit3, X, ArrowRight } from 'lucide-react'
 import { api } from '../api'
 import type { DeployTaskRequest, ScheduledTemplate, SidecarTaskInfo } from '../types'
-import { formatSchedule } from '../utils/schedule'
+import { ToggleSwitch } from '../components/ToggleSwitch'
+import type { TriggerFrequency } from '../utils/schedule'
+import {
+  buildCronFromTrigger,
+  DAY_OF_WEEK_OPTIONS,
+  formatSchedule,
+  parseCronToTrigger,
+  TIME_OPTIONS_12H,
+} from '../utils/schedule'
 
 const CATEGORIES = [
   'All',
@@ -12,18 +20,255 @@ const CATEGORIES = [
   'Research & Market',
 ]
 
+const DEFAULT_TIMEZONE =
+  Intl.DateTimeFormat().resolvedOptions().timeZone || 'Australia/Melbourne'
+
+const TIMEZONE_OPTIONS = [
+  'Australia/Melbourne',
+  'UTC',
+  'America/Los_Angeles',
+  'America/New_York',
+  'Europe/London',
+  'Asia/Tokyo',
+  'Asia/Singapore',
+]
+
+const TRIGGER_FREQUENCY_OPTIONS: Array<{ value: TriggerFrequency; label: string }> = [
+  { value: 'hourly', label: 'Hourly' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'custom', label: 'Custom' },
+]
+
+interface TriggerEditorState {
+  frequency: TriggerFrequency
+  hour24: number
+  minute: number
+  dayOfWeek: number
+  timezone: string
+  customCron: string
+}
+
+function triggerStateFromCron(rawCron: string, fallbackTimezone = DEFAULT_TIMEZONE): TriggerEditorState {
+  const parsed = parseCronToTrigger(rawCron, fallbackTimezone)
+  return {
+    frequency: parsed.frequency,
+    hour24: parsed.hour24,
+    minute: parsed.minute,
+    dayOfWeek: parsed.dayOfWeek,
+    timezone: parsed.timezone,
+    customCron: parsed.cronExpression || '0 9 * * *',
+  }
+}
+
+function triggerStateToCron(state: TriggerEditorState): string {
+  return buildCronFromTrigger(
+    state.frequency,
+    state.hour24,
+    state.dayOfWeek,
+    state.customCron,
+    state.minute
+  )
+}
+
+interface ScheduleTriggerEditorProps {
+  idPrefix: string
+  value: TriggerEditorState
+  onChange: (patch: Partial<TriggerEditorState>) => void
+}
+
+const ScheduleTriggerEditor: React.FC<ScheduleTriggerEditorProps> = ({ idPrefix, value, onChange }) => {
+  const currentCron = triggerStateToCron(value)
+  const timezoneListId = `${idPrefix}-timezones`
+  const fieldLabelStyle: React.CSSProperties = {
+    display: 'block',
+    fontSize: '12px',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    marginBottom: '6px',
+  }
+  const selectStyle: React.CSSProperties = {
+    padding: '7px 10px',
+    borderRadius: '8px',
+    border: '1px solid var(--border)',
+    fontSize: '13px',
+    color: 'var(--text)',
+    backgroundColor: 'var(--surface)',
+  }
+
+  const handleFrequencyChange = (frequency: TriggerFrequency) => {
+    onChange({
+      frequency,
+      customCron: frequency === 'custom' ? currentCron : value.customCron,
+    })
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <div>
+        <label style={fieldLabelStyle} htmlFor={`${idPrefix}-frequency`}>
+          Trigger
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <select
+            id={`${idPrefix}-frequency`}
+            aria-label="Trigger Frequency"
+            value={value.frequency}
+            onChange={(e) => handleFrequencyChange(e.target.value as TriggerFrequency)}
+            style={selectStyle}
+          >
+            {TRIGGER_FREQUENCY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          {value.frequency === 'daily' && (
+            <>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>around</span>
+              <select
+                aria-label="Trigger Time"
+                value={value.hour24}
+                onChange={(e) => onChange({ hour24: Number(e.target.value) })}
+                style={selectStyle}
+              >
+                {TIME_OPTIONS_12H.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+
+          {value.frequency === 'weekly' && (
+            <>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>on</span>
+              <select
+                aria-label="Trigger Day of Week"
+                value={value.dayOfWeek}
+                onChange={(e) => onChange({ dayOfWeek: Number(e.target.value) })}
+                style={selectStyle}
+              >
+                {DAY_OF_WEEK_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>around</span>
+              <select
+                aria-label="Trigger Time"
+                value={value.hour24}
+                onChange={(e) => onChange({ hour24: Number(e.target.value) })}
+                style={selectStyle}
+              >
+                {TIME_OPTIONS_12H.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+
+          {value.frequency === 'hourly' && (
+            <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+              every hour at :{String(value.minute).padStart(2, '0')}
+            </span>
+          )}
+        </div>
+
+        {value.frequency === 'custom' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '8px' }}>
+            <input
+              type="text"
+              aria-label="Custom Cron Expression"
+              value={value.customCron}
+              onChange={(e) => onChange({ customCron: e.target.value })}
+              placeholder="0 9 * * *"
+              style={{
+                flex: '1 1 260px',
+                minWidth: 0,
+                padding: '8px 12px',
+                borderRadius: '8px',
+                border: '1px solid var(--border)',
+                fontSize: '13px',
+                fontFamily: 'monospace',
+                color: 'var(--text)',
+                backgroundColor: 'var(--surface)',
+                boxSizing: 'border-box',
+              }}
+            />
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '12px',
+                fontWeight: 600,
+                color: 'var(--blue)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <Clock size={11} />
+              <span>{formatSchedule(value.customCron) || 'Enter a cron expression'}</span>
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <label style={fieldLabelStyle} htmlFor={`${idPrefix}-timezone`}>
+          Time Zone
+        </label>
+        <input
+          id={`${idPrefix}-timezone`}
+          type="text"
+          list={timezoneListId}
+          aria-label="Time Zone"
+          value={value.timezone}
+          onChange={(e) => onChange({ timezone: e.target.value })}
+          placeholder="Australia/Melbourne"
+          style={{
+            width: '100%',
+            padding: '8px 12px',
+            borderRadius: '8px',
+            border: '1px solid var(--border)',
+            fontSize: '13px',
+            fontFamily: 'monospace',
+            color: 'var(--text)',
+            backgroundColor: 'var(--surface)',
+            boxSizing: 'border-box',
+          }}
+        />
+        <datalist id={timezoneListId}>
+          {TIMEZONE_OPTIONS.map((timezone) => (
+            <option key={timezone} value={timezone} />
+          ))}
+        </datalist>
+      </div>
+    </div>
+  )
+}
+
 export const ScheduledTemplatesPage: React.FC = () => {
   const [templates, setTemplates] = useState<ScheduledTemplate[]>([])
   const [sidecars, setSidecars] = useState<SidecarTaskInfo[]>([])
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
+  const [targetProjectFeatureEnabled, setTargetProjectFeatureEnabled] = useState<boolean>(true)
+  const [enhancementsConfig, setEnhancementsConfig] = useState<any>(null)
 
   // Modal state
   const [selectedTemplate, setSelectedTemplate] = useState<ScheduledTemplate | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [targetProject, setTargetProject] = useState('Antigravity Swiss Knife')
-  const [cronExpression, setCronExpression] = useState('0 8 * * *')
+  const [deployTrigger, setDeployTrigger] = useState<TriggerEditorState>(() =>
+    triggerStateFromCron('0 8 * * *')
+  )
   const [customPrompt, setCustomPrompt] = useState('')
   const [paramValues, setParamValues] = useState<Record<string, string>>({})
   const [deploying, setDeploying] = useState(false)
@@ -35,7 +280,9 @@ export const ScheduledTemplatesPage: React.FC = () => {
   // Edit sidecar state
   const [editingSidecar, setEditingSidecar] = useState<SidecarTaskInfo | null>(null)
   const [editDisplayName, setEditDisplayName] = useState('')
-  const [editCronExpression, setEditCronExpression] = useState('')
+  const [editTrigger, setEditTrigger] = useState<TriggerEditorState>(() =>
+    triggerStateFromCron('0 9 * * *')
+  )
   const [editPrompt, setEditPrompt] = useState('')
   const [isUpdating, setIsUpdating] = useState(false)
   const [editModalMsg, setEditModalMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
@@ -47,13 +294,41 @@ export const ScheduledTemplatesPage: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true)
-      const [tList, sList] = await Promise.all([api.getTemplates(), api.getSidecars()])
+      const [tList, sList, enh] = await Promise.all([
+        api.getTemplates(),
+        api.getSidecars(),
+        api.getEnhancements().catch(() => null),
+      ])
       setTemplates(tList || [])
       setSidecars(sList || [])
+      setEnhancementsConfig(enh)
+      setTargetProjectFeatureEnabled(enh?.automation_target_project_enabled !== false)
     } catch (err: any) {
       console.error('Failed to load templates data:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleToggleTargetProjectFeature = async (checked: boolean) => {
+    const previousConfig = enhancementsConfig
+    const previousEnabled = targetProjectFeatureEnabled
+    const nextConfig = {
+      ...(enhancementsConfig || {}),
+      automation_target_project_enabled: checked,
+    }
+
+    setTargetProjectFeatureEnabled(checked)
+    setEnhancementsConfig(nextConfig)
+
+    try {
+      const saved = await api.updateEnhancements(nextConfig)
+      setEnhancementsConfig(saved)
+      api.applyEnhancements().catch(() => {})
+    } catch (err: any) {
+      setTargetProjectFeatureEnabled(previousEnabled)
+      setEnhancementsConfig(previousConfig)
+      setPageFeedback({ text: `Failed to update automation project selection: ${err.message}`, type: 'error' })
     }
   }
 
@@ -75,7 +350,7 @@ export const ScheduledTemplatesPage: React.FC = () => {
   const handleStartEditSidecar = (sc: SidecarTaskInfo) => {
     setEditingSidecar(sc)
     setEditDisplayName(sc.display_name)
-    setEditCronExpression(sc.cron_expression)
+    setEditTrigger(triggerStateFromCron(sc.cron_expression, sc.timezone || DEFAULT_TIMEZONE))
     setEditPrompt(sc.prompt || sc.prompt_preview || '')
     setEditModalMsg(null)
   }
@@ -88,7 +363,8 @@ export const ScheduledTemplatesPage: React.FC = () => {
       await api.updateSidecar({
         id: editingSidecar.id,
         display_name: editDisplayName.trim() || editingSidecar.display_name,
-        cron_expression: editCronExpression.trim() || editingSidecar.cron_expression,
+        cron_expression: triggerStateToCron(editTrigger),
+        timezone: editTrigger.timezone.trim() || DEFAULT_TIMEZONE,
         prompt: editPrompt.trim(),
       })
       setEditModalMsg({ text: 'Task updated successfully!', type: 'success' })
@@ -107,7 +383,9 @@ export const ScheduledTemplatesPage: React.FC = () => {
   const openDeployModal = (t: ScheduledTemplate) => {
     setSelectedTemplate(t)
     setDisplayName(t.title)
-    setCronExpression(t.default_schedule.cron_expression)
+    setDeployTrigger((previous) =>
+      triggerStateFromCron(t.default_schedule.cron_expression, previous.timezone)
+    )
     setCustomPrompt(t.prompt_template)
     const initParams: Record<string, string> = {}
     t.parameters.forEach((p) => {
@@ -124,7 +402,8 @@ export const ScheduledTemplatesPage: React.FC = () => {
       const req: DeployTaskRequest = {
         template_id: selectedTemplate.id,
         display_name: displayName,
-        cron_expression: cronExpression,
+        cron_expression: triggerStateToCron(deployTrigger),
+        timezone: deployTrigger.timezone.trim() || DEFAULT_TIMEZONE,
         target_project: targetProject,
         custom_prompt: customPrompt,
         parameters: paramValues,
@@ -166,6 +445,22 @@ export const ScheduledTemplatesPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div className="google-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+            Target Project Selection For Automations
+          </h2>
+          <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+            Allow choosing an existing workspace project as the target project when creating automations in Antigravity 2.0, instead of following Antigravity's native dedicated-project behavior.
+          </p>
+        </div>
+        <ToggleSwitch
+          checked={targetProjectFeatureEnabled}
+          onChange={handleToggleTargetProjectFeature}
+          ariaLabel="Enable Target Project Selection For Automations"
+        />
+      </div>
+
       {pageFeedback && (
         <div
           style={{
@@ -578,79 +873,31 @@ export const ScheduledTemplatesPage: React.FC = () => {
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 700, color: '#334155' }}>
-                      Schedule (Cron)
-                    </label>
-                    <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                      <Clock size={11} />
-                      <span>{formatSchedule(cronExpression)}</span>
-                    </span>
-                  </div>
-                  <input
-                    type="text"
-                    value={cronExpression}
-                    onChange={(e) => setCronExpression(e.target.value)}
-                    placeholder="0 8 * * *"
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border)',
-                      fontSize: '13px',
-                      fontFamily: 'monospace',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
-                    {[
-                      { label: '8:00 AM Daily', cron: '0 8 * * *' },
-                      { label: 'Hourly', cron: '0 * * * *' },
-                      { label: 'Weekdays 5:00 PM', cron: '0 17 * * 1-5' },
-                    ].map((preset) => (
-                      <button
-                        key={preset.cron}
-                        type="button"
-                        onClick={() => setCronExpression(preset.cron)}
-                        style={{
-                          fontSize: '10px',
-                          fontWeight: 600,
-                          padding: '2px 7px',
-                          borderRadius: '4px',
-                          border: '1px solid var(--border)',
-                          background: cronExpression === preset.cron ? 'var(--tonal)' : 'var(--canvas)',
-                          color: cronExpression === preset.cron ? 'var(--primary)' : 'var(--text-muted)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              <ScheduleTriggerEditor
+                idPrefix="deploy-trigger"
+                value={deployTrigger}
+                onChange={(patch) => setDeployTrigger((previous) => ({ ...previous, ...patch }))}
+              />
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
-                    Target Project Context
-                  </label>
-                  <input
-                    type="text"
-                    value={targetProject}
-                    onChange={(e) => setTargetProject(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border)',
-                      fontSize: '13px',
-                      boxSizing: 'border-box',
-                      backgroundColor: 'var(--canvas)',
-                      color: 'var(--text)',
-                    }}
-                  />
-                </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
+                  Target Project Context
+                </label>
+                <input
+                  type="text"
+                  value={targetProject}
+                  onChange={(e) => setTargetProject(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    fontSize: '13px',
+                    boxSizing: 'border-box',
+                    backgroundColor: 'var(--canvas)',
+                    color: 'var(--text)',
+                  }}
+                />
               </div>
 
               {/* Dynamic Template Parameters */}
@@ -792,8 +1039,8 @@ export const ScheduledTemplatesPage: React.FC = () => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
                   Edit Scheduled Task
                 </h3>
-                <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                  Update the task display name, cron schedule, and prompt instructions.
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Update the task display name, trigger, time zone, and prompt instructions.
                 </p>
               </div>
               <button
@@ -856,31 +1103,11 @@ export const ScheduledTemplatesPage: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                  Schedule (Cron Expression)
-                </label>
-                <input
-                  type="text"
-                  value={editCronExpression}
-                  onChange={(e) => setEditCronExpression(e.target.value)}
-                  placeholder="e.g. 0 8 * * * or @hourly"
-                  style={{
-                    width: '100%',
-                    height: '38px',
-                    padding: '0 12px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border)',
-                    fontSize: '13px',
-                    fontFamily: 'monospace',
-                    color: 'var(--text)',
-                    boxSizing: 'border-box',
-                  }}
-                />
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                  {formatSchedule(editCronExpression)}
-                </span>
-              </div>
+              <ScheduleTriggerEditor
+                idPrefix="edit-trigger"
+                value={editTrigger}
+                onChange={(patch) => setEditTrigger((previous) => ({ ...previous, ...patch }))}
+              />
 
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>

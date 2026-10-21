@@ -1677,8 +1677,8 @@ func generateBaseScript(cfg *Config) string {
       }
     });
   }
-  if (typeof localStorage !== "undefined") {
-    try {
+  try {
+    if (typeof localStorage !== "undefined") {
       const cached = localStorage.getItem("antigravity_swiss_project_colors");
       if (cached) {
         const parsed = JSON.parse(cached);
@@ -1699,8 +1699,8 @@ func generateBaseScript(cfg *Config) string {
           });
         }
       }
-    } catch (_) {}
-  }
+    }
+  } catch (_) {}
 
   async function syncColorsFromDaemon() {
     try {
@@ -2695,7 +2695,6 @@ func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) str
 	// as soon as the daemon writes session.token.
 	tokenScript += plugins.SwissAuthInterceptorScript
 	tokenScript += plugins.SwissOnboardingAutoAcceptScript
-
 
 	baseScript := generateBaseScript(cfg)
 

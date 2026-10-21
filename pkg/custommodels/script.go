@@ -190,6 +190,66 @@ func GenerateCustomModelsScript(cfg *Config) string {
       });
     }
 
+    function unbindCustomModelForActiveProject() {
+      const curProject = getActiveProjectName();
+      if (!customConfig.project_binds) customConfig.project_binds = {};
+      const curLower = (curProject || "").trim().toLowerCase();
+      Object.keys(customConfig.project_binds).forEach(k => {
+        if (k.trim().toLowerCase() === curLower) {
+          customConfig.project_binds[k] = "native";
+        }
+      });
+      customConfig.project_binds[curProject] = "native";
+      const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
+      if (trigger) {
+        trigger.removeAttribute("data-swiss-custom-bound");
+        trigger.removeAttribute("data-swiss-native-label");
+        try {
+          const k = Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
+          if (k && trigger[k]) {
+            const ch = trigger[k].memoizedProps?.children;
+            const collect = (node) => {
+              if (!node) return "";
+              if (typeof node === "string") return node;
+              if (typeof node === "number") return String(node);
+              if (Array.isArray(node)) return node.map(collect).join("");
+              if (node.props?.children) return collect(node.props.children);
+              return "";
+            };
+            const nativeText = collect(ch?.[0]);
+            const label = trigger.querySelector("span") || trigger;
+            if (nativeText && label) label.textContent = nativeText;
+          }
+        } catch (_) {}
+      }
+      removeCustomThinkingSubmenu();
+      fetch("http://127.0.0.1:8765/api/custom_models/bind", {
+        method: "POST",
+        headers: getSwissAuthHeaders(),
+        body: JSON.stringify({ project: curProject, model_id: "native" })
+      }).catch(() => {});
+    }
+
+    if (!window.__swissNativeModelCaptureBound) {
+      window.__swissNativeModelCaptureBound = true;
+      document.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (target.closest(".swiss-custom-models-menu-group")) return;
+        if (target.closest("#swiss-custom-thinking-submenu")) return;
+        const nativeOption = target.closest(
+          '[data-testid="model-selector-effort-option"], ' +
+          '[data-testid="model-selector-context-window-option"], ' +
+          '[data-testid="model-selector-item"], ' +
+          '[data-testid="model-selector-effort-group"]'
+        );
+        const panelItem = target.closest('[data-testid="model-selector-panel"] [role="menuitem"]');
+        const clickedItem = nativeOption || panelItem;
+        if (!clickedItem || (clickedItem.textContent || "").trim() === "View Usage") return;
+        unbindCustomModelForActiveProject();
+      }, true);
+    }
+
     // 1. Hook Model Selector Trigger Pill & Dropdown
     function updateModelSelector() {
       const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
@@ -342,36 +402,28 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
       // Hook native items to unbind custom model when native model is chosen
       menuItems.forEach(it => {
-        const nativeCheck = it.querySelector('[data-testid="menu-item-check"]');
-        if (nativeCheck) {
-          nativeCheck.style.display = activeCustomModel ? "none" : "";
-        }
-        if (!it.__swissNativeBound) {
+        if (it.closest(".swiss-custom-models-menu-group")) return;
+        const nativeChecks = new Set();
+        const labeledCheck = it.querySelector('[data-testid="menu-item-check"]');
+        if (labeledCheck) nativeChecks.add(labeledCheck);
+        it.querySelectorAll("svg").forEach(svg => {
+          const path = svg.querySelector("path");
+          const pathData = path ? path.getAttribute("d") || "" : "";
+          if ((svg.innerHTML || "").includes("M382-339.38") || pathData.includes("M382-339.38")) {
+            nativeChecks.add(svg);
+          }
+        });
+        nativeChecks.forEach(check => {
+          check.style.display = activeCustomModel ? "none" : "";
+        });
+        if (!it.__swissNativeBound && !(it.textContent || "").trim().includes("View Usage")) {
           it.__swissNativeBound = true;
           it.addEventListener("mouseenter", () => {
             removeCustomThinkingSubmenu();
           });
           it.addEventListener("click", async () => {
-            if (!customConfig.project_binds) customConfig.project_binds = {};
-            const curLower = curProject.trim().toLowerCase();
-            const matchedKey = Object.keys(customConfig.project_binds).find(k => k.trim().toLowerCase() === curLower);
-            if (matchedKey && matchedKey !== curProject) {
-              delete customConfig.project_binds[matchedKey];
-            }
-            customConfig.project_binds[curProject] = "native";
-            if (trigger) {
-              trigger.removeAttribute("data-swiss-custom-bound");
-              trigger.removeAttribute("data-swiss-native-label");
-            }
-            removeCustomThinkingSubmenu();
-            try {
-              await fetch("http://127.0.0.1:8765/api/custom_models/bind", {
-                method: "POST",
-                headers: getSwissAuthHeaders(),
-                body: JSON.stringify({ project: curProject, model_id: "native" })
-              });
-            } catch (_) {}
-          });
+            unbindCustomModelForActiveProject();
+          }, true);
         }
       });
 

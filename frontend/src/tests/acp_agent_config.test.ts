@@ -152,6 +152,18 @@ describe('ACP Agent Mesh page configurability', () => {
     unmount()
   })
 
+  it('wraps discovered daemons in a gadget card', async () => {
+    const { querySelectorAll, unmount } = await mountPage()
+
+    const gadgetCards = querySelectorAll('.google-card')
+    assert.ok(
+      gadgetCards.some((card) => (card.textContent || '').includes('Discovered Daemons')),
+      'Discovered Daemons must render inside a google-card gadget'
+    )
+
+    unmount()
+  })
+
   it('renders per-agent Edit / Auto-detect actions and a Custom badge', async () => {
     const { querySelector, querySelectorAll, unmount } = await mountPage()
 

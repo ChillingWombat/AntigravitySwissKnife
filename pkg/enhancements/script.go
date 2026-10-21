@@ -45,6 +45,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
     let enhConfig = %s;
     if (!enhConfig) return;
+    function isAutomationTargetProjectEnabled() {
+      return enhConfig.automation_target_project_enabled !== false;
+    }
+    function isContextWindowIndicatorEnabled() {
+      return enhConfig.context_window_indicator_enabled !== false;
+    }
+    function isContextWindowClickToCompactEnabled() {
+      return enhConfig.context_window_click_to_compact_enabled !== false;
+    }
     if (typeof window !== "undefined") {
       window.__SWISS_ENH_CONFIG__ = enhConfig;
       if (enhConfig.overview_panel && enhConfig.overview_panel.aux_tabs_format) {
@@ -57,9 +66,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       try {
         const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
         const parsedFlags = JSON.parse(rawFlags);
-        if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== false || parsedFlags["enable-compact-slash-command"] !== true)) {
+        const targetProjectFlag = !isAutomationTargetProjectEnabled();
+        if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== targetProjectFlag || parsedFlags["enable-compact-slash-command"] !== true)) {
           parsedFlags["remote-control-setting-enabled"] = true;
-          parsedFlags["jetski-sidecar-declared-permissions"] = false;
+          parsedFlags["jetski-sidecar-declared-permissions"] = targetProjectFlag;
           parsedFlags["enable-compact-slash-command"] = true;
           const nextFlags = JSON.stringify(parsedFlags);
           localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
@@ -138,6 +148,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             if (loaded) {
               enhConfig = loaded;
               window.__SWISS_ENH_CONFIG__ = loaded;
+              renderContextWindowProgressRing();
               if (loaded.overview_panel && loaded.overview_panel.aux_tabs_format) {
                 const prevFmt = localStorage.getItem("antigravity_swiss_aux_tab_format");
                 if (prevFmt !== loaded.overview_panel.aux_tabs_format) {
@@ -171,6 +182,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               renderPromptJumpBar();
               applyDefaultProjectHandler();
               applyOverviewPanelEnhancements();
+              renderContextWindowProgressRing();
             }
           }
 
@@ -340,7 +352,17 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
       css += `+"`"+`
         .swiss-prompt-dash {
+          position: relative !important;
           transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease !important;
+        }
+        .swiss-prompt-dash::before {
+          content: "" !important;
+          position: absolute !important;
+          top: -4px !important;
+          bottom: -4px !important;
+          left: -6px !important;
+          right: -6px !important;
+          background: transparent !important;
         }
         .swiss-prompt-dash:hover {
           width: 22px !important;
@@ -844,6 +866,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       // Resolve one stable turn total for this conversation; steps are scoped to
       // the pane/transcript that hosts the rail.
       const steps = getJumpBarSteps(bar);
+      const isNonChatView = isMainStageActive() || (!convView && steps.length === 0);
+      if (isNonChatView) {
+        bar.style.display = "none";
+        if (tooltip) tooltip.style.display = "none";
+        closePromptNavigatorPanel();
+        return;
+      }
       const ordinals = computeTurnOrdinals(steps);
       const conversationKey = resolveJumpBarConversationKey(bar.parentElement);
       const daemonTurnCount = (conversationKey && jumpBarTurnCountsByConversation[conversationKey]) || 0;
@@ -880,9 +909,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const inactiveThickness = enhConfig.prompt_jump_bar?.inactive_thickness || 1.5;
 
       if (isGutter && convView) {
-        bar.style.cssText = "position: absolute; left: 18px; top: 28px; z-index: 45; display: flex; flex-direction: column; gap: 0px; padding: 4px 6px; background: transparent; border: none; box-shadow: none; user-select: none; pointer-events: auto;";
+        bar.style.cssText = "position: absolute; left: 18px; top: 28px; z-index: 45; display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; background: transparent; border: none; box-shadow: none; user-select: none; pointer-events: auto;";
       } else {
-        bar.style.cssText = "position: fixed; left: 268px; top: 120px; z-index: 9999; display: flex; flex-direction: column; gap: 0px; padding: 4px 6px; background: transparent; border: none; box-shadow: none; user-select: none; pointer-events: auto;";
+        bar.style.cssText = "position: fixed; left: 268px; top: 120px; z-index: 9999; display: flex; flex-direction: column; gap: 7px; padding: 4px 2px; background: transparent; border: none; box-shadow: none; user-select: none; pointer-events: auto;";
       }
 
       bar.onmouseenter = () => { scheduleOpenPromptNavigatorPanel(); };
@@ -972,7 +1001,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         dash.setAttribute("data-prompt-index", turnIdx);
 
         // Height is explicitly fixed without transition to prevent bouncing / shining
-        dash.style.cssText = "width: " + dashWidth + "px; height: " + inactiveThickness + "px; padding: 3.5px 6px; box-sizing: content-box; background-clip: content-box; border-radius: 2px; background: " + defaultColor + "; cursor: pointer; pointer-events: auto; transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;";
+        dash.style.cssText = "position: relative; width: " + dashWidth + "px; height: " + inactiveThickness + "px; border-radius: 2px; background: " + defaultColor + "; cursor: pointer; pointer-events: auto; transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;";
 
         dash.onmouseenter = () => {
           const curWidth = enhConfig.prompt_jump_bar?.dash_width || 14;
@@ -1569,6 +1598,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               try { body = await input.clone().json(); } catch (_) {}
             }
             if (body && (body.action === 5 || body.action === "SIDECAR_ACTION_CREATE" || body.action === "5")) {
+              if (!isAutomationTargetProjectEnabled()) {
+                return origFetch(input, init);
+              }
               const chosenProj = document.getElementById("swiss-automation-project-select")?.value || window.__swissSelectedAutomationProjectId || "";
               if (chosenProj && chosenProj !== "__new_dedicated__" && !body.projectId) {
                 body.projectId = chosenProj;
@@ -1729,6 +1761,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
     function applyAutomationTargetProjectSelector() {
       if (typeof document === "undefined") return;
+      if (!isAutomationTargetProjectEnabled()) {
+        document.getElementById("swiss-automation-project-field")?.remove();
+        return;
+      }
       const nameInput = document.querySelector('[data-testid="new-sidecar-name"]');
       if (!nameInput) return;
 
@@ -3080,11 +3116,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       } catch (_) {}
     }
 
+    function removeContextWindowProgressRings() {
+      const mainRing = document.getElementById("swiss-context-window-ring");
+      if (mainRing) mainRing.remove();
+      document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring, .swiss-context-window-ring-sub").forEach(r => r.remove());
+    }
+
     window.__swissOnEnhancementsDaemonChanged = function(online) {
       if (!online) {
-        const mainRing = document.getElementById("swiss-context-window-ring");
-        if (mainRing) mainRing.remove();
-        document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring, .swiss-context-window-ring-sub").forEach(r => r.remove());
+        removeContextWindowProgressRings();
         cachedTokensByConv = {};
         lastTokensFetchTimeByConv = {};
         customModelsListCache = null;
@@ -3156,6 +3196,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     async function invokeNativeCompactCommand(ring, convId, e) {
+      if (!isContextWindowClickToCompactEnabled()) {
+        return;
+      }
       if (e) {
         try {
           if (typeof e.preventDefault === "function") e.preventDefault();
@@ -3365,14 +3408,16 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
     function updateProgressRing(ring, convId, maxTokens) {
       if (!ring) return;
-      if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
+      if (!isContextWindowIndicatorEnabled() || window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
         ring.remove();
         return;
       }
+      const clickToCompactEnabled = isContextWindowClickToCompactEnabled();
+      const clickAction = clickToCompactEnabled ? " — Click to compact" : "";
       ring.classList.add("swiss-context-window-ring");
-      ring.setAttribute("role", "button");
-      ring.setAttribute("tabindex", "0");
-      ring.style.cssText = "display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 6px; position: relative; user-select: none; flex-shrink: 0; vertical-align: middle; cursor: pointer;";
+      ring.setAttribute("role", clickToCompactEnabled ? "button" : "img");
+      ring.setAttribute("tabindex", clickToCompactEnabled ? "0" : "-1");
+      ring.style.cssText = "display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 6px; position: relative; user-select: none; flex-shrink: 0; vertical-align: middle; cursor: " + (clickToCompactEnabled ? "pointer" : "default") + ";";
 
       const ringKey = (ring && ring.id) || convId || "main";
       const isCompacting = ring.getAttribute("data-swiss-compacting") === "true" || Boolean(compactingStateByRing[ringKey] && compactingStateByRing[ringKey].active);
@@ -3381,7 +3426,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         ring.setAttribute("title", "Compacting context window...");
         ring.setAttribute("aria-label", "Compacting context window...");
         ring.style.opacity = "1";
-        ring.style.cursor = "pointer";
+        ring.style.cursor = clickToCompactEnabled ? "pointer" : "default";
 
         const spinningHTML = '<svg width="18" height="18" viewBox="0 0 20 20" style="transform: rotate(-90deg); display: block;">' +
           '<circle cx="10" cy="10" r="7" fill="none" stroke="rgba(148, 163, 184, 0.3)" stroke-width="2" />' +
@@ -3393,10 +3438,11 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       } else {
         const hasReliableData = Boolean(convId && cachedTokensByConv && typeof cachedTokensByConv[convId] === "number");
         if (!hasReliableData) {
-          ring.setAttribute("title", "Context window usage unavailable — Click to compact");
-          ring.setAttribute("aria-label", "Context window usage unavailable — Click to compact");
+          const unavailableText = "Context window usage unavailable" + clickAction;
+          ring.setAttribute("title", unavailableText);
+          ring.setAttribute("aria-label", unavailableText);
           ring.style.opacity = "0.35";
-          ring.style.cursor = "pointer";
+          ring.style.cursor = clickToCompactEnabled ? "pointer" : "default";
           const greyHTML = '<svg width="18" height="18" viewBox="0 0 20 20" style="transform: rotate(-90deg); display: block;">' +
             '<circle cx="10" cy="10" r="7" fill="none" stroke="rgba(148, 163, 184, 0.25)" stroke-width="2" />' +
           '</svg>';
@@ -3407,12 +3453,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           const pct = Math.max(0, Math.min(100, Math.round((usedTokens / validMax) * 100)));
           const formattedUsed = formatTokensUnit(usedTokens);
           const formattedMax = formatTokensUnit(validMax);
-          const tooltipText = pct + "%% (" + formattedUsed + "/" + formattedMax + ")" + " — Click to compact";
+          const tooltipText = pct + "%% (" + formattedUsed + "/" + formattedMax + ")" + clickAction;
 
           ring.setAttribute("title", tooltipText);
           ring.setAttribute("aria-label", "Context window used: " + tooltipText);
           ring.style.opacity = "1";
-          ring.style.cursor = "pointer";
+          ring.style.cursor = clickToCompactEnabled ? "pointer" : "default";
 
           const circumference = 44;
           const offset = Math.max(0, circumference - (circumference * pct / 100));
@@ -3428,21 +3474,24 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         }
       }
 
-      ring.onclick = (e) => {
-        invokeNativeCompactCommand(ring, convId, e);
-      };
-      ring.onkeydown = (e) => {
-        if (e.key === "Enter" || e.key === " " || e.keyCode === 13 || e.keyCode === 32) {
+      if (clickToCompactEnabled) {
+        ring.onclick = (e) => {
           invokeNativeCompactCommand(ring, convId, e);
-        }
-      };
+        };
+        ring.onkeydown = (e) => {
+          if (e.key === "Enter" || e.key === " " || e.keyCode === 13 || e.keyCode === 32) {
+            invokeNativeCompactCommand(ring, convId, e);
+          }
+        };
+      } else {
+        ring.onclick = null;
+        ring.onkeydown = null;
+      }
     }
 
     function renderContextWindowProgressRing() {
-      if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
-        const existingMain = document.getElementById("swiss-context-window-ring");
-        if (existingMain) existingMain.remove();
-        document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring, .swiss-context-window-ring-sub").forEach(r => r.remove());
+      if (!isContextWindowIndicatorEnabled() || window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
+        removeContextWindowProgressRings();
         return;
       }
 

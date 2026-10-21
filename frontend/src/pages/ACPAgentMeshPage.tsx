@@ -337,6 +337,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', ...style }}>
+      <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {acpFeedback && (
         <div
           style={{
@@ -705,6 +706,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
             )
           })
         )}
+      </div>
       </div>
 
       {/* Live Handshake Logs */}

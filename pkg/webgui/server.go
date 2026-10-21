@@ -384,6 +384,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/gui/projects/color/reset", s.handleGUIProjectColorDelete)
 	mux.HandleFunc("/api/gui/reorder", s.handleGUIProjectOrder)
 	mux.HandleFunc("/api/gui/apply", s.handleGUIApply)
+	mux.HandleFunc("/api/gui/inject", s.handleGUIApply)
 	mux.HandleFunc("/api/gui/desktop/install", s.handleGUIDesktopInstall)
 	mux.HandleFunc("/api/gui/desktop/restore", s.handleGUIDesktopRestore)
 	mux.HandleFunc("/api/gui/desktop/status", s.handleGUIDesktopStatus)
@@ -486,17 +487,17 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/bridge/test", s.handleBridgeTest)
 	mux.HandleFunc("/api/bridge/mcp", s.handleBridgeMCP)
 	mux.HandleFunc("/mcp", s.handleBridgeMCP)
-	mux.HandleFunc("/.well-known/oauth-protected-resource", s.handleBridgeOAuthProtectedResource)
-	mux.HandleFunc("/.well-known/oauth-protected-resource/", s.handleBridgeOAuthProtectedResource)
-	mux.HandleFunc("/.well-known/oauth-authorization-server", s.handleBridgeOAuthMetadata)
-	mux.HandleFunc("/.well-known/oauth-authorization-server/", s.handleBridgeOAuthMetadata)
-	mux.HandleFunc("/.well-known/openid-configuration", s.handleBridgeOAuthMetadata)
-	mux.HandleFunc("/oauth/register", s.handleBridgeOAuthRegister)
-	mux.HandleFunc("/oauth/authorize", s.handleBridgeOAuthAuthorize)
-	mux.HandleFunc("/oauth/token", s.handleBridgeOAuthToken)
-	mux.HandleFunc("/api/bridge/oauth/register", s.handleBridgeOAuthRegister)
-	mux.HandleFunc("/api/bridge/oauth/authorize", s.handleBridgeOAuthAuthorize)
-	mux.HandleFunc("/api/bridge/oauth/token", s.handleBridgeOAuthToken)
+	mux.HandleFunc("/.well-known/oauth-protected-resource", s.handleOAuthProtectedResource)
+	mux.HandleFunc("/.well-known/oauth-protected-resource/", s.handleOAuthProtectedResource)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", s.handleOAuthMetadata)
+	mux.HandleFunc("/.well-known/oauth-authorization-server/", s.handleOAuthMetadata)
+	mux.HandleFunc("/.well-known/openid-configuration", s.handleOAuthMetadata)
+	mux.HandleFunc("/oauth/register", s.handleOAuthRegister)
+	mux.HandleFunc("/oauth/authorize", s.handleOAuthAuthorize)
+	mux.HandleFunc("/oauth/token", s.handleOAuthToken)
+	mux.HandleFunc("/api/bridge/oauth/register", s.handleOAuthRegister)
+	mux.HandleFunc("/api/bridge/oauth/authorize", s.handleOAuthAuthorize)
+	mux.HandleFunc("/api/bridge/oauth/token", s.handleOAuthToken)
 	mux.HandleFunc("/api/bridge/tunnel/start", s.handleBridgeTunnelStart)
 	mux.HandleFunc("/api/bridge/tunnel/stop", s.handleBridgeTunnelStop)
 	mux.HandleFunc("/api/bridge/token/rotate", s.handleBridgeTokenRotate)
@@ -3422,7 +3423,7 @@ func (s *Server) handleCommunityExtensions(w http.ResponseWriter, r *http.Reques
 
 		var envelope struct {
 			Extensions *[]enhancements.CommunityExtension `json:"extensions"`
-			Extension  *enhancements.CommunityExtension  `json:"extension"`
+			Extension  *enhancements.CommunityExtension   `json:"extension"`
 		}
 		if err := json.Unmarshal(trimmed, &envelope); err == nil && (envelope.Extensions != nil || envelope.Extension != nil) {
 			if envelope.Extensions != nil {
@@ -3679,7 +3680,7 @@ func (s *Server) handleGoogleOAuthStart(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "method not allowed: POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 
 	res, err := s.oauthMgr.StartFlow(ctx, true)
@@ -6485,7 +6486,7 @@ func (s *Server) handleBridgeConfig(w http.ResponseWriter, r *http.Request) {
 	if s.bridgeService == nil {
 		s.bridgeService, _ = bridge.NewService("")
 	}
-	cfg := s.bridgeService.GetConfig()
+	var cfg bridge.Config
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -6591,7 +6592,7 @@ func (s *Server) handleBridgeMCP(w http.ResponseWriter, r *http.Request) {
 	// Validate Authentication: Bearer token, Pairing PIN, or query parameters
 	granted, reason := bridgeSvc.ValidateRequest(r)
 	if !granted {
-		w.Header().Set("WWW-Authenticate", fmt.Sprintf("Bearer realm=\"AGY Bridge\", resource_metadata=\"%s/.well-known/oauth-protected-resource\"", bridge.ResolveExternalBaseURL(r, bridgeSvc.GetStatus().GatewayURL)))
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf("Bearer realm=\"Antigravity Swiss Knife MCP\", resource_metadata=\"%s/.well-known/oauth-protected-resource\"", bridge.ResolveExternalBaseURL(r, bridgeSvc.GetStatus().GatewayURL)))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6724,26 +6725,14 @@ func (s *Server) handleBridgeMode(w http.ResponseWriter, r *http.Request) {
 	}
 	bridgeSvc := s.getBridgeService()
 	var req struct {
-		Mode           string `json:"mode"`
-		UseAppPassword *bool  `json:"use_app_password"`
+		Mode string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if req.UseAppPassword != nil {
-		if err := bridgeSvc.SetUseAppPassword(*req.UseAppPassword); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-	if strings.TrimSpace(req.Mode) != "" {
-		if err := bridgeSvc.SetOperatingMode(req.Mode); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-	} else if req.UseAppPassword == nil {
-		http.Error(w, "mode or use_app_password is required", http.StatusBadRequest)
+	if err := bridgeSvc.SetOperatingMode(req.Mode); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, map[string]interface{}{
@@ -6786,7 +6775,7 @@ func (s *Server) handleBridgeRemoteConfig(w http.ResponseWriter, r *http.Request
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	cfg := bridgeSvc.GetRemoteConfig()
+	var cfg bridge.RemoteControlConfig
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -6795,21 +6784,9 @@ func (s *Server) handleBridgeRemoteConfig(w http.ResponseWriter, r *http.Request
 		http.Error(w, "failed to update remote config", http.StatusInternalServerError)
 		return
 	}
-	activeEmail := ""
-	store, _ := keyring.NewStore("")
-	if store != nil {
-		activeEmail = store.ActiveAccount()
-	}
-	shield := process.NewShield(0)
-	procs, _ := shield.FindAntigravityProcesses()
-	pid := 0
-	if len(procs) > 0 {
-		pid = procs[0].PID
-	}
 	writeJSON(w, map[string]interface{}{
 		"success": true,
 		"config":  bridgeSvc.GetRemoteConfig(),
-		"status":  bridgeSvc.GetRemoteStatus(activeEmail, pid),
 	})
 }
 
@@ -6983,44 +6960,24 @@ func (s *Server) handleBridgeRemoteConsole(w http.ResponseWriter, r *http.Reques
 	http.Error(w, "remote console not initialized", http.StatusServiceUnavailable)
 }
 
-func (s *Server) handleBridgeOAuthProtectedResource(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleOAuthProtectedResource(w http.ResponseWriter, r *http.Request) {
 	s.getBridgeService().ServeOAuthProtectedResource(w, r)
 }
 
-func (s *Server) handleBridgeOAuthMetadata(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleOAuthMetadata(w http.ResponseWriter, r *http.Request) {
 	s.getBridgeService().ServeOAuthMetadata(w, r)
 }
 
-func (s *Server) handleBridgeOAuthRegister(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
 	s.getBridgeService().ServeOAuthRegister(w, r)
 }
 
-func (s *Server) handleBridgeOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	s.getBridgeService().ServeOAuthAuthorize(w, r)
 }
 
-func (s *Server) handleBridgeOAuthToken(w http.ResponseWriter, r *http.Request) {
-	s.getBridgeService().ServeOAuthToken(w, r)
-}
-
-func (s *Server) handleOAuthProtectedResource(w http.ResponseWriter, r *http.Request) {
-	s.handleBridgeOAuthProtectedResource(w, r)
-}
-
-func (s *Server) handleOAuthMetadata(w http.ResponseWriter, r *http.Request) {
-	s.handleBridgeOAuthMetadata(w, r)
-}
-
-func (s *Server) handleOAuthRegister(w http.ResponseWriter, r *http.Request) {
-	s.handleBridgeOAuthRegister(w, r)
-}
-
-func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
-	s.handleBridgeOAuthAuthorize(w, r)
-}
-
 func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
-	s.handleBridgeOAuthToken(w, r)
+	s.getBridgeService().ServeOAuthToken(w, r)
 }
 
 func (s *Server) handleBridgeChannelsWebhook(w http.ResponseWriter, r *http.Request) {

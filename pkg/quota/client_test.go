@@ -115,7 +115,7 @@ func TestDetectTierFromAvailableModels(t *testing.T) {
 				"pro": []string{"gemini-2.5-pro"},
 			},
 			"models": map[string]interface{}{
-				"claude-3-5-sonnet": map[string]string{"displayName": "Claude 3.5 Sonnet"},
+				"claude-sonnet-5-5": map[string]string{"displayName": "Claude Sonnet 5.5 (Thinking)"},
 			},
 		})
 	}))
@@ -148,6 +148,31 @@ func TestDetectTierFromAvailableModels(t *testing.T) {
 	}
 	if tier != PlanTierProTrial {
 		t.Errorf("expected %s, got %s", PlanTierProTrial, tier)
+	}
+
+	// 2c. Family-shared Pro trial still exposes older Claude/GPT models.
+	familySharedTrialServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"tieredModelIds": map[string]interface{}{
+				"pro": []string{"gemini-2.5-pro"},
+			},
+			"models": map[string]interface{}{
+				"claude-sonnet-4-6":   map[string]string{"displayName": "Claude Sonnet 4.6 (Thinking)"},
+				"claude-opus-4-6":     map[string]string{"displayName": "Claude Opus 4.6 (Thinking)"},
+				"gpt-oss-120b-medium": map[string]string{"displayName": "GPT-OSS 120B (Medium)"},
+			},
+		})
+	}))
+	defer familySharedTrialServer.Close()
+	CloudCodeModelsURLs = []string{familySharedTrialServer.URL}
+
+	tier, err = DetectTierFromAvailableModels("mock-token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tier != PlanTierProTrial {
+		t.Errorf("family-shared Pro trial must stay %s, got %s", PlanTierProTrial, tier)
 	}
 
 	// 3. Only Flash/Free tier models returned
@@ -326,6 +351,75 @@ func TestFetchProjectAndTier(t *testing.T) {
 	}
 }
 
+func TestResolveTierFromQuotaAccess_FamilySharedTrial(t *testing.T) {
+	tests := []struct {
+		name      string
+		tier      string
+		breakdown LiveQuotaBreakdown
+		want      string
+	}{
+		{
+			name: "explicit trial with unknown model catalog",
+			tier: "",
+			breakdown: LiveQuotaBreakdown{
+				ExplicitTrial: true,
+			},
+			want: PlanTierProTrial,
+		},
+		{
+			name: "explicit trial with legacy third-party models",
+			tier: PlanTierPro,
+			breakdown: LiveQuotaBreakdown{
+				ExplicitTrial:      true,
+				HasClaudeGPTRights: true,
+				ModelCatalogKnown:  true,
+			},
+			want: PlanTierProTrial,
+		},
+		{
+			name: "explicit pro with unknown model catalog remains pro",
+			tier: PlanTierPro,
+			breakdown: LiveQuotaBreakdown{
+				HasClaudeGPTRights: true,
+			},
+			want: PlanTierPro,
+		},
+		{
+			name: "explicit pro without paid-only model remains pro",
+			tier: PlanTierPro,
+			breakdown: LiveQuotaBreakdown{
+				HasClaudeGPTRights: true,
+				ModelCatalogKnown:  true,
+			},
+			want: PlanTierPro,
+		},
+		{
+			name: "quota tier plus overrides ambiguous upstream tier",
+			tier: "",
+			breakdown: LiveQuotaBreakdown{
+				SubscriptionTier: PlanTierPlus,
+			},
+			want: PlanTierPlus,
+		},
+		{
+			name: "bare quota pro does not erase live trial evidence",
+			tier: PlanTierProTrial,
+			breakdown: LiveQuotaBreakdown{
+				SubscriptionTier: PlanTierPro,
+			},
+			want: PlanTierProTrial,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveTierFromQuotaAccess(tt.tier, &tt.breakdown); got != tt.want {
+				t.Errorf("resolveTierFromQuotaAccess(%q) = %q, want %q", tt.tier, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsTrialWarningTextAndNormalize(t *testing.T) {
 	exactNotice := "Sonnet 5.5 is now available on paid Pro and Ultra plans. Third-party model access will no longer be available on your current plan starting on November 2, 2026."
 	if !IsTrialWarningText(exactNotice) {
@@ -350,7 +444,8 @@ func TestIsTrialWarningTextAndNormalize(t *testing.T) {
 		{"starter", PlanTierFree},
 		{"Free", PlanTierFree},
 		{"Pro", PlanTierPro},
-		{"Google AI Pro", PlanTierProTrial},
+		{"Google AI Pro", PlanTierPro},
+		{"Google AI Plus", PlanTierPlus},
 		{"Ultra 20X", PlanTierUltra20X},
 	}
 
@@ -485,6 +580,340 @@ func TestPollAndCacheAccount_ClearsErrorInStoreOnRecovery(t *testing.T) {
 	}
 }
 
+type tierTestPayloads struct {
+	Load       map[string]interface{}
+	Quota      map[string]interface{}
+	Models     map[string]interface{}
+	ModelCalls *int
+}
+
+func newTierTestServer(t *testing.T, payloads tierTestPayloads) *httptest.Server {
+	t.Helper()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/load":
+			if payloads.Load != nil {
+				_ = json.NewEncoder(w).Encode(payloads.Load)
+				return
+			}
+		case "/quota":
+			if payloads.Quota != nil {
+				_ = json.NewEncoder(w).Encode(payloads.Quota)
+				return
+			}
+		case "/models":
+			if payloads.ModelCalls != nil {
+				(*payloads.ModelCalls)++
+			}
+			if payloads.Models != nil {
+				_ = json.NewEncoder(w).Encode(payloads.Models)
+				return
+			}
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	origLoad := CloudCodeLoadProjectURLs
+	origQuota := CloudCodeRetrieveQuotaURLs
+	origModels := CloudCodeModelsURLs
+	origUserInfo := GoogleUserInfoURLs
+	t.Cleanup(func() {
+		CloudCodeLoadProjectURLs = origLoad
+		CloudCodeRetrieveQuotaURLs = origQuota
+		CloudCodeModelsURLs = origModels
+		GoogleUserInfoURLs = origUserInfo
+		ResetQuotaBackoffForTesting()
+	})
+
+	CloudCodeLoadProjectURLs = []string{srv.URL + "/load"}
+	CloudCodeRetrieveQuotaURLs = []string{srv.URL + "/quota"}
+	CloudCodeModelsURLs = []string{srv.URL + "/models"}
+	GoogleUserInfoURLs = []string{srv.URL + "/userinfo"}
+	ResetQuotaBackoffForTesting()
+	return srv
+}
+
+func tierTestQuotaPayload(extra map[string]interface{}) map[string]interface{} {
+	payload := map[string]interface{}{
+		"groups": []interface{}{
+			map[string]interface{}{
+				"displayName": "Gemini Models",
+				"buckets": []interface{}{
+					map[string]interface{}{
+						"bucketId":          "gemini-5h",
+						"window":            "5h",
+						"remainingFraction": 1,
+					},
+					map[string]interface{}{
+						"bucketId":          "gemini-weekly",
+						"window":            "weekly",
+						"remainingFraction": 1,
+					},
+				},
+			},
+		},
+	}
+	for key, value := range extra {
+		payload[key] = value
+	}
+	return payload
+}
+
+func TestPollAccountLiveQuota_UsesExplicitTrialEvidence(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	tests := []struct {
+		name   string
+		models map[string]interface{}
+	}{
+		{
+			name: "unknown model catalog",
+		},
+		{
+			name: "legacy third-party models",
+			models: map[string]interface{}{
+				"claude-sonnet-4-6":   map[string]string{"displayName": "Claude Sonnet 4.6 (Thinking)"},
+				"claude-opus-4-6":     map[string]string{"displayName": "Claude Opus 4.6 (Thinking)"},
+				"gpt-oss-120b-medium": map[string]string{"displayName": "GPT-OSS 120B (Medium)"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			modelCalls := 0
+			newTierTestServer(t, tierTestPayloads{
+				Load: map[string]interface{}{
+					"cloudaicompanionProject": "projects/trial",
+					"paidTier":                map[string]interface{}{"name": "Pro"},
+				},
+				Quota: tierTestQuotaPayload(map[string]interface{}{
+					"subscriptionTier": "Pro",
+					"isTrial":          true,
+					"models":           tc.models,
+				}),
+				Models:     map[string]interface{}{"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}}},
+				ModelCalls: &modelCalls,
+			})
+
+			summary, err := PollAccountLiveQuota(&keyring.Account{
+				Email:        "trial@example.com",
+				AccessToken:  "mock-token",
+				RefreshToken: "mock-refresh",
+				PlanTier:     PlanTierPro,
+			})
+			if err != nil {
+				t.Fatalf("PollAccountLiveQuota failed: %v", err)
+			}
+			if summary.PlanTier != PlanTierProTrial {
+				t.Fatalf("expected explicit trial tier %q, got %q", PlanTierProTrial, summary.PlanTier)
+			}
+			if modelCalls != 0 {
+				t.Fatalf("explicit trial should not require model probing, got %d calls", modelCalls)
+			}
+		})
+	}
+}
+
+func TestPollAccountLiveQuota_ExplicitPaidProIgnoresModelCatalog(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	tests := []struct {
+		name   string
+		models map[string]interface{}
+	}{
+		{
+			name: "paid-only model present",
+			models: map[string]interface{}{
+				"claude-sonnet-5-5": map[string]string{"displayName": "Claude Sonnet 5.5 (Thinking)"},
+			},
+		},
+		{
+			name: "only legacy or unknown models",
+			models: map[string]interface{}{
+				"claude-sonnet-4-6": map[string]string{"displayName": "Claude Sonnet 4.6 (Thinking)"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			modelCalls := 0
+			newTierTestServer(t, tierTestPayloads{
+				Load: map[string]interface{}{
+					"cloudaicompanionProject": "projects/paid-pro",
+					"paidTier":                map[string]interface{}{"name": "Google AI Pro"},
+				},
+				Quota: tierTestQuotaPayload(map[string]interface{}{
+					"subscriptionTier": "Pro",
+					"models":           tc.models,
+				}),
+				Models:     map[string]interface{}{"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}}},
+				ModelCalls: &modelCalls,
+			})
+
+			summary, err := PollAccountLiveQuota(&keyring.Account{
+				Email:        "paid@example.com",
+				AccessToken:  "mock-token",
+				RefreshToken: "mock-refresh",
+				PlanTier:     PlanTierProTrial,
+			})
+			if err != nil {
+				t.Fatalf("PollAccountLiveQuota failed: %v", err)
+			}
+			if summary.PlanTier != PlanTierPro {
+				t.Fatalf("expected explicit paid Pro to remain %q, got %q", PlanTierPro, summary.PlanTier)
+			}
+			if modelCalls != 0 {
+				t.Fatalf("explicit paid Pro must not depend on model catalog, got %d probes", modelCalls)
+			}
+		})
+	}
+}
+
+func TestPollAccountLiveQuota_InfersTrialOnlyWhenTierIsAmbiguous(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	modelCalls := 0
+	newTierTestServer(t, tierTestPayloads{
+		Load: map[string]interface{}{
+			"cloudaicompanionProject": "projects/ambiguous",
+			"allowedTiers":            []map[string]interface{}{{"name": "Pro"}},
+		},
+		Quota: tierTestQuotaPayload(nil),
+		Models: map[string]interface{}{
+			"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}},
+			"models": map[string]interface{}{
+				"claude-sonnet-4-6": map[string]string{"displayName": "Claude Sonnet 4.6 (Thinking)"},
+			},
+		},
+		ModelCalls: &modelCalls,
+	})
+
+	summary, err := PollAccountLiveQuota(&keyring.Account{
+		Email:        "ambiguous@example.com",
+		AccessToken:  "mock-token",
+		RefreshToken: "mock-refresh",
+		PlanTier:     PlanTierFree,
+	})
+	if err != nil {
+		t.Fatalf("PollAccountLiveQuota failed: %v", err)
+	}
+	if summary.PlanTier != PlanTierProTrial {
+		t.Fatalf("expected ambiguous Pro access to resolve to %q, got %q", PlanTierProTrial, summary.PlanTier)
+	}
+	if modelCalls != 1 {
+		t.Fatalf("expected exactly one model probe, got %d", modelCalls)
+	}
+}
+
+func TestPollAccountLiveQuota_RefreshesPlusToPro(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	modelCalls := 0
+	newTierTestServer(t, tierTestPayloads{
+		Load: map[string]interface{}{
+			"cloudaicompanionProject": "projects/upgraded",
+			"currentTier":             map[string]interface{}{"name": "Google AI Plus"},
+		},
+		Quota: tierTestQuotaPayload(map[string]interface{}{
+			"subscriptionTier": "Pro",
+		}),
+		Models:     map[string]interface{}{"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}}},
+		ModelCalls: &modelCalls,
+	})
+
+	summary, err := PollAccountLiveQuota(&keyring.Account{
+		Email:        "upgraded@example.com",
+		AccessToken:  "mock-token",
+		RefreshToken: "mock-refresh",
+		PlanTier:     PlanTierPlus,
+	})
+	if err != nil {
+		t.Fatalf("PollAccountLiveQuota failed: %v", err)
+	}
+	if summary.PlanTier != PlanTierPro {
+		t.Fatalf("expected quota refresh to upgrade %q to %q, got %q", PlanTierPlus, PlanTierPro, summary.PlanTier)
+	}
+	if modelCalls != 0 {
+		t.Fatalf("explicit quota Pro should not need model probing, got %d calls", modelCalls)
+	}
+}
+
+func newTierTestStore(t *testing.T, email, planTier string) (*keyring.Store, *keyring.Account) {
+	t.Helper()
+	store, err := keyring.NewStore(filepath.Join(t.TempDir(), "accounts.json"))
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	if _, err := store.ImportAccount(email, "mock-refresh", "mock-token", "Test", ""); err != nil {
+		t.Fatalf("failed to import account: %v", err)
+	}
+	if err := store.UpdateAccountQuotaMetadata(email, planTier, 0); err != nil {
+		t.Fatalf("failed to seed plan tier: %v", err)
+	}
+	acc, err := store.GetAccount(email)
+	if err != nil {
+		t.Fatalf("failed to read account: %v", err)
+	}
+	return store, acc
+}
+
+func TestPollAndCacheAccount_PersistsProTrialUpgrade(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	newTierTestServer(t, tierTestPayloads{
+		Load: map[string]interface{}{
+			"cloudaicompanionProject": "projects/upgraded",
+			"paidTier":                map[string]interface{}{"name": "Google AI Pro"},
+		},
+		Quota: tierTestQuotaPayload(map[string]interface{}{
+			"subscriptionTier": "Pro",
+		}),
+	})
+
+	store, acc := newTierTestStore(t, "upgrade@example.com", PlanTierProTrial)
+	summary, err := PollAndCacheAccount(acc, store)
+	if err != nil {
+		t.Fatalf("PollAndCacheAccount failed: %v", err)
+	}
+	if summary.PlanTier != PlanTierPro {
+		t.Fatalf("expected summary tier %q, got %q", PlanTierPro, summary.PlanTier)
+	}
+	persisted, err := store.GetAccount("upgrade@example.com")
+	if err != nil {
+		t.Fatalf("failed to reload account: %v", err)
+	}
+	if persisted.PlanTier != PlanTierPro {
+		t.Fatalf("expected persisted tier %q, got %q", PlanTierPro, persisted.PlanTier)
+	}
+}
+
+func TestPollFleetAccounts_PersistsPlusUpgrade(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	newTierTestServer(t, tierTestPayloads{
+		Load: map[string]interface{}{
+			"cloudaicompanionProject": "projects/upgraded",
+			"currentTier":             map[string]interface{}{"name": "Google AI Plus"},
+		},
+		Quota: tierTestQuotaPayload(map[string]interface{}{
+			"subscriptionTier": "Pro",
+		}),
+	})
+
+	store, acc := newTierTestStore(t, "fleet-upgrade@example.com", PlanTierPlus)
+	results := PollFleetAccounts([]*keyring.Account{acc}, store)
+	summary := results["fleet-upgrade@example.com"]
+	if summary == nil || summary.PlanTier != PlanTierPro {
+		t.Fatalf("expected fleet summary tier %q, got %+v", PlanTierPro, summary)
+	}
+	persisted, err := store.GetAccount("fleet-upgrade@example.com")
+	if err != nil {
+		t.Fatalf("failed to reload account: %v", err)
+	}
+	if persisted.PlanTier != PlanTierPro {
+		t.Fatalf("expected persisted fleet tier %q, got %q", PlanTierPro, persisted.PlanTier)
+	}
+}
+
 func TestPopulateVerificationAuthUser(t *testing.T) {
 	raw := "https://accounts.google.com/signin/continue?sarp=1&flowName=GlifWebSignIn&authuser"
 	got := populateVerificationAuthUser(raw, "joseantoniocarrarofalchi@gmail.com")
@@ -546,5 +975,3 @@ func TestIssue59_ClampFraction(t *testing.T) {
 		t.Errorf("expected 0.75 for 0.75, got %f", got)
 	}
 }
-
-

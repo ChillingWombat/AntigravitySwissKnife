@@ -77,6 +77,30 @@ func slugify(input string) string {
 	return slug
 }
 
+func splitCronAndTimezone(raw string) (tz string, cronExpr string) {
+	trimmed := strings.TrimSpace(raw)
+	const prefix = "CRON_TZ="
+	if !strings.HasPrefix(trimmed, prefix) {
+		return "", trimmed
+	}
+
+	rest := strings.TrimPrefix(trimmed, prefix)
+	splitAt := strings.IndexAny(rest, " \t\r\n")
+	if splitAt == -1 {
+		return strings.TrimSpace(rest), ""
+	}
+	return strings.TrimSpace(rest[:splitAt]), strings.TrimSpace(rest[splitAt:])
+}
+
+func formatCronWithTimezone(tz string, cronExpr string) string {
+	_, cleanCron := splitCronAndTimezone(cronExpr)
+	tz = strings.TrimSpace(tz)
+	if tz == "" {
+		return cleanCron
+	}
+	return fmt.Sprintf("CRON_TZ=%s %s", tz, cleanCron)
+}
+
 // RenderPrompt substitutes parameters into a template's prompt string.
 func RenderPrompt(templatePrompt string, params map[string]string, defaults []TemplateParameter) string {
 	result := templatePrompt
@@ -123,6 +147,11 @@ func (s *Store) DeploySidecar(req DeployTaskRequest) (*SidecarTaskInfo, error) {
 	if cronExpr == "" {
 		cronExpr = "0 8 * * *"
 	}
+	tz, cleanCron := splitCronAndTimezone(cronExpr)
+	if req.TimeZone != "" {
+		tz = strings.TrimSpace(req.TimeZone)
+	}
+	storedCron := formatCronWithTimezone(tz, cleanCron)
 
 	finalPrompt := req.CustomPrompt
 	if finalPrompt == "" && tmpl != nil {
@@ -154,7 +183,7 @@ func (s *Store) DeploySidecar(req DeployTaskRequest) (*SidecarTaskInfo, error) {
 		Builtin:       "schedule",
 		RestartPolicy: "always",
 		Args: []string{
-			cronExpr,
+			storedCron,
 			"agentapi",
 			"new-conversation",
 			"--",
@@ -181,8 +210,9 @@ func (s *Store) DeploySidecar(req DeployTaskRequest) (*SidecarTaskInfo, error) {
 	return &SidecarTaskInfo{
 		ID:             slug,
 		DisplayName:    displayName,
-		CronExpression: cronExpr,
-		ScheduleText:   CronToHuman(cronExpr),
+		CronExpression: cleanCron,
+		TimeZone:       tz,
+		ScheduleText:   CronToHuman(cleanCron),
 		PromptPreview:  promptPreview,
 		Path:           filePath,
 	}, nil
@@ -222,6 +252,7 @@ func (s *Store) ListSidecars() ([]SidecarTaskInfo, error) {
 		if len(payload.Args) > 0 {
 			cronExpr = payload.Args[0]
 		}
+		tz, cleanCron := splitCronAndTimezone(cronExpr)
 		if len(payload.Args) > 4 {
 			fullPrompt = payload.Args[4]
 		} else if len(payload.Args) > 3 {
@@ -240,8 +271,9 @@ func (s *Store) ListSidecars() ([]SidecarTaskInfo, error) {
 		results = append(results, SidecarTaskInfo{
 			ID:             entry.Name(),
 			DisplayName:    disp,
-			CronExpression: cronExpr,
-			ScheduleText:   CronToHuman(cronExpr),
+			CronExpression: cleanCron,
+			TimeZone:       tz,
+			ScheduleText:   CronToHuman(cleanCron),
 			PromptPreview:  promptPreview,
 			Prompt:         fullPrompt,
 			Path:           cfgPath,
@@ -276,6 +308,10 @@ func (s *Store) UpdateSidecar(req UpdateSidecarRequest) (*SidecarTaskInfo, error
 		payload.DisplayName = req.DisplayName
 	}
 
+	existingTZ := ""
+	if len(payload.Args) > 0 {
+		existingTZ, _ = splitCronAndTimezone(payload.Args[0])
+	}
 	cronExpr := req.CronExpression
 	if cronExpr == "" && len(payload.Args) > 0 {
 		cronExpr = payload.Args[0]
@@ -283,6 +319,15 @@ func (s *Store) UpdateSidecar(req UpdateSidecarRequest) (*SidecarTaskInfo, error
 	if cronExpr == "" {
 		cronExpr = "0 8 * * *"
 	}
+	parsedTZ, cleanCron := splitCronAndTimezone(cronExpr)
+	tz := existingTZ
+	if parsedTZ != "" {
+		tz = parsedTZ
+	}
+	if req.TimeZone != "" {
+		tz = strings.TrimSpace(req.TimeZone)
+	}
+	storedCron := formatCronWithTimezone(tz, cleanCron)
 
 	finalPrompt := req.Prompt
 	if finalPrompt == "" && len(payload.Args) > 4 {
@@ -292,7 +337,7 @@ func (s *Store) UpdateSidecar(req UpdateSidecarRequest) (*SidecarTaskInfo, error
 	}
 
 	payload.Args = []string{
-		cronExpr,
+		storedCron,
 		"agentapi",
 		"new-conversation",
 		"--",
@@ -316,8 +361,9 @@ func (s *Store) UpdateSidecar(req UpdateSidecarRequest) (*SidecarTaskInfo, error
 	return &SidecarTaskInfo{
 		ID:             req.ID,
 		DisplayName:    payload.DisplayName,
-		CronExpression: cronExpr,
-		ScheduleText:   CronToHuman(cronExpr),
+		CronExpression: cleanCron,
+		TimeZone:       tz,
+		ScheduleText:   CronToHuman(cleanCron),
 		PromptPreview:  promptPreview,
 		Prompt:         finalPrompt,
 		Path:           cfgPath,

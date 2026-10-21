@@ -21,6 +21,8 @@ const electronAPI = {
   },
   sendNotification: (title, body) => ipcRenderer.invoke('desktop:notify', { title, body }),
   openExternal: (url) => ipcRenderer.invoke('desktop:open-external', url),
+  writeClipboard: (text) => ipcRenderer.invoke('desktop:write-clipboard', text),
+  focusWindow: () => ipcRenderer.invoke('desktop:focus-window'),
   selectPath: (options) => ipcRenderer.invoke('desktop:select-path', options),
   launchAntigravity: () => ipcRenderer.invoke('desktop:launch-antigravity'),
 };

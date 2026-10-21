@@ -85,6 +85,18 @@ func (s *Store) load() error {
 	if cfg.LeftPanelExtensionsMode == "" {
 		cfg.LeftPanelExtensionsMode = "single"
 	}
+	if cfg.AutomationTargetProjectEnabled == nil {
+		t := true
+		cfg.AutomationTargetProjectEnabled = &t
+	}
+	if cfg.ContextWindowIndicatorEnabled == nil {
+		t := true
+		cfg.ContextWindowIndicatorEnabled = &t
+	}
+	if cfg.ContextWindowClickToCompactEnabled == nil {
+		t := true
+		cfg.ContextWindowClickToCompactEnabled = &t
+	}
 
 	var raw map[string]interface{}
 	if err := json.Unmarshal(data, &raw); err == nil {
@@ -201,6 +213,20 @@ func (s *Store) UpdateConfig(newCfg EnhancementsConfig) error {
 
 	if newCfg.CommunityExtensions == nil && len(s.config.CommunityExtensions) > 0 {
 		newCfg.CommunityExtensions = s.config.CommunityExtensions
+	}
+	if newCfg.ContextWindowIndicatorEnabled == nil {
+		value := true
+		if s.config.ContextWindowIndicatorEnabled != nil {
+			value = *s.config.ContextWindowIndicatorEnabled
+		}
+		newCfg.ContextWindowIndicatorEnabled = &value
+	}
+	if newCfg.ContextWindowClickToCompactEnabled == nil {
+		value := true
+		if s.config.ContextWindowClickToCompactEnabled != nil {
+			value = *s.config.ContextWindowClickToCompactEnabled
+		}
+		newCfg.ContextWindowClickToCompactEnabled = &value
 	}
 
 	if len(newCfg.Extensions) == 0 {
@@ -475,5 +501,3 @@ func (s *Store) DeleteCommunityExtension(id string) error {
 	}
 	return s.save()
 }
-
-

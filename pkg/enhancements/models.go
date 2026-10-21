@@ -47,12 +47,12 @@ type CommunityExtension struct {
 	Description string    `json:"description,omitempty"`
 	Author      string    `json:"author,omitempty"`
 	Version     string    `json:"version,omitempty"`
-	Icon        string    `json:"icon,omitempty"`        // Lucide icon key: "blocks", "globe", "code", "terminal", "database", "bot", "wrench", "book-open", "layers", "cpu"
-	SourceType  string    `json:"source_type"`           // "url" or "html"
-	URL         string    `json:"url,omitempty"`         // Target URL when SourceType == "url"
-	HTML        string    `json:"html,omitempty"`        // Markup when SourceType == "html"
-	CSS         string    `json:"css,omitempty"`         // Styles when SourceType == "html"
-	JS          string    `json:"js,omitempty"`          // Script when SourceType == "html"
+	Icon        string    `json:"icon,omitempty"` // Lucide icon key: "blocks", "globe", "code", "terminal", "database", "bot", "wrench", "book-open", "layers", "cpu"
+	SourceType  string    `json:"source_type"`    // "url" or "html"
+	URL         string    `json:"url,omitempty"`  // Target URL when SourceType == "url"
+	HTML        string    `json:"html,omitempty"` // Markup when SourceType == "html"
+	CSS         string    `json:"css,omitempty"`  // Styles when SourceType == "html"
+	JS          string    `json:"js,omitempty"`   // Script when SourceType == "html"
 	Enabled     bool      `json:"enabled"`
 	AuxPanel    bool      `json:"aux_panel"`
 	MainPage    bool      `json:"main_page"`
@@ -88,25 +88,29 @@ func DefaultExtensionVisibility() map[string]ExtensionVisibility {
 
 // EnhancementsConfig holds configuration for usability improvements and add-on features.
 type EnhancementsConfig struct {
-	Version            string              `json:"version"`
-	Enabled            bool                `json:"enabled"` // Master switch for all enhancements
-	PromptJumpBar      PromptJumpBarConfig `json:"prompt_jump_bar"`
-	OverviewPanel      OverviewPanelConfig `json:"overview_panel"`       // Section division and compact controls for Overview Panel
-	ToolDensityMode    string              `json:"tool_density_mode"`    // "normal", "muted", "hidden"
-	BreakerLineEnabled         bool                `json:"breaker_line_enabled"`          // Breaker line between previous answer and new prompt
-	LeftPanelExtensionsEnabled bool                `json:"left_panel_extensions_enabled"` // Toggle button for extension in left sidebar (default: true)
-	LeftPanelExtensionsMode    string              `json:"left_panel_extensions_mode"`    // "single" (single Swiss Knife button) or "individual" (default: "single")
-	MainSectionExtensionsEnabled bool              `json:"main_section_extensions_enabled"` // Toggle to use extension in main section vs auxiliary panel (default: true)
-	Extensions                 map[string]ExtensionVisibility `json:"extensions,omitempty"` // Per-extension aux-panel/main-page visibility switches
-	CommunityExtensions        []CommunityExtension           `json:"community_extensions,omitempty"` // User-installed community extension gadgets
-	DefaultNewProject          string              `json:"default_new_project"`           // "auto" (default: latest active) or predefined project name
-	ScrollToBottom             bool                `json:"scroll_to_bottom"`
-	TurnCounter                bool                `json:"turn_counter"`
-	UpdatedAt                  time.Time           `json:"updated_at"`
+	Version                            string                         `json:"version"`
+	Enabled                            bool                           `json:"enabled"` // Master switch for all enhancements
+	PromptJumpBar                      PromptJumpBarConfig            `json:"prompt_jump_bar"`
+	OverviewPanel                      OverviewPanelConfig            `json:"overview_panel"`       // Section division and compact controls for Overview Panel
+	ToolDensityMode                    string                         `json:"tool_density_mode"`    // "normal", "muted", "hidden"
+	BreakerLineEnabled                 bool                           `json:"breaker_line_enabled"` // Breaker line between previous answer and new prompt
+	ContextWindowIndicatorEnabled      *bool                          `json:"context_window_indicator_enabled,omitempty"`
+	ContextWindowClickToCompactEnabled *bool                          `json:"context_window_click_to_compact_enabled,omitempty"`
+	LeftPanelExtensionsEnabled         bool                           `json:"left_panel_extensions_enabled"`   // Toggle button for extension in left sidebar (default: true)
+	LeftPanelExtensionsMode            string                         `json:"left_panel_extensions_mode"`      // "single" (single Swiss Knife button) or "individual" (default: "single")
+	MainSectionExtensionsEnabled       bool                           `json:"main_section_extensions_enabled"` // Toggle to use extension in main section vs auxiliary panel (default: true)
+	Extensions                         map[string]ExtensionVisibility `json:"extensions,omitempty"`            // Per-extension aux-panel/main-page visibility switches
+	CommunityExtensions                []CommunityExtension           `json:"community_extensions,omitempty"`  // User-installed community extension gadgets
+	DefaultNewProject                  string                         `json:"default_new_project"`             // "auto" (default: latest active) or predefined project name
+	AutomationTargetProjectEnabled     *bool                          `json:"automation_target_project_enabled,omitempty"`
+	ScrollToBottom                     bool                           `json:"scroll_to_bottom"`
+	TurnCounter                        bool                           `json:"turn_counter"`
+	UpdatedAt                          time.Time                      `json:"updated_at"`
 }
 
 // DefaultConfig returns the recommended default enhancements configuration.
 func DefaultConfig() *EnhancementsConfig {
+	defaultTrue := true
 	return &EnhancementsConfig{
 		Version: "1.0.0",
 		Enabled: true,
@@ -133,16 +137,19 @@ func DefaultConfig() *EnhancementsConfig {
 			ReplaceSeeAllTriangle:  true,
 			AuxTabsFormat:          "icon",
 		},
-		ToolDensityMode:            "muted",
-		BreakerLineEnabled:         true,
-		LeftPanelExtensionsEnabled: true,
-		LeftPanelExtensionsMode:    "single",
-		MainSectionExtensionsEnabled: true,
-		Extensions:                 DefaultExtensionVisibility(),
-		CommunityExtensions:        []CommunityExtension{},
-		DefaultNewProject:          "auto",
-		ScrollToBottom:             true,
-		TurnCounter:                true,
-		UpdatedAt:                  time.Now().UTC(),
+		ToolDensityMode:                    "muted",
+		BreakerLineEnabled:                 true,
+		ContextWindowIndicatorEnabled:      &defaultTrue,
+		ContextWindowClickToCompactEnabled: &defaultTrue,
+		LeftPanelExtensionsEnabled:         true,
+		LeftPanelExtensionsMode:            "single",
+		MainSectionExtensionsEnabled:       true,
+		Extensions:                         DefaultExtensionVisibility(),
+		CommunityExtensions:                []CommunityExtension{},
+		DefaultNewProject:                  "auto",
+		AutomationTargetProjectEnabled:     &defaultTrue,
+		ScrollToBottom:                     true,
+		TurnCounter:                        true,
+		UpdatedAt:                          time.Now().UTC(),
 	}
 }

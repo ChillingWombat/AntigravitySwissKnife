@@ -1402,7 +1402,7 @@ func (s *Store) UpdateAccountQuotaMetadata(email, planTier string, credits float
 	}
 
 	modified := false
-	if planTier != "" && planTier != "Free" && target.PlanTier != planTier {
+	if planTier != "" && target.PlanTier != planTier {
 		target.PlanTier = planTier
 		modified = true
 	}
@@ -1497,7 +1497,7 @@ func (s *Store) UpdateAccountTokensAndMetadata(email, accessToken, refreshToken,
 		target.RefreshToken = refreshToken
 		modified = true
 	}
-	if planTier != "" && planTier != "Free" && target.PlanTier != planTier {
+	if planTier != "" && target.PlanTier != planTier {
 		target.PlanTier = planTier
 		modified = true
 	}

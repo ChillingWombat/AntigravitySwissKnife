@@ -45,7 +45,7 @@ function getOrdinal(day: number): string {
  * - "* /15 * * * *" => "Every 15 minutes"
  */
 export function formatCronToHuman(cron: string): string {
-  const expr = (cron || '').trim()
+  const expr = (cron || '').trim().replace(/^CRON_TZ=\S+\s+/i, '')
   if (!expr) return ''
 
   const parts = expr.split(/\s+/)
@@ -132,6 +132,119 @@ export function formatCronToHuman(cron: string): string {
       return `Tue, Thu at ${timeText}`
     default:
       return `Days (${dowStr}) at ${timeText}`
+  }
+}
+
+export type TriggerFrequency = 'hourly' | 'daily' | 'weekly' | 'custom'
+
+export interface ParsedTriggerSchedule {
+  frequency: TriggerFrequency
+  hour24: number
+  minute: number
+  dayOfWeek: number
+  timezone: string
+  cronExpression: string
+}
+
+export const TIME_OPTIONS_12H = Array.from({ length: 24 }, (_, value) => {
+  const period = value >= 12 ? 'PM' : 'AM'
+  const hour = value % 12 || 12
+  return { value, label: `${hour}:00 ${period}` }
+})
+
+export const DAY_OF_WEEK_OPTIONS = [
+  { value: 1, label: 'Monday' },
+  { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' },
+  { value: 6, label: 'Saturday' },
+  { value: 0, label: 'Sunday' },
+]
+
+export function parseCronToTrigger(rawCron: string, fallbackTimezone?: string): ParsedTriggerSchedule {
+  const trimmed = (rawCron || '').trim()
+  const timezoneMatch = trimmed.match(/^CRON_TZ=(\S+)\s+(.*)$/i)
+  const timezone =
+    timezoneMatch?.[1] ||
+    fallbackTimezone ||
+    Intl.DateTimeFormat().resolvedOptions().timeZone ||
+    'Australia/Melbourne'
+  const cleanCron = (timezoneMatch?.[2] || trimmed).trim()
+  const parts = cleanCron.split(/\s+/)
+
+  const parsed: ParsedTriggerSchedule = {
+    frequency: 'custom',
+    hour24: 9,
+    minute: 0,
+    dayOfWeek: 1,
+    timezone,
+    cronExpression: cleanCron,
+  }
+
+  if (parts.length !== 5) return parsed
+
+  const [minutePart, hourPart, dayOfMonth, month, dayOfWeekPart] = parts
+  const minute = Number.parseInt(minutePart, 10)
+  const hour = Number.parseInt(hourPart, 10)
+  const hasValidMinute = /^\d+$/.test(minutePart) && minute >= 0 && minute <= 59
+  if (hasValidMinute) parsed.minute = minute
+  if (/^\d+$/.test(hourPart)) parsed.hour24 = hour
+
+  if (hasValidMinute && hourPart === '*' && dayOfMonth === '*' && month === '*' && dayOfWeekPart === '*') {
+    return { ...parsed, frequency: 'hourly' }
+  }
+
+  if (
+    hasValidMinute &&
+    /^\d+$/.test(hourPart) &&
+    hour >= 0 &&
+    hour <= 23 &&
+    dayOfMonth === '*' &&
+    month === '*' &&
+    dayOfWeekPart === '*'
+  ) {
+    return { ...parsed, frequency: 'daily', hour24: hour, minute }
+  }
+
+  if (
+    hasValidMinute &&
+    /^\d+$/.test(hourPart) &&
+    hour >= 0 &&
+    hour <= 23 &&
+    dayOfMonth === '*' &&
+    month === '*' &&
+    /^[0-7]$/.test(dayOfWeekPart)
+  ) {
+    const dayOfWeek = Number.parseInt(dayOfWeekPart, 10)
+    return {
+      ...parsed,
+      frequency: 'weekly',
+      hour24: hour,
+      minute,
+      dayOfWeek: dayOfWeek === 7 ? 0 : dayOfWeek,
+    }
+  }
+
+  return parsed
+}
+
+export function buildCronFromTrigger(
+  freq: TriggerFrequency,
+  hour24: number,
+  dayOfWeek: number,
+  customCron: string,
+  minute = 0
+): string {
+  switch (freq) {
+    case 'hourly':
+      return `${minute} * * * *`
+    case 'daily':
+      return `${minute} ${hour24} * * *`
+    case 'weekly':
+      return `${minute} ${hour24} * * ${dayOfWeek}`
+    case 'custom':
+      return customCron.trim() || '0 9 * * *'
   }
 }
 
