@@ -933,6 +933,8 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 			}
 
 			hasPaidProModel := false
+			hasClaudeModel := false
+			hasGPTModel := false
 			for modelID, metadata := range res.Models {
 				displayName := metadata.DisplayName
 				if displayName == "" {
@@ -940,7 +942,13 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				}
 				if isPaidProModelIdentifier(modelID, displayName) {
 					hasPaidProModel = true
-					break
+				}
+				value := strings.ToLower(modelID + " " + displayName)
+				if strings.Contains(value, "claude") {
+					hasClaudeModel = true
+				}
+				if strings.Contains(value, "gpt") {
+					hasGPTModel = true
 				}
 			}
 
@@ -956,6 +964,9 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				Credits:                credAmount,
 				ModelCatalogKnown:      len(res.Models) > 0,
 				HasPaidProModel:        hasPaidProModel,
+				HasClaudeGPTRights:     hasClaudeModel || hasGPTModel,
+				HasClaude:              hasClaudeModel,
+				HasGPT:                 hasGPTModel,
 			}
 
 			if len(res.Groups) == 0 {

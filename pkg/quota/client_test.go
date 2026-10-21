@@ -948,6 +948,45 @@ func TestPollAccountLiveQuota_QuotaCatalogResolvesAmbiguousTier(t *testing.T) {
 	}
 }
 
+func TestPollAccountLiveQuota_QuotaCatalogResolvesAmbiguousTierFromModelOnly(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	modelCalls := 0
+	newTierTestServer(t, tierTestPayloads{
+		Load: map[string]interface{}{
+			"cloudaicompanionProject": "projects/ambiguous-model-only",
+			"allowedTiers":            []map[string]interface{}{{"name": "Pro"}},
+		},
+		Quota: tierTestQuotaPayload(map[string]interface{}{
+			"models": map[string]interface{}{
+				"claude-sonnet-4-6": map[string]string{"displayName": "Claude Sonnet 4.6 (Thinking)"},
+			},
+		}),
+		Models: map[string]interface{}{
+			"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}},
+			"models": map[string]interface{}{
+				"claude-sonnet-5-5": map[string]string{"displayName": "Claude Sonnet 5.5 (Thinking)"},
+			},
+		},
+		ModelCalls: &modelCalls,
+	})
+
+	summary, err := PollAccountLiveQuota(&keyring.Account{
+		Email:        "ambiguous-model-only@example.com",
+		AccessToken:  "mock-token",
+		RefreshToken: "mock-refresh",
+		PlanTier:     PlanTierFree,
+	})
+	if err != nil {
+		t.Fatalf("PollAccountLiveQuota failed: %v", err)
+	}
+	if summary.PlanTier != PlanTierProTrial {
+		t.Fatalf("expected model-only quota catalog to resolve %q, got %q", PlanTierProTrial, summary.PlanTier)
+	}
+	if modelCalls != 0 {
+		t.Fatalf("model-only quota catalog must avoid the model probe, got %d calls", modelCalls)
+	}
+}
+
 func TestPollAccountLiveQuota_InfersTrialOnlyWhenTierIsAmbiguous(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
 	modelCalls := 0
