@@ -168,6 +168,7 @@ export const CustomModelsPage: React.FC = () => {
   const [modalTestResult, setModalTestResult] = useState<TestResult | null>(null)
   const [modalSaving, setModalSaving] = useState<boolean>(false)
   const [modalError, setModalError] = useState<string | null>(null)
+  const editKeyRequestRef = useRef(0)
 
   // Security Audit States (inspired by toby-bridges/api-relay-audit)
   const [modalAuditResult, setModalAuditResult] = useState<SecurityAuditReport | null>(null)
@@ -584,6 +585,7 @@ export const CustomModelsPage: React.FC = () => {
   }, [])
 
   const openAddModal = () => {
+    editKeyRequestRef.current += 1
     setEditingModel(null)
     setDisplayName('')
     setModelName('')
@@ -626,12 +628,14 @@ export const CustomModelsPage: React.FC = () => {
       openEditGcpModal(model)
       return
     }
+    const keyRequestId = ++editKeyRequestRef.current
+    const listedKey = model.api_key?.trim() || ''
     setEditingModel(model)
     setDisplayName(model.display_name)
     setModelName(model.name)
     setProviderType(model.provider_type || inferProviderType(model.base_url))
     setBaseUrl(model.base_url)
-    setApiKey(model.api_key || '')
+    setApiKey(listedKey && listedKey !== '[REDACTED]' ? listedKey : '')
     setCustomQuotaEndpoint(model.custom_quota_endpoint || '')
     setIsFetchingCustomQuota(false)
     setCustomQuotaFeedback(null)
@@ -677,6 +681,26 @@ export const CustomModelsPage: React.FC = () => {
     }
     setModalError(null)
     setIsModalOpen(true)
+
+    if (!listedKey || listedKey === '[REDACTED]') {
+      api.getCustomModelKey(model.id)
+        .then((res) => {
+          if (editKeyRequestRef.current !== keyRequestId) return
+          const savedKey = res?.api_key?.trim() || ''
+          if (!savedKey || savedKey === '[REDACTED]') return
+          setApiKey((current) => (current.trim() ? current : savedKey))
+        })
+        .catch((err: any) => {
+          if (editKeyRequestRef.current === keyRequestId) {
+            setModalError(`Failed to load saved API key: ${sanitizeConnectionErrorMessage(err?.message || 'Request failed')}`)
+          }
+        })
+    }
+  }
+
+  const closeCustomModelModal = () => {
+    editKeyRequestRef.current += 1
+    setIsModalOpen(false)
   }
 
   const handleFetchModels = async () => {
@@ -1103,7 +1127,7 @@ export const CustomModelsPage: React.FC = () => {
         await api.saveRules({ default_custom_model: '' }).catch(() => {})
         setRulesDefaultCustom('')
       }
-      setIsModalOpen(false)
+      closeCustomModelModal()
       await loadData()
     } catch (err: any) {
       setModalError(`Failed to save model: ${err.message}`)
@@ -1124,7 +1148,7 @@ export const CustomModelsPage: React.FC = () => {
       await api.deleteCustomModel(id)
       setDeleteConfirmModel(null)
       if (isModalOpen && editingModel?.id === id) {
-        setIsModalOpen(false)
+        closeCustomModelModal()
       }
       await loadData()
     } catch (err: any) {
@@ -1812,7 +1836,7 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={() => setIsModalOpen(false)}
+                onClick={closeCustomModelModal}
                 className="btn-pill-tonal"
                 style={{ padding: '6px' }}
               >
@@ -2816,7 +2840,7 @@ export const CustomModelsPage: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeCustomModelModal}
                   className="btn-pill-tonal"
                   style={{ padding: '7px 18px', fontSize: '12px' }}
                 >
