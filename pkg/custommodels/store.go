@@ -77,6 +77,9 @@ func (s *Store) load() error {
 				migrated = true
 			}
 		}
+		if migrateOpenCodeGoLegacyBudget(&s.config.Models[i]) {
+			migrated = true
+		}
 		if s.config.Models[i].InternalID <= 0 {
 			s.config.Models[i].InternalID = s.allocateInternalIDLocked()
 			migrated = true
@@ -93,6 +96,30 @@ func (s *Store) load() error {
 		_ = s.saveLocked()
 	}
 	return nil
+}
+
+// migrateOpenCodeGoLegacyBudget removes manually entered dollar-budget fields
+// that older builds attached to OpenCode Go subscription models. The provider
+// reports rolling usage percentages, not a prepaid balance.
+func migrateOpenCodeGoLegacyBudget(model *CustomModel) bool {
+	if model == nil || model.QuotaManualOverride || model.QuotaType != QuotaTypeQuota {
+		return false
+	}
+	if !strings.Contains(strings.ToLower(model.BaseURL), "opencode.ai/zen/go") {
+		return false
+	}
+	hasLegacyBudget := model.TotalBudget != 0 || model.PrepaidBalance != 0
+	hasLegacyCurrency := strings.HasPrefix(strings.TrimSpace(model.BalanceValue), "$") ||
+		strings.HasPrefix(strings.TrimSpace(model.QuotaValue), "$")
+	if !hasLegacyBudget && !hasLegacyCurrency {
+		return false
+	}
+	model.TotalBudget = 0
+	model.PrepaidBalance = 0
+	model.BalanceValue = ""
+	model.QuotaValue = ""
+	model.QuotaFraction = nil
+	return true
 }
 
 func (s *Store) saveLocked() error {

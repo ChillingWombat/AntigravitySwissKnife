@@ -1774,11 +1774,12 @@ type ChatMetricsSummary struct {
 
 // ChatMetricsResponse is returned by /api/tokens/chat-metrics.
 type ChatMetricsResponse struct {
-	Success        bool               `json:"success"`
-	ConversationID string             `json:"conversation_id"`
-	Scope          string             `json:"scope"`
-	Summary        ChatMetricsSummary `json:"summary"`
-	Turns          []ChatMetricsTurn  `json:"turns"`
+	Success         bool               `json:"success"`
+	ConversationID  string             `json:"conversation_id"`
+	Scope           string             `json:"scope"`
+	UserPromptCount int                `json:"user_prompt_count"`
+	Summary         ChatMetricsSummary `json:"summary"`
+	Turns           []ChatMetricsTurn  `json:"turns"`
 }
 
 // isSafeConversationID validates conversation identifiers against directory traversal and illegal characters.
@@ -1831,6 +1832,7 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 	var turns []ChatMetricsTurn
 	var totalIn, totalOut, totalCached int64
 	var totalDurationMs, totalTimedOut int64
+	userPromptCount := 0
 
 	lines := strings.Split(string(data), "\n")
 	type jsonStep struct {
@@ -1854,6 +1856,9 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 		var st jsonStep
 		if err := json.Unmarshal([]byte(l), &st); err != nil {
 			continue
+		}
+		if st.Source == "USER_EXPLICIT" || st.Type == "USER_INPUT" || strings.Contains(st.Source, "USER") {
+			userPromptCount++
 		}
 		parsedSteps = append(parsedSteps, st)
 	}
@@ -2081,9 +2086,10 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 	}
 
 	return &ChatMetricsResponse{
-		Success:        true,
-		ConversationID: convID,
-		Scope:          scope,
+		Success:         true,
+		ConversationID:  convID,
+		Scope:           scope,
+		UserPromptCount: userPromptCount,
 		Summary: ChatMetricsSummary{
 			InputTokens:     totalIn,
 			OutputTokens:    totalOut,
@@ -2166,10 +2172,11 @@ ORDER BY cs.last_modified_time DESC LIMIT 1`
 	res, err := GetChatMetricsForConversation(convID, scope)
 	if err != nil {
 		writeJSON(w, map[string]interface{}{
-			"success":         false,
-			"error":           err.Error(),
-			"conversation_id": convID,
-			"scope":           scope,
+			"success":           false,
+			"error":             err.Error(),
+			"conversation_id":   convID,
+			"scope":             scope,
+			"user_prompt_count": 0,
 			"summary": ChatMetricsSummary{
 				InputTokens:     0,
 				OutputTokens:    0,
@@ -2183,7 +2190,6 @@ ORDER BY cs.last_modified_time DESC LIMIT 1`
 	}
 	writeJSON(w, res)
 }
-
 
 // computeModelLifetimeCosts computes total USD cost incurred by each model across all transcripts.
 func (s *Server) computeModelLifetimeCosts(ctx context.Context) map[string]float64 {
@@ -2293,6 +2299,9 @@ func (s *Server) reconcileCustomModelBalances(ctx context.Context) {
 	hasBudget := false
 	for i := range cfg.Models {
 		m := &cfg.Models[i]
+		if len(m.QuotaBuckets) > 0 {
+			continue
+		}
 		if m.TotalBudget > 0 || m.PrepaidBalance > 0 {
 			hasBudget = true
 			break
@@ -2315,6 +2324,9 @@ func (s *Server) reconcileCustomModelBalances(ctx context.Context) {
 	costs := s.computeModelLifetimeCosts(ctx)
 	for i := range cfg.Models {
 		m := &cfg.Models[i]
+		if len(m.QuotaBuckets) > 0 {
+			continue
+		}
 		if m.TotalBudget <= 0 && m.PrepaidBalance > 0 {
 			m.TotalBudget = m.PrepaidBalance
 		}

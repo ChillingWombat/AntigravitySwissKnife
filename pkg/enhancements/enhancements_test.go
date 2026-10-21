@@ -238,11 +238,14 @@ func TestGenerateEnhancementsScript(t *testing.T) {
 	if !strings.Contains(script, "mapStepsToTurnIndexes") {
 		t.Errorf("expected prompt jump bar to map mounted steps to turn indexes")
 	}
-	if !strings.Contains(script, "jumpBarTurnCountsByConversation") {
-		t.Errorf("expected prompt jump bar to consume the daemon transcript turn count")
+	if !strings.Contains(script, "jumpBarPromptCountsByConversation") {
+		t.Errorf("expected prompt jump bar to consume the daemon user-prompt count")
 	}
 	if !strings.Contains(script, "aria-posinset") {
 		t.Errorf("expected prompt jump bar to honor aria-posinset turn ordinals")
+	}
+	if !strings.Contains(script, "filterMainConversationSteps") {
+		t.Errorf("expected prompt jump bar to filter nested and duplicate prompt nodes")
 	}
 }
 
@@ -868,9 +871,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 }
 
 // TestPromptJumpBar_StableTurnEnumeration pins the "jumper" contract: the rail
-// must show one bar per prompt turn of the whole session, in a fixed order, with
-// a count that does not change while the virtualized transcript mounts and
-// unmounts turns around the viewport.
+// must show one bar per real user prompt in the main conversation, with a count
+// that stays stable while virtualization changes the mounted window but yields
+// to the authoritative transcript prompt count when stale state is disproved.
 func TestPromptJumpBar_StableTurnEnumeration(t *testing.T) {
 
 	script := GenerateEnhancementsScript(DefaultConfig())
@@ -891,8 +894,14 @@ func TestPromptJumpBar_StableTurnEnumeration(t *testing.T) {
 	if !strings.Contains(script, "jumpBarTurnRegistry") {
 		t.Errorf("expected a per-conversation high-water registry so the rail never shrinks mid-scroll")
 	}
-	if !strings.Contains(script, "jumpBarTurnCountsByConversation[targetId] = data.turns.length;") {
-		t.Errorf("expected the daemon chat-metrics turn count to feed the jump bar")
+	if !strings.Contains(script, "jumpBarPromptCountsByConversation[targetId] = data.user_prompt_count;") {
+		t.Errorf("expected the daemon chat-metrics user-prompt count to feed the jump bar")
+	}
+	if strings.Contains(script, "jumpBarPromptCountsByConversation[targetId] = data.turns.length;") {
+		t.Errorf("assistant execution turns must not size the prompt navigator")
+	}
+	if strings.Contains(script, `steps = Array.from(document.querySelectorAll('[data-testid="user-input-step"]'));`) {
+		t.Errorf("prompt detection must never fall back to the whole document")
 	}
 
 	// 1b. The active dash must stay in turn-index space: the click jump resolves in
@@ -922,50 +931,95 @@ func TestPromptJumpBar_StableTurnEnumeration(t *testing.T) {
 	driver := helpers + `
 const assert = require("assert");
 
-function mockStep(ordinal, holderOrdinal) {
+function mockStep(ordinal, holderOrdinal, opts) {
+  opts = opts || {};
   return {
+    textContent: opts.text || "",
+    parentElement: opts.parentElement || null,
     getAttribute: (k) => {
       if (k === "data-index" && ordinal !== null && ordinal !== undefined) return String(ordinal);
       if (k === "aria-posinset" && ordinal !== null && ordinal !== undefined) return String(ordinal);
+      if (opts.attrs && Object.prototype.hasOwnProperty.call(opts.attrs, k)) return opts.attrs[k];
       return null;
     },
     closest: (sel) => {
-      if (sel !== "[data-index]" || holderOrdinal === null || holderOrdinal === undefined) return null;
-      return { getAttribute: (k) => (k === "data-index" ? String(holderOrdinal) : null) };
-    }
+      if (sel === "[data-index]" && holderOrdinal !== null && holderOrdinal !== undefined) {
+        return { getAttribute: (k) => (k === "data-index" ? String(holderOrdinal) : null) };
+      }
+      if (sel === '[data-testid="conversation-view"]') return opts.view || null;
+      if (sel === '[data-testid="subagent-node"]') return opts.subagent ? {} : null;
+      if (sel === '[data-testid="agent-input-box"], .no-focus-agent-input') return opts.inputBox ? {} : null;
+      if (sel === '[data-testid="user-input-step"]') return opts.parentStep || null;
+      return null;
+    },
+    querySelector: (sel) => sel === ".whitespace-pre-wrap" ? { textContent: opts.text || "" } : null
   };
 }
 
 // A virtualized window of a 9-turn session only mounts turns 7 and 8.
 let ordinals = computeTurnOrdinals([mockStep(7), mockStep(8)]);
 assert.deepStrictEqual(ordinals, [7, 8], "explicit list ordinals must be read");
-assert.strictEqual(computeStableTurnTotal(ordinals, 2, 0, "conv-a", jumpBarTurnRegistry), 9, "the rail must size itself from the ordinals of the mounted window");
+assert.strictEqual(computeStableTurnTotal(ordinals, 2, null, "conv-a", jumpBarTurnRegistry), 9, "without daemon data, the rail must size itself from the mounted ordinals");
 
 // Scrolling up mounts a different window of the same session: count must not change.
-const scrolled = computeStableTurnTotal(computeTurnOrdinals([mockStep(2), mockStep(3)]), 2, 0, "conv-a", jumpBarTurnRegistry);
+const scrolled = computeStableTurnTotal(computeTurnOrdinals([mockStep(2), mockStep(3)]), 2, null, "conv-a", jumpBarTurnRegistry);
 assert.strictEqual(scrolled, 9, "the bar count must stay stable while the virtualized window moves");
 
-// Turns without ordinals: the daemon transcript count covers the whole session.
+// Turns without ordinals: the daemon prompt count covers the whole session.
 const daemonTotal = computeStableTurnTotal(computeTurnOrdinals([mockStep(null), mockStep(null)]), 2, 12, "conv-b", jumpBarTurnRegistry);
-assert.strictEqual(daemonTotal, 12, "the daemon turn count must size the rail when the DOM exposes no ordinals");
+assert.strictEqual(daemonTotal, 12, "the daemon prompt count must size the rail when the DOM exposes no ordinals");
 
 // Without ordinals and without the daemon, the count still must not shrink mid-session.
-const first = computeStableTurnTotal(computeTurnOrdinals([mockStep(null), mockStep(null), mockStep(null)]), 3, 0, "conv-c", jumpBarTurnRegistry);
+const first = computeStableTurnTotal(computeTurnOrdinals([mockStep(null), mockStep(null), mockStep(null)]), 3, null, "conv-c", jumpBarTurnRegistry);
 assert.strictEqual(first, 3, "three mounted turns must produce three bars");
-const remounted = computeStableTurnTotal(computeTurnOrdinals([mockStep(null)]), 1, 0, "conv-c", jumpBarTurnRegistry);
+const remounted = computeStableTurnTotal(computeTurnOrdinals([mockStep(null)]), 1, null, "conv-c", jumpBarTurnRegistry);
 assert.strictEqual(remounted, 3, "the rail must not drop bars when a turn is unmounted by the virtualized list");
 
 // Ordinals are also read from a wrapping list item (data-index on the holder).
 assert.deepStrictEqual(computeTurnOrdinals([mockStep(null, 4)]), [4], "holder data-index ordinals must be read");
 
 // Switching conversations must use that conversation's own count.
-const otherConv = computeStableTurnTotal(computeTurnOrdinals([mockStep(null), mockStep(null)]), 2, 0, "conv-d", jumpBarTurnRegistry);
+const otherConv = computeStableTurnTotal(computeTurnOrdinals([mockStep(null), mockStep(null)]), 2, null, "conv-d", jumpBarTurnRegistry);
 assert.strictEqual(otherConv, 2, "a new conversation must not inherit the previous conversation bar count");
+
+// A stale high-water mark must yield to the authoritative prompt count. A single
+// real prompt can produce many assistant/system execution turns, but only one
+// navigator row may remain.
+const onePromptWithLargeOrdinal = computeStableTurnTotal([7], 1, 1, "conv-stale", jumpBarTurnRegistry);
+assert.strictEqual(onePromptWithLargeOrdinal, 1, "the authoritative prompt count must remove ghost rows and ignore oversized ordinals");
+const grownBeforeTranscriptCatchup = computeStableTurnTotal([1], 2, 1, "conv-stale", jumpBarTurnRegistry);
+assert.strictEqual(grownBeforeTranscriptCatchup, 2, "a newly mounted prompt may appear before the transcript refresh");
+const shrunkAgain = computeStableTurnTotal([0], 1, 1, "conv-stale", jumpBarTurnRegistry);
+assert.strictEqual(shrunkAgain, 1, "the registry must shrink again when stale DOM evidence disappears");
 
 // Steps are mapped onto their turn indexes, in insertion order, without duplicates.
 assert.deepStrictEqual(mapStepsToTurnIndexes([7, 8], 9), [7, 8], "ordinal steps must keep their turn indexes");
 assert.deepStrictEqual(mapStepsToTurnIndexes([null, null], 3), [0, 1], "steps without ordinals must map positionally");
 assert.deepStrictEqual(mapStepsToTurnIndexes([5, null, 5], 7), [5, 0, 1], "duplicate ordinals must be de-duplicated and gaps filled");
+
+// Only prompt nodes in the main conversation survive. Nested conversation views,
+// inline subagent transcripts, editor inputs, and duplicate clones are excluded.
+const mainView = { contains: () => true };
+const nestedView = { contains: () => true };
+const firstPrompt = mockStep(0, null, { view: mainView, text: "first prompt" });
+const duplicatePrompt = mockStep(0, null, { view: mainView, text: "first prompt" });
+const repeatedTextPrompt = mockStep(3, null, { view: mainView, text: "first prompt" });
+const nestedConversationPrompt = mockStep(1, null, { view: nestedView, text: "nested prompt" });
+const inlineSubagentPrompt = mockStep(2, null, { view: mainView, subagent: true, text: "subagent prompt" });
+const inputPrompt = mockStep(4, null, { view: mainView, inputBox: true, text: "input draft" });
+const nestedStepParent = { closest: (sel) => sel === '[data-testid="user-input-step"]' ? {} : null };
+const holderPrompt = mockStep(null, null, { view: mainView, parentElement: nestedStepParent, text: "nested duplicate" });
+const filtered = filterMainConversationSteps([
+  firstPrompt,
+  duplicatePrompt,
+  repeatedTextPrompt,
+  firstPrompt,
+  nestedConversationPrompt,
+  inlineSubagentPrompt,
+  inputPrompt,
+  holderPrompt
+], mainView);
+assert.deepStrictEqual(filtered, [firstPrompt, repeatedTextPrompt], "main-conversation prompt detection must exclude nested, subagent, input, and duplicate nodes");
 
 console.log("jump-bar helpers OK");
 `

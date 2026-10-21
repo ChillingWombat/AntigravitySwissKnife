@@ -101,8 +101,8 @@ func TestExtractQuotaBucketsFromJSON(t *testing.T) {
 	t.Run("data limits with used/limit", func(t *testing.T) {
 		body := []byte(`{"data":{"limits":[{"type":"monthly","used":25,"limit":100}]}}`)
 		buckets := ExtractQuotaBucketsFromJSON(body)
-		if len(buckets) != 1 || buckets[0].Label != "Monthly" {
-			t.Fatalf("expected one Monthly bucket, got %+v", buckets)
+		if len(buckets) != 1 || buckets[0].Label != "30D" {
+			t.Fatalf("expected one 30D bucket, got %+v", buckets)
 		}
 		if buckets[0].Fraction == nil || *buckets[0].Fraction != 0.75 {
 			t.Errorf("used 25/100 must yield 0.75 remaining, got %v", buckets[0].Fraction)
@@ -141,8 +141,8 @@ func TestExtractQuotaBucketsFromJSON(t *testing.T) {
 // TestFormatQuotaWindowLabel locks the display labels the dashboard relies on.
 func TestFormatQuotaWindowLabel(t *testing.T) {
 	cases := map[string]string{
-		"5h": "5H", "5H": "5H", " 7d ": "7D", "weekly": "7D", "monthly": "Monthly",
-		"30d": "Monthly", "daily": "24H", "": "Quota", "all": "Quota", "customwindow": "Customwindow",
+		"5h": "5H", "5H": "5H", " 7d ": "7D", "weekly": "7D", "monthly": "30D",
+		"30d": "30D", "daily": "24H", "": "Quota", "all": "Quota", "customwindow": "Customwindow",
 	}
 	for in, want := range cases {
 		if got := FormatQuotaWindowLabel(in); got != want {

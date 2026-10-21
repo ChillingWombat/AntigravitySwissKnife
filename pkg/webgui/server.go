@@ -3012,11 +3012,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 		if !m.QuotaManualOverride {
 			quotaRes := custommodels.DetectAndFetchQuota(m)
 			if quotaRes.QuotaType != custommodels.QuotaTypeNA || (m.QuotaType == "" || m.QuotaType == custommodels.QuotaTypeNA) {
-				m.QuotaType = quotaRes.QuotaType
-				m.BalanceValue = quotaRes.BalanceValue
-				m.QuotaValue = quotaRes.QuotaValue
-				m.QuotaFraction = quotaRes.Fraction
-				m.QuotaBuckets = quotaRes.Buckets
+				custommodels.ApplyFetchedQuota(&m, quotaRes)
 			}
 		}
 
@@ -3288,13 +3284,9 @@ func (s *Server) handleCustomModelRefreshQuotas(w http.ResponseWriter, r *http.R
 	for i := range cfg.Models {
 		quotaRes := custommodels.DetectAndFetchQuota(cfg.Models[i])
 		if !cfg.Models[i].QuotaManualOverride {
-			cfg.Models[i].QuotaType = quotaRes.QuotaType
-			cfg.Models[i].BalanceValue = quotaRes.BalanceValue
-			cfg.Models[i].QuotaValue = quotaRes.QuotaValue
-			cfg.Models[i].QuotaFraction = quotaRes.Fraction
-			// Persist every reported quota window (5H + 7D/monthly) so the model
-			// card can render one indicator per window.
-			cfg.Models[i].QuotaBuckets = quotaRes.Buckets
+			// Persist every reported quota window (5H + 7D + 30D) so the
+			// model card can render one indicator per window.
+			custommodels.ApplyFetchedQuota(&cfg.Models[i], quotaRes)
 		}
 		if cfg.Models[i].PriceSource != custommodels.PriceSourceManual {
 			inP, cacheP, outP, src := custommodels.FetchModelPricing(r.Context(), cfg.Models[i].Name, string(cfg.Models[i].ProviderType), cfg.Models[i].BaseURL, cfg.Models[i].APIKey)
