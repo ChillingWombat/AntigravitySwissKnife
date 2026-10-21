@@ -55,6 +55,15 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.DefaultNewProject != "auto" {
 		t.Errorf("expected DefaultNewProject to be 'auto', got %s", cfg.DefaultNewProject)
 	}
+	if cfg.AutomationTargetProjectEnabled == nil || !*cfg.AutomationTargetProjectEnabled {
+		t.Errorf("expected AutomationTargetProjectEnabled to be true by default")
+	}
+	if cfg.ContextWindowIndicatorEnabled == nil || !*cfg.ContextWindowIndicatorEnabled {
+		t.Errorf("expected ContextWindowIndicatorEnabled to be true by default")
+	}
+	if cfg.ContextWindowClickToCompactEnabled == nil || !*cfg.ContextWindowClickToCompactEnabled {
+		t.Errorf("expected ContextWindowClickToCompactEnabled to be true by default")
+	}
 	if !cfg.OverviewPanel.ReplaceSeeAllTriangle {
 		t.Errorf("expected OverviewPanel.ReplaceSeeAllTriangle to be true by default")
 	}
@@ -135,6 +144,48 @@ func TestStore_Operations(t *testing.T) {
 	}
 	if loaded.DefaultNewProject != "Antigravity Swiss Knife" {
 		t.Errorf("expected DefaultNewProject to persist, got %s", loaded.DefaultNewProject)
+	}
+}
+
+func TestStore_AutomationTargetProjectEnabledDefaultsTrueForLegacyConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "enhancements.json")
+	if err := os.WriteFile(configPath, []byte(`{"version":"1.0.0","enabled":true}`), 0644); err != nil {
+		t.Fatalf("failed to write legacy config: %v", err)
+	}
+
+	store, err := NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to load legacy config: %v", err)
+	}
+
+	cfg := store.GetConfig()
+	if cfg.AutomationTargetProjectEnabled == nil || !*cfg.AutomationTargetProjectEnabled {
+		t.Fatalf("expected missing automation_target_project_enabled to load as true")
+	}
+	if cfg.ContextWindowIndicatorEnabled == nil || !*cfg.ContextWindowIndicatorEnabled {
+		t.Fatalf("expected missing context_window_indicator_enabled to load as true")
+	}
+	if cfg.ContextWindowClickToCompactEnabled == nil || !*cfg.ContextWindowClickToCompactEnabled {
+		t.Fatalf("expected missing context_window_click_to_compact_enabled to load as true")
+	}
+
+	if err := os.WriteFile(configPath, []byte(`{"version":"1.0.0","enabled":true,"automation_target_project_enabled":false,"context_window_indicator_enabled":false,"context_window_click_to_compact_enabled":false}`), 0644); err != nil {
+		t.Fatalf("failed to write disabled config: %v", err)
+	}
+	store, err = NewStore(configPath)
+	if err != nil {
+		t.Fatalf("failed to load disabled config: %v", err)
+	}
+	cfg = store.GetConfig()
+	if cfg.AutomationTargetProjectEnabled == nil || *cfg.AutomationTargetProjectEnabled {
+		t.Fatalf("expected explicit automation_target_project_enabled false to persist")
+	}
+	if cfg.ContextWindowIndicatorEnabled == nil || *cfg.ContextWindowIndicatorEnabled {
+		t.Fatalf("expected explicit context_window_indicator_enabled false to persist")
+	}
+	if cfg.ContextWindowClickToCompactEnabled == nil || *cfg.ContextWindowClickToCompactEnabled {
+		t.Fatalf("expected explicit context_window_click_to_compact_enabled false to persist")
 	}
 }
 
@@ -428,8 +479,10 @@ func TestChatNavigatorPanel_IsolationAndDismiss(t *testing.T) {
 		`bar.style.pointerEvents = "auto";`,
 		`bar.onmouseenter = () => { scheduleOpenPromptNavigatorPanel(); };`,
 		`bar.onmouseleave = () => { scheduleClosePromptNavigatorPanel(); };`,
-		`gap: 0px; padding: 4px 6px;`,
-		`padding: 3.5px 6px; box-sizing: content-box; background-clip: content-box;`,
+		`gap: 7px; padding: 4px 2px;`,
+		`.swiss-prompt-dash::before`,
+		`position: relative !important;`,
+		`position: relative; width: `,
 		`marker.style.width = hoverWidth + "px";`,
 		`marker.style.width = ui.dashWidth + "px";`,
 		`vh * 0.6`,
@@ -472,6 +525,80 @@ func TestChatNavigatorPanel_IsolationAndDismiss(t *testing.T) {
 
 	if !strings.Contains(script, "document.addEventListener(\"keydown\", (e) => handleNavigatorKeydown(e), true);") {
 		t.Errorf("expected a document-level capture keydown listener for the navigator")
+	}
+}
+
+func TestPromptJumpBar_HidesOutsideChatView(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+	startMarker := "function renderPromptJumpBar() {"
+	endMarker := "function isNavigatorPanelMode() {"
+	startIdx := strings.Index(script, startMarker)
+	endIdx := strings.Index(script, endMarker)
+	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
+		t.Fatalf("expected renderPromptJumpBar to be extractable")
+	}
+	renderFn := script[startIdx:endIdx]
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+
+	driver := `
+const assert = require("assert");
+class El {
+  constructor() {
+    this.style = {};
+    this.attributes = {};
+    this.parentElement = null;
+  }
+  setAttribute(k, v) { this.attributes[k] = v; }
+  removeAttribute(k) { delete this.attributes[k]; }
+  getAttribute(k) { return this.attributes[k] !== undefined ? this.attributes[k] : null; }
+  querySelectorAll() { return []; }
+  remove() {}
+}
+
+const body = new El();
+const bar = new El();
+const tooltip = new El();
+bar.parentElement = body;
+
+const document = {
+  body: body,
+  getElementById: (id) => {
+    if (id === "swiss-prompt-jump-bar") return bar;
+    if (id === "swiss-prompt-tooltip") return tooltip;
+    return null;
+  },
+  querySelector: () => null,
+  querySelectorAll: () => []
+};
+const enhConfig = { enabled: true, prompt_jump_bar: { enabled: true } };
+const chatNavigatorMode = "panel";
+const normalizeNavigatorMode = () => "panel";
+const getJumpBarSteps = () => [];
+const isMainStageActive = () => false;
+let closeCalls = 0;
+const closePromptNavigatorPanel = () => { closeCalls++; };
+
+` + renderFn + `
+
+renderPromptJumpBar();
+assert.strictEqual(bar.style.display, "none", "a page without conversation-view or prompt steps must hide the rail");
+assert.strictEqual(tooltip.style.display, "none", "the old tooltip must not survive navigation away from chat");
+assert.strictEqual(closeCalls, 1, "the navigator panel must be closed outside chat");
+console.log("non-chat jump bar gate OK");
+`
+
+	cmd := exec.Command(nodePath, "-")
+	cmd.Stdin = strings.NewReader(driver)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("non-chat jump bar test failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "non-chat jump bar gate OK") {
+		t.Fatalf("expected the non-chat jump bar driver to complete, got:\n%s", string(out))
 	}
 }
 
@@ -1342,6 +1469,19 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing(t *testing.T) {
 	if !strings.Contains(script, "swiss-context-window-ring") {
 		t.Errorf("expected script to contain swiss-context-window-ring")
 	}
+	for _, token := range []string{
+		"function isContextWindowIndicatorEnabled()",
+		"function isContextWindowClickToCompactEnabled()",
+		"function removeContextWindowProgressRings()",
+		"if (!isContextWindowIndicatorEnabled() || window.__swissDaemonOnline === false || !window.__swissDaemonOnline)",
+		"if (!isContextWindowClickToCompactEnabled())",
+		`ring.setAttribute("role", clickToCompactEnabled ? "button" : "img")`,
+		"if (clickToCompactEnabled) {",
+	} {
+		if !strings.Contains(script, token) {
+			t.Errorf("expected context window settings guard %q", token)
+		}
+	}
 
 	// Verify dynamic custom model context window lookup and 1M native default
 	if !strings.Contains(script, "customModelsListCache") || !strings.Contains(script, "/api/custom_models") {
@@ -1409,7 +1549,7 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing_DaemonOffline(t *t
 	}
 
 	// 4. Verify DOM removal of context rings when daemon is offline
-	if !strings.Contains(script, `existingMain.remove()`) || !strings.Contains(script, `swiss-context-window-ring-sub`) {
+	if !strings.Contains(script, `removeContextWindowProgressRings()`) || !strings.Contains(script, `swiss-context-window-ring-sub`) {
 		t.Errorf("expected script to remove existing context rings when daemon is offline")
 	}
 
@@ -1562,9 +1702,6 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing_Deduplication(t *t
 	}
 }
 
-
-
-
 // Prompt text is user input: it must never be interpolated into innerHTML
 // unescaped, otherwise a prompt containing markup executes in the host page.
 func TestChatNavigatorPanel_EscapesPromptTextInTooltip(t *testing.T) {
@@ -1589,11 +1726,14 @@ func TestChatNavigatorPanel_EscapesPromptTextInTooltip(t *testing.T) {
 func TestAutomationTargetProjectSelector_FlagOverride(t *testing.T) {
 	script := GenerateEnhancementsScript(DefaultConfig())
 
-	if !strings.Contains(script, "jetski-sidecar-declared-permissions") {
-		t.Errorf("expected script to contain jetski-sidecar-declared-permissions flag override")
-	}
-	if !strings.Contains(script, `parsedFlags["jetski-sidecar-declared-permissions"] = false;`) {
-		t.Errorf("expected script to set jetski-sidecar-declared-permissions to false")
+	for _, token := range []string{
+		"function isAutomationTargetProjectEnabled()",
+		"const targetProjectFlag = !isAutomationTargetProjectEnabled();",
+		`parsedFlags["jetski-sidecar-declared-permissions"] = targetProjectFlag;`,
+	} {
+		if !strings.Contains(script, token) {
+			t.Errorf("expected script to contain %q", token)
+		}
 	}
 
 	nodePath, err := exec.LookPath("node")
@@ -1623,20 +1763,31 @@ const window = {
 };
 function StorageEvent(type, dict) { Object.assign(this, dict); }
 
-// Simulate the flag override logic from the script
-const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
-const parsedFlags = JSON.parse(rawFlags);
-if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== false)) {
-  parsedFlags["remote-control-setting-enabled"] = true;
-  parsedFlags["jetski-sidecar-declared-permissions"] = false;
-  const nextFlags = JSON.stringify(parsedFlags);
-  localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
+function applyFlagOverride(targetProjectEnabled) {
+  const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
+  const parsedFlags = JSON.parse(rawFlags);
+  const targetProjectFlag = !targetProjectEnabled;
+  if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== targetProjectFlag)) {
+    parsedFlags["remote-control-setting-enabled"] = true;
+    parsedFlags["jetski-sidecar-declared-permissions"] = targetProjectFlag;
+    localStorage.setItem("jetski.developer.customFlagOverrides", JSON.stringify(parsedFlags));
+  }
+  return JSON.parse(localStorage.getItem("jetski.developer.customFlagOverrides"));
 }
 
-const saved = JSON.parse(localStorage.getItem("jetski.developer.customFlagOverrides"));
-assert.strictEqual(saved["remote-control-setting-enabled"], true);
-assert.strictEqual(saved["jetski-sidecar-declared-permissions"], false);
-assert.strictEqual(saved["some-other-flag"], true);
+const enabled = applyFlagOverride(true);
+assert.strictEqual(enabled["remote-control-setting-enabled"], true);
+assert.strictEqual(enabled["jetski-sidecar-declared-permissions"], false);
+assert.strictEqual(enabled["some-other-flag"], true);
+
+storage["jetski.developer.customFlagOverrides"] = JSON.stringify({
+  "remote-control-setting-enabled": true,
+  "jetski-sidecar-declared-permissions": false,
+  "some-other-flag": true
+});
+const disabled = applyFlagOverride(false);
+assert.strictEqual(disabled["jetski-sidecar-declared-permissions"], true);
+assert.strictEqual(disabled["some-other-flag"], true);
 
 console.log("flag override OK");
 `
@@ -1657,6 +1808,8 @@ func TestAutomationTargetProjectSelector_DOMInjection(t *testing.T) {
 	for _, token := range []string{
 		"extractExistingAntigravityProjects",
 		"applyAutomationTargetProjectSelector",
+		"if (!isAutomationTargetProjectEnabled()) {",
+		`document.getElementById("swiss-automation-project-field")?.remove();`,
 		"swiss-automation-project-field",
 		"swiss-automation-project-select",
 		"Target Project",
@@ -1931,12 +2084,67 @@ process.exit(0);
 	}
 }
 
+func TestAutomationTargetProjectSelector_DisabledRemovesInjectedField(t *testing.T) {
+	cfg := DefaultConfig()
+	disabled := false
+	cfg.AutomationTargetProjectEnabled = &disabled
+	script := GenerateEnhancementsScript(cfg)
+
+	startMarker := "function applyAutomationTargetProjectSelector() {"
+	endMarker := "\n    function isMainStageActive() {"
+	startIdx := strings.Index(script, startMarker)
+	endIdx := strings.Index(script[startIdx:], endMarker)
+	if startIdx == -1 || endIdx == -1 {
+		t.Fatal("expected applyAutomationTargetProjectSelector to be extractable")
+	}
+	selectorFn := script[startIdx : startIdx+endIdx]
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+
+	driver := `
+const assert = require("assert");
+let removed = false;
+let queried = false;
+const field = { remove: () => { removed = true; } };
+const document = {
+  getElementById: (id) => id === "swiss-automation-project-field" ? field : null,
+  querySelector: () => { queried = true; return null; }
+};
+const enhConfig = { automation_target_project_enabled: false };
+function isAutomationTargetProjectEnabled() {
+  return enhConfig.automation_target_project_enabled !== false;
+}
+
+` + selectorFn + `
+
+applyAutomationTargetProjectSelector();
+assert.strictEqual(removed, true, "disabled target-project mode must remove the injected field");
+assert.strictEqual(queried, false, "disabled target-project mode must return before inspecting the modal");
+console.log("disabled selector OK");
+`
+
+	cmd := exec.Command(nodePath, "-")
+	cmd.Stdin = strings.NewReader(driver)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node execution failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "disabled selector OK") {
+		t.Fatalf("unexpected output: %s", string(out))
+	}
+}
+
 func TestAutomationTargetProjectSelector_ManageSidecarInterceptor(t *testing.T) {
 	script := GenerateEnhancementsScript(DefaultConfig())
 
 	for _, token := range []string{
 		"/exa.language_server_pb.LanguageServerService/ManageSidecar",
 		"action === 5",
+		"if (!isAutomationTargetProjectEnabled()) {",
+		"return origFetch(input, init);",
 		"body.projectId = chosenProj",
 		"action: 6",
 		"sidecarId:",
@@ -2115,6 +2323,71 @@ window.document = document;
 	}
 }
 
+func TestAutomationTargetProjectSelector_DisabledInterceptorPreservesRequest(t *testing.T) {
+	cfg := DefaultConfig()
+	disabled := false
+	cfg.AutomationTargetProjectEnabled = &disabled
+	script := GenerateEnhancementsScript(cfg)
+
+	startMarker := "function installManageSidecarInterceptor() {"
+	endMarker := "function extractExistingAntigravityProjects() {"
+	startIdx := strings.Index(script, startMarker)
+	endIdx := strings.Index(script, endMarker)
+	if startIdx == -1 || endIdx <= startIdx {
+		t.Fatal("expected installManageSidecarInterceptor to be extractable")
+	}
+	interceptorFn := script[startIdx:endIdx]
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+
+	driver := `
+const assert = require("assert");
+const calls = [];
+const originalBody = JSON.stringify({ action: 5, name: "Native Task" });
+const window = {
+  fetch: async (input, init) => {
+    calls.push({ input, init });
+    return { ok: true, status: 200 };
+  }
+};
+const document = {
+  getElementById: () => ({ value: "proj-alpha" })
+};
+const enhConfig = { automation_target_project_enabled: false };
+function isAutomationTargetProjectEnabled() {
+  return enhConfig.automation_target_project_enabled !== false;
+}
+
+` + interceptorFn + `
+
+(async () => {
+  installManageSidecarInterceptor();
+  await window.fetch("/exa.language_server_pb.LanguageServerService/ManageSidecar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: originalBody
+  });
+  assert.strictEqual(calls.length, 1, "disabled target-project mode must not send an action 6 follow-up");
+  assert.strictEqual(calls[0].init.body, originalBody, "disabled target-project mode must preserve the native request body");
+  assert.strictEqual(JSON.parse(calls[0].init.body).projectId, undefined);
+  console.log("disabled interceptor OK");
+})();
+`
+
+	cmd := exec.Command(nodePath, "-")
+	cmd.Stdin = strings.NewReader(driver)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node execution failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "disabled interceptor OK") {
+		t.Fatalf("unexpected output: %s", string(out))
+	}
+}
+
 func TestContextWindowProgressRing_CompactSlashCommandFlagOverride(t *testing.T) {
 	script := GenerateEnhancementsScript(DefaultConfig())
 
@@ -2155,9 +2428,10 @@ function StorageEvent(type, dict) { Object.assign(this, dict); }
 // Simulate the flag override logic from the script
 const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
 const parsedFlags = JSON.parse(rawFlags);
-if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== false || parsedFlags["enable-compact-slash-command"] !== true)) {
+	const targetProjectFlag = !true;
+	if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== targetProjectFlag || parsedFlags["enable-compact-slash-command"] !== true)) {
   parsedFlags["remote-control-setting-enabled"] = true;
-  parsedFlags["jetski-sidecar-declared-permissions"] = false;
+  parsedFlags["jetski-sidecar-declared-permissions"] = targetProjectFlag;
   parsedFlags["enable-compact-slash-command"] = true;
   const nextFlags = JSON.stringify(parsedFlags);
   localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
@@ -2383,6 +2657,7 @@ class MutationObserver {
 }
 function requestAnimationFrame(cb) { return setTimeout(cb, 0); }
 function cancelAnimationFrame(id) { clearTimeout(id); }
+let loadedEnhancements = { enabled: true };
 const window = {
   document: document,
   location: { pathname: "/c/33333333-4444-5555-6666-777777777777" },
@@ -2391,8 +2666,9 @@ const window = {
   addEventListener: () => {},
   dispatchEvent: () => {},
   __swissDaemonOnline: true,
-  fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ summary: { context_tokens: 45000 } }) })
+  fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(loadedEnhancements) })
 };
+globalThis.fetch = window.fetch;
 
 // Create the Antigravity Chat UI tree:
 // agent-input-box -> container -> model-selector-trigger
@@ -2477,6 +2753,34 @@ inputBox.__reactFiber$test = {
   loadingEl.remove();
   await new Promise(r => setTimeout(r, 250));
   assert.strictEqual(ring.getAttribute("data-swiss-compacting"), null, "ring must clear data-swiss-compacting once loading UI disappears");
+
+  // 5. Disabling the indicator from refreshed settings removes the ring without reloading.
+  loadedEnhancements = {
+    enabled: true,
+    context_window_indicator_enabled: false,
+    context_window_click_to_compact_enabled: true
+  };
+  window.__swissOnEnhancementsDaemonChanged(true);
+  await new Promise(r => setTimeout(r, 20));
+  assert.strictEqual(document.getElementById("swiss-context-window-ring"), null, "disabling the indicator must remove the ring");
+
+  // 6. Re-enabling the indicator restores it as a non-interactive usage display.
+  loadedEnhancements = {
+    enabled: true,
+    context_window_indicator_enabled: true,
+    context_window_click_to_compact_enabled: false
+  };
+  window.__swissOnEnhancementsDaemonChanged(true);
+  await new Promise(r => setTimeout(r, 20));
+  const indicatorOnlyRing = document.getElementById("swiss-context-window-ring");
+  assert(indicatorOnlyRing !== null, "re-enabling the indicator must restore the ring");
+  assert.strictEqual(indicatorOnlyRing.getAttribute("role"), "img", "click-disabled ring must not expose button role");
+  assert.strictEqual(indicatorOnlyRing.getAttribute("tabindex"), "-1", "click-disabled ring must not be keyboard-interactive");
+  assert(!indicatorOnlyRing.getAttribute("title").includes("Click to compact"), "click-disabled ring must not advertise compaction");
+  const submitCountBeforeDisabledClick = handleSubmitCalls.length;
+  indicatorOnlyRing.click();
+  await new Promise(r => setTimeout(r, 20));
+  assert.strictEqual(handleSubmitCalls.length, submitCountBeforeDisabledClick, "click-disabled ring must not dispatch compact");
 
   console.log("click to compact OK");
   process.exit(0);

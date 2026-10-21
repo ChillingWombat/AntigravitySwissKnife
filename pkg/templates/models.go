@@ -35,7 +35,7 @@ type ScheduledTemplate struct {
 
 // SidecarPayload defines the JSON structure of an Antigravity ~/.gemini/config/sidecars/<id>/sidecar.json file.
 type SidecarPayload struct {
-	Builtin       string   `json:"builtin"`                 // "schedule"
+	Builtin       string   `json:"builtin"`                  // "schedule"
 	RestartPolicy string   `json:"restart_policy,omitempty"` // "always"
 	Args          []string `json:"args"`
 	DisplayName   string   `json:"display_name"`
@@ -46,6 +46,7 @@ type DeployTaskRequest struct {
 	TemplateID     string            `json:"template_id"`
 	DisplayName    string            `json:"display_name"`
 	CronExpression string            `json:"cron_expression"`
+	TimeZone       string            `json:"timezone,omitempty"`
 	TargetProject  string            `json:"target_project"`
 	CustomPrompt   string            `json:"custom_prompt"`
 	Parameters     map[string]string `json:"parameters"`
@@ -56,6 +57,7 @@ type UpdateSidecarRequest struct {
 	ID             string `json:"id"`
 	DisplayName    string `json:"display_name"`
 	CronExpression string `json:"cron_expression"`
+	TimeZone       string `json:"timezone,omitempty"`
 	Prompt         string `json:"prompt"`
 }
 
@@ -64,6 +66,7 @@ type SidecarTaskInfo struct {
 	ID             string `json:"id"`
 	DisplayName    string `json:"display_name"`
 	CronExpression string `json:"cron_expression"`
+	TimeZone       string `json:"timezone,omitempty"`
 	ScheduleText   string `json:"schedule_text,omitempty"`
 	PromptPreview  string `json:"prompt_preview"`
 	Prompt         string `json:"prompt,omitempty"`

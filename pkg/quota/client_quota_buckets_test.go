@@ -91,6 +91,10 @@ func TestFetchLiveQuotaBreakdown_ExhaustedClaudeWeeklyStaysZero(t *testing.T) {
 	payload := `{
 		"subscription_tier": "pro",
 		"is_trial": true,
+		"models": {
+			"claude-sonnet-4-6": {"displayName": "Claude Sonnet 4.6 (Thinking)"},
+			"gpt-oss-120b-medium": {"displayName": "GPT-OSS 120B (Medium)"}
+		},
 		"groups": [
 			{
 				"displayName": "Gemini Models",
@@ -139,6 +143,12 @@ func TestFetchLiveQuotaBreakdown_ExhaustedClaudeWeeklyStaysZero(t *testing.T) {
 	if !bd.HasClaudeGPTRights {
 		t.Errorf("expected HasClaudeGPTRights=true for the 3p group")
 	}
+	if !bd.ModelCatalogKnown {
+		t.Errorf("expected the model catalog to be detected")
+	}
+	if bd.HasPaidProModel {
+		t.Errorf("legacy family-shared models must not be treated as paid Pro")
+	}
 
 	// Without the weekly bucket at all (tier where weekly does not apply), the
 	// 5h value still mirrors onto the weekly slot.
@@ -168,5 +178,35 @@ func TestFetchLiveQuotaBreakdown_ExhaustedClaudeWeeklyStaysZero(t *testing.T) {
 	}
 	if bd2.QuotaWeeklyClaudeGPT != 0.42 {
 		t.Errorf("expected weekly to mirror 5h when the weekly bucket is absent, got %f", bd2.QuotaWeeklyClaudeGPT)
+	}
+}
+
+func TestFetchLiveQuotaBreakdown_DetectsPaidProModel(t *testing.T) {
+	origURLs := CloudCodeRetrieveQuotaURLs
+	defer func() { CloudCodeRetrieveQuotaURLs = origURLs }()
+
+	payload := `{
+		"subscriptionTier": "Pro",
+		"models": {
+			"claude-sonnet-5-5": {"displayName": "Claude Sonnet 5.5 (Thinking)"}
+		},
+		"groups": [{
+			"displayName": "Claude and GPT models",
+			"buckets": [{"bucketId": "3p-5h", "window": "5h", "remainingFraction": 1}]
+		}]
+	}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer srv.Close()
+	CloudCodeRetrieveQuotaURLs = []string{srv.URL}
+
+	bd, err := FetchLiveQuotaBreakdown("dummy_token", "")
+	if err != nil {
+		t.Fatalf("FetchLiveQuotaBreakdown failed: %v", err)
+	}
+	if !bd.ModelCatalogKnown || !bd.HasPaidProModel {
+		t.Fatalf("expected paid Pro model in catalog, known=%v paid=%v", bd.ModelCatalogKnown, bd.HasPaidProModel)
 	}
 }

@@ -2,6 +2,7 @@ package quota
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -91,6 +92,16 @@ func IsTrialWarningText(text string) bool {
 	return false
 }
 
+// isPaidProModelIdentifier identifies models that family-shared trials do not receive.
+// Claude/GPT quota alone is not a paid-Pro signal because trials include the older models.
+func isPaidProModelIdentifier(modelID, displayName string) bool {
+	value := strings.ToLower(strings.TrimSpace(modelID + " " + displayName))
+	return strings.Contains(value, "sonnet-5-5") ||
+		strings.Contains(value, "sonnet 5.5") ||
+		strings.Contains(value, "opus-5-5") ||
+		strings.Contains(value, "opus 5.5")
+}
+
 // NormalizePlanTier maps any API response or legacy label into canonical tier representation.
 func NormalizePlanTier(raw string) string {
 	trimmed := strings.TrimSpace(raw)
@@ -103,7 +114,6 @@ func NormalizePlanTier(raw string) string {
 	}
 	if strings.Contains(lower, "trial") ||
 		strings.Contains(lower, "promo") ||
-		strings.Contains(lower, "google ai pro") ||
 		strings.Contains(lower, "starter pro") ||
 		strings.Contains(lower, "jio") ||
 		strings.Contains(lower, "partner") ||
@@ -136,6 +146,13 @@ func NormalizePlanTier(raw string) string {
 		return PlanTierPro
 	}
 	return trimmed
+}
+
+func normalizeOptionalPlanTier(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	return NormalizePlanTier(raw)
 }
 
 var (
@@ -229,9 +246,11 @@ func RefreshGoogleToken(refreshToken, clientID, clientSecret string) (string, er
 }
 
 type ProjectContextResult struct {
-	ProjectID string
-	TierName  string
-	Credits   float64
+	ProjectID     string
+	TierName      string
+	TierExplicit  bool
+	ExplicitTrial bool
+	Credits       float64
 }
 
 // FetchProjectAndTier calls loadCodeAssist across endpoints to discover project, subscription tier, and credits.
@@ -267,22 +286,22 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 		}
 
 		type rawTierItem struct {
-			ID               string      `json:"id"`
-			TierID           string      `json:"tierId"`
-			TierIDSnake      string      `json:"tier_id"`
-			Tier             string      `json:"tier"`
-			TierType         string      `json:"tierType"`
-			TierTypeSnake    string      `json:"tier_type"`
-			Name             string      `json:"name"`
-			TierName         string      `json:"tierName"`
-			TierNameSnake    string      `json:"tier_name"`
-			DisplayName      string      `json:"displayName"`
-			DisplayNameSnake string      `json:"display_name"`
-			Description      string      `json:"description"`
-			IsTrial          bool        `json:"isTrial"`
-			IsTrialSnake     bool        `json:"is_trial"`
-			TrialStatus      string      `json:"trialStatus"`
-			TrialStatusSnake string      `json:"trial_status"`
+			ID               string `json:"id"`
+			TierID           string `json:"tierId"`
+			TierIDSnake      string `json:"tier_id"`
+			Tier             string `json:"tier"`
+			TierType         string `json:"tierType"`
+			TierTypeSnake    string `json:"tier_type"`
+			Name             string `json:"name"`
+			TierName         string `json:"tierName"`
+			TierNameSnake    string `json:"tier_name"`
+			DisplayName      string `json:"displayName"`
+			DisplayNameSnake string `json:"display_name"`
+			Description      string `json:"description"`
+			IsTrial          bool   `json:"isTrial"`
+			IsTrialSnake     bool   `json:"is_trial"`
+			TrialStatus      string `json:"trialStatus"`
+			TrialStatusSnake string `json:"trial_status"`
 			AvailableCredits []struct {
 				CreditType                  string      `json:"creditType"`
 				CreditAmount                interface{} `json:"creditAmount"`
@@ -451,6 +470,7 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 			if isRootTrial && (rawTier == "" || NormalizePlanTier(rawTier) == PlanTierPro) {
 				rawTier = PlanTierProTrial
 			}
+			tierExplicit := rawTier != ""
 
 			// 2. Allowed tiers inspection
 			allAllowed := append(res.AllowedTiers, res.AllowedTiersSnake...)
@@ -504,6 +524,8 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 			} else {
 				result.TierName = ""
 			}
+			result.TierExplicit = tierExplicit
+			result.ExplicitTrial = isRootTrial
 
 			// Extract credits
 			parseCreditVal := func(v interface{}) float64 {
@@ -562,11 +584,14 @@ type LiveQuotaBreakdown struct {
 	Quota5hClaudeGPT       float64
 	QuotaWeeklyClaudeGPT   float64
 	SubscriptionTier       string
+	ExplicitTrial          bool
 	Credits                float64
 	HasClaudeGPTRights     bool
 	HasClaude              bool
 	HasGPT                 bool
 	HasClaudeWeeklyBucket  bool
+	ModelCatalogKnown      bool
+	HasPaidProModel        bool
 	ResetTime5h            time.Time
 	ResetTimeWeekly        time.Time
 	ResetHorizonText       string
@@ -811,7 +836,11 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				WarningMessage        string `json:"warningMessage"`
 				WarningMessageSnake   string `json:"warning_message"`
 				Notice                string `json:"notice"`
-				AICredits             *struct {
+				Models                map[string]struct {
+					DisplayName      string `json:"displayName"`
+					DisplayNameSnake string `json:"display_name"`
+				} `json:"models"`
+				AICredits *struct {
 					Credits interface{} `json:"credits"`
 				} `json:"aiCredits"`
 				AICreditsSnake *struct {
@@ -903,6 +932,26 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				credAmount = parseCredit(res.AICreditsSnake.Credits)
 			}
 
+			hasPaidProModel := false
+			hasClaudeModel := false
+			hasGPTModel := false
+			for modelID, metadata := range res.Models {
+				displayName := metadata.DisplayName
+				if displayName == "" {
+					displayName = metadata.DisplayNameSnake
+				}
+				if isPaidProModelIdentifier(modelID, displayName) {
+					hasPaidProModel = true
+				}
+				value := strings.ToLower(modelID + " " + displayName)
+				if strings.Contains(value, "claude") {
+					hasClaudeModel = true
+				}
+				if strings.Contains(value, "gpt") {
+					hasGPTModel = true
+				}
+			}
+
 			breakdown := &LiveQuotaBreakdown{
 				Quota5hGemini:          1.0,
 				QuotaWeeklyGemini:      1.0,
@@ -910,8 +959,14 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				QuotaWeeklyClaudeGPT:   0.0,
 				ResetHorizonText:       "Ready",
 				ResetHorizonWeeklyText: "Ready",
-				SubscriptionTier:       NormalizePlanTier(subTier),
+				SubscriptionTier:       normalizeOptionalPlanTier(subTier),
+				ExplicitTrial:          isSummaryTrial,
 				Credits:                credAmount,
+				ModelCatalogKnown:      len(res.Models) > 0,
+				HasPaidProModel:        hasPaidProModel,
+				HasClaudeGPTRights:     hasClaudeModel || hasGPTModel,
+				HasClaude:              hasClaudeModel,
+				HasGPT:                 hasGPTModel,
 			}
 
 			if len(res.Groups) == 0 {
@@ -1058,11 +1113,17 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 	if accessToken == "" {
 		return "", fmt.Errorf("empty access token")
 	}
+	if remaining := checkQuotaBackoff(); remaining > 0 {
+		return "", fmt.Errorf("quota backoff active for %v", remaining.Round(time.Second))
+	}
+
 	client := &http.Client{Timeout: 6 * time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
 	payload := []byte(`{"project":""}`)
 
 	for _, endpoint := range CloudCodeModelsURLs {
-		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 		if err != nil {
 			continue
 		}
@@ -1077,6 +1138,19 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
+		if resp.StatusCode == http.StatusTooManyRequests {
+			backoff := 5 * time.Second
+			if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+				if secs, err := strconv.Atoi(retryAfter); err == nil && secs > 0 {
+					backoff = time.Duration(secs) * time.Second
+				}
+			}
+			if backoff > 60*time.Second {
+				backoff = 60 * time.Second
+			}
+			recordQuotaBackoff(backoff)
+			return "", fmt.Errorf("model tier lookup rate limited")
+		}
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -1108,8 +1182,6 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 			hasUltra := len(ultraModels) > 0
 			hasEnterprise := len(entModels) > 0
 			hasPro := len(proModels) > 0
-			hasThirdParty := false
-
 			for mID, mMeta := range data.Models {
 				low := strings.ToLower(mID + " " + mMeta.DisplayName)
 				if strings.Contains(low, "ultra") {
@@ -1117,9 +1189,6 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 				}
 				if strings.Contains(low, "enterprise") {
 					hasEnterprise = true
-				}
-				if strings.Contains(low, "claude") || strings.Contains(low, "gpt") {
-					hasThirdParty = true
 				}
 				if strings.Contains(low, "-pro") {
 					hasPro = true
@@ -1133,8 +1202,10 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 				return PlanTierEnterprise, nil
 			}
 			if hasPro {
-				if hasThirdParty {
-					return PlanTierPro, nil
+				for mID, mMeta := range data.Models {
+					if isPaidProModelIdentifier(mID, mMeta.DisplayName) {
+						return PlanTierPro, nil
+					}
 				}
 				return PlanTierProTrial, nil
 			}
@@ -1144,6 +1215,43 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("could not detect tier from models")
+}
+
+func resolveTierFromQuotaAccess(tier string, breakdown *LiveQuotaBreakdown) string {
+	resolved := normalizeOptionalPlanTier(tier)
+	if breakdown == nil {
+		return resolved
+	}
+
+	if breakdown.ExplicitTrial && (resolved == "" || resolved == PlanTierFree || resolved == PlanTierPro) {
+		return PlanTierProTrial
+	}
+	if breakdown.SubscriptionTier != "" {
+		// The quota endpoint reports bare "Pro" for family-shared trials too.
+		// Keep explicit trial evidence from loadCodeAssist in that case.
+		if resolved == PlanTierProTrial && (breakdown.SubscriptionTier == PlanTierPro || breakdown.SubscriptionTier == PlanTierFree) {
+			return PlanTierProTrial
+		}
+		resolved = breakdown.SubscriptionTier
+	}
+
+	if breakdown.ModelCatalogKnown {
+		hasThirdPartyAccess := breakdown.HasClaudeGPTRights || breakdown.HasClaude || breakdown.HasGPT || breakdown.HasPaidProModel
+		if resolved == "" && hasThirdPartyAccess {
+			if breakdown.HasPaidProModel {
+				return PlanTierPro
+			}
+			return PlanTierProTrial
+		}
+		if resolved != PlanTierFree && resolved != PlanTierPro && resolved != PlanTierProTrial {
+			return resolved
+		}
+		if breakdown.HasPaidProModel {
+			return PlanTierPro
+		}
+		return PlanTierProTrial
+	}
+	return resolved
 }
 
 // DetectTierFromGoogleUserInfo queries Google OAuth userinfo to identify institutional or educational accounts.
@@ -1253,13 +1361,19 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	}
 
 	tier := ""
+	ambiguousTier := ""
 	credits := acc.Credits
 	if pCtx != nil {
 		if pCtx.ProjectID != "" {
 			project = pCtx.ProjectID
 		}
-		if pCtx.TierName != "" && pCtx.TierName != PlanTierFree {
-			tier = NormalizePlanTier(pCtx.TierName)
+		if pCtx.TierName != "" {
+			normalizedTier := normalizeOptionalPlanTier(pCtx.TierName)
+			if pCtx.TierExplicit {
+				tier = normalizedTier
+			} else {
+				ambiguousTier = normalizedTier
+			}
 		}
 		if pCtx.Credits > 0 {
 			credits = pCtx.Credits
@@ -1294,49 +1408,47 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 	}
 
+	catalogResolvedTier := false
 	if breakdown != nil {
-		if breakdown.SubscriptionTier != "" && breakdown.SubscriptionTier != PlanTierFree {
-			tier = breakdown.SubscriptionTier
+		resolvedTier := resolveTierFromQuotaAccess(tier, breakdown)
+		catalogResolvedTier = breakdown.ModelCatalogKnown && (resolvedTier == PlanTierPro || resolvedTier == PlanTierProTrial)
+		if breakdown.SubscriptionTier != "" || breakdown.ExplicitTrial || breakdown.ModelCatalogKnown {
+			tier = resolvedTier
 		}
 		if breakdown.Credits > 0 {
 			credits = breakdown.Credits
 		}
-		if breakdown.HasClaudeGPTRights || breakdown.HasClaude || breakdown.HasGPT {
-			if tier == "" || tier == PlanTierFree || tier == PlanTierProTrial {
-				tier = PlanTierPro
-			}
-		} else if tier == PlanTierPro && !breakdown.HasClaudeGPTRights {
-			tier = PlanTierProTrial
-		}
 	}
 
-	// Step 3: Check model permissions if tier is still unconfirmed or Free (skip if upstream returned terminal QuotaAPIError)
-	if (tier == "" || tier == PlanTierFree) && apiErr == nil {
-		if modelTier, mErr := DetectTierFromAvailableModels(accessToken); mErr == nil && modelTier != "" && modelTier != PlanTierFree {
-			tier = modelTier
+	explicitTrial := pCtx != nil && pCtx.ExplicitTrial
+	if breakdown != nil && breakdown.ExplicitTrial {
+		explicitTrial = true
+	}
+
+	// Step 3: The paid tier label alone cannot distinguish paid Pro from a
+	// family-shared trial. Probe model access for Pro candidates and for
+	// accounts where loadCodeAssist could only name an allowed tier.
+	if apiErr == nil && !explicitTrial && !catalogResolvedTier && (tier == "" || tier == PlanTierPro || tier == PlanTierProTrial) {
+		if modelTier, mErr := DetectTierFromAvailableModels(accessToken); mErr == nil && modelTier != "" {
+			if tier == "" {
+				tier = modelTier
+			} else if modelTier == PlanTierPro || modelTier == PlanTierProTrial {
+				tier = modelTier
+			}
 		}
 	}
 
 	// Step 4: Check Google UserInfo (educational or enterprise domain)
-	if (tier == "" || tier == PlanTierFree) && apiErr == nil {
+	if tier == "" && apiErr == nil {
 		if uTier, uErr := DetectTierFromGoogleUserInfo(accessToken, acc.Email); uErr == nil && uTier != "" && uTier != PlanTierFree {
 			tier = uTier
 		}
 	}
 
-	// Step 5: Check cached cloud_accounts.db metrics
+	// Step 5: Use cached cloud accounts only for credits. Cached tiers go stale across upgrades.
 	if cachedAccs, cErr := keyring.ReadCloudAccountsDB(""); cErr == nil {
 		for _, ca := range cachedAccs {
 			if strings.EqualFold(ca.Email, acc.Email) {
-				if ca.PlanTier != "" {
-					pTier := NormalizePlanTier(ca.PlanTier)
-					if (tier == "" || tier == PlanTierFree) && pTier != PlanTierFree {
-						tier = pTier
-					}
-					if pTier == PlanTierProTrial && (tier == PlanTierPro || tier == "") {
-						tier = PlanTierProTrial
-					}
-				}
 				if ca.Credits > 0 && credits == 0 {
 					credits = ca.Credits
 				}
@@ -1346,20 +1458,20 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	}
 
 	// Step 6: Fallback to email domain heuristics if still unconfirmed
-	if tier == "" || tier == PlanTierFree {
+	if tier == "" {
+		tier = ambiguousTier
+	}
+	if tier == "" {
 		if heuristic := DetermineDefaultPlanTier(acc.Email, ""); heuristic != PlanTierFree {
 			tier = heuristic
 		}
 	}
 
 	// Step 7: Anti-Downgrade Safeguard: preserve existing non-free tier ONLY on transient error or incomplete upstream responses
-	if (tier == "" || tier == PlanTierFree) && acc.PlanTier != "" && acc.PlanTier != PlanTierFree {
+	if tier == "" && acc.PlanTier != "" && acc.PlanTier != PlanTierFree {
 		if apiErr != nil || breakdown == nil || (breakdown.SubscriptionTier == "" && len(breakdown.Models) == 0) {
 			tier = acc.PlanTier
 		}
-	}
-	if acc.PlanTier == PlanTierProTrial && tier == PlanTierPro {
-		tier = PlanTierProTrial
 	}
 
 	if tier == "" {
@@ -1393,23 +1505,23 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 
 		summary := &QuotaSummary{
-			AccountEmail:           acc.Email,
-			PlanTier:               tier,
-			Credits:                credits,
-			Quota5hFraction:        breakdown.Quota5hGemini,
-			QuotaWeeklyFraction:    breakdown.QuotaWeeklyGemini,
-			Quota5hClaudeGPT:       breakdown.Quota5hClaudeGPT,
-			QuotaWeeklyClaudeGPT:   breakdown.QuotaWeeklyClaudeGPT,
+			AccountEmail:              acc.Email,
+			PlanTier:                  tier,
+			Credits:                   credits,
+			Quota5hFraction:           breakdown.Quota5hGemini,
+			QuotaWeeklyFraction:       breakdown.QuotaWeeklyGemini,
+			Quota5hClaudeGPT:          breakdown.Quota5hClaudeGPT,
+			QuotaWeeklyClaudeGPT:      breakdown.QuotaWeeklyClaudeGPT,
 			ClaudeWeeklyBucketPresent: breakdown.HasClaudeWeeklyBucket,
-			ResetSeconds5h:         breakdown.ResetSeconds5h,
-			ResetHorizonText:       breakdown.ResetHorizonText,
-			ResetSecondsWeekly:     breakdown.ResetSecondsWeekly,
-			ResetHorizonWeeklyText: breakdown.ResetHorizonWeeklyText,
-			ResetTimeWeekly:        breakdown.ResetTimeWeekly,
-			Models:                 breakdown.Models,
-			MinFraction:            minFrac,
-			OverallHealth:          ComputeHealth(minFrac),
-			LastPolled:             now,
+			ResetSeconds5h:            breakdown.ResetSeconds5h,
+			ResetHorizonText:          breakdown.ResetHorizonText,
+			ResetSecondsWeekly:        breakdown.ResetSecondsWeekly,
+			ResetHorizonWeeklyText:    breakdown.ResetHorizonWeeklyText,
+			ResetTimeWeekly:           breakdown.ResetTimeWeekly,
+			Models:                    breakdown.Models,
+			MinFraction:               minFrac,
+			OverallHealth:             ComputeHealth(minFrac),
+			LastPolled:                now,
 		}
 		return summary, nil
 	}

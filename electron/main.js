@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage, session } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage, session, clipboard } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -901,6 +901,31 @@ function registerIpcHandlers() {
     } catch {
       return false;
     }
+  });
+
+  ipcMain.handle('desktop:write-clipboard', async (event, text) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return false;
+    }
+    if (typeof text !== 'string' || text.length === 0 || text.length > 16384) {
+      return false;
+    }
+    try {
+      clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle('desktop:focus-window', async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return false;
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+    return true;
   });
 
   ipcMain.handle('desktop:select-path', async (_event, options) => {

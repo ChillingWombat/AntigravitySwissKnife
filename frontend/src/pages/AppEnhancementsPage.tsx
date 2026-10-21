@@ -338,6 +338,9 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   }
 
   const jb = config.prompt_jump_bar
+  const contextWindowIndicatorEnabled = config.context_window_indicator_enabled !== false
+  const contextWindowClickToCompactEnabled =
+    config.context_window_click_to_compact_enabled !== false
   const rawOp = config.overview_panel
   const op = {
     enabled: rawOp ? rawOp.enabled : true,
@@ -953,7 +956,66 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         )}
       </div>
 
-      {/* Feature 2: Tool Call Density Control */}
+      {/* Feature 2: Context Window Indicator */}
+      <div className="google-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+              Context Window Indicator
+            </h2>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+              Show the context usage ring beside the model selector in the chat input.
+            </p>
+          </div>
+
+          <ToggleSwitch
+            checked={contextWindowIndicatorEnabled}
+            onChange={(checked) =>
+              setConfig({
+                ...config,
+                context_window_indicator_enabled: checked,
+              })
+            }
+          />
+        </div>
+
+        {contextWindowIndicatorEnabled && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px',
+              marginTop: '18px',
+              padding: '12px 16px',
+              borderRadius: '10px',
+              border: '1px solid var(--border)',
+              background: 'var(--canvas)',
+            }}
+          >
+            <div>
+              <span style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--text)' }}>
+                Click Ring To Compact
+              </span>
+              <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                Click or press Enter on the ring to send the native compact command immediately.
+              </p>
+            </div>
+            <ToggleSwitch
+              size="sm"
+              checked={contextWindowClickToCompactEnabled}
+              onChange={(checked) =>
+                setConfig({
+                  ...config,
+                  context_window_click_to_compact_enabled: checked,
+                })
+              }
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Feature 3: Tool Call Density Control */}
       <div className="google-card">
         <div style={{ marginBottom: '16px' }}>
           <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>

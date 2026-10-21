@@ -6,6 +6,7 @@ import { HorizontalQuotaBar } from './HorizontalQuotaBar'
 import { ToggleSwitch } from './ToggleSwitch'
 import { api } from '../api'
 import { generateTOTP } from '../utils/totp'
+import { waitForGoogleOAuthURL } from '../utils/googleOAuth'
 import {
   getAccountHeaderDisplay,
   resolveDefaultAlias,
@@ -21,6 +22,37 @@ interface AccountDetailModalProps {
 }
 
 const REDACTED_CREDENTIAL = '[REDACTED]'
+
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  const electronWrite = (window as any).electronAPI?.writeClipboard
+  if (electronWrite) {
+    try {
+      if (await electronWrite(text)) return true
+    } catch {}
+  }
+
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {}
+  }
+
+  try {
+    const textArea = document.createElement('textarea')
+    textArea.value = text
+    textArea.style.position = 'fixed'
+    textArea.style.opacity = '0'
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    const copied = document.execCommand('copy')
+    document.body.removeChild(textArea)
+    return copied
+  } catch {
+    return false
+  }
+}
 
 export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   account,
@@ -48,6 +80,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [manualCallbackUrl, setManualCallbackUrl] = useState('')
   const [isExchangingOAuth, setIsExchangingOAuth] = useState(false)
   const [oauthSuccessMsg, setOauthSuccessMsg] = useState<string | null>(null)
+  const [oauthAuthURL, setOauthAuthURL] = useState('')
+  const [oauthLinkCopied, setOauthLinkCopied] = useState<boolean | null>(null)
   const oauthAbortControllerRef = useRef<AbortController | null>(null)
   const [currentStatus, setCurrentStatus] = useState<string>(account.status || (account.is_active ? 'ACTIVE' : 'STANDBY'))
   const [liveErrorMessage, setLiveErrorMessage] = useState<string | null>(account.error_message || null)
@@ -441,12 +475,35 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     setShowManualCallbackField(true)
     setError(null)
     setOauthSuccessMsg(null)
+    setOauthAuthURL('')
+    setOauthLinkCopied(null)
     const controller = new AbortController()
     oauthAbortControllerRef.current = controller
 
     try {
-      const res = await api.startGoogleOAuth(controller.signal)
+      await api.cancelGoogleOAuth().catch(() => {})
+      if (controller.signal.aborted) return
+
+      const flowPromise = api.startGoogleOAuth(controller.signal)
+      void (async () => {
+        const authURL = await waitForGoogleOAuthURL(api.getGoogleOAuthURL, controller.signal)
+        if (!authURL || oauthAbortControllerRef.current !== controller) return
+
+        setOauthAuthURL(authURL)
+        const copied = await copyTextToClipboard(authURL)
+        if (!controller.signal.aborted && oauthAbortControllerRef.current === controller) {
+          setOauthLinkCopied(copied)
+        }
+      })()
+
+      const res = await flowPromise
       if (res.success && res.refresh_token) {
+        const focusWindow = (window as any).electronAPI?.focusWindow
+        if (focusWindow) {
+          window.setTimeout(() => {
+            void focusWindow()
+          }, 750)
+        }
         credentialTouchedRef.current.refreshToken = true
         setRefreshToken(res.refresh_token)
         if (res.access_token) {
@@ -475,6 +532,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       if (oauthAbortControllerRef.current === controller) {
         oauthAbortControllerRef.current = null
         setIsExtractingOAuth(false)
+        setOauthAuthURL('')
+        setOauthLinkCopied(null)
       }
     }
   }
@@ -1123,6 +1182,51 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 )}
               </button>
             </div>
+            {oauthAuthURL && (
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  marginTop: '8px',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '11.5px',
+                  lineHeight: 1.4,
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <span>
+                  {oauthLinkCopied === null
+                    ? 'Copying sign-in link...'
+                    : oauthLinkCopied
+                      ? 'Sign-in link copied. Close the opened page and paste it into another browser if needed.'
+                      : 'Sign-in link ready, but the clipboard write failed.'}
+                </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const copied = await copyTextToClipboard(oauthAuthURL)
+                    if (oauthAbortControllerRef.current && !oauthAbortControllerRef.current.signal.aborted) {
+                      setOauthLinkCopied(copied)
+                    }
+                  }}
+                  style={{
+                    padding: 0,
+                    border: 0,
+                    background: 'transparent',
+                    color: 'var(--primary)',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {oauthLinkCopied === true ? 'Copy again' : 'Copy link'}
+                </button>
+              </div>
+            )}
             {refreshToken.trim().startsWith('ya29.') && (
               <div
                 style={{

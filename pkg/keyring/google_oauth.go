@@ -618,23 +618,7 @@ func fetchUserInfoEmail(accessToken string) string {
 	return ""
 }
 
-const oauthSuccessHTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Antigravity Swiss Knife - Login Successful</title>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background:#f8fafd; color:#1f1f1f; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;">
-  <div style="background:#ffffff; border:1px solid #dadce0; border-radius:12px; padding:36px 48px; text-align:center; max-width:440px; box-shadow: 0 1px 3px rgba(60,64,67,0.08), 0 4px 12px rgba(60,64,67,0.05);">
-    <div style="width:52px; height:52px; margin:0 auto 16px; background:#e8f0fe; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#1a73e8;">
-      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
-    </div>
-    <h2 style="margin:0 0 8px; color:#1f1f1f; font-size:20px; font-weight:700;">Authentication Successful</h2>
-    <p style="color:#5f6368; font-size:14px; line-height:1.5; margin:0 0 16px;">Antigravity Swiss Knife has received and verified your credentials. You can safely close this browser window and return to the application.</p>
-    <p id="countdown-notice" style="color:#5f6368; font-size:12px; margin:0 0 20px;">This tab will attempt to auto-close in <span id="countdown" style="font-weight:700; color:#1a73e8;">5</span> seconds.</p>
-    <button id="close-btn" onclick="safeCloseWindow()" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Window</button>
-  </div>
-  <script>
+const oauthCloseScript = `
     function isEmbeddedOrVSCode() {
       try {
         var ua = (navigator && navigator.userAgent) || "";
@@ -645,37 +629,69 @@ const oauthSuccessHTML = `<!DOCTYPE html>
       return false;
     }
 
-    function safeCloseWindow() {
-      if (isEmbeddedOrVSCode()) {
-        var notice = document.getElementById('countdown-notice');
-        if (notice) notice.textContent = 'Authentication complete. You can close this editor tab or return to your code.';
-        return;
-      }
+    function closeShortcutLabel() {
+      var platform = "";
       try {
-        if (window.opener) {
-          window.close();
-        }
+        platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
       } catch (_) {}
+      return /Mac|iPhone|iPad|iPod/i.test(platform) ? "Command+W" : "Ctrl+W";
     }
 
-    if (isEmbeddedOrVSCode()) {
-      var notice = document.getElementById('countdown-notice');
-      if (notice) notice.textContent = 'Authentication complete. You can safely close this editor tab or return to your code.';
-      var btn = document.getElementById('close-btn');
-      if (btn) btn.style.display = 'none';
-    } else {
-      let remaining = 5;
-      const countEl = document.getElementById('countdown');
-      const timer = setInterval(function() {
-        remaining--;
-        if (countEl) countEl.textContent = remaining;
-        if (remaining <= 0) {
-          clearInterval(timer);
-          safeCloseWindow();
-        }
-      }, 1000);
+    function oauthCloseButton() {
+      return document.getElementById("close-btn") || document.getElementById("err-close-btn");
     }
-  </script>
+
+    function showManualCloseHint() {
+      var notice = document.getElementById("close-notice");
+      if (notice) {
+        notice.innerHTML = "Your browser does not allow this page to close a tab opened by another app. Press <strong>" +
+          closeShortcutLabel() + "</strong> or use the tab close button.";
+      }
+      var button = oauthCloseButton();
+      if (button) button.textContent = "Try Close Again";
+    }
+
+    function safeCloseWindow() {
+      if (isEmbeddedOrVSCode()) {
+        var embeddedNotice = document.getElementById("close-notice");
+        if (embeddedNotice) embeddedNotice.textContent = "You can safely close this editor tab or return to your code.";
+        return;
+      }
+      try { window.close(); } catch (_) {}
+      window.setTimeout(showManualCloseHint, 250);
+    }
+
+    window.addEventListener("load", function() {
+      if (isEmbeddedOrVSCode()) {
+        var notice = document.getElementById("close-notice");
+        if (notice) notice.textContent = "You can safely close this editor tab or return to your code.";
+        var button = oauthCloseButton();
+        if (button) button.style.display = "none";
+        return;
+      }
+      if (document.body && document.body.dataset.autoClose === "true") {
+        window.setTimeout(safeCloseWindow, 350);
+      }
+    });
+`
+
+const oauthSuccessHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Antigravity Swiss Knife - Login Successful</title>
+</head>
+<body data-auto-close="true" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background:#f8fafd; color:#1f1f1f; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;">
+  <div style="background:#ffffff; border:1px solid #dadce0; border-radius:12px; padding:36px 48px; text-align:center; max-width:440px; box-shadow:0 1px 3px rgba(60,64,67,0.08), 0 4px 12px rgba(60,64,67,0.05);">
+    <div style="width:52px; height:52px; margin:0 auto 16px; background:#e8f0fe; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#1a73e8;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+    </div>
+    <h2 style="margin:0 0 8px; color:#1f1f1f; font-size:20px; font-weight:700;">Authentication Successful</h2>
+    <p style="color:#5f6368; font-size:14px; line-height:1.5; margin:0 0 16px;">Antigravity Swiss Knife has received and verified your credentials. You can safely close this browser window and return to the application.</p>
+    <p id="close-notice" style="color:#5f6368; font-size:12px; margin:0 0 20px;">Closing this tab automatically...</p>
+    <button id="close-btn" type="button" onclick="safeCloseWindow()" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Tab</button>
+  </div>
+  <script>` + oauthCloseScript + `</script>
 </body>
 </html>`
 
@@ -689,33 +705,16 @@ func renderOAuthErrorHTML(title, detail string) []byte {
   <title>Antigravity Swiss Knife - %s</title>
 </head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background:#f8fafd; color:#1f1f1f; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;">
-  <div style="background:#ffffff; border:1px solid #dadce0; border-radius:12px; padding:36px 48px; text-align:center; max-width:440px; box-shadow: 0 1px 3px rgba(60,64,67,0.08), 0 4px 12px rgba(60,64,67,0.05);">
+  <div style="background:#ffffff; border:1px solid #dadce0; border-radius:12px; padding:36px 48px; text-align:center; max-width:440px; box-shadow:0 1px 3px rgba(60,64,67,0.08), 0 4px 12px rgba(60,64,67,0.05);">
     <div style="width:52px; height:52px; margin:0 auto 16px; background:#fce8e6; border-radius:50%%; display:flex; align-items:center; justify-content:center; color:#d93025;">
       <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d93025" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
     </div>
     <h2 style="margin:0 0 8px; color:#d93025; font-size:20px; font-weight:700;">%s</h2>
-    <p style="color:#5f6368; font-size:14px; line-height:1.5; margin:0 0 20px;">%s</p>
-    <button id="err-close-btn" onclick="safeCloseWindow()" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Window</button>
+    <p style="color:#5f6368; font-size:14px; line-height:1.5; margin:0 0 16px;">%s</p>
+    <p id="close-notice" style="color:#5f6368; font-size:12px; margin:0 0 20px;">You can close this tab after reviewing the error.</p>
+    <button id="err-close-btn" type="button" onclick="safeCloseWindow()" style="background:#1a73e8; color:#ffffff; border:none; border-radius:9999px; padding:10px 28px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; box-shadow:0 1px 2px rgba(26,115,232,0.2);">Close Tab</button>
   </div>
-  <script>
-    function isEmbeddedOrVSCode() {
-      try {
-        var ua = (navigator && navigator.userAgent) || "";
-        if (/Code\/|Electron\/|VSCode/i.test(ua)) return true;
-        if (typeof window.vscode !== "undefined" || typeof window.__vscode__ !== "undefined") return true;
-        if (window.parent && window.parent !== window) return true;
-      } catch (_) {}
-      return false;
-    }
-    function safeCloseWindow() {
-      if (isEmbeddedOrVSCode()) return;
-      try { if (window.opener) window.close(); } catch (_) {}
-    }
-    if (isEmbeddedOrVSCode()) {
-      var btn = document.getElementById('err-close-btn');
-      if (btn) btn.style.display = 'none';
-    }
-  </script>
+  <script>%s</script>
 </body>
-</html>`, safeTitle, safeTitle, safeDetail))
+</html>`, safeTitle, safeTitle, safeDetail, oauthCloseScript))
 }

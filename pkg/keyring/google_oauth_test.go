@@ -139,6 +139,15 @@ func TestGoogleOAuthCallbackHTML_LightThemeAndLucideIcon(t *testing.T) {
 	if !strings.Contains(errPage, "isEmbeddedOrVSCode") || !strings.Contains(errPage, "safeCloseWindow") {
 		t.Errorf("expected renderOAuthErrorHTML to contain embedded VS Code environment checks")
 	}
+	if !strings.Contains(oauthSuccessHTML, `data-auto-close="true"`) || !strings.Contains(oauthSuccessHTML, "showManualCloseHint") {
+		t.Errorf("expected the success page to attempt auto-close and explain the browser fallback")
+	}
+	if !strings.Contains(oauthSuccessHTML, "Command+W") || !strings.Contains(oauthSuccessHTML, "Ctrl+W") {
+		t.Errorf("expected the success page to provide a platform-specific tab-close shortcut")
+	}
+	if strings.Contains(errPage, `data-auto-close="true"`) {
+		t.Errorf("expected the error page not to auto-close")
+	}
 }
 
 func TestGoogleOAuth_StateParameterGenerationAndPresence(t *testing.T) {

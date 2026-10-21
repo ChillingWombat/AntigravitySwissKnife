@@ -1,6 +1,12 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { formatTime, formatCronToHuman, formatSchedule } from './schedule.ts'
+import {
+  buildCronFromTrigger,
+  formatTime,
+  formatCronToHuman,
+  formatSchedule,
+  parseCronToTrigger,
+} from './schedule.ts'
 
 describe('schedule utility', () => {
   describe('formatTime', () => {
@@ -32,6 +38,13 @@ describe('schedule utility', () => {
       assert.equal(formatCronToHuman('0 */2 * * *'), 'Every 2 hours')
     })
 
+    it('formats cron expressions with a timezone prefix', () => {
+      assert.equal(
+        formatCronToHuman('CRON_TZ=Australia/Melbourne 0 9 * * *'),
+        'Every day at 9:00 AM'
+      )
+    })
+
     it('formats specific days of week', () => {
       assert.equal(formatCronToHuman('0 9 * * 1'), 'Every Monday at 9:00 AM')
       assert.equal(formatCronToHuman('0 11 * * 2'), 'Every Tuesday at 11:00 AM')
@@ -45,6 +58,54 @@ describe('schedule utility', () => {
     it('formats day of month', () => {
       assert.equal(formatCronToHuman('0 8 1 * *'), '1st of every month at 8:00 AM')
       assert.equal(formatCronToHuman('0 8 15 * *'), '15th of every month at 8:00 AM')
+    })
+  })
+
+  describe('Trigger conversion', () => {
+    it('parses daily, hourly, weekly, and custom cron expressions', () => {
+      assert.deepEqual(parseCronToTrigger('CRON_TZ=Australia/Melbourne 0 9 * * *'), {
+        frequency: 'daily',
+        hour24: 9,
+        minute: 0,
+        dayOfWeek: 1,
+        timezone: 'Australia/Melbourne',
+        cronExpression: '0 9 * * *',
+      })
+
+      assert.deepEqual(parseCronToTrigger('15 * * * *', 'UTC'), {
+        frequency: 'hourly',
+        hour24: 9,
+        minute: 15,
+        dayOfWeek: 1,
+        timezone: 'UTC',
+        cronExpression: '15 * * * *',
+      })
+
+      assert.deepEqual(parseCronToTrigger('30 18 * * 7', 'America/New_York'), {
+        frequency: 'weekly',
+        hour24: 18,
+        minute: 30,
+        dayOfWeek: 0,
+        timezone: 'America/New_York',
+        cronExpression: '30 18 * * 7',
+      })
+
+      assert.deepEqual(parseCronToTrigger('0 17 * * 1-5', 'Europe/London'), {
+        frequency: 'custom',
+        hour24: 17,
+        minute: 0,
+        dayOfWeek: 1,
+        timezone: 'Europe/London',
+        cronExpression: '0 17 * * 1-5',
+      })
+    })
+
+    it('builds cron expressions from friendly trigger fields', () => {
+      assert.equal(buildCronFromTrigger('hourly', 9, 1, '', 0), '0 * * * *')
+      assert.equal(buildCronFromTrigger('daily', 9, 1, '', 30), '30 9 * * *')
+      assert.equal(buildCronFromTrigger('weekly', 18, 1, '', 0), '0 18 * * 1')
+      assert.equal(buildCronFromTrigger('custom', 9, 1, '0 17 * * 1-5'), '0 17 * * 1-5')
+      assert.equal(buildCronFromTrigger('custom', 9, 1, '   '), '0 9 * * *')
     })
   })
 

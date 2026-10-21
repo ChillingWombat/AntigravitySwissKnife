@@ -468,6 +468,95 @@ func TestGenerateCustomModelsScript_SubmenuEdgeCases(t *testing.T) {
 	}
 }
 
+func TestGenerateCustomModelsScript_NativeModelUnbindCapture(t *testing.T) {
+	script := GenerateCustomModelsScript(nil)
+
+	helperIdx := strings.Index(script, "function unbindCustomModelForActiveProject()")
+	if helperIdx == -1 {
+		t.Fatalf("expected script to define unbindCustomModelForActiveProject")
+	}
+	helperEndIdx := strings.Index(script[helperIdx:], "// 1. Hook Model Selector Trigger Pill & Dropdown")
+	if helperEndIdx == -1 {
+		t.Fatalf("expected unbindCustomModelForActiveProject helper to precede updateModelSelector")
+	}
+	helperScript := script[helperIdx : helperIdx+helperEndIdx]
+	for _, want := range []string{
+		`Object.keys(customConfig.project_binds).forEach`,
+		`customConfig.project_binds[k] = "native";`,
+		`customConfig.project_binds[curProject] = "native";`,
+		`trigger.removeAttribute("data-swiss-custom-bound");`,
+		`trigger.removeAttribute("data-swiss-native-label");`,
+		`body: JSON.stringify({ project: curProject, model_id: "native" })`,
+	} {
+		if !strings.Contains(helperScript, want) {
+			t.Errorf("expected unbind helper to contain %q", want)
+		}
+	}
+
+	nativeListenerIdx := strings.Index(script, `it.addEventListener("click", async () => {`)
+	if nativeListenerIdx == -1 {
+		t.Fatalf("expected native model menu item click listener")
+	}
+	nativeListenerEndIdx := strings.Index(script[nativeListenerIdx:], "// Find bottom action")
+	if nativeListenerEndIdx == -1 {
+		t.Fatalf("expected native model click listener to precede bottom action detection")
+	}
+	nativeListener := script[nativeListenerIdx : nativeListenerIdx+nativeListenerEndIdx]
+	if !strings.Contains(nativeListener, "unbindCustomModelForActiveProject();") {
+		t.Errorf("expected native model click listener to unbind the custom model")
+	}
+	if !strings.Contains(nativeListener, "}, true);") {
+		t.Errorf("expected native model click listener to use capture phase")
+	}
+
+	captureListenerIdx := strings.Index(script, `if (!window.__swissNativeModelCaptureBound) {`)
+	if captureListenerIdx == -1 {
+		t.Fatalf("expected document-level capture click listener")
+	}
+	captureListenerEndIdx := strings.Index(script[captureListenerIdx:], "// 1. Hook Model Selector Trigger Pill & Dropdown")
+	if captureListenerEndIdx == -1 {
+		t.Fatalf("expected document-level capture listener to precede updateModelSelector")
+	}
+	captureListener := script[captureListenerIdx : captureListenerIdx+captureListenerEndIdx]
+	for _, want := range []string{
+		`window.__swissNativeModelCaptureBound`,
+		`[data-testid="model-selector-effort-option"]`,
+		`[data-testid="model-selector-context-window-option"]`,
+		`[data-testid="model-selector-item"]`,
+		`[data-testid="model-selector-effort-group"]`,
+		`[data-testid="model-selector-panel"] [role="menuitem"]`,
+		`target.closest(".swiss-custom-models-menu-group")`,
+		`target.closest("#swiss-custom-thinking-submenu")`,
+		`(clickedItem.textContent || "").trim() === "View Usage"`,
+		`unbindCustomModelForActiveProject();`,
+		`}, true);`,
+	} {
+		if !strings.Contains(captureListener, want) {
+			t.Errorf("expected native model capture listener to contain %q", want)
+		}
+	}
+
+	checkIdx := strings.Index(script, `it.querySelectorAll("svg").forEach(svg => {`)
+	if checkIdx == -1 {
+		t.Fatalf("expected native model SVG checkmark detection")
+	}
+	checkEndIdx := strings.Index(script[checkIdx:], `if (!it.__swissNativeBound`)
+	if checkEndIdx == -1 {
+		t.Fatalf("expected SVG checkmark detection to precede native item binding")
+	}
+	checkScript := script[checkIdx : checkIdx+checkEndIdx]
+	for _, want := range []string{
+		`path.getAttribute("d")`,
+		`(svg.innerHTML || "").includes("M382-339.38")`,
+		`pathData.includes("M382-339.38")`,
+		`check.style.display = activeCustomModel ? "none" : "";`,
+	} {
+		if !strings.Contains(checkScript, want) {
+			t.Errorf("expected native checkmark hiding to contain %q", want)
+		}
+	}
+}
+
 func TestResolveEndpoint_Custom(t *testing.T) {
 	raw := "https://my-custom-proxy.internal/v1/fast/chat"
 	res := ResolveEndpoint(ProviderCustom, raw, "custom-model")
@@ -972,6 +1061,3 @@ func TestGenerateCustomModelsScript_AuthHeaders(t *testing.T) {
 		t.Errorf("expected getSwissAuthHeaders to set X-Session-Token")
 	}
 }
-
-
-

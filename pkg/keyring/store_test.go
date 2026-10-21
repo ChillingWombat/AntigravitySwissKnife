@@ -1432,3 +1432,55 @@ func TestStore_LoadAndSaveRecoverCredentialsFromNotes(t *testing.T) {
 		t.Errorf("expected saved credential.refresh_token to be non-empty")
 	}
 }
+
+func TestLiveQuotaMetadataPersistsFreeDowngrade(t *testing.T) {
+	const email = "downgrade@example.com"
+	tests := []struct {
+		name   string
+		update func(*Store, string) error
+	}{
+		{
+			name: "tokens and metadata",
+			update: func(store *Store, email string) error {
+				return store.UpdateAccountTokensAndMetadata(email, "", "", "Free", 0)
+			},
+		},
+		{
+			name: "quota metadata",
+			update: func(store *Store, email string) error {
+				return store.UpdateAccountQuotaMetadata(email, "Free", 0)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			accPath := filepath.Join(t.TempDir(), "accounts.json")
+			store, err := NewStore(accPath)
+			if err != nil {
+				t.Fatalf("NewStore error: %v", err)
+			}
+			if _, err := store.ImportAccount(email, "refresh", "access", "Test", ""); err != nil {
+				t.Fatalf("ImportAccount error: %v", err)
+			}
+			if err := store.UpdateAccountQuotaMetadata(email, "Pro", 0); err != nil {
+				t.Fatalf("seed tier error: %v", err)
+			}
+			if err := tc.update(store, email); err != nil {
+				t.Fatalf("update error: %v", err)
+			}
+
+			reloaded, err := NewStore(accPath)
+			if err != nil {
+				t.Fatalf("reload error: %v", err)
+			}
+			acc, err := reloaded.GetAccount(email)
+			if err != nil {
+				t.Fatalf("GetAccount error: %v", err)
+			}
+			if acc.PlanTier != "Free" {
+				t.Fatalf("expected live quota refresh to persist Free, got %q", acc.PlanTier)
+			}
+		})
+	}
+}

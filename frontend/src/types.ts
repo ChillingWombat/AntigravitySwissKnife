@@ -730,6 +730,8 @@ export interface EnhancementsConfig {
   overview_panel?: OverviewPanelConfig
   tool_density_mode: 'normal' | 'muted' | 'hidden'
   breaker_line_enabled: boolean
+  context_window_indicator_enabled?: boolean
+  context_window_click_to_compact_enabled?: boolean
   left_panel_extensions_enabled?: boolean
   left_panel_extensions_mode?: 'single' | 'individual'
   main_section_extensions_enabled?: boolean
@@ -738,6 +740,7 @@ export interface EnhancementsConfig {
   scroll_to_bottom: boolean
   turn_counter: boolean
   default_new_project?: string
+  automation_target_project_enabled?: boolean
   updated_at?: string
 }
 
@@ -788,6 +791,7 @@ export interface DeployTaskRequest {
   template_id: string
   display_name: string
   cron_expression: string
+  timezone?: string
   target_project: string
   custom_prompt?: string
   parameters: Record<string, string>
@@ -797,6 +801,7 @@ export interface SidecarTaskInfo {
   id: string
   display_name: string
   cron_expression: string
+  timezone?: string
   schedule_text?: string
   prompt_preview: string
   prompt?: string
@@ -807,6 +812,7 @@ export interface UpdateTaskRequest {
   id: string
   display_name: string
   cron_expression: string
+  timezone?: string
   prompt: string
 }
 

@@ -174,6 +174,9 @@ func (inj *Injector) GetPageTargets(port int) ([]DevToolsTarget, error) {
 	var pages []DevToolsTarget
 	for _, t := range targets {
 		if (t.Type == "page" || t.Type == "webview" || t.Type == "app") && t.WebSocketDebuggerURL != "" {
+			if strings.HasPrefix(t.URL, "data:") || strings.HasPrefix(t.URL, "about:") {
+				continue
+			}
 			pages = append(pages, t)
 		}
 	}
