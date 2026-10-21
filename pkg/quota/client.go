@@ -1192,15 +1192,22 @@ func resolveTierFromQuotaAccess(tier string, breakdown *LiveQuotaBreakdown) stri
 		return resolved
 	}
 
-	// A bare Pro response must not erase live trial evidence from the other
-	// upstream endpoint. Only an explicit newer tier may replace it.
-	if resolved == PlanTierProTrial && (breakdown.SubscriptionTier == "" || breakdown.SubscriptionTier == PlanTierPro || breakdown.SubscriptionTier == PlanTierFree) {
+	if breakdown.ExplicitTrial && (resolved == "" || resolved == PlanTierFree || resolved == PlanTierPro) {
 		return PlanTierProTrial
 	}
 	if breakdown.SubscriptionTier != "" {
+		// The quota endpoint reports bare "Pro" for family-shared trials too.
+		// Keep explicit trial evidence from loadCodeAssist in that case.
+		if resolved == PlanTierProTrial && (breakdown.SubscriptionTier == PlanTierPro || breakdown.SubscriptionTier == PlanTierFree) {
+			return PlanTierProTrial
+		}
 		resolved = breakdown.SubscriptionTier
 	}
-	if breakdown.ExplicitTrial && (resolved == "" || resolved == PlanTierFree || resolved == PlanTierPro) {
+
+	if breakdown.ModelCatalogKnown && (resolved == PlanTierFree || resolved == PlanTierPro || resolved == PlanTierProTrial) {
+		if breakdown.HasPaidProModel {
+			return PlanTierPro
+		}
 		return PlanTierProTrial
 	}
 	return resolved
@@ -1370,10 +1377,21 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 	}
 
-	// Step 3: Infer a tier from model access only when upstream did not provide an explicit current tier.
-	if tier == "" && apiErr == nil {
-		if modelTier, mErr := DetectTierFromAvailableModels(accessToken); mErr == nil && modelTier != "" && modelTier != PlanTierFree {
-			tier = modelTier
+	explicitTrial := pCtx != nil && pCtx.ExplicitTrial
+	if breakdown != nil && breakdown.ExplicitTrial {
+		explicitTrial = true
+	}
+
+	// Step 3: The paid tier label alone cannot distinguish paid Pro from a
+	// family-shared trial. Probe model access for Pro candidates and for
+	// accounts where loadCodeAssist could only name an allowed tier.
+	if apiErr == nil && !explicitTrial && (tier == "" || tier == PlanTierPro || tier == PlanTierProTrial) {
+		if modelTier, mErr := DetectTierFromAvailableModels(accessToken); mErr == nil && modelTier != "" {
+			if tier == "" {
+				tier = modelTier
+			} else if modelTier == PlanTierPro || modelTier == PlanTierProTrial {
+				tier = modelTier
+			}
 		}
 	}
 

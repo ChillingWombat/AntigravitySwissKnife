@@ -385,11 +385,20 @@ func TestResolveTierFromQuotaAccess_FamilySharedTrial(t *testing.T) {
 			want: PlanTierPro,
 		},
 		{
-			name: "explicit pro without paid-only model remains pro",
+			name: "pro with known catalog and no paid-only model is trial",
 			tier: PlanTierPro,
 			breakdown: LiveQuotaBreakdown{
 				HasClaudeGPTRights: true,
 				ModelCatalogKnown:  true,
+			},
+			want: PlanTierProTrial,
+		},
+		{
+			name: "pro with paid-only model is paid",
+			tier: PlanTierPro,
+			breakdown: LiveQuotaBreakdown{
+				ModelCatalogKnown: true,
+				HasPaidProModel:   true,
 			},
 			want: PlanTierPro,
 		},
@@ -694,7 +703,10 @@ func TestPollAccountLiveQuota_UsesExplicitTrialEvidence(t *testing.T) {
 					"isTrial":          true,
 					"models":           tc.models,
 				}),
-				Models:     map[string]interface{}{"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}}},
+				Models: map[string]interface{}{
+					"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}},
+					"models":         tc.models,
+				},
 				ModelCalls: &modelCalls,
 			})
 
@@ -717,23 +729,27 @@ func TestPollAccountLiveQuota_UsesExplicitTrialEvidence(t *testing.T) {
 	}
 }
 
-func TestPollAccountLiveQuota_ExplicitPaidProIgnoresModelCatalog(t *testing.T) {
+func TestPollAccountLiveQuota_ProLabelUsesModelCatalogToSeparatePaidAndTrial(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
 	tests := []struct {
-		name   string
-		models map[string]interface{}
+		name     string
+		models   map[string]interface{}
+		wantTier string
 	}{
 		{
 			name: "paid-only model present",
 			models: map[string]interface{}{
 				"claude-sonnet-5-5": map[string]string{"displayName": "Claude Sonnet 5.5 (Thinking)"},
 			},
+			wantTier: PlanTierPro,
 		},
 		{
-			name: "only legacy or unknown models",
+			name: "family-shared trial only exposes legacy models",
 			models: map[string]interface{}{
 				"claude-sonnet-4-6": map[string]string{"displayName": "Claude Sonnet 4.6 (Thinking)"},
+				"claude-opus-4-6":   map[string]string{"displayName": "Claude Opus 4.6 (Thinking)"},
 			},
+			wantTier: PlanTierProTrial,
 		},
 	}
 
@@ -749,7 +765,10 @@ func TestPollAccountLiveQuota_ExplicitPaidProIgnoresModelCatalog(t *testing.T) {
 					"subscriptionTier": "Pro",
 					"models":           tc.models,
 				}),
-				Models:     map[string]interface{}{"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}}},
+				Models: map[string]interface{}{
+					"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}},
+					"models":         tc.models,
+				},
 				ModelCalls: &modelCalls,
 			})
 
@@ -762,11 +781,11 @@ func TestPollAccountLiveQuota_ExplicitPaidProIgnoresModelCatalog(t *testing.T) {
 			if err != nil {
 				t.Fatalf("PollAccountLiveQuota failed: %v", err)
 			}
-			if summary.PlanTier != PlanTierPro {
-				t.Fatalf("expected explicit paid Pro to remain %q, got %q", PlanTierPro, summary.PlanTier)
+			if summary.PlanTier != tc.wantTier {
+				t.Fatalf("expected model catalog to resolve %q, got %q", tc.wantTier, summary.PlanTier)
 			}
-			if modelCalls != 0 {
-				t.Fatalf("explicit paid Pro must not depend on model catalog, got %d probes", modelCalls)
+			if modelCalls != 1 {
+				t.Fatalf("expected one model probe for a Pro candidate, got %d", modelCalls)
 			}
 		})
 	}
@@ -818,7 +837,10 @@ func TestPollAccountLiveQuota_RefreshesPlusToPro(t *testing.T) {
 		Quota: tierTestQuotaPayload(map[string]interface{}{
 			"subscriptionTier": "Pro",
 		}),
-		Models:     map[string]interface{}{"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}}},
+		Models: map[string]interface{}{
+			"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}},
+			"models":         map[string]interface{}{"claude-sonnet-5-5": map[string]string{"displayName": "Claude Sonnet 5.5 (Thinking)"}},
+		},
 		ModelCalls: &modelCalls,
 	})
 
@@ -834,8 +856,8 @@ func TestPollAccountLiveQuota_RefreshesPlusToPro(t *testing.T) {
 	if summary.PlanTier != PlanTierPro {
 		t.Fatalf("expected quota refresh to upgrade %q to %q, got %q", PlanTierPlus, PlanTierPro, summary.PlanTier)
 	}
-	if modelCalls != 0 {
-		t.Fatalf("explicit quota Pro should not need model probing, got %d calls", modelCalls)
+	if modelCalls != 1 {
+		t.Fatalf("expected one model probe after the Plus-to-Pro upgrade, got %d", modelCalls)
 	}
 }
 
@@ -868,6 +890,10 @@ func TestPollAndCacheAccount_PersistsProTrialUpgrade(t *testing.T) {
 		Quota: tierTestQuotaPayload(map[string]interface{}{
 			"subscriptionTier": "Pro",
 		}),
+		Models: map[string]interface{}{
+			"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}},
+			"models":         map[string]interface{}{"claude-sonnet-5-5": map[string]string{"displayName": "Claude Sonnet 5.5 (Thinking)"}},
+		},
 	})
 
 	store, acc := newTierTestStore(t, "upgrade@example.com", PlanTierProTrial)
@@ -897,6 +923,10 @@ func TestPollFleetAccounts_PersistsPlusUpgrade(t *testing.T) {
 		Quota: tierTestQuotaPayload(map[string]interface{}{
 			"subscriptionTier": "Pro",
 		}),
+		Models: map[string]interface{}{
+			"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}},
+			"models":         map[string]interface{}{"claude-sonnet-5-5": map[string]string{"displayName": "Claude Sonnet 5.5 (Thinking)"}},
+		},
 	})
 
 	store, acc := newTierTestStore(t, "fleet-upgrade@example.com", PlanTierPlus)
