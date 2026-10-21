@@ -58,6 +58,43 @@ func TestGetChatMetricsForConversation(t *testing.T) {
 	}
 }
 
+func TestGetChatMetricsForConversation_UserPromptCountIgnoresExecutionTurns(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+
+	convID := "test-conv-prompt-count"
+	brainLogDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs")
+	if err := os.MkdirAll(brainLogDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// One real user prompt drives several assistant segments separated by system
+	// boundaries. Those execution turns are useful for telemetry, but must not
+	// become Chat Navigator rows.
+	transcriptContent := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-10-21T05:00:00Z","content":"run the task"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-21T05:00:01Z","input_tokens":1000,"output_tokens":100,"duration_ms":1000}
+{"step_index":2,"source":"SYSTEM","type":"SYSTEM_MESSAGE","status":"DONE","created_at":"2026-10-21T05:00:02Z","content":"subagent boundary"}
+{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-21T05:00:03Z","input_tokens":1100,"output_tokens":100,"duration_ms":1000}
+{"step_index":4,"source":"SYSTEM","type":"SYSTEM_MESSAGE","status":"DONE","created_at":"2026-10-21T05:00:04Z","content":"subagent boundary"}
+{"step_index":5,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-21T05:00:05Z","input_tokens":1200,"output_tokens":100,"duration_ms":1000}
+`
+	if err := os.WriteFile(filepath.Join(brainLogDir, "transcript.jsonl"), []byte(transcriptContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := GetChatMetricsForConversation(convID, "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Turns) != 3 {
+		t.Fatalf("expected 3 execution turns, got %d", len(res.Turns))
+	}
+	if res.UserPromptCount != 1 {
+		t.Fatalf("expected 1 user prompt, got %d", res.UserPromptCount)
+	}
+}
+
 func TestGetChatMetricsForConversation_MultiStepTurnAggregation(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -275,4 +312,3 @@ func TestGetChatMetricsForConversation_RealWorldStepStartTimestamps(t *testing.T
 		t.Errorf("expected summary context tokens 6050, got %d", res.Summary.ContextTokens)
 	}
 }
-

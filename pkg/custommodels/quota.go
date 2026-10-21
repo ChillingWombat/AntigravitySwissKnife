@@ -33,6 +33,24 @@ type QuotaResult struct {
 	Buckets []QuotaBucket `json:"buckets,omitempty"`
 }
 
+// ApplyFetchedQuota copies a live provider result onto a model. Windowed
+// quota providers are usage-limited rather than prepaid-dollar accounts, so
+// stale legacy budget fields must not override the reported quota fractions.
+func ApplyFetchedQuota(model *CustomModel, result QuotaResult) {
+	if model == nil {
+		return
+	}
+	model.QuotaType = result.QuotaType
+	model.BalanceValue = result.BalanceValue
+	model.QuotaValue = result.QuotaValue
+	model.QuotaFraction = result.Fraction
+	model.QuotaBuckets = result.Buckets
+	if len(result.Buckets) > 0 {
+		model.TotalBudget = 0
+		model.PrepaidBalance = 0
+	}
+}
+
 // QuotaBucket is one quota window reported by a provider, e.g. the 5H window
 // together with a 7D/monthly window of the same plan.
 type QuotaBucket struct {
@@ -458,6 +476,22 @@ var ProviderQuotaRegistry = []ProviderQuotaRegistryEntry{
 					continue
 				}
 
+				if buckets := parseOpenCodeUsageBuckets(body); len(buckets) > 0 {
+					worst := buckets[0]
+					for _, bucket := range buckets[1:] {
+						if bucket.Fraction != nil && (worst.Fraction == nil || *bucket.Fraction < *worst.Fraction) {
+							worst = bucket
+						}
+					}
+					return &QuotaResult{
+						QuotaType:     QuotaTypeQuota,
+						Fraction:      worst.Fraction,
+						HasPercentage: worst.Fraction != nil,
+						Message:       "OpenCode Go usage",
+						Buckets:       buckets,
+					}, nil
+				}
+
 				if rl := ParseRateLimitHeaders(resp.Header); rl != nil {
 					return rl, nil
 				}
@@ -528,23 +562,65 @@ var ProviderQuotaRegistry = []ProviderQuotaRegistryEntry{
 					}
 				}
 
-				// Check for models list response
-				var mList struct {
-					Data []struct {
-						ID string `json:"id"`
-					} `json:"data"`
-				}
-				if json.Unmarshal(body, &mList) == nil && len(mList.Data) > 0 {
-					return &QuotaResult{
-						QuotaType:  QuotaTypeQuota,
-						QuotaValue: fmt.Sprintf("%d models", len(mList.Data)),
-						Message:    fmt.Sprintf("OpenCode active (%d models)", len(mList.Data)),
-					}, nil
-				}
 			}
 			return nil, fmt.Errorf("no balance or quota found in opencode response")
 		},
 	},
+}
+
+// parseOpenCodeUsageBuckets parses the OpenCode Go account usage contract:
+// {"usage":{"rolling":{"percent":24},"weekly":{"percent":37},"monthly":{"percent":22}}}.
+// OpenCode reports consumed percentages, while quota buckets store remaining
+// fractions for the progress bars.
+func parseOpenCodeUsageBuckets(body []byte) []QuotaBucket {
+	type usageWindow struct {
+		Status   string   `json:"status"`
+		Percent  *float64 `json:"percent"`
+		ResetsAt string   `json:"resetsAt"`
+	}
+	var doc struct {
+		Usage struct {
+			Rolling usageWindow `json:"rolling"`
+			Weekly  usageWindow `json:"weekly"`
+			Monthly usageWindow `json:"monthly"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil
+	}
+
+	windows := []struct {
+		label string
+		value usageWindow
+	}{
+		{label: "5H", value: doc.Usage.Rolling},
+		{label: "7D", value: doc.Usage.Weekly},
+		{label: "30D", value: doc.Usage.Monthly},
+	}
+
+	buckets := make([]QuotaBucket, 0, len(windows))
+	for _, window := range windows {
+		if window.value.Percent == nil {
+			continue
+		}
+		used := math.Max(0, math.Min(100, *window.value.Percent))
+		remaining := 1 - used/100
+		fraction := remaining
+		message := fmt.Sprintf("%s quota: %.0f%% used", window.label, used)
+		if window.value.ResetsAt != "" {
+			message += ", resets " + window.value.ResetsAt
+		}
+		if window.value.Status == "rate-limited" {
+			message += ", rate limited"
+		}
+		buckets = append(buckets, QuotaBucket{
+			Label:    window.label,
+			Fraction: &fraction,
+			Value:    fmt.Sprintf("%.0f%% left", remaining*100),
+			Message:  message,
+		})
+	}
+	return buckets
 }
 
 // probeQuotaEndpoint makes a GET request to the given endpoint and parses rate-limit
@@ -1080,8 +1156,8 @@ func FormatQuotaWindowLabel(window string) string {
 		return "5H"
 	case "7d", "7day", "7days", "weekly", "week":
 		return "7D"
-	case "30d", "monthly", "month":
-		return "Monthly"
+	case "30d", "30day", "30days", "monthly", "month":
+		return "30D"
 	case "24h", "daily", "day":
 		return "24H"
 	}

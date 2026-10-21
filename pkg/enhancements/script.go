@@ -596,10 +596,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     // These helpers resolve ONE stable turn total per conversation, in a fixed
     // order, from the best available source:
     //   1. list ordinals of the mounted turns (data-index / aria-posinset),
-    //   2. the full transcript turn count reported by the daemon chat-metrics,
-    //   3. a per-conversation high-water mark so the rail never shrinks mid-scroll.
+    //   2. the authoritative user-prompt count reported by chat-metrics,
+    //   3. a per-conversation high-water mark while no authoritative count exists.
     const jumpBarTurnRegistry = {};
-    const jumpBarTurnCountsByConversation = {};
+    const jumpBarPromptCountsByConversation = {};
 
     function computeTurnOrdinals(stepEls) {
       const ordinals = [];
@@ -623,20 +623,77 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return ordinals;
     }
 
-    function computeStableTurnTotal(ordinals, mountedCount, daemonTurnCount, conversationKey, registry) {
-      let total = mountedCount || 0;
+    function computeStableTurnTotal(ordinals, mountedCount, daemonPromptCount, conversationKey, registry) {
+      let mountedTotal = mountedCount || 0;
       if (ordinals) {
         for (let i = 0; i < ordinals.length; i++) {
           const ord = ordinals[i];
-          if (typeof ord === "number" && ord + 1 > total) total = ord + 1;
+          if (typeof ord === "number" && ord + 1 > mountedTotal) mountedTotal = ord + 1;
         }
       }
-      if (typeof daemonTurnCount === "number" && daemonTurnCount > total) total = daemonTurnCount;
       const key = conversationKey || "__unknown__";
+      if (typeof daemonPromptCount === "number" && daemonPromptCount >= 0) {
+        // The transcript is authoritative for prompt count. Do not let a list
+        // ordinal or a stale high-water mark keep ghost rows alive after the
+        // daemon reports fewer real user prompts.
+        const authoritative = Math.max(daemonPromptCount, mountedCount || 0);
+        registry[key] = authoritative;
+        return authoritative;
+      }
       const previous = registry[key] || 0;
-      const stable = Math.max(total, previous);
+      const stable = Math.max(mountedTotal, previous);
       if (stable > 0) registry[key] = stable;
       return stable;
+    }
+
+    function jumpBarStepIdentity(el) {
+      if (!el || !el.getAttribute) return "";
+      const attrs = ["data-prompt-index", "data-turn-index", "data-step-index", "data-index", "aria-posinset"];
+      let marker = "";
+      for (let i = 0; i < attrs.length; i++) {
+        const value = el.getAttribute(attrs[i]);
+        if (value !== null && value !== undefined && value !== "") {
+          marker = attrs[i] + "=" + value;
+          break;
+        }
+      }
+      if (!marker) return "";
+      let text = "";
+      try {
+        const textEl = el.querySelector ? (el.querySelector(".whitespace-pre-wrap") || el) : el;
+        text = String(textEl && textEl.textContent || "").replace(/\s+/g, " ").trim();
+      } catch (_) {}
+      return marker + "\u0000" + text;
+    }
+
+    function filterMainConversationSteps(stepEls, conversationView) {
+      const filtered = [];
+      if (!stepEls || !conversationView) return filtered;
+      const seenElements = new Set();
+      const seenIdentities = new Set();
+      for (let i = 0; i < stepEls.length; i++) {
+        const el = stepEls[i];
+        if (!el || seenElements.has(el)) continue;
+        if (conversationView.contains && !conversationView.contains(el)) continue;
+        try {
+          const nestedView = el.closest ? el.closest('[data-testid="conversation-view"]') : null;
+          if (nestedView && nestedView !== conversationView) continue;
+          if (el.closest && (
+            el.closest('[data-testid="subagent-node"]') ||
+            el.closest('[data-testid="agent-input-box"], .no-focus-agent-input')
+          )) continue;
+          const parent = el.parentElement;
+          if (parent && parent.closest && parent.closest('[data-testid="user-input-step"]')) continue;
+        } catch (_) {
+          continue;
+        }
+        const identity = jumpBarStepIdentity(el);
+        if (identity && seenIdentities.has(identity)) continue;
+        seenElements.add(el);
+        if (identity) seenIdentities.add(identity);
+        filtered.push(el);
+      }
+      return filtered;
     }
 
     function mapStepsToTurnIndexes(ordinals, total) {
@@ -759,21 +816,14 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return "";
     }
 
-    function getJumpBarSteps(bar) {
-      const host = bar && bar.parentElement;
-      let steps = [];
+    function getJumpBarSteps(bar, conversationView) {
+      if (!conversationView || !conversationView.querySelectorAll) return [];
       try {
-        const root = (host && host.querySelectorAll) ? host : document;
-        steps = Array.from(root.querySelectorAll('[data-testid="user-input-step"]'));
+        const steps = Array.from(conversationView.querySelectorAll('[data-testid="user-input-step"]'));
+        return filterMainConversationSteps(steps, conversationView);
       } catch (_) {
-        steps = [];
+        return [];
       }
-      if (!steps.length) {
-        try {
-          steps = Array.from(document.querySelectorAll('[data-testid="user-input-step"]'));
-        } catch (_) {}
-      }
-      return steps;
     }
 
     function resolveActiveTurnIndex(steps, stepTurnIndexes, viewport) {
@@ -864,9 +914,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }
 
       // Resolve one stable turn total for this conversation; steps are scoped to
-      // the pane/transcript that hosts the rail.
-      const steps = getJumpBarSteps(bar);
-      const isNonChatView = isMainStageActive() || (!convView && steps.length === 0);
+      // the main transcript pane that hosts the rail.
+      const steps = convView ? getJumpBarSteps(bar, convView) : [];
+      const isNonChatView = isMainStageActive() || !convView;
       if (isNonChatView) {
         bar.style.display = "none";
         if (tooltip) tooltip.style.display = "none";
@@ -875,8 +925,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }
       const ordinals = computeTurnOrdinals(steps);
       const conversationKey = resolveJumpBarConversationKey(bar.parentElement);
-      const daemonTurnCount = (conversationKey && jumpBarTurnCountsByConversation[conversationKey]) || 0;
-      const totalTurns = computeStableTurnTotal(ordinals, steps.length, daemonTurnCount, conversationKey, jumpBarTurnRegistry);
+      const daemonPromptCount = (conversationKey && Object.prototype.hasOwnProperty.call(jumpBarPromptCountsByConversation, conversationKey))
+        ? jumpBarPromptCountsByConversation[conversationKey]
+        : null;
+      const totalTurns = computeStableTurnTotal(ordinals, steps.length, daemonPromptCount, conversationKey, jumpBarTurnRegistry);
       if (totalTurns === 0) {
         bar.style.display = "none";
         closePromptNavigatorPanel();
@@ -2294,7 +2346,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       requestAnimationFrame(() => {
         const bar = document.getElementById("swiss-prompt-jump-bar");
         if (!bar) return;
-        const steps = getJumpBarSteps(bar);
+        const convView = document.querySelector('[data-testid="conversation-view"]');
+        const steps = convView ? getJumpBarSteps(bar, convView) : [];
         const viewport = document.querySelector('[data-testid="autoscroll-viewport"]') ||
                          document.querySelector('.overflow-y-auto');
 
@@ -2302,8 +2355,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         // rebuild the rail instead of re-labelling a stale set of dashes.
         const ordinals = computeTurnOrdinals(steps);
         const conversationKey = resolveJumpBarConversationKey(bar.parentElement);
-        const daemonTurnCount = (conversationKey && jumpBarTurnCountsByConversation[conversationKey]) || 0;
-        const totalTurns = computeStableTurnTotal(ordinals, steps.length, daemonTurnCount, conversationKey, jumpBarTurnRegistry);
+        const daemonPromptCount = (conversationKey && Object.prototype.hasOwnProperty.call(jumpBarPromptCountsByConversation, conversationKey))
+          ? jumpBarPromptCountsByConversation[conversationKey]
+          : null;
+        const totalTurns = computeStableTurnTotal(ordinals, steps.length, daemonPromptCount, conversationKey, jumpBarTurnRegistry);
         if (totalTurns === 0 || totalTurns !== lastJumpBarTotal || conversationKey !== lastJumpBarConversationKey) {
           renderPromptJumpBar();
           return;
@@ -3092,16 +3147,15 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             if (parentId && agentName) {
               subagentNameToConvId[parentId + ":" + agentName] = targetId;
             }
+            let jumpBarChanged = false;
+            if (data && typeof data.user_prompt_count === "number" && data.user_prompt_count >= 0) {
+              // Count only USER_EXPLICIT/USER_INPUT transcript entries. Assistant
+              // execution turns and system boundaries must not create rail rows.
+              const previousPromptCount = jumpBarPromptCountsByConversation[targetId];
+              jumpBarPromptCountsByConversation[targetId] = data.user_prompt_count;
+              jumpBarChanged = previousPromptCount !== data.user_prompt_count;
+            }
             if (data && Array.isArray(data.turns) && data.turns.length > 0) {
-              // The daemon reads the full conversation transcript from disk, so
-              // this turn count covers prompt turns whose DOM nodes are
-              // virtualized out of the chat view. The rail uses it to size the
-              // bars for the whole session instead of only the mounted window.
-              const previousTurnTotal = jumpBarTurnCountsByConversation[targetId] || 0;
-              jumpBarTurnCountsByConversation[targetId] = data.turns.length;
-              if (data.turns.length !== previousTurnTotal) {
-                renderPromptJumpBar();
-              }
               const lastTurn = data.turns[data.turns.length - 1];
               const turnUsage = lastTurn.context_tokens || ((lastTurn.input_tokens || 0) + (lastTurn.output_tokens || 0));
               cachedTokensByConv[targetId] = turnUsage;
@@ -3110,6 +3164,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               const sumUsage = data.summary ? (data.summary.context_tokens || ((data.summary.input_tokens || 0) + (data.summary.output_tokens || 0))) : 0;
               cachedTokensByConv[targetId] = sumUsage;
               renderContextWindowProgressRing();
+            }
+            if (jumpBarChanged) {
+              renderPromptJumpBar();
             }
           }
         }
