@@ -2,6 +2,7 @@ package quota
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1101,11 +1102,17 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 	if accessToken == "" {
 		return "", fmt.Errorf("empty access token")
 	}
+	if remaining := checkQuotaBackoff(); remaining > 0 {
+		return "", fmt.Errorf("quota backoff active for %v", remaining.Round(time.Second))
+	}
+
 	client := &http.Client{Timeout: 6 * time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
 	payload := []byte(`{"project":""}`)
 
 	for _, endpoint := range CloudCodeModelsURLs {
-		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 		if err != nil {
 			continue
 		}
@@ -1120,6 +1127,19 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
+		if resp.StatusCode == http.StatusTooManyRequests {
+			backoff := 5 * time.Second
+			if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+				if secs, err := strconv.Atoi(retryAfter); err == nil && secs > 0 {
+					backoff = time.Duration(secs) * time.Second
+				}
+			}
+			if backoff > 60*time.Second {
+				backoff = 60 * time.Second
+			}
+			recordQuotaBackoff(backoff)
+			return "", fmt.Errorf("model tier lookup rate limited")
+		}
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -1204,7 +1224,17 @@ func resolveTierFromQuotaAccess(tier string, breakdown *LiveQuotaBreakdown) stri
 		resolved = breakdown.SubscriptionTier
 	}
 
-	if breakdown.ModelCatalogKnown && (resolved == PlanTierFree || resolved == PlanTierPro || resolved == PlanTierProTrial) {
+	if breakdown.ModelCatalogKnown {
+		hasThirdPartyAccess := breakdown.HasClaudeGPTRights || breakdown.HasClaude || breakdown.HasGPT || breakdown.HasPaidProModel
+		if resolved == "" && hasThirdPartyAccess {
+			if breakdown.HasPaidProModel {
+				return PlanTierPro
+			}
+			return PlanTierProTrial
+		}
+		if resolved != PlanTierFree && resolved != PlanTierPro && resolved != PlanTierProTrial {
+			return resolved
+		}
 		if breakdown.HasPaidProModel {
 			return PlanTierPro
 		}

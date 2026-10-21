@@ -212,6 +212,43 @@ func TestDetectTierFromAvailableModels(t *testing.T) {
 	}
 }
 
+func TestDetectTierFromAvailableModels_StopsOnRateLimit(t *testing.T) {
+	origModelsURLs := CloudCodeModelsURLs
+	defer func() { CloudCodeModelsURLs = origModelsURLs }()
+	ResetQuotaBackoffForTesting()
+	t.Cleanup(ResetQuotaBackoffForTesting)
+
+	firstCalls := 0
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		firstCalls++
+		w.Header().Set("Retry-After", "7")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer first.Close()
+
+	secondCalls := 0
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		secondCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}},
+			"models":         map[string]interface{}{"claude-sonnet-5-5": map[string]string{"displayName": "Claude Sonnet 5.5 (Thinking)"}},
+		})
+	}))
+	defer second.Close()
+	CloudCodeModelsURLs = []string{first.URL, second.URL}
+
+	if _, err := DetectTierFromAvailableModels("mock-token"); err == nil {
+		t.Fatal("expected rate-limit error")
+	}
+	if firstCalls != 1 || secondCalls != 0 {
+		t.Fatalf("expected one rate-limited call and no endpoint fallback, got first=%d second=%d", firstCalls, secondCalls)
+	}
+	if remaining := checkQuotaBackoff(); remaining <= 0 {
+		t.Fatal("expected rate limit to activate quota backoff")
+	}
+}
+
 func TestFetchProjectAndTier(t *testing.T) {
 	origLoadURLs := CloudCodeLoadProjectURLs
 	defer func() { CloudCodeLoadProjectURLs = origLoadURLs }()
@@ -671,6 +708,21 @@ func tierTestQuotaPayload(extra map[string]interface{}) map[string]interface{} {
 	return payload
 }
 
+func tierTestQuotaPayloadWithClaude(extra map[string]interface{}) map[string]interface{} {
+	payload := tierTestQuotaPayload(extra)
+	payload["groups"] = append(payload["groups"].([]interface{}), map[string]interface{}{
+		"displayName": "Claude and GPT models",
+		"buckets": []interface{}{
+			map[string]interface{}{
+				"bucketId":          "3p-5h",
+				"window":            "5h",
+				"remainingFraction": 1,
+			},
+		},
+	})
+	return payload
+}
+
 func TestPollAccountLiveQuota_UsesExplicitTrialEvidence(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
 	tests := []struct {
@@ -854,6 +906,45 @@ func TestPollAccountLiveQuota_QuotaCatalogTakesPrecedenceOverModelProbe(t *testi
 				t.Fatalf("quota catalog evidence must avoid a redundant model probe, got %d calls", modelCalls)
 			}
 		})
+	}
+}
+
+func TestPollAccountLiveQuota_QuotaCatalogResolvesAmbiguousTier(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	modelCalls := 0
+	newTierTestServer(t, tierTestPayloads{
+		Load: map[string]interface{}{
+			"cloudaicompanionProject": "projects/ambiguous",
+			"allowedTiers":            []map[string]interface{}{{"name": "Pro"}},
+		},
+		Quota: tierTestQuotaPayloadWithClaude(map[string]interface{}{
+			"models": map[string]interface{}{
+				"claude-sonnet-4-6": map[string]string{"displayName": "Claude Sonnet 4.6 (Thinking)"},
+			},
+		}),
+		Models: map[string]interface{}{
+			"tieredModelIds": map[string]interface{}{"pro": []string{"gemini-2.5-pro"}},
+			"models": map[string]interface{}{
+				"claude-sonnet-5-5": map[string]string{"displayName": "Claude Sonnet 5.5 (Thinking)"},
+			},
+		},
+		ModelCalls: &modelCalls,
+	})
+
+	summary, err := PollAccountLiveQuota(&keyring.Account{
+		Email:        "ambiguous-catalog@example.com",
+		AccessToken:  "mock-token",
+		RefreshToken: "mock-refresh",
+		PlanTier:     PlanTierFree,
+	})
+	if err != nil {
+		t.Fatalf("PollAccountLiveQuota failed: %v", err)
+	}
+	if summary.PlanTier != PlanTierProTrial {
+		t.Fatalf("expected quota catalog to resolve %q, got %q", PlanTierProTrial, summary.PlanTier)
+	}
+	if modelCalls != 0 {
+		t.Fatalf("quota catalog must avoid the conflicting model probe, got %d calls", modelCalls)
 	}
 }
 
