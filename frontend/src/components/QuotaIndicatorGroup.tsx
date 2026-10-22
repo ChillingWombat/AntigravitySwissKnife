@@ -48,31 +48,48 @@ export const QuotaIndicatorGroup: React.FC<QuotaIndicatorGroupProps> = ({
         flexShrink: 0,
       }}
     >
-      {tracked.map((b) => (
-        <div key={b.label} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '6px',
-              fontSize: '10px',
-              fontWeight: 600,
-              color: 'var(--text-muted)',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <span>{b.label}</span>
-            {b.value && <span style={{ color: 'var(--text)' }}>{b.value}</span>}
+      {tracked.map((b) => {
+        const hasFraction = b.fraction !== null && b.fraction !== undefined && !isNaN(b.fraction as number)
+        let valueText: string
+        if (hasFraction) {
+          const pct = Math.max(0, Math.min(100, Math.round((b.fraction as number) * 100)))
+          if (b.value && b.value.trim().length > 0) {
+            const trimmed = b.value.trim()
+            valueText = trimmed.toLowerCase().endsWith('left') ? trimmed : `${trimmed} left`
+          } else {
+            valueText = `${pct}% left`
+          }
+        } else {
+          valueText = b.value || 'N/A'
+        }
+
+        return (
+          <div key={b.label} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '6px',
+                fontSize: '10px',
+                fontWeight: 600,
+                color: 'var(--text-muted)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span>{b.label}</span>
+              <span style={{ color: 'var(--text)' }}>{valueText}</span>
+            </div>
+            <HorizontalQuotaBar
+              fraction={b.fraction}
+              height={6}
+              maxWidth="100%"
+              showPercentage={false}
+              title={b.message || `${b.label}: ${valueText}`}
+            />
           </div>
-          <HorizontalQuotaBar
-            fraction={b.fraction}
-            height={6}
-            maxWidth="100%"
-            title={b.message || `${b.label}: ${b.value || 'N/A'}`}
-          />
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

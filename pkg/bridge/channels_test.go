@@ -134,24 +134,25 @@ func TestChannelsManager_CannedStubsEliminated(t *testing.T) {
 func TestDirectHandler_ComputerUse_NoCannedStubs(t *testing.T) {
 	dh := NewDirectHandler()
 
-	// 1. Status reports genuine capability
+	// 1. Status reports genuine capability from the installed automation tools
 	st, err := dh.ComputerUse(map[string]interface{}{"action": "status"})
 	if err != nil {
 		t.Fatalf("ComputerUse status returned error: %v", err)
 	}
-	if !strings.Contains(st, "actuator ready") && !strings.Contains(st, "not configured") {
+	if !strings.Contains(st, "ready") && !strings.Contains(st, "not configured") {
 		t.Errorf("unexpected status output: %s", st)
 	}
 
-	// 2. Unsupported actions fail explicitly instead of returning fake success
-	_, err = dh.ComputerUse(map[string]interface{}{"action": "click"})
-	if err == nil || !strings.Contains(err.Error(), "not configured") {
-		t.Errorf("expected click to return not configured error, got: %v", err)
+	// 2. Input actions either really run or explain what is missing — never a
+	// canned success. A missing payload is a caller error, not a stub.
+	_, err = dh.ComputerUse(map[string]interface{}{"action": "type"})
+	if err == nil || !strings.Contains(err.Error(), "text is required") {
+		t.Errorf("expected type without text to fail with text is required, got: %v", err)
 	}
 
-	_, err = dh.ComputerUse(map[string]interface{}{"action": "type"})
-	if err == nil || !strings.Contains(err.Error(), "not configured") {
-		t.Errorf("expected type to return not configured error, got: %v", err)
+	_, err = dh.ComputerUse(map[string]interface{}{"action": "key"})
+	if err == nil || !strings.Contains(err.Error(), "keys is required") {
+		t.Errorf("expected key without keys to fail with keys is required, got: %v", err)
 	}
 
 	// 3. Empty action errors

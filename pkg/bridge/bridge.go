@@ -31,6 +31,13 @@ type Config struct {
 	OAuthClientID   string   `json:"oauth_client_id"`
 	AutoStartTunnel bool     `json:"auto_start_tunnel"`
 	AllowedTools    []string `json:"allowed_tools"`
+	// AgentBackend selects which Antigravity surface lead/model tools drive:
+	// "auto" (CLI when installed), "app" (2.0 desktop app) or "cli".
+	AgentBackend string `json:"agent_backend"`
+	// HTTPAllowlist gates local_http_request. An agent may only reach hosts listed
+	// here; anything else lands in HTTPPendingApprovals and is never called.
+	HTTPAllowlist        []string              `json:"http_allowlist"`
+	HTTPPendingApprovals []HTTPApprovalRequest `json:"http_pending_approvals"`
 }
 
 // SurfaceStatus details connectivity to local Antigravity runtime environments.
@@ -59,23 +66,29 @@ type Invocation struct {
 
 // BridgeStatus reports operational health and configuration to UI and clients.
 type BridgeStatus struct {
-	Enabled            bool          `json:"enabled"`
-	OperatingMode      string        `json:"operating_mode"`
-	GatewayURL         string        `json:"gateway_url"`
-	TunnelType         string        `json:"tunnel_type"`
-	TunnelOnline       bool          `json:"tunnel_online"`
-	AuthToken          string        `json:"auth_token"`
-	PairingPIN         string        `json:"pairing_pin"`
-	UseAppPassword     bool          `json:"use_app_password"`
-	AppPasswordEnabled bool          `json:"app_password_enabled"`
-	OAuthClientID      string        `json:"oauth_client_id"`
-	OAuthClientSecret  string        `json:"oauth_client_secret"`
-	Surfaces           SurfaceStatus `json:"surfaces"`
-	Tunnel             TunnelStatus  `json:"tunnel"`
-	ActiveLeadSession  *LeadSession  `json:"active_lead_session,omitempty"`
-	RecentAttempts     []AuthAttempt `json:"recent_attempts,omitempty"`
-	InvocationsCount   int           `json:"invocations_count"`
-	RecentInvocations  []Invocation  `json:"recent_invocations"`
+	Enabled            bool   `json:"enabled"`
+	OperatingMode      string `json:"operating_mode"`
+	GatewayURL         string `json:"gateway_url"`
+	TunnelType         string `json:"tunnel_type"`
+	TunnelOnline       bool   `json:"tunnel_online"`
+	AuthToken          string `json:"auth_token"`
+	PairingPIN         string `json:"pairing_pin"`
+	UseAppPassword     bool   `json:"use_app_password"`
+	AppPasswordEnabled bool   `json:"app_password_enabled"`
+	OAuthClientID      string `json:"oauth_client_id"`
+	OAuthClientSecret  string `json:"oauth_client_secret"`
+	// Which Antigravity surface lead/model tools drive, requested vs resolved.
+	AgentBackend      string        `json:"agent_backend"`
+	ResolvedAgent     string        `json:"resolved_agent"`
+	Surfaces          SurfaceStatus `json:"surfaces"`
+	Tunnel            TunnelStatus  `json:"tunnel"`
+	ActiveLeadSession *LeadSession  `json:"active_lead_session,omitempty"`
+	RecentAttempts    []AuthAttempt `json:"recent_attempts,omitempty"`
+	InvocationsCount  int           `json:"invocations_count"`
+	RecentInvocations []Invocation  `json:"recent_invocations"`
+	// Outbound HTTP gate: the hosts agents may call, and the hosts they asked for.
+	HTTPAllowlist        []string              `json:"http_allowlist"`
+	HTTPPendingApprovals []HTTPApprovalRequest `json:"http_pending_approvals"`
 }
 
 // Service manages two-way bridging, tunnels, authentication, and execution modes.
@@ -89,12 +102,17 @@ type Service struct {
 	invocations []Invocation
 	injector    *gui.Injector
 
-	tunnelMgr   *TunnelManager
-	authMgr     *AuthManager
-	directHdl   *DirectHandler
-	leadHdl     *LeadHandler
-	remoteMgr   *RemoteManager
-	channelsMgr *ChannelsManager
+	tunnelMgr *TunnelManager
+	authMgr   *AuthManager
+	directHdl *DirectHandler
+	leadHdl   *LeadHandler
+	cliHdl    *CLIHandler
+	// Custom models are surfaced through the same model tools as native ones.
+	customModels   customModelProvider
+	activateCustom customModelActivator
+	gatewayTokenFn func() string
+	remoteMgr      *RemoteManager
+	channelsMgr    *ChannelsManager
 }
 
 // DefaultConfig initializes recommended default bridge settings.
@@ -103,6 +121,7 @@ func DefaultConfig() Config {
 		Enabled:         false,
 		Port:            8765,
 		OperatingMode:   "hybrid",
+		AgentBackend:    AgentAuto,
 		TunnelType:      "quick",
 		TunnelURL:       "",
 		AuthToken:       GenerateSecureToken(),
@@ -112,6 +131,7 @@ func DefaultConfig() Config {
 		AllowedTools: []string{
 			"antigravity_bridge_set_mode",
 			"antigravity_bridge_get_mode",
+			"antigravity_bridge_set_agent",
 			"antigravity_lead_create_conversation",
 			"antigravity_lead_send_message",
 			"antigravity_lead_get_status",
@@ -121,6 +141,9 @@ func DefaultConfig() Config {
 			"antigravity_lead_stop_conversation",
 			"antigravity_fleet_get_quota",
 			"antigravity_fleet_switch_account",
+			"antigravity_session_model_list",
+			"antigravity_session_model_get",
+			"antigravity_session_model_set",
 			"local_run_command",
 			"local_read_file",
 			"local_write_file",
@@ -128,6 +151,12 @@ func DefaultConfig() Config {
 			"local_search_files",
 			"local_system_info",
 			"local_computer_use",
+			"local_http_request",
+			"local_http_allowlist",
+			"local_obsidian_list_vaults",
+			"local_obsidian_search",
+			"local_obsidian_read_note",
+			"local_obsidian_write_note",
 		},
 	}
 }
@@ -156,10 +185,13 @@ func NewService(configPath string) (*Service, error) {
 		injector:    gui.NewInjector(0),
 		directHdl:   NewDirectHandler(),
 		leadHdl:     NewLeadHandler(""),
+		cliHdl:      NewCLIHandler(),
 		remoteMgr:   NewRemoteManager(""),
 		channelsMgr: NewChannelsManager(""),
 	}
 	s.remoteMgr.SetLeadHandler(s.leadHdl)
+	// Custom models run on the local LLM gateway; the CLI is pointed at it per turn.
+	s.cliHdl.SetGatewayEnv(s.cliGatewayEnv)
 	_ = s.loadConfig()
 
 	s.tunnelMgr = NewTunnelManager(s.config.Port, "/api/bridge/mcp")
@@ -315,6 +347,11 @@ func (s *Service) loadConfig() error {
 	if c.OperatingMode == "" {
 		c.OperatingMode = "hybrid"
 	}
+	if normalized := normalizeAgentBackend(c.AgentBackend); normalized != agentUnknown {
+		c.AgentBackend = normalized
+	} else {
+		c.AgentBackend = AgentAuto
+	}
 	if c.Port <= 0 {
 		c.Port = 8765
 	}
@@ -368,6 +405,11 @@ func (s *Service) UpdateConfig(c Config) error {
 	}
 	if c.OperatingMode == "" {
 		c.OperatingMode = s.config.OperatingMode
+	}
+	if normalized := normalizeAgentBackend(c.AgentBackend); normalized != agentUnknown {
+		c.AgentBackend = normalized
+	} else {
+		c.AgentBackend = s.config.AgentBackend
 	}
 	if c.AuthToken == "" {
 		c.AuthToken = s.config.AuthToken
@@ -553,35 +595,37 @@ func (s *Service) GetStatus() BridgeStatus {
 
 	appPassEnabled := IsAppPasswordConfigured()
 
-	return BridgeStatus{
-		Enabled:            tunnelStatus.Active,
-		OperatingMode:      s.config.OperatingMode,
-		GatewayURL:         gatewayURL,
-		TunnelType:         tunnelStatus.Type,
-		TunnelOnline:       tunnelStatus.Active,
-		AuthToken:          s.authMgr.GetToken(),
-		PairingPIN:         s.authMgr.GetPIN(),
-		UseAppPassword:     s.config.UseAppPassword && appPassEnabled,
-		AppPasswordEnabled: appPassEnabled,
-		OAuthClientID:      s.getOAuthClientID(),
-		OAuthClientSecret:  s.authMgr.GetToken(),
-		Surfaces:           surfaces,
-		Tunnel:             tunnelStatus,
-		ActiveLeadSession:  s.leadHdl.GetActiveSession(),
-		RecentAttempts:     s.authMgr.GetRecentAttempts(),
-		InvocationsCount:   len(s.invocations),
-		RecentInvocations:  recent,
+	// Computed inside the lock through the pure resolver: calling the lock-taking
+	// helpers here would re-enter the read lock.
+	requestedAgent := normalizeAgentBackend(s.config.AgentBackend)
+	if requestedAgent == agentUnknown {
+		requestedAgent = AgentAuto
 	}
-}
+	resolvedAgent := resolveAgentBackend(requestedAgent, s.cliHdl != nil && s.cliHdl.Available())
 
-func maskToken(tok string) string {
-	if tok == "" {
-		return ""
+	return BridgeStatus{
+		Enabled:              tunnelStatus.Active,
+		OperatingMode:        s.config.OperatingMode,
+		AgentBackend:         requestedAgent,
+		ResolvedAgent:        resolvedAgent,
+		GatewayURL:           gatewayURL,
+		TunnelType:           tunnelStatus.Type,
+		TunnelOnline:         tunnelStatus.Active,
+		AuthToken:            s.authMgr.GetToken(),
+		PairingPIN:           s.authMgr.GetPIN(),
+		UseAppPassword:       s.config.UseAppPassword && appPassEnabled,
+		AppPasswordEnabled:   appPassEnabled,
+		OAuthClientID:        s.getOAuthClientID(),
+		OAuthClientSecret:    s.authMgr.GetToken(),
+		Surfaces:             surfaces,
+		Tunnel:               tunnelStatus,
+		ActiveLeadSession:    s.leadHdl.GetActiveSession(),
+		RecentAttempts:       s.authMgr.GetRecentAttempts(),
+		InvocationsCount:     len(s.invocations),
+		RecentInvocations:    recent,
+		HTTPAllowlist:        append([]string{}, s.config.HTTPAllowlist...),
+		HTTPPendingApprovals: append([]HTTPApprovalRequest{}, s.config.HTTPPendingApprovals...),
 	}
-	if len(tok) <= 8 {
-		return "[REDACTED]"
-	}
-	return tok[:4] + "..." + tok[len(tok)-4:]
 }
 
 // RecordInvocation saves a remote MCP execution audit record.
@@ -623,6 +667,21 @@ func (s *Service) ToolManifest() []map[string]interface{} {
 					},
 				},
 				"required": []string{"mode"},
+			},
+		},
+		map[string]interface{}{
+			"name":        "antigravity_bridge_set_agent",
+			"description": "Chooses which Antigravity surface the lead and model tools drive: 'auto' (prefer the Antigravity CLI when installed, it costs less than the GUI), 'app' (Antigravity 2.0 desktop app) or 'cli' (Antigravity CLI). Returns the resolved backend.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"auto", "app", "cli"},
+						"description": "Preferred backend.",
+					},
+				},
+				"required": []string{"agent"},
 			},
 		},
 		map[string]interface{}{
@@ -768,6 +827,34 @@ func (s *Service) ToolManifest() []map[string]interface{} {
 					},
 				},
 			},
+			map[string]interface{}{
+				"name":        "antigravity_session_model_list",
+				"description": "Lists every model the open Antigravity conversation can use, with the numeric value to pass to antigravity_session_model_set and the currently selected one.",
+				"inputSchema": map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				},
+			},
+			map[string]interface{}{
+				"name":        "antigravity_session_model_get",
+				"description": "Returns the model the open Antigravity conversation will use for its next turn.",
+				"inputSchema": map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				},
+			},
+			map[string]interface{}{
+				"name":        "antigravity_session_model_set",
+				"description": "Selects the model for the conversation that is open right now — for this session only, nothing is bound to the project or persisted as a global default. Pass a label (\"Gemini 3.8 Flash\") or a numeric value from antigravity_session_model_list; optional effort picks the (High)/(Medium)/(Low) variant.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"model":  map[string]interface{}{"type": "string", "description": "Model label to select."},
+						"value":  map[string]interface{}{"type": "integer", "description": "Numeric model value from antigravity_session_model_list."},
+						"effort": map[string]interface{}{"type": "string", "description": "Reasoning effort variant: high, medium or low."},
+					},
+				},
+			},
 		)
 	}
 
@@ -883,17 +970,102 @@ func (s *Service) ToolManifest() []map[string]interface{} {
 			},
 			map[string]interface{}{
 				"name":        "local_computer_use",
-				"description": "Executes local computer use UI automation actions (status, screenshot, click, type).",
+				"description": "Drives the local desktop: screenshot (full or region), mouse move/click/drag/scroll, type text, press keys and hotkeys, wait, and read/write the clipboard. Use it for tasks that only a human would otherwise do in a GUI.",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"action": map[string]interface{}{
 							"type":        "string",
-							"enum":        []string{"status", "screenshot", "click", "type"},
+							"enum":        []string{"status", "screenshot", "move", "click", "drag", "scroll", "type", "key", "hotkey", "wait", "clipboard_get", "clipboard_set"},
 							"description": "Action to perform.",
 						},
+						"x":       map[string]interface{}{"type": "integer", "description": "Target X coordinate for move/click/drag/scroll."},
+						"y":       map[string]interface{}{"type": "integer", "description": "Target Y coordinate for move/click/drag/scroll."},
+						"to_x":    map[string]interface{}{"type": "integer", "description": "Drag end X coordinate."},
+						"to_y":    map[string]interface{}{"type": "integer", "description": "Drag end Y coordinate."},
+						"button":  map[string]interface{}{"type": "string", "enum": []string{"left", "middle", "right"}, "description": "Mouse button for click/drag (default: left)."},
+						"amount":  map[string]interface{}{"type": "integer", "description": "Scroll amount in wheel clicks (positive scrolls down)."},
+						"text":    map[string]interface{}{"type": "string", "description": "Text to type, or clipboard content for clipboard_set."},
+						"keys":    map[string]interface{}{"type": "string", "description": "Key or key combo for key/hotkey, e.g. \"Return\", \"ctrl+c\", \"alt+Tab\"."},
+						"seconds": map[string]interface{}{"type": "number", "description": "Seconds to wait for the wait action (max 30)."},
+						"path":    map[string]interface{}{"type": "string", "description": "Output path for screenshot."},
+						"region":  map[string]interface{}{"type": "string", "description": "Screenshot region as WxH+X+Y."},
 					},
 					"required": []string{"action"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_http_request",
+				"description": "Performs an outbound HTTP request (GET/POST/PUT/PATCH/DELETE) with headers and body — calendar APIs, REST endpoints, webhooks. Hosts must be on the outbound allowlist; an unknown host is NOT called and instead returns an approval request the user grants in the desktop app or via local_http_allowlist.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"method":          map[string]interface{}{"type": "string", "description": "HTTP method (default: GET)."},
+						"url":             map[string]interface{}{"type": "string", "description": "Absolute https URL."},
+						"headers":         map[string]interface{}{"type": "object", "description": "Request headers, e.g. {\"Authorization\":\"Bearer ...\"}."},
+						"body":            map[string]interface{}{"type": "string", "description": "Raw request body (JSON is sent with Content-Type: application/json when no header is given)."},
+						"timeout_seconds": map[string]interface{}{"type": "integer", "description": "Request timeout in seconds (default 30, max 120)."},
+						"reason":          map[string]interface{}{"type": "string", "description": "Human-readable reason shown to the user when a new host needs approval."},
+					},
+					"required": []string{"url"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_http_allowlist",
+				"description": "Reads or edits the outbound HTTP allowlist. Use action \"allow\" only after the user agreed to contact a new host; \"revoke\" removes it; \"list\" returns the allowlist plus pending approval requests.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"action": map[string]interface{}{"type": "string", "enum": []string{"list", "allow", "revoke", "deny"}, "description": "Action to perform (default: list)."},
+						"host":   map[string]interface{}{"type": "string", "description": "Host to allow, revoke or deny, e.g. \"www.googleapis.com\" or \"*.notion.so\"."},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_obsidian_list_vaults",
+				"description": "Lists every Obsidian vault on this machine (directories with a .obsidian folder) with their note counts.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"refresh": map[string]interface{}{"type": "boolean", "description": "Rescan instead of using the one-minute cache."},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_obsidian_search",
+				"description": "Searches Obsidian notes by title and body, and understands #tags and [[wikilinks]] as query forms.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"query": map[string]interface{}{"type": "string", "description": "Text to find, or \"#tag\", or \"[[note name]]\"."},
+						"vault": map[string]interface{}{"type": "string", "description": "Vault name or absolute path (optional, defaults to all vaults)."},
+						"limit": map[string]interface{}{"type": "integer", "description": "Max matches (default 30, max 200)."},
+					},
+					"required": []string{"query"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_obsidian_read_note",
+				"description": "Reads one Obsidian note as Markdown. Accepts an absolute path, \"vault:relative/note\", or a path inside the vault.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path": map[string]interface{}{"type": "string", "description": "Note path or \"vault:note\" reference."},
+						"note": map[string]interface{}{"type": "string", "description": "Alias for path."},
+					},
+				},
+			},
+			map[string]interface{}{
+				"name":        "local_obsidian_write_note",
+				"description": "Creates or updates one Obsidian note (overwrite, append or prepend). Missing folders are created.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path":    map[string]interface{}{"type": "string", "description": "Note path or \"vault:note\" reference."},
+						"content": map[string]interface{}{"type": "string", "description": "Markdown content to write."},
+						"mode":    map[string]interface{}{"type": "string", "enum": []string{"overwrite", "append", "prepend"}, "description": "Write mode (default: overwrite)."},
+					},
+					"required": []string{"path", "content"},
 				},
 			},
 		)
@@ -983,6 +1155,23 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 		result = string(data)
 		opMode = "control"
 
+	case "antigravity_bridge_set_agent":
+		agent, _ := args["agent"].(string)
+		resolved, agentErr := s.SetAgentBackend(agent)
+		if agentErr != nil {
+			err = agentErr
+			break
+		}
+		payload := map[string]interface{}{
+			"status":         "ok",
+			"agent_backend":  resolved,
+			"resolved_agent": s.ResolvedAgent(),
+			"cli_available":  s.cliHdl != nil && s.cliHdl.Available(),
+			"app_available":  s.GetStatus().Surfaces.DesktopAppConnected,
+		}
+		result = marshalPayload(payload)
+		opMode = "control"
+
 	case "antigravity_fleet_get_quota":
 		result, err = s.getFleetQuota()
 		opMode = "fleet"
@@ -991,33 +1180,33 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 		result, err = s.switchFleetAccount(args)
 		opMode = "fleet"
 
-	// Lead / Messenger tools
+	// Lead / Messenger tools — routed to the resolved Antigravity backend (app or CLI).
 	case "antigravity_lead_create_conversation", "antigravity_dispatch_task":
-		result, err = s.leadHdl.CreateConversation(args)
+		result, err = s.agent().CreateConversation(args)
 		opMode = "lead"
 
 	case "antigravity_lead_send_message":
-		result, err = s.leadHdl.SendMessage(args)
+		result, err = s.agent().SendMessage(args)
 		opMode = "lead"
 
 	case "antigravity_lead_get_status":
-		result, err = s.leadHdl.GetStatus(args)
+		result, err = s.agent().GetStatus(args)
 		opMode = "lead"
 
 	case "antigravity_lead_await_response":
-		result, err = s.leadHdl.AwaitResponse(args)
+		result, err = s.agent().AwaitResponse(args)
 		opMode = "lead"
 
 	case "antigravity_lead_list_conversations", "antigravity_list_sessions":
-		result, err = s.leadHdl.ListConversations(args)
+		result, err = s.agent().ListConversations(args)
 		opMode = "lead"
 
 	case "antigravity_lead_compact_conversation":
-		result, err = s.leadHdl.CompactConversation(args)
+		result, err = s.agent().CompactConversation(args)
 		opMode = "lead"
 
 	case "antigravity_lead_stop_conversation":
-		result, err = s.leadHdl.StopConversation(args)
+		result, err = s.agent().StopConversation(args)
 		opMode = "lead"
 
 	// Direct Mode tools
@@ -1048,6 +1237,42 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 	case "local_computer_use", "antigravity_computer_use":
 		result, err = s.directHdl.ComputerUse(args)
 		opMode = "direct"
+
+	case "local_http_request":
+		result, err = s.HTTPRequest(args)
+		opMode = "direct"
+
+	case "local_http_allowlist":
+		result, err = s.HTTPAllowlistCommand(args)
+		opMode = "direct"
+
+	case "local_obsidian_list_vaults":
+		result, err = s.directHdl.ObsidianListVaults(args)
+		opMode = "direct"
+
+	case "local_obsidian_search":
+		result, err = s.directHdl.ObsidianSearch(args)
+		opMode = "direct"
+
+	case "local_obsidian_read_note":
+		result, err = s.directHdl.ObsidianReadNote(args)
+		opMode = "direct"
+
+	case "local_obsidian_write_note":
+		result, err = s.directHdl.ObsidianWriteNote(args)
+		opMode = "direct"
+
+	case "antigravity_session_model_list":
+		result, err = s.agent().ListModels(args)
+		opMode = "lead"
+
+	case "antigravity_session_model_get":
+		result, err = s.agent().GetModel(args)
+		opMode = "lead"
+
+	case "antigravity_session_model_set":
+		result, err = s.agent().SetModel(args)
+		opMode = "lead"
 
 	default:
 		err = fmt.Errorf("unknown tool %q in mode %q", name, currentMode)

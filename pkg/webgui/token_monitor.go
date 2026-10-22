@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
@@ -1241,15 +1242,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			convDBPath := filepath.Join(convDir, convID+".db")
 			mID, mDisplayName, mProv := detectConversationModelWithTranscript(tPath, convDBPath, customModelsList, catalogModels)
 			if mID == "" {
-				// Check if project has a bound custom model
-				if bound := store.GetModelForProject(projName); bound != nil {
-					mID = bound.Name
-					mDisplayName = bound.DisplayName
-					if mDisplayName == "" {
-						mDisplayName = bound.Name
-					}
-					mProv = custommodels.NormalizePricingProvider(string(bound.ProviderType), bound.Name)
-				} else if len(catalogModels) > 0 {
+				if len(catalogModels) > 0 {
 					mID, mDisplayName = custommodels.NormalizeCanonicalNativeModel(catalogModels[0].ID, catalogModels[0].DisplayName)
 					mProv = custommodels.NormalizePricingProvider(catalogModels[0].Provider, mID)
 				} else {
@@ -1512,15 +1505,6 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 				primaryModel = mName
 			}
 		}
-		if primaryModel == "—" {
-			if bound := store.GetModelForProject(pa.projectName); bound != nil {
-				if bound.DisplayName != "" {
-					primaryModel = bound.DisplayName
-				} else {
-					primaryModel = bound.Name
-				}
-			}
-		}
 		cacheRatio := 0.0
 		if pPrompt > 0 {
 			cacheRatio = math.Round((float64(pa.cachedInput)/float64(pPrompt))*1000) / 10
@@ -1772,14 +1756,58 @@ type ChatMetricsSummary struct {
 	GenerationSpeed float64 `json:"generation_speed"`
 }
 
+// chatPromptTextLimit bounds one prompt's navigator label. The rail only shows a
+// single ellipsized line, so a longer body buys nothing and the whole prompt
+// list travels on every metrics poll.
+const chatPromptTextLimit = 400
+
+var (
+	chatPromptRequestBlock = regexp.MustCompile(`(?is)<USER_REQUEST>(.*?)</USER_REQUEST>`)
+	chatPromptMetaBlock    = regexp.MustCompile(`(?is)<ADDITIONAL_METADATA>.*?</ADDITIONAL_METADATA>`)
+	chatPromptWhitespace   = regexp.MustCompile(`\s+`)
+)
+
+// ExtractUserPromptText turns one transcript user-input payload into a single
+// line of prompt text. The transcript wraps the user's words in
+// <USER_REQUEST> and appends an <ADDITIONAL_METADATA> tail with host details.
+func ExtractUserPromptText(content string) string {
+	text := content
+	if match := chatPromptRequestBlock.FindStringSubmatch(text); len(match) == 2 {
+		text = match[1]
+	} else {
+		text = strings.NewReplacer("<USER_REQUEST>", "", "</USER_REQUEST>", "").Replace(text)
+	}
+	text = chatPromptMetaBlock.ReplaceAllString(text, " ")
+	text = chatPromptWhitespace.ReplaceAllString(text, " ")
+	text = strings.TrimSpace(text)
+	if len(text) > chatPromptTextLimit {
+		// Cut on a rune boundary so a multi-byte character is never split.
+		cut := chatPromptTextLimit
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = strings.TrimSpace(text[:cut]) + "…"
+	}
+	return text
+}
+
+// ChatMetricsPrompt is one user prompt of the transcript, in conversation order.
+// The chat navigator builds its rail from these, because the virtualization in
+// the transcript DOM only ever mounts the turns around the viewport.
+type ChatMetricsPrompt struct {
+	Index int    `json:"index"`
+	Text  string `json:"text"`
+}
+
 // ChatMetricsResponse is returned by /api/tokens/chat-metrics.
 type ChatMetricsResponse struct {
-	Success         bool               `json:"success"`
-	ConversationID  string             `json:"conversation_id"`
-	Scope           string             `json:"scope"`
-	UserPromptCount int                `json:"user_prompt_count"`
-	Summary         ChatMetricsSummary `json:"summary"`
-	Turns           []ChatMetricsTurn  `json:"turns"`
+	Success         bool                `json:"success"`
+	ConversationID  string              `json:"conversation_id"`
+	Scope           string              `json:"scope"`
+	UserPromptCount int                 `json:"user_prompt_count"`
+	Prompts         []ChatMetricsPrompt `json:"prompts"`
+	Summary         ChatMetricsSummary  `json:"summary"`
+	Turns           []ChatMetricsTurn   `json:"turns"`
 }
 
 // isSafeConversationID validates conversation identifiers against directory traversal and illegal characters.
@@ -1830,6 +1858,7 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 	}
 
 	var turns []ChatMetricsTurn
+	var prompts []ChatMetricsPrompt
 	var totalIn, totalOut, totalCached int64
 	var totalDurationMs, totalTimedOut int64
 	userPromptCount := 0
@@ -1839,6 +1868,7 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 		StepIndex        int    `json:"step_index"`
 		Source           string `json:"source"`
 		Type             string `json:"type"`
+		Content          string `json:"content"`
 		InputTokens      int64  `json:"input_tokens"`
 		CacheReadTokens  int64  `json:"cache_read_tokens"`
 		OutputTokens     int64  `json:"output_tokens"`
@@ -1858,6 +1888,7 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 			continue
 		}
 		if st.Source == "USER_EXPLICIT" || st.Type == "USER_INPUT" || strings.Contains(st.Source, "USER") {
+			prompts = append(prompts, ChatMetricsPrompt{Index: userPromptCount, Text: ExtractUserPromptText(st.Content)})
 			userPromptCount++
 		}
 		parsedSteps = append(parsedSteps, st)
@@ -2090,6 +2121,7 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 		ConversationID:  convID,
 		Scope:           scope,
 		UserPromptCount: userPromptCount,
+		Prompts:         prompts,
 		Summary: ChatMetricsSummary{
 			InputTokens:     totalIn,
 			OutputTokens:    totalOut,
@@ -2177,6 +2209,7 @@ ORDER BY cs.last_modified_time DESC LIMIT 1`
 			"conversation_id":   convID,
 			"scope":             scope,
 			"user_prompt_count": 0,
+			"prompts":           []ChatMetricsPrompt{},
 			"summary": ChatMetricsSummary{
 				InputTokens:     0,
 				OutputTokens:    0,
@@ -2225,9 +2258,6 @@ func (s *Server) computeModelLifetimeCosts(ctx context.Context) map[string]float
 	dataDir := s.getAntigravityDataDir()
 	brainDir := filepath.Join(dataDir, "brain")
 	convDir := filepath.Join(dataDir, "conversations")
-	summariesDB := filepath.Join(dataDir, "conversation_summaries.db")
-	metaMap := readConversationMetadataMap(summariesDB)
-
 	entries, err := os.ReadDir(brainDir)
 	if err != nil {
 		return costs
@@ -2249,17 +2279,8 @@ func (s *Server) computeModelLifetimeCosts(ctx context.Context) map[string]float
 			continue
 		}
 
-		meta := metaMap[convID]
-		projName, _ := resolveProjectFromURI(meta.workspaceURIs)
-
 		convDBPath := filepath.Join(convDir, convID+".db")
 		mID, mDisplayName, _ := detectConversationModelWithTranscript(tPath, convDBPath, customModelsList, catalogModels)
-		if mID == "" {
-			if bound := store.GetModelForProject(projName); bound != nil {
-				mID = bound.Name
-				mDisplayName = bound.DisplayName
-			}
-		}
 		if mID == "" {
 			continue
 		}

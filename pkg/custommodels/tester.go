@@ -309,6 +309,24 @@ func ResolveEndpoint(providerType ProviderType, rawBaseURL string, modelName str
 		return ""
 	}
 
+	// OpenCode Go moved inference under /inference/go/openai/v1. Any entry that
+	// still carries the retired /zen/go base, or a bare host, maps to it.
+	if strings.Contains(baseURL, "opencode.ai") {
+		trimmed := strings.TrimRight(baseURL, "/")
+		// Entries saved before the migration carry the retired /zen/go path, even
+		// when they include /v1/chat/completions.
+		if strings.Contains(trimmed, "/zen/go") {
+			return "https://opencode.ai/inference/go/openai/v1/chat/completions"
+		}
+		if strings.HasSuffix(trimmed, "/chat/completions") {
+			return trimmed
+		}
+		if strings.HasSuffix(trimmed, "/v1") {
+			return trimmed + "/chat/completions"
+		}
+		return "https://opencode.ai/inference/go/openai/v1/chat/completions"
+	}
+
 	switch providerType {
 	case ProviderGCP:
 		region := ""
@@ -340,14 +358,6 @@ func ResolveEndpoint(providerType ProviderType, rawBaseURL string, modelName str
 	case ProviderCustom:
 		trimmed := strings.TrimSpace(rawBaseURL)
 		clean := strings.TrimRight(trimmed, "/")
-		if strings.Contains(clean, "opencode.ai") {
-			if strings.HasSuffix(clean, "/chat/completions") && !strings.Contains(clean, "/v1/") {
-				return strings.Replace(clean, "/chat/completions", "/v1/chat/completions", 1)
-			}
-			if strings.HasSuffix(clean, "/zen/go") {
-				return clean + "/v1/chat/completions"
-			}
-		}
 		// If user entered a direct / full endpoint path:
 		if strings.HasSuffix(clean, "/chat/completions") ||
 			strings.HasSuffix(clean, "/chat/completion") ||

@@ -447,6 +447,74 @@ func GenerateGitHubExtensionScript() string {
   window.__swissGetActiveProjectName = () => detectCurrentConversationProject() || lastInteractedProject || "";
   window.__swissGetProjectFolder = (p) => getProjectFolder(p);
 
+  // GitHub Workspace only works for a project with a GitHub remote, so every
+  // entry point is gated on the strict per-project answer from the daemon.
+  // false = no remote, true = has one, absent = not probed yet (do not grey out
+  // before an answer arrives).
+  const repoAvailabilityByWorkspace = new Map();
+
+  function normalizeWorkspaceKey(wsPath) {
+    return String(wsPath == null ? "" : wsPath).replace(/[\\/]+$/, "");
+  }
+
+  function repoAvailabilityFor(wsPath) {
+    const key = normalizeWorkspaceKey(wsPath);
+    if (!key || !repoAvailabilityByWorkspace.has(key)) return undefined;
+    return repoAvailabilityByWorkspace.get(key);
+  }
+
+  function isGitHubWorkspaceAllowed(wsPath) {
+    return repoAvailabilityFor(wsPath) !== false;
+  }
+
+  function isGitHubWorkspaceBlocked() {
+    return repoAvailabilityFor(getActiveProjectWorkspacePath()) === false;
+  }
+
+  function setRepoAvailability(wsPath, hasRepo) {
+    const key = normalizeWorkspaceKey(wsPath);
+    if (!key) return false;
+    const previous = repoAvailabilityByWorkspace.get(key);
+    repoAvailabilityByWorkspace.set(key, hasRepo);
+    return previous !== hasRepo;
+  }
+
+  async function probeRepoAvailability(wsPath) {
+    if (!wsPath || wsPath === "GLOBAL" || wsPath === ".") return false;
+    try {
+      const res = await fetch("http://127.0.0.1:8765/api/github/repo?strict=1&workspace_path=" + encodeURIComponent(wsPath), {
+        method: "GET",
+        headers: getSwissAuthHeaders(),
+        signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined,
+      });
+      if (!res || !res.ok) return false;
+      const data = await res.json();
+      if (!data || data.success !== true || typeof data.has_repo !== "boolean") return false;
+      return setRepoAvailability(wsPath, data.has_repo);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Greys out (or restores) a navigator button that GitHub Workspace cannot serve.
+  function applyGitHubButtonGate(btn, blocked) {
+    if (!btn) return;
+    if (blocked) {
+      btn.disabled = true;
+      btn.setAttribute("aria-disabled", "true");
+      btn.setAttribute("data-swiss-github-blocked", "true");
+      btn.title = "GitHub Workspace requires a GitHub repository";
+      btn.style.opacity = "0.45";
+      btn.style.cursor = "not-allowed";
+      return;
+    }
+    btn.disabled = false;
+    btn.removeAttribute("aria-disabled");
+    btn.removeAttribute("data-swiss-github-blocked");
+    btn.style.opacity = "";
+    btn.style.cursor = "";
+  }
+
   async function fetchAvailableProjects() {
     try {
       const res = await fetch("http://127.0.0.1:8765/api/gui/projects");
@@ -527,6 +595,33 @@ func GenerateGitHubExtensionScript() string {
       const stageWs = getEffectiveWorkspacePath(false);
       const auxWs = getEffectiveWorkspacePath(true);
 
+      // Ask the daemon which of these projects actually has a GitHub remote. The
+      // answer drives the greyed-out navigator buttons, so a project with no
+      // remote never opens a workspace built from another project's repo.
+      let availabilityChanged = false;
+      if (await probeRepoAvailability(stageWs)) availabilityChanged = true;
+      if (seq !== fetchRepoDataSeq) return;
+      if (auxWs !== stageWs && await probeRepoAvailability(auxWs)) availabilityChanged = true;
+      if (seq !== fetchRepoDataSeq) return;
+
+      if (repoAvailabilityFor(stageWs) === false) {
+        // No remote: drop the repo and every work item so nothing leaks from the
+        // project that happened to be fetched before this one.
+        currentRepo = null;
+        cachedIssues = [];
+        cachedPRs = [];
+        cachedAgentTasks = [];
+        cachedKanbanBoard = null;
+        if (availabilityChanged && activeMainStageExt) {
+          renderMainStageUI();
+        } else if (activeMainStageExt === "github") {
+          renderMainStageContent();
+        }
+        renderAuxGitHubIfVisible();
+        setupLeftNavTabs();
+        return;
+      }
+
       // Hydrate immediately from in-memory cache to prevent flashing "Detecting repo..."
       const cachedStage = workspaceBundleCache.get(stageWs);
       if (cachedStage) {
@@ -595,12 +690,21 @@ func GenerateGitHubExtensionScript() string {
       if (activeMainStageExt === "github") {
         renderMainStageContent();
       }
-      const auxContainer = document.querySelector("#swiss-aux-container");
-      if (auxContainer && auxContainer.dataset.renderedTab === "github" && typeof window.renderSwissGitHubWorkspaceView === "function") {
-        window.renderSwissGitHubWorkspaceView(auxContainer);
+      renderAuxGitHubIfVisible();
+      if (availabilityChanged && activeMainStageExt) {
+        // The gate flipped: rebuild the stage header so the GitHub tab matches.
+        renderMainStageUI();
       }
       setupLeftNavTabs();
     } catch (_) {}
+  }
+
+  function renderAuxGitHubIfVisible() {
+    const auxContainer = document.querySelector("#swiss-aux-container");
+    if (!auxContainer || auxContainer.dataset.renderedTab !== "github") return;
+    if (typeof window.renderSwissGitHubWorkspaceView === "function") {
+      window.renderSwissGitHubWorkspaceView(auxContainer);
+    }
   }
 
   // 3. Inject Left Panel Navigation Tabs (Tab switcher in the same style as Scheduled Tasks, always below factory tabs)
@@ -788,6 +892,7 @@ func GenerateGitHubExtensionScript() string {
         grp.appendChild(sep);
 
         const inMain = isMainSectionEnabled();
+        const githubBlocked = isGitHubWorkspaceBlocked();
         exts.forEach(ext => {
           const btn = document.createElement("button");
           btn.className = "inline-flex items-center transition-colors select-none outline-none cursor-pointer disabled:opacity-50 flex-grow w-full justify-start font-normal h-8 min-w-0 gap-1.5 px-2 py-1 rounded-lg bg-transparent text-secondary-foreground hover:bg-sidebar-muted hover:text-foreground swiss-left-nav-tab";
@@ -797,9 +902,16 @@ func GenerateGitHubExtensionScript() string {
             : (inMain ? "Open " + ext.label + " in Main Section (Replace / Split Chat)" : "Open " + ext.label + " in Auxiliary Panel");
           btn.innerHTML = '<span class="shrink-0 flex items-center">' + ext.svg + '</span>' +
                           '<span class="truncate text-sm">' + ext.label + '</span>';
+          if (ext.id === "github" && githubBlocked) {
+            // The active project has no GitHub remote: nothing for this tab to show.
+            applyGitHubButtonGate(btn, true);
+            grp.appendChild(btn);
+            return;
+          }
           btn.onclick = (e) => {
             e.stopPropagation();
-            const targetExt = ext.id === "swiss-knife" ? (activeMainStageExt || "github") : ext.id;
+            const preferred = ext.id === "swiss-knife" ? (activeMainStageExt || "github") : ext.id;
+            const targetExt = (preferred === "github" && isGitHubWorkspaceBlocked()) ? "browser" : preferred;
             if (!isMainSectionEnabled()) {
               if (typeof window.switchAuxTab === "function") {
                 window.switchAuxTab("swiss-" + targetExt);
@@ -853,6 +965,13 @@ func GenerateGitHubExtensionScript() string {
         const targetIds = exts.map(e => e.id).join(",");
         if (existingIds !== targetIds) {
           buildGroupChildren(group);
+        } else {
+          // The repo probe answers after the tabs exist, and a project can gain a
+          // remote at any time: re-apply the gate on every refresh.
+          const githubBlocked = isGitHubWorkspaceBlocked();
+          existingTabs.forEach(tab => {
+            if (tab.dataset.swissExt === "github") applyGitHubButtonGate(tab, githubBlocked);
+          });
         }
       }
 
@@ -1301,6 +1420,12 @@ func GenerateGitHubExtensionScript() string {
     if (auxWs && auxWs !== "." && lastFetchedAuxWs !== auxWs) {
       lastFetchedAuxWs = auxWs;
       debouncedFetchRepoData(50);
+    }
+
+    if (repoAvailabilityFor(auxWs) === false) {
+      const projectLabel = detectCurrentConversationProject() || lastInteractedProject || auxWs;
+      container.innerHTML = renderGitHubUnavailableHTML(projectLabel);
+      return;
     }
 
     const auxView = document.createElement("div");
@@ -2460,6 +2585,11 @@ func GenerateGitHubExtensionScript() string {
     const target = getMainStageParent();
     if (!target || !target.parent) return;
 
+    if (extType === "github" && isGitHubWorkspaceBlocked()) {
+      showToast("GitHub Workspace requires a GitHub repository", true);
+      return;
+    }
+
     activeMainStageExt = extType;
     window.__swissActiveMainStageExt = extType;
     if ((extType === "github" || extType === "files") && currentScope === "GLOBAL") {
@@ -2815,6 +2945,11 @@ func GenerateGitHubExtensionScript() string {
     const isGithub = activeMainStageExt === "github";
     const globalDisabledStyle = isGithub ? 'style="opacity: 0.45; cursor: not-allowed; pointer-events: none;" title="GitHub Workspace requires a repository project"' : '';
     const globalSubtext = isGithub ? '(Requires repo)' : '(All Projects)';
+    // The stage scope decides whether the GitHub tab has anything to show.
+    const githubAllowed = isGitHubWorkspaceAllowed(getEffectiveWorkspacePath(false));
+    const githubTabAttrs = githubAllowed
+      ? 'title="GitHub Workspace"'
+      : 'title="GitHub Workspace requires a GitHub repository" aria-disabled="true" data-swiss-github-blocked="true" style="opacity: 0.45; cursor: not-allowed;"';
 
     const effListTab = (activeTab === "board" || !activeTab) ? "issues" : activeTab;
 
@@ -2868,7 +3003,7 @@ func GenerateGitHubExtensionScript() string {
               </svg>
               Quick Memos
             </button>
-            <button class="swiss-main-stage-tab ${activeMainStageExt === "github" ? "active" : ""}" data-ext="github" title="GitHub Workspace">
+            <button class="swiss-main-stage-tab ${activeMainStageExt === "github" ? "active" : ""}" data-ext="github" ${githubTabAttrs}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
               </svg>
@@ -2932,6 +3067,10 @@ func GenerateGitHubExtensionScript() string {
     // Event listeners
     container.querySelectorAll(".swiss-main-stage-tab").forEach(tab => {
       tab.addEventListener("click", (e) => {
+        if (e.currentTarget.getAttribute("data-swiss-github-blocked") === "true") {
+          showToast("GitHub Workspace requires a GitHub repository", true);
+          return;
+        }
         activeMainStageExt = e.currentTarget.dataset.ext;
         window.__swissActiveMainStageExt = activeMainStageExt;
         if ((activeMainStageExt === "github" || activeMainStageExt === "files") && currentScope === "GLOBAL") {
@@ -2990,6 +3129,10 @@ func GenerateGitHubExtensionScript() string {
     body.innerHTML = "";
 
     if (activeMainStageExt === "github") {
+      if (isGitHubWorkspaceBlocked()) {
+        body.innerHTML = renderGitHubUnavailableHTML("this project");
+        return;
+      }
       renderGitHubWorkspaceStage(body);
     } else if (activeMainStageExt === "browser") {
       if (typeof window.renderSwissBrowserView === "function") {
@@ -3515,6 +3658,21 @@ func GenerateGitHubExtensionScript() string {
   }
 
   // 10. Main Stage View Rendering (Kanban & List)
+  // Shown wherever GitHub Workspace is opened for a project without a GitHub
+  // remote. Kept deliberately plain: this is a dead end, not a feature surface.
+  function renderGitHubUnavailableHTML(projectLabel) {
+    const label = escapeHTML(projectLabel || "this project");
+    return ` + "`" + `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 100%; padding: 64px 24px; box-sizing: border-box; text-align: center; color: var(--muted-foreground, #64748b);">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+        </svg>
+        <div style="font-size: 13px; font-weight: 600; color: var(--foreground, #101010);">No GitHub repository</div>
+        <div style="font-size: 12px; line-height: 1.5; max-width: 380px;">GitHub Workspace is disabled for ${label} because the project has no GitHub remote.</div>
+      </div>
+    ` + "`" + `;
+  }
+
   function renderGitHubWorkspaceStage(container) {
     if (!selectedItem && cachedIssues.length > 0) {
       selectedItem = cachedIssues[0];

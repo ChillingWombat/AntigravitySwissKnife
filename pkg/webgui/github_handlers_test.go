@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -153,5 +155,65 @@ func TestGitHubHandlers(t *testing.T) {
 	}
 }
 
+// The strict repo probe lets the UI gate GitHub Workspace per project. A project
+// without a GitHub remote must answer has_repo=false with success=true, so the
+// caller can tell "no repository" apart from "daemon error".
+func TestHandleGitHubRepoStrict(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	store, _ := github.NewStore(filepath.Join(t.TempDir(), "tasks.json"))
+	svc := github.NewService(github.NewAgentTracker("", store), store)
+	server := NewServer("127.0.0.1:0", "")
+	server.SetGitHubService(svc)
 
+	repoDir := t.TempDir()
+	gitInit := func(dir string, remote string) {
+		run := func(args ...string) {
+			cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git %v failed: %v\n%s", args, err, out)
+			}
+		}
+		run("init", "-q")
+		run("config", "user.email", "test@example.com")
+		run("config", "user.name", "Test")
+		if remote != "" {
+			run("remote", "add", "origin", remote)
+		}
+	}
+	gitInit(repoDir, "git@github.com:ChillingWombat/AntigravitySwissKnife.git")
+	plainDir := t.TempDir()
+	gitInit(plainDir, "")
 
+	decode := func(query string) map[string]interface{} {
+		req := httptest.NewRequest("GET", "/api/github/repo?strict=1&workspace_path="+url.QueryEscape(query), nil)
+		rr := httptest.NewRecorder()
+		server.handleGitHubRepo(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+		var body map[string]interface{}
+		if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+
+	withRepo := decode(repoDir)
+	if withRepo["success"] != true || withRepo["has_repo"] != true {
+		t.Fatalf("expected has_repo=true for a repo project, got %v", withRepo)
+	}
+	repo, ok := withRepo["repo"].(map[string]interface{})
+	if !ok || repo["full_name"] != "ChillingWombat/AntigravitySwissKnife" {
+		t.Fatalf("unexpected repo payload: %v", withRepo["repo"])
+	}
+
+	withoutRepo := decode(plainDir)
+	if withoutRepo["success"] != true || withoutRepo["has_repo"] != false {
+		t.Fatalf("expected success with has_repo=false for a repo-less project, got %v", withoutRepo)
+	}
+	if withoutRepo["repo"] != nil {
+		t.Fatalf("expected no repo for a repo-less project, got %v", withoutRepo["repo"])
+	}
+}

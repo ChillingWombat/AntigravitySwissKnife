@@ -56,6 +56,55 @@ func TestBuildAccountQuotaStatesAndSummary(t *testing.T) {
 	}
 }
 
+func TestArgonQuotaStateAndFleetAverage(t *testing.T) {
+	argon5h := 0.62
+	argonWeekly := 0.75
+	accounts := []*keyring.Account{
+		{Email: "pro@example.com", PlanTier: PlanTierPro, IsActive: true},
+		{Email: "free@example.com", PlanTier: PlanTierFree},
+	}
+	summaries := map[string]*QuotaSummary{
+		"pro@example.com": {
+			AccountEmail:                "pro@example.com",
+			Quota5hArgon:                &argon5h,
+			QuotaWeeklyArgon:            &argonWeekly,
+			ResetHorizon5hArgonText:     "Resets in 2h 30m",
+			ResetHorizonWeeklyArgonText: "Resets in 5d 0h",
+		},
+	}
+
+	states := BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts, summaries, 0.1, 0.05, false)
+	if states[0].Quota5hArgon == nil {
+		t.Fatal("expected Argon 5H quota on the Pro account")
+	}
+	if *states[0].Quota5hArgon != argon5h {
+		t.Errorf("Argon 5H = %v, want %v", *states[0].Quota5hArgon, argon5h)
+	}
+	if states[0].QuotaWeeklyArgon == nil {
+		t.Fatal("expected Argon weekly quota on the Pro account")
+	}
+	if *states[0].QuotaWeeklyArgon != argonWeekly {
+		t.Errorf("Argon weekly = %v, want %v", *states[0].QuotaWeeklyArgon, argonWeekly)
+	}
+	if states[1].QuotaWeeklyArgon != nil {
+		t.Errorf("expected no Argon weekly quota on the Free account, got %v", *states[1].QuotaWeeklyArgon)
+	}
+
+	fleet := ComputeFleetSummary(states, "pro@example.com")
+	if fleet.Fleet5hArgonAvailable == nil {
+		t.Fatal("expected fleet Argon 5H quota")
+	}
+	if *fleet.Fleet5hArgonAvailable != argon5h {
+		t.Errorf("fleet Argon 5H = %v, want %v (average over polled accounts only)", *fleet.Fleet5hArgonAvailable, argon5h)
+	}
+	if fleet.FleetWeeklyArgonAvailable == nil {
+		t.Fatal("expected fleet Argon weekly quota")
+	}
+	if *fleet.FleetWeeklyArgonAvailable != argonWeekly {
+		t.Errorf("fleet Argon weekly = %v, want %v (average over polled accounts only)", *fleet.FleetWeeklyArgonAvailable, argonWeekly)
+	}
+}
+
 func TestDetermineDefaultPlanTier(t *testing.T) {
 	cases := []struct {
 		email        string
@@ -116,6 +165,10 @@ func TestNormalizePlanTier(t *testing.T) {
 		{"20x", "Ultra 20X"},
 		{"Google AI Ultra", "Ultra 20X"},
 		{"Ultra", "Ultra 20X"},
+		// Product labels are not plans: an undeterminable tier reports Free.
+		{"Antigravity", "Free"},
+		{"Antigravity Pro", "Pro"},
+		{"unknown tier string", "Free"},
 	}
 
 	for _, tt := range tests {

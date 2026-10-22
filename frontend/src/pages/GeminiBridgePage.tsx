@@ -11,6 +11,10 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
+  Check,
+  Ban,
+  Plus,
+  X,
 } from 'lucide-react'
 import { api, isAbortError } from '../api'
 import { ToggleSwitch } from '../components/ToggleSwitch'
@@ -27,6 +31,8 @@ interface BridgeStatusData {
   oauth_client_secret?: string
   use_app_password?: boolean
   app_password_enabled?: boolean
+  agent_backend?: string
+  resolved_agent?: string
   surfaces: {
     desktop_app_connected: boolean
     desktop_cdp_port: number
@@ -61,6 +67,14 @@ interface BridgeStatusData {
     granted: boolean
     reason: string
   }>
+  http_allowlist?: string[]
+  http_pending_approvals?: Array<{
+    host: string
+    method?: string
+    url?: string
+    reason?: string
+    requested_at: string
+  }>
   invocations_count: number
   recent_invocations: Array<{
     id: string
@@ -83,6 +97,8 @@ export const GeminiBridgePage: React.FC = () => {
   const [copiedToken, setCopiedToken] = useState<boolean>(false)
   const [copiedClientId, setCopiedClientId] = useState<boolean>(false)
   const [actionFeedback, setActionFeedback] = useState<{ text: string; isError: boolean } | null>(null)
+  const [newAllowHost, setNewAllowHost] = useState<string>('')
+  const [agentLoading, setAgentLoading] = useState<boolean>(false)
 
   // Tunnel controls
   const [tunnelType, setTunnelType] = useState<string>('quick')
@@ -122,6 +138,24 @@ export const GeminiBridgePage: React.FC = () => {
     }
   }
 
+  const allowlist = status?.http_allowlist ?? []
+  const pendingAllow = status?.http_pending_approvals ?? []
+
+  const handleAllowHostChange = async (action: 'allow' | 'revoke' | 'deny', host: string) => {
+    try {
+      setActionFeedback(null)
+      await api.updateBridgeHTTPAllowlist(action, host)
+      await loadStatus()
+      setActionFeedback({
+        text: action === 'allow' ? `${host} allowed` : action === 'deny' ? `${host} denied` : `${host} revoked`,
+        isError: false,
+      })
+    } catch (err) {
+      if (isAbortError(err)) return
+      setActionFeedback({ text: `Allowlist update failed: ${(err as Error).message}`, isError: true })
+    }
+  }
+
   useEffect(() => {
     loadStatus()
     const timer = setInterval(() => {
@@ -129,6 +163,21 @@ export const GeminiBridgePage: React.FC = () => {
     }, 6000)
     return () => clearInterval(timer)
   }, [])
+
+  const handleSetAgent = async (agent: 'auto' | 'app' | 'cli') => {
+    try {
+      setAgentLoading(true)
+      setActionFeedback(null)
+      await api.setBridgeAgent(agent)
+      await loadStatus()
+      setActionFeedback({ text: `Default agent set to ${agent === 'auto' ? 'Automatic' : agent === 'app' ? 'Antigravity 2.0' : 'Antigravity CLI'}`, isError: false })
+    } catch (err) {
+      if (isAbortError(err)) return
+      setActionFeedback({ text: `Agent switch failed: ${(err as Error).message}`, isError: true })
+    } finally {
+      setAgentLoading(false)
+    }
+  }
 
   const handleStartTunnel = async () => {
     try {
@@ -805,6 +854,55 @@ export const GeminiBridgePage: React.FC = () => {
 
       </div>
 
+      {/* 4b. Default Antigravity agent */}
+      <div className="google-card">
+        <div style={{ marginBottom: '10px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+            Default Antigravity Agent
+          </div>
+          <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+            Which surface Gemini drives for conversations and model selection. Automatic prefers the CLI when it is installed, because a short-lived process costs less than the running app.
+          </p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          {([
+            { key: 'auto', label: 'Automatic', hint: 'CLI when installed, otherwise the app' },
+            { key: 'app', label: 'Antigravity 2.0 app', hint: status?.surfaces?.desktop_app_connected ? 'Connected' : 'App not detected' },
+            { key: 'cli', label: 'Antigravity CLI', hint: status?.surfaces?.agy_cli_installed ? 'Installed' : 'Not installed' },
+          ] as const).map((option) => {
+            const active = (status?.agent_backend || 'auto') === option.key
+            return (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => handleSetAgent(option.key)}
+                disabled={agentLoading}
+                style={{
+                  textAlign: 'left',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: active ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  backgroundColor: active ? 'var(--canvas)' : '#ffffff',
+                  cursor: agentLoading ? 'progress' : 'pointer',
+                }}
+              >
+                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                  {option.label}
+                </div>
+                <div style={{ marginTop: '2px', fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  {option.hint}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        <p style={{ margin: '10px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
+          In use now: <strong>{status?.resolved_agent === 'cli' ? 'Antigravity CLI' : 'Antigravity 2.0 app'}</strong>
+        </p>
+      </div>
+
       {/* 5. Live Antigravity Lead / Messenger Monitor */}
       {status?.active_lead_session && (
         <div className="google-card">
@@ -1015,6 +1113,97 @@ export const GeminiBridgePage: React.FC = () => {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+      {/* 8. Outbound HTTP allowlist */}
+      <div className="google-card">
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '6px' }}>
+          Outbound HTTP Allowlist
+        </div>
+        <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+          Agents can call external APIs (calendars, REST, webhooks) only on these hosts. A host an agent asks for appears under pending requests until you approve or deny it.
+        </p>
+
+        {pendingAllow.length > 0 && (
+          <div style={{ marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {pendingAllow.map((req) => (
+              <div
+                key={req.host}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)' }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {req.host}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {req.reason || req.url || 'Requested by an agent'} · {req.requested_at}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    style={{ whiteSpace: 'nowrap' }}
+                    onClick={() => handleAllowHostChange('allow', req.host)}
+                  >
+                    <Check size={13} /> Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{ whiteSpace: 'nowrap' }}
+                    onClick={() => handleAllowHostChange('deny', req.host)}
+                  >
+                    <Ban size={13} /> Deny
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            className="input"
+            placeholder="api.example.com or *.googleapis.com"
+            value={newAllowHost}
+            onChange={(e) => setNewAllowHost(e.target.value)}
+            style={{ flex: '1 1 260px', minWidth: '200px' }}
+          />
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            style={{ whiteSpace: 'nowrap' }}
+            onClick={() => {
+              const host = newAllowHost.trim()
+              if (!host) return
+              handleAllowHostChange('allow', host)
+              setNewAllowHost('')
+            }}
+          >
+            <Plus size={13} /> Add host
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          {allowlist.length === 0 ? (
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No hosts allowed yet.</span>
+          ) : (
+            allowlist.map((host) => (
+              <span key={host} className="badge-chip badge-neutral" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                {host}
+                <button
+                  type="button"
+                  title={`Revoke ${host}`}
+                  onClick={() => handleAllowHostChange('revoke', host)}
+                  style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'inline-flex', color: 'var(--text-muted)' }}
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))
+          )}
         </div>
       </div>
     </div>

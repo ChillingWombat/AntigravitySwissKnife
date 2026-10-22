@@ -7,6 +7,7 @@ interface HorizontalQuotaBarProps {
   maxWidth?: number | string
   title?: string
   disabled?: boolean
+  showPercentage?: boolean
 }
 
 export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
@@ -15,6 +16,7 @@ export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
   maxWidth = 160,
   title,
   disabled = false,
+  showPercentage = true,
 }) => {
   const isUntracked = disabled || fraction === null || fraction === undefined || isNaN(fraction)
   const pct = isUntracked ? 0 : Math.max(0, Math.min(100, Math.round((fraction as number) * 100)))
@@ -58,16 +60,18 @@ export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
           }}
         />
       </div>
-      <span
-        style={{
-          fontSize: '11px',
-          fontWeight: 700,
-          color: isUntracked ? 'var(--text-muted)' : 'var(--text)',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {isUntracked ? 'N/A' : `${pct}%`}
-      </span>
+      {showPercentage !== false && (
+        <span
+          style={{
+            fontSize: '11px',
+            fontWeight: 700,
+            color: isUntracked ? 'var(--text-muted)' : 'var(--text)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {isUntracked ? 'N/A' : `${pct}%`}
+        </span>
+      )}
     </div>
   )
 }

@@ -1021,6 +1021,58 @@ const filtered = filterMainConversationSteps([
 ], mainView);
 assert.deepStrictEqual(filtered, [firstPrompt, repeatedTextPrompt], "main-conversation prompt detection must exclude nested, subagent, input, and duplicate nodes");
 
+// The transcript DOM carries no turn ordinal, so a mounted window of a long
+// session must be matched onto its real turn indexes by prompt text.
+const longSession = [];
+for (let i = 0; i < 34; i++) longSession.push("prompt number " + i);
+assert.deepStrictEqual(
+  mapStepTextsToPromptIndexes(["prompt number 23", "prompt number 24"], longSession),
+  [23, 24],
+  "mounted prompts must keep their real turn indexes"
+);
+assert.deepStrictEqual(
+  resolveStepTurnIndexes([null, null], ["prompt number 5", "prompt number 6"], longSession, 34),
+  [5, 6],
+  "text matching must win over positional numbering"
+);
+assert.deepStrictEqual(
+  resolveStepTurnIndexes([7, 8], ["a", "b"], null, 9),
+  [7, 8],
+  "without a daemon prompt list the ordinal mapping must still apply"
+);
+
+// Daemon truncation and DOM chrome must not break the match.
+assert.deepStrictEqual(
+  mapStepTextsToPromptIndexes(["here is a long prompt about the dataset October 21, 2026"], ["here is a long prompt about the"]),
+  [0],
+  "a truncated daemon prompt must still match its mounted step"
+);
+
+// Short prompts match exactly; repeated prompts resolve to distinct turns.
+assert.deepStrictEqual(
+  mapStepTextsToPromptIndexes(["tf.io"], ["something completely different", "tf.io"]),
+  [1],
+  "short prompts must match exactly, never by prefix"
+);
+assert.deepStrictEqual(
+  mapStepTextsToPromptIndexes(["same prompt", "same prompt"], ["same prompt", "other text here", "same prompt"]),
+  [0, 2],
+  "duplicate prompt texts must resolve to distinct turns"
+);
+
+// Unmatched steps must not claim an index: a guessed turn number highlights the
+// wrong dash, which is the ghost-row bug this replaced.
+assert.deepStrictEqual(
+  resolveStepTurnIndexes([null, null], ["unknown alpha text", "unknown beta text"], longSession, 34),
+  [-1, -1],
+  "unmatched steps must stay unindexed"
+);
+assert.deepStrictEqual(
+  resolveStepTurnIndexes([null, null], ["prompt number 5", "unknown beta text"], longSession, 34),
+  [5, -1],
+  "matched steps keep their index while unmatched ones stay unindexed"
+);
+
 console.log("jump-bar helpers OK");
 `
 
@@ -1764,10 +1816,10 @@ func TestChatNavigatorPanel_EscapesPromptTextInTooltip(t *testing.T) {
 	if !strings.Contains(script, "function escapeNavigatorText") {
 		t.Fatal("missing escapeNavigatorText helper")
 	}
-	if !strings.Contains(script, "escapeNavigatorText(snippet)") {
+	if !strings.Contains(script, "escapeNavigatorText(hoverSnippet)") {
 		t.Error("tooltip snippet must be escaped before interpolation")
 	}
-	if strings.Contains(script, "'>\" + snippet + \"</div>") {
+	if strings.Contains(script, "'>\" + hoverSnippet + \"</div>") {
 		t.Error("raw snippet interpolation into innerHTML is still present")
 	}
 	for _, entity := range []string{"&amp;", "&lt;", "&gt;", "&quot;", "&#39;"} {

@@ -67,29 +67,57 @@ func TestChallengerM7_DirectHandler_LiveWindowsScreenshot(t *testing.T) {
 	_ = os.Remove(filePath)
 }
 
-// TestChallengerM7_DirectHandler_InputActuatorsRejectFakeSuccess empirically verifies that
-// all input automation actions (click, type, drag, hover, etc.) fail with explicit errors
-// informing the agent that automation drivers are not installed, rather than returning fake success.
-func TestChallengerM7_DirectHandler_InputActuatorsRejectFakeSuccess(t *testing.T) {
+// TestChallengerM7_DirectHandler_InputActuatorsNeverFakeSuccess keeps the original
+// guarantee — an input action must never report success without doing anything —
+// against the real xdotool/ydotool implementations: every action either runs a
+// real command and says what it did, or returns an actionable error.
+func TestChallengerM7_DirectHandler_InputActuatorsNeverFakeSuccess(t *testing.T) {
 	dh := NewDirectHandler()
+	caps := computerUseCapabilities()
+	hasDriver := caps["xdotool"] || caps["ydotool"]
+	// Real input execution needs a live display and steals focus; keep it opt-in.
+	liveInput := strings.TrimSpace(os.Getenv("BRIDGE_LIVE_INPUT_TESTS")) != ""
 
-	actionsToTest := []string{"click", "type"}
-	for _, act := range actionsToTest {
-		res, err := dh.ComputerUse(map[string]interface{}{"action": act})
-		if err == nil {
-			t.Errorf("action %q returned nil error and fake success: %q", act, res)
-		}
-		if !strings.Contains(err.Error(), "not configured") || !strings.Contains(err.Error(), "driver not installed") {
-			t.Errorf("action %q returned unexpected error message: %v", act, err)
+	if liveInput {
+		for _, act := range []string{"click", "type", "move", "drag", "scroll", "key", "hotkey"} {
+			res, err := dh.ComputerUse(map[string]interface{}{"action": act, "text": "x", "keys": "Return", "x": 1, "y": 1})
+			if err == nil {
+				if strings.TrimSpace(res) == "" {
+					t.Errorf("action %q returned success with an empty result", act)
+				}
+				if !hasDriver {
+					t.Errorf("action %q reported success without an automation driver: %q", act, res)
+				}
+				continue
+			}
+			if hasDriver {
+				// A driver exists but the action could not run (e.g. no X display in CI):
+				// that must surface as an error, never as a silent success.
+				if !strings.Contains(err.Error(), "failed") && !strings.Contains(err.Error(), "not available") {
+					t.Errorf("action %q returned an unhelpful error: %v", act, err)
+				}
+				continue
+			}
+			if !strings.Contains(err.Error(), "install") {
+				t.Errorf("action %q without a driver must tell the agent to install one, got: %v", act, err)
+			}
 		}
 	}
 
-	// Unsupported or adversarial actions must also be rejected
-	adversarialActions := []string{"drag", "double_click", "middle_click", "scroll", "key_press", "rm -rf /"}
-	for _, act := range adversarialActions {
-		_, err := dh.ComputerUse(map[string]interface{}{"action": act})
+	// wait and status never need an input driver and must really answer.
+	if res, err := dh.ComputerUse(map[string]interface{}{"action": "wait", "seconds": 0.01}); err != nil || strings.TrimSpace(res) == "" {
+		t.Errorf("wait must succeed without a driver, got %q / %v", res, err)
+	}
+	if res, err := dh.ComputerUse(map[string]interface{}{"action": "status"}); err != nil || strings.TrimSpace(res) == "" {
+		t.Errorf("status must describe the actuator, got %q / %v", res, err)
+	}
+
+	// Unknown and adversarial actions stay rejected: no passthrough to a shell.
+	for _, act := range []string{"rm -rf /", "double_click", "middle_click", "key_press", "eval"} {
+		res, err := dh.ComputerUse(map[string]interface{}{"action": act})
 		if err == nil {
-			t.Errorf("adversarial action %q succeeded unexpectedly", act)
+			t.Errorf("unsupported action %q succeeded unexpectedly: %q", act, res)
+			continue
 		}
 		if !strings.Contains(err.Error(), "unsupported computer use action") {
 			t.Errorf("expected 'unsupported computer use action' for %q, got: %v", act, err)

@@ -208,6 +208,50 @@ func (s *Service) DetectRepository(workspacePath string) (*RepoInfo, error) {
 	return repo, nil
 }
 
+// DetectRepositoryStrict reports the GitHub repository bound to this exact
+// directory, or an error when the directory has no GitHub remote. Unlike
+// DetectRepository it never substitutes a cached or last-good repo, so a project
+// without a remote reports no repository instead of borrowing another project's.
+func (s *Service) DetectRepositoryStrict(workspacePath string) (*RepoInfo, error) {
+	dir := ResolveProjectPath(workspacePath)
+
+	cmdRemote := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
+	core.SetHiddenConsole(cmdRemote)
+	outRemote, err := cmdRemote.Output()
+	if err != nil {
+		return nil, fmt.Errorf("no git origin remote in %s: %w", dir, err)
+	}
+	remoteURL := strings.TrimSpace(string(outRemote))
+	matches := gitURLRegex.FindStringSubmatch(remoteURL)
+	if len(matches) < 3 {
+		return nil, fmt.Errorf("remote origin of %s is not a GitHub repository: %s", dir, remoteURL)
+	}
+
+	owner := matches[1]
+	name := strings.TrimSuffix(matches[2], ".git")
+	cmdBranch := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD")
+	core.SetHiddenConsole(cmdBranch)
+	outBranch, _ := cmdBranch.Output()
+
+	repo := &RepoInfo{
+		Owner:         owner,
+		Name:          name,
+		FullName:      fmt.Sprintf("%s/%s", owner, name),
+		CurrentBranch: strings.TrimSpace(string(outBranch)),
+		RemoteURL:     remoteURL,
+		WorkspacePath: dir,
+	}
+
+	s.mu.Lock()
+	if s.repoCache == nil {
+		s.repoCache = make(map[string]repoCacheEntry)
+	}
+	s.repoCache[dir] = repoCacheEntry{repo: repo, timestamp: time.Now()}
+	s.mu.Unlock()
+
+	return repo, nil
+}
+
 // ListIssues retrieves issues for the repository and enriches them with active agent tasks.
 func (s *Service) ListIssues(repo *RepoInfo, state string, search string) ([]Issue, error) {
 	if repo == nil {

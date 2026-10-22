@@ -24,12 +24,23 @@ func (s *Server) resolveWorkspace(r *http.Request) string {
 
 func (s *Server) handleGitHubRepo(w http.ResponseWriter, r *http.Request) {
 	ws := s.resolveWorkspace(r)
+	if strict, _ := strconv.ParseBool(r.URL.Query().Get("strict")); strict {
+		// Strict mode answers "does this exact project have a GitHub remote?" for
+		// the UI gate. A project without one is a normal answer, not an error.
+		repo, err := s.githubService.DetectRepositoryStrict(ws)
+		if err != nil {
+			writeJSON(w, map[string]interface{}{"success": true, "has_repo": false, "repo": nil, "reason": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]interface{}{"success": true, "has_repo": true, "repo": repo})
+		return
+	}
 	repo, err := s.githubService.DetectRepository(ws)
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "repo": repo})
+	writeJSON(w, map[string]interface{}{"success": true, "has_repo": repo != nil, "repo": repo})
 }
 
 func (s *Server) handleGitHubIssues(w http.ResponseWriter, r *http.Request) {
@@ -333,7 +344,6 @@ func (s *Server) handleGitHubKanbanMove(w http.ResponseWriter, r *http.Request) 
 		"message": fmt.Sprintf("Card #%d moved to %s", req.Number, req.TargetColumn),
 	})
 }
-
 
 func (s *Server) handleGitHubAgentTasks(w http.ResponseWriter, r *http.Request) {
 	ws := s.resolveWorkspace(r)

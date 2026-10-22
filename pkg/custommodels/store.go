@@ -1,6 +1,8 @@
 package custommodels
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -50,9 +52,6 @@ func (s *Store) load() error {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return err
-	}
-	if cfg.ProjectBinds == nil {
-		cfg.ProjectBinds = make(map[string]string)
 	}
 	cfg.InferenceSupported = true
 	s.config = &cfg
@@ -164,11 +163,6 @@ func (s *Store) GetConfig() Config {
 	deletedCopy := make([]DeletedModelRecord, len(s.config.DeletedModels))
 	copy(deletedCopy, s.config.DeletedModels)
 
-	bindsCopy := make(map[string]string)
-	for k, v := range s.config.ProjectBinds {
-		bindsCopy[k] = v
-	}
-
 	return Config{
 		Version:            s.config.Version,
 		InferenceSupported: true,
@@ -177,7 +171,8 @@ func (s *Store) GetConfig() Config {
 		Models:             modelsCopy,
 		PricingRecords:     pricingCopy,
 		DeletedModels:      deletedCopy,
-		ProjectBinds:       bindsCopy,
+		GatewayToken:       s.config.GatewayToken,
+		Integration:        s.IntegrationSettings(),
 	}
 }
 
@@ -463,94 +458,114 @@ func (s *Store) DeleteModel(id string) error {
 	// Record deletion so Token Monitor usage info is also purged
 	s.recordDeletedModelLocked(deleted.InternalID, deleted.Name, deleted.ID)
 
-	// Clean up binds
-	for p, boundID := range s.config.ProjectBinds {
-		if boundID == id {
-			delete(s.config.ProjectBinds, p)
-		}
-	}
-
 	return s.saveLocked()
 }
 
-// BindProject assigns a custom model ID to a project.
-func (s *Store) BindProject(projectName, modelID string) error {
+// IntegrationSettings returns the Model Source settings, filled with defaults for
+// any missing field so callers never see a partially-initialised struct.
+func (s *Store) IntegrationSettings() IntegrationSettings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := DefaultIntegrationSettings()
+	cfg := s.config.Integration
+	if cfg.Mode == IntegrationProfileIsolation || cfg.Mode == IntegrationAPIProxy {
+		out.Mode = cfg.Mode
+	}
+	for name, profile := range cfg.Apps {
+		merged := out.Apps[name]
+		if profile.Source == ModelSourceNative || profile.Source == ModelSourceCustom {
+			merged.Source = profile.Source
+		}
+		if profile.Subagents == SubagentsApp || profile.Subagents == SubagentsCLI {
+			merged.Subagents = profile.Subagents
+		}
+		out.Apps[name] = merged
+	}
+	switch cfg.Proxy.Scope {
+	case ProxyScopeAntigravity, ProxyScopeExternal:
+		out.Proxy.Scope = cfg.Proxy.Scope
+	}
+	out.Proxy.PIN = cfg.Proxy.PIN
+	return out
+}
+
+// SetIntegrationSettings validates and persists the Model Source settings.
+func (s *Store) SetIntegrationSettings(in IntegrationSettings) error {
+	if in.Mode != IntegrationProfileIsolation && in.Mode != IntegrationAPIProxy {
+		return fmt.Errorf("unsupported integration mode %q", in.Mode)
+	}
+	for name, profile := range in.Apps {
+		if profile.Source != ModelSourceNative && profile.Source != ModelSourceCustom {
+			return fmt.Errorf("app %q: unsupported model source %q", name, profile.Source)
+		}
+		if profile.Subagents != SubagentsApp && profile.Subagents != SubagentsCLI {
+			return fmt.Errorf("app %q: unsupported subagent target %q", name, profile.Subagents)
+		}
+	}
+	if in.Proxy.Scope != ProxyScopeAntigravity && in.Proxy.Scope != ProxyScopeExternal {
+		return fmt.Errorf("unsupported proxy scope %q", in.Proxy.Scope)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config.Integration = in
+	return s.saveLocked()
+}
+
+// GatewayToken returns the bearer token for the local LLM gateway, creating and
+// persisting one on first use.
+func (s *Store) GatewayToken() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.config == nil {
+		return ""
+	}
+	if strings.TrimSpace(s.config.GatewayToken) != "" {
+		return s.config.GatewayToken
+	}
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return ""
+	}
+	s.config.GatewayToken = hex.EncodeToString(buf)
+	if err := s.saveLocked(); err != nil {
+		return ""
+	}
+	return s.config.GatewayToken
+}
+
+// RotateGatewayToken invalidates the current gateway token.
+func (s *Store) RotateGatewayToken() (string, error) {
+	s.mu.Lock()
+	s.config.GatewayToken = ""
+	s.mu.Unlock()
+	return s.GatewayToken(), nil
+}
+
+// SetActiveModel records the custom model the app currently uses. An empty
+// modelID clears it and hands the session back to the native model. Selection is
+// app-wide on purpose: models are not bound to projects.
+func (s *Store) SetActiveModel(modelID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if modelID == "" {
-		delete(s.config.ProjectBinds, projectName)
-		return s.saveLocked()
-	}
-
-	// Verify model exists or is native
-	if modelID != "native" {
-		exists := false
+	trimmed := strings.TrimSpace(modelID)
+	if trimmed != "" && trimmed != "native" {
+		found := false
 		for _, m := range s.config.Models {
-			if m.ID == modelID {
-				exists = true
+			if m.ID == trimmed || m.Name == trimmed {
+				found = true
 				break
 			}
 		}
-		if !exists {
-			return fmt.Errorf("cannot bind unknown model ID: %s", modelID)
+		if !found {
+			return fmt.Errorf("cannot activate unknown model ID: %s", trimmed)
 		}
 	}
-
-	s.config.ProjectBinds[projectName] = modelID
+	if trimmed == "native" {
+		trimmed = ""
+	}
+	s.config.ActiveModelID = trimmed
 	return s.saveLocked()
-}
-
-// GetModelForProject returns the assigned custom model for a project (or default matching model).
-func (s *Store) GetModelForProject(projectName string) *CustomModel {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	target := strings.TrimSpace(projectName)
-
-	// 1. Check explicit binding
-	for p, boundID := range s.config.ProjectBinds {
-		if strings.EqualFold(strings.TrimSpace(p), target) {
-			if boundID == "native" {
-				return nil
-			}
-			for _, m := range s.config.Models {
-				if m.ID == boundID && m.Enabled {
-					mCopy := m
-					return &mCopy
-				}
-			}
-		}
-	}
-
-	// 2. Check exact project mapping in models list (exact name takes priority over wildcard)
-	for _, m := range s.config.Models {
-		if !m.Enabled {
-			continue
-		}
-		for _, p := range m.ProjectMappings {
-			trimmed := strings.TrimSpace(p)
-			if trimmed != "*" && strings.EqualFold(trimmed, target) {
-				mCopy := m
-				return &mCopy
-			}
-		}
-	}
-
-	// 3. Check wildcard "*" mapping
-	for _, m := range s.config.Models {
-		if !m.Enabled {
-			continue
-		}
-		for _, p := range m.ProjectMappings {
-			if strings.TrimSpace(p) == "*" {
-				mCopy := m
-				return &mCopy
-			}
-		}
-	}
-
-	return nil
 }
 
 // SetThinkingLevel updates the active reasoning/thinking level for a specific custom model.

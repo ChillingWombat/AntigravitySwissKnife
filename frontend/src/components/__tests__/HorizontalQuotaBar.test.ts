@@ -93,4 +93,23 @@ describe('Component DOM: HorizontalQuotaBar (<HorizontalQuotaBar />)', () => {
 
     unmount()
   })
+
+  it('does not render percentage text when showPercentage is false', async () => {
+    const { querySelector, querySelectorAll, unmount } = await mount(
+      React.createElement(HorizontalQuotaBar, {
+        fraction: 0.85,
+        showPercentage: false,
+      })
+    )
+
+    const labelSpan = querySelector<HTMLSpanElement>('span')
+    assert.equal(labelSpan, null, 'Label span must not be rendered when showPercentage is false')
+
+    const divs = querySelectorAll<HTMLDivElement>('div')
+    const innerBar = divs[divs.length - 1]
+    assert.ok(innerBar)
+    assert.equal(innerBar.style.width, '85%')
+
+    unmount()
+  })
 })

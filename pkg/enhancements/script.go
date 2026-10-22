@@ -600,6 +600,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     //   3. a per-conversation high-water mark while no authoritative count exists.
     const jumpBarTurnRegistry = {};
     const jumpBarPromptCountsByConversation = {};
+    // Full prompt list per conversation, straight from the daemon transcript.
+    // The rail needs it because the transcript DOM only mounts the turns around
+    // the viewport and carries no turn ordinal.
+    const jumpBarPromptsByConversation = {};
 
     function computeTurnOrdinals(stepEls) {
       const ordinals = [];
@@ -646,6 +650,95 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return stable;
     }
 
+    function readPromptStepText(el) {
+      if (!el) return "";
+      try {
+        const textEl = el.querySelector ? (el.querySelector('.whitespace-pre-wrap') || el) : el;
+        return String(textEl && textEl.textContent || "").replace(/\s+/g, " ").trim();
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function normalizePromptText(rawText) {
+      return String(rawText == null ? "" : rawText).replace(/\s+/g, " ").trim().toLowerCase();
+    }
+
+    // How strongly two prompt texts describe the same turn: the length of the
+    // shared prefix, when one text is a prefix of the other. The daemon
+    // truncates long prompts and the DOM appends host chrome such as the local
+    // timestamp, so exact equality alone would miss most mounted turns.
+    function promptTextMatchScore(a, b) {
+      if (!a || !b) return -1;
+      const shorter = Math.min(a.length, b.length);
+      const limit = Math.min(shorter, 80);
+      if (limit < 1) return -1;
+      let shared = 0;
+      while (shared < limit && a.charCodeAt(shared) === b.charCodeAt(shared)) shared++;
+      if (shared < limit) return -1;
+      if (shared >= 80) return 80;
+      if (a === b) return shared;
+      // A short shared prefix is not evidence: "prompt 23" and "prompt 2" share
+      // more characters than either shares with an unrelated prompt.
+      return shared >= 12 ? shared : -1;
+    }
+
+    function promptTextsMatch(a, b) {
+      return promptTextMatchScore(a, b) > 0;
+    }
+
+    // Maps the mounted prompt steps onto their turn index by matching each step
+    // text against the daemon prompt list. Without this, a virtualized window of
+    // turns 23-33 gets renumbered 0-10: the rail highlights the wrong turn and
+    // every other turn renders as a ghost row with no text.
+    function mapStepTextsToPromptIndexes(stepTexts, promptTexts) {
+      const mapped = [];
+      if (!stepTexts || !stepTexts.length) return mapped;
+      if (!promptTexts || !promptTexts.length) return mapped;
+      const prompts = [];
+      for (let i = 0; i < promptTexts.length; i++) prompts.push(normalizePromptText(promptTexts[i]));
+      const used = [];
+      for (let i = 0; i < stepTexts.length; i++) {
+        const text = normalizePromptText(stepTexts[i]);
+        let found = -1;
+        if (text) {
+          // Best score wins, so "prompt 23" lands on turn 23 and not on the
+          // shorter turn 2 it also starts with. Ties keep the earliest turn.
+          let bestScore = 0;
+          for (let idx = 0; idx < prompts.length; idx++) {
+            if (used.indexOf(idx) !== -1) continue;
+            const score = promptTextMatchScore(text, prompts[idx]);
+            if (score > bestScore) {
+              bestScore = score;
+              found = idx;
+            }
+          }
+        }
+        if (found !== -1) used.push(found);
+        mapped.push(found);
+      }
+      return mapped;
+    }
+
+    // Turn indexes for the mounted steps: matched against the daemon prompt list
+    // when it is known, list ordinals otherwise. A step whose text matches no
+    // prompt keeps -1: guessing an index would highlight the wrong turn, which is
+    // exactly the ghost-row symptom this replaced.
+    function resolveStepTurnIndexes(ordinals, stepTexts, promptTexts, total) {
+      const totalCount = total > 0 ? total : 0;
+      const byText = mapStepTextsToPromptIndexes(stepTexts, promptTexts);
+      if (!byText.length || totalCount === 0) return mapStepsToTurnIndexes(ordinals, totalCount);
+      const used = [];
+      const resolved = [];
+      for (let i = 0; i < byText.length; i++) {
+        let idx = byText[i];
+        if (idx < 0 || idx >= totalCount || used.indexOf(idx) !== -1) idx = -1;
+        if (idx !== -1) used.push(idx);
+        resolved.push(idx);
+      }
+      return resolved;
+    }
+
     function jumpBarStepIdentity(el) {
       if (!el || !el.getAttribute) return "";
       const attrs = ["data-prompt-index", "data-turn-index", "data-step-index", "data-index", "aria-posinset"];
@@ -658,12 +751,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         }
       }
       if (!marker) return "";
-      let text = "";
-      try {
-        const textEl = el.querySelector ? (el.querySelector(".whitespace-pre-wrap") || el) : el;
-        text = String(textEl && textEl.textContent || "").replace(/\s+/g, " ").trim();
-      } catch (_) {}
-      return marker + "\u0000" + text;
+      return marker + "\u0000" + readPromptStepText(el);
     }
 
     function filterMainConversationSteps(stepEls, conversationView) {
@@ -928,6 +1016,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const daemonPromptCount = (conversationKey && Object.prototype.hasOwnProperty.call(jumpBarPromptCountsByConversation, conversationKey))
         ? jumpBarPromptCountsByConversation[conversationKey]
         : null;
+      const daemonPrompts = (conversationKey && jumpBarPromptsByConversation[conversationKey]) || null;
+      const daemonPromptTexts = (daemonPrompts && daemonPrompts.length)
+        ? daemonPrompts.map(p => (p && typeof p.text === "string") ? p.text : "")
+        : null;
       const totalTurns = computeStableTurnTotal(ordinals, steps.length, daemonPromptCount, conversationKey, jumpBarTurnRegistry);
       if (totalTurns === 0) {
         bar.style.display = "none";
@@ -936,16 +1028,22 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         lastJumpBarTotal = 0;
         return;
       }
-      const stepTurnIndexes = mapStepsToTurnIndexes(ordinals, totalTurns);
+      const stepTexts = steps.map(readPromptStepText);
+      const stepTurnIndexes = resolveStepTurnIndexes(ordinals, stepTexts, daemonPromptTexts, totalTurns);
 
-      // The transcript virtualizes turns away, so remember the prompt text of
-      // every mounted turn by (conversation, turn index) while the rail
-      // refreshes. The hover panel reads this cache; unmounted turns show "…".
+      // The transcript virtualizes turns away. Label every turn from the daemon
+      // prompt list first (it covers the whole session), then let the mounted
+      // steps refine their own entries. The hover panel reads this cache, so no
+      // turn is left as a ghost row.
+      if (daemonPromptTexts) {
+        for (let i = 0; i < daemonPromptTexts.length && i < totalTurns; i++) {
+          cachePromptText(jumpBarPromptTextCache, conversationKey, i, daemonPromptTexts[i]);
+        }
+      }
       for (let i = 0; i < stepTurnIndexes.length; i++) {
         const step = steps[i];
         if (!step) continue;
-        const textEl = step.querySelector('.whitespace-pre-wrap') || step;
-        cachePromptText(jumpBarPromptTextCache, conversationKey, stepTurnIndexes[i], textEl ? textEl.textContent : "");
+        cachePromptText(jumpBarPromptTextCache, conversationKey, stepTurnIndexes[i], readPromptStepText(step));
       }
 
       bar.style.display = "flex";
@@ -1044,9 +1142,6 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
       for (let turnIdx = 0; turnIdx < totalTurns; turnIdx++) {
         const step = stepByTurnIndex[turnIdx];
-        const textEl = step ? (step.querySelector('.whitespace-pre-wrap') || step) : null;
-        const fullText = textEl ? (textEl.textContent || "").replace(/\s+/g, ' ').trim() : "";
-        const snippet = fullText.length > 75 ? fullText.substring(0, 75) + "..." : fullText;
 
         const dash = document.createElement("div");
         dash.className = "swiss-prompt-dash";
@@ -1063,8 +1158,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           scheduleOpenPromptNavigatorPanel();
           if (tooltip && navigatorMode === "line") {
             const rect = dash.getBoundingClientRect();
-            const snippetHTML = snippet
-              ? "<div style='color: var(--foreground, #101010); font-size: 12px; font-weight: 400;'>" + escapeNavigatorText(snippet) + "</div>"
+            const cachedText = getCachedPromptText(jumpBarPromptTextCache, conversationKey, turnIdx);
+            const turnText = cachedText !== NAV_PANEL_UNKNOWN_TEXT
+              ? cachedText
+              : (step ? readPromptStepText(step) : "");
+            const hoverSnippet = turnText.length > 75 ? turnText.substring(0, 75) + "..." : turnText;
+            const snippetHTML = hoverSnippet
+              ? "<div style='color: var(--foreground, #101010); font-size: 12px; font-weight: 400;'>" + escapeNavigatorText(hoverSnippet) + "</div>"
               : "<div style='color: var(--muted-foreground, #64748b); font-size: 12px; font-weight: 400;'>Jumps to this turn</div>";
             tooltip.innerHTML = "<div style='font-weight: 500; font-size: 11px; color: var(--muted-foreground, #64748b); margin-bottom: 2px;'>Prompt #" + (turnIdx + 1) + (dash.classList.contains("active") ? " (Current)" : "") + "</div>" + snippetHTML;
             tooltip.style.left = (rect.right + 12) + "px";
@@ -1330,12 +1430,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const conversationKey = lastJumpBarConversationKey || "";
       const totalTurns = lastJumpBarTotal > 0 ? lastJumpBarTotal : dashes.length;
       let activeIdx = -1;
-      dashes.forEach((d) => {
-        if (d.classList.contains("active")) {
-          const idx = parseInt(d.getAttribute("data-prompt-index"), 10);
-          if (!isNaN(idx)) activeIdx = idx;
-        }
-      });
+      for (let di = 0; di < dashes.length; di++) {
+        if (!dashes[di].classList.contains("active")) continue;
+        const idx = parseInt(dashes[di].getAttribute("data-prompt-index"), 10);
+        if (!isNaN(idx)) activeIdx = idx;
+        break;
+      }
 
       const ui = buildNavigatorPanelUI();
       const panel = document.createElement("div");
@@ -2358,12 +2458,18 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         const daemonPromptCount = (conversationKey && Object.prototype.hasOwnProperty.call(jumpBarPromptCountsByConversation, conversationKey))
           ? jumpBarPromptCountsByConversation[conversationKey]
           : null;
+        const daemonPrompts = (conversationKey && jumpBarPromptsByConversation[conversationKey]) || null;
+        const daemonPromptTexts = (daemonPrompts && daemonPrompts.length)
+          ? daemonPrompts.map(p => (p && typeof p.text === "string") ? p.text : "")
+          : null;
         const totalTurns = computeStableTurnTotal(ordinals, steps.length, daemonPromptCount, conversationKey, jumpBarTurnRegistry);
         if (totalTurns === 0 || totalTurns !== lastJumpBarTotal || conversationKey !== lastJumpBarConversationKey) {
           renderPromptJumpBar();
           return;
         }
-        const stepTurnIndexes = mapStepsToTurnIndexes(ordinals, totalTurns);
+        // Same turn mapping as the rail build: the scroll path must not renumber
+        // the virtualized window, otherwise the active dash snaps to a low turn.
+        const stepTurnIndexes = resolveStepTurnIndexes(ordinals, steps.map(readPromptStepText), daemonPromptTexts, totalTurns);
         const activeIdx = resolveActiveTurnIndex(steps, stepTurnIndexes, viewport);
         const dark = isDarkMode();
         const defaultColor = dark ? "rgba(148, 163, 184, 0.45)" : "rgba(100, 116, 139, 0.42)";
@@ -3154,6 +3260,21 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               const previousPromptCount = jumpBarPromptCountsByConversation[targetId];
               jumpBarPromptCountsByConversation[targetId] = data.user_prompt_count;
               jumpBarChanged = previousPromptCount !== data.user_prompt_count;
+            }
+            if (data && Array.isArray(data.prompts)) {
+              // The transcript is authoritative for the turn list, including the
+              // turns the virtualized DOM has unmounted. Absent prompts (older
+              // daemons) leave the rail on its DOM-only fallback.
+              const previousPrompts = jumpBarPromptsByConversation[targetId];
+              jumpBarPromptsByConversation[targetId] = data.prompts;
+              for (let pi = 0; pi < data.prompts.length; pi++) {
+                const prompt = data.prompts[pi];
+                if (!prompt || typeof prompt.index !== "number") continue;
+                cachePromptText(jumpBarPromptTextCache, targetId, prompt.index, prompt.text);
+              }
+              if (!jumpBarChanged && (previousPrompts || []).length !== data.prompts.length) {
+                jumpBarChanged = true;
+              }
             }
             if (data && Array.isArray(data.turns) && data.turns.length > 0) {
               const lastTurn = data.turns[data.turns.length - 1];

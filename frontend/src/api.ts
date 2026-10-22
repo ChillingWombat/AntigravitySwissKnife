@@ -677,11 +677,26 @@ export const api = {
       method: 'POST',
     }),
 
-  bindProjectModel: (project: string, modelId: string) =>
-    request<{ success: boolean; project: string; model_id: string }>('/api/custom_models/bind', {
+  getCustomModelIntegration: () =>
+    request<{ success: boolean; integration: any; endpoint: string; gemini_base: string; pin_set: boolean }>(
+      '/api/custom_models/integration'
+    ),
+  updateCustomModelIntegration: (integration: any) =>
+    request<{ success: boolean; integration: any }>('/api/custom_models/integration', {
+      method: 'POST',
+      body: JSON.stringify(integration),
+    }),
+  launchCustomModelApp: (app: 'antigravity' | 'vscode') =>
+    request<{ success: boolean; app: string; source: string; pid?: number; settings?: string; launch_note?: string }>(
+      '/api/custom_models/launch',
+      { method: 'POST', body: JSON.stringify({ app }) }
+    ),
+
+  setActiveCustomModel: (modelId: string) =>
+    request<{ success: boolean; active_model_id: string }>('/api/custom_models/active', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, model_id: modelId }),
+      body: JSON.stringify({ model_id: modelId }),
     }),
 
   fetchModels: (providerType: ProviderType, baseUrl: string, apiKey?: string) =>
@@ -1201,6 +1216,15 @@ export const api = {
     }),
 
   getBridgeStatus: () => request<any>('/api/bridge/status'),
+  getBridgeHTTPAllowlist: () =>
+    request<{ success: boolean; allowlist: string[]; pending: Array<{ host: string; method?: string; url?: string; reason?: string; requested_at: string }> }>(
+      '/api/bridge/http-allowlist'
+    ),
+  updateBridgeHTTPAllowlist: (action: 'allow' | 'revoke' | 'deny', host: string) =>
+    request<{ success: boolean; allowlist: string[]; pending: any[] }>('/api/bridge/http-allowlist', {
+      method: 'POST',
+      body: JSON.stringify({ action, host }),
+    }),
 
   updateBridgeConfig: (data: any) =>
     request<any>('/api/bridge/config', {
@@ -1240,6 +1264,12 @@ export const api = {
         method: 'POST',
       }
     ),
+
+  setBridgeAgent: (agent: 'auto' | 'app' | 'cli') =>
+    request<{ success: boolean; agent_backend: string; status: any }>('/api/bridge/agent', {
+      method: 'POST',
+      body: JSON.stringify({ agent }),
+    }),
 
   setBridgeMode: (mode: string) =>
     request<{ success: boolean; status?: any }>('/api/bridge/mode', {

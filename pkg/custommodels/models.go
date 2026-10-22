@@ -47,7 +47,6 @@ type CustomModel struct {
 	GCPRegion            string       `json:"gcp_region,omitempty"`
 	GCPServiceAccountKey string       `json:"gcp_service_account_key,omitempty"`
 	CustomQuotaEndpoint  string       `json:"custom_quota_endpoint,omitempty"`
-	ProjectMappings      []string     `json:"project_mappings"` // Specific projects or ["*"] for all
 	QuotaType            QuotaType    `json:"quota_type"`
 	QuotaManualOverride  bool         `json:"quota_manual_override,omitempty"`
 	BalanceValue         string       `json:"balance_value,omitempty"` // Formatted fiat e.g. "$12.34" or "¥10.00"
@@ -85,14 +84,77 @@ type CustomModel struct {
 
 // Config holds the full custom models configuration file structure.
 type Config struct {
-	Version            string               `json:"version"`
-	InferenceSupported bool                 `json:"inference_supported"`
-	ActiveModelID      string               `json:"active_model_id,omitempty"`
-	NextInternalID     int64                `json:"next_internal_id,omitempty"`
-	Models             []CustomModel        `json:"models"`
-	PricingRecords     []ModelPricingRecord `json:"pricing_records,omitempty"`
-	DeletedModels      []DeletedModelRecord `json:"deleted_models,omitempty"`
-	ProjectBinds       map[string]string    `json:"project_binds"` // project name -> model ID
+	Version              string `json:"version"`
+	InferenceSupported   bool   `json:"inference_supported"`
+	GeminiQuotaExhausted bool   `json:"gemini_quota_exhausted"`
+	DefaultCustomModel   string `json:"default_custom_model,omitempty"`
+	ActiveModelID        string `json:"active_model_id,omitempty"`
+	// GatewayToken authorises Antigravity surfaces that call the local LLM
+	// gateway (AGY_LLM_GATEWAY_API_KEY). Generated on first use.
+	GatewayToken string `json:"gateway_token,omitempty"`
+	// Integration is how custom models reach the Antigravity surfaces.
+	Integration    IntegrationSettings  `json:"integration,omitempty"`
+	NextInternalID int64                `json:"next_internal_id,omitempty"`
+	Models         []CustomModel        `json:"models"`
+	PricingRecords []ModelPricingRecord `json:"pricing_records,omitempty"`
+	DeletedModels  []DeletedModelRecord `json:"deleted_models,omitempty"`
+}
+
+// Integration modes.
+const (
+	// IntegrationProfileIsolation gives each app profile a single catalog and runs
+	// custom-model profiles separately from the native one.
+	IntegrationProfileIsolation = "profile_isolation"
+	// IntegrationAPIProxy routes the apps through the local proxy so both model
+	// types can share one catalog.
+	IntegrationAPIProxy = "api_proxy"
+
+	// ModelSourceNative keeps the app on Antigravity's own model catalog.
+	ModelSourceNative = "native"
+	// ModelSourceCustom points the app at the Swiss Knife model gateway.
+	ModelSourceCustom = "custom"
+
+	// SubagentsApp runs subagents inside the app that asked for them.
+	SubagentsApp = "app"
+	// SubagentsCLI delegates subagent work to the Antigravity CLI.
+	SubagentsCLI = "cli"
+
+	// ProxyScopeAntigravity exposes the proxy to Antigravity surfaces only.
+	ProxyScopeAntigravity = "antigravity"
+	// ProxyScopeExternal also exposes it to outside agents, with PIN auth.
+	ProxyScopeExternal = "external"
+)
+
+// AppProfile is the model source for one Antigravity surface.
+type AppProfile struct {
+	Source    string `json:"source"`    // native | custom
+	Subagents string `json:"subagents"` // app | cli
+}
+
+// IntegrationSettings holds the Model Source tab state.
+type IntegrationSettings struct {
+	Mode  string                `json:"mode"` // profile_isolation | api_proxy
+	Apps  map[string]AppProfile `json:"apps"` // antigravity | vscode
+	Proxy ProxySettings         `json:"proxy"`
+}
+
+// ProxySettings configures the API proxy mode.
+type ProxySettings struct {
+	Scope string `json:"scope"` // antigravity | external
+	PIN   string `json:"pin,omitempty"`
+}
+
+// DefaultIntegrationSettings is the shipped default: profile isolation, native
+// models everywhere, subagents inside their own app.
+func DefaultIntegrationSettings() IntegrationSettings {
+	return IntegrationSettings{
+		Mode: IntegrationProfileIsolation,
+		Apps: map[string]AppProfile{
+			"antigravity": {Source: ModelSourceNative, Subagents: SubagentsApp},
+			"vscode":      {Source: ModelSourceNative, Subagents: SubagentsApp},
+		},
+		Proxy: ProxySettings{Scope: ProxyScopeAntigravity},
+	}
 }
 
 // Validate checks model fields for completeness and validity.
@@ -166,9 +228,6 @@ func (m *CustomModel) Validate() error {
 	default:
 		m.BudgetCapType = "none"
 		m.BudgetCapValue = nil
-	}
-	if len(m.ProjectMappings) == 0 {
-		m.ProjectMappings = []string{"*"}
 	}
 	var cleanLevels []string
 	for _, l := range m.ThinkingLevels {
@@ -267,28 +326,12 @@ func (m *CustomModel) CalculatePercentage() (int, bool) {
 	}
 }
 
-// MatchesProject checks if this model is mapped to a specific project.
-func (m *CustomModel) MatchesProject(projectName string) bool {
-	if !m.Enabled {
-		return false
-	}
-	target := strings.TrimSpace(projectName)
-	for _, p := range m.ProjectMappings {
-		trimmed := strings.TrimSpace(p)
-		if trimmed == "*" || strings.EqualFold(trimmed, target) {
-			return true
-		}
-	}
-	return false
-}
-
 // DefaultConfig returns an initial empty configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Version:            "1.0.0",
 		InferenceSupported: true,
 		Models:             []CustomModel{},
-		ProjectBinds:       make(map[string]string),
 	}
 }
 
@@ -298,60 +341,57 @@ func SamplePresetModels() []CustomModel {
 	now := time.Now().UTC().Format(time.RFC3339)
 	return []CustomModel{
 		{
-			ID:              "openai-gpt4o",
-			Name:            "gpt-4o",
-			DisplayName:     "GPT-4o",
-			ProviderType:    ProviderOpenAI,
-			BaseURL:         "https://api.openai.com/v1",
-			APIKey:          "sk-demo-key-configured",
-			ProjectMappings: []string{"*"},
-			QuotaType:       QuotaTypeBalance,
-			BalanceValue:    "$34.50",
-			PrepaidBalance:  34.50,
-			TotalBudget:     50.00,
-			QuotaFraction:   nil,
-			IsDefault:       true,
-			ContextWindow:   128000,
-			Enabled:         true,
-			CreatedAt:       now,
-			UpdatedAt:       now,
+			ID:             "openai-gpt4o",
+			Name:           "gpt-4o",
+			DisplayName:    "GPT-4o",
+			ProviderType:   ProviderOpenAI,
+			BaseURL:        "https://api.openai.com/v1",
+			APIKey:         "sk-demo-key-configured",
+			QuotaType:      QuotaTypeBalance,
+			BalanceValue:   "$34.50",
+			PrepaidBalance: 34.50,
+			TotalBudget:    50.00,
+			QuotaFraction:  nil,
+			IsDefault:      true,
+			ContextWindow:  128000,
+			Enabled:        true,
+			CreatedAt:      now,
+			UpdatedAt:      now,
 		},
 		{
-			ID:              "anthropic-claude-37",
-			Name:            "claude-3-7-sonnet-20250219",
-			DisplayName:     "Claude 3.7 Sonnet",
-			ProviderType:    ProviderAnthropic,
-			BaseURL:         "https://api.anthropic.com/v1",
-			APIKey:          "sk-ant-demo-key",
-			ProjectMappings: []string{"*"},
-			QuotaType:       QuotaTypeQuota,
-			QuotaValue:      "200,000 tokens",
-			PrepaidBalance:  0,
-			TotalBudget:     0,
-			QuotaFraction:   &frac,
-			IsDefault:       false,
-			ContextWindow:   200000,
-			Enabled:         true,
-			CreatedAt:       now,
-			UpdatedAt:       now,
+			ID:             "anthropic-claude-37",
+			Name:           "claude-3-7-sonnet-20250219",
+			DisplayName:    "Claude 3.7 Sonnet",
+			ProviderType:   ProviderAnthropic,
+			BaseURL:        "https://api.anthropic.com/v1",
+			APIKey:         "sk-ant-demo-key",
+			QuotaType:      QuotaTypeQuota,
+			QuotaValue:     "200,000 tokens",
+			PrepaidBalance: 0,
+			TotalBudget:    0,
+			QuotaFraction:  &frac,
+			IsDefault:      false,
+			ContextWindow:  200000,
+			Enabled:        true,
+			CreatedAt:      now,
+			UpdatedAt:      now,
 		},
 		{
-			ID:              "ollama-local-llama3",
-			Name:            "llama3.3:70b",
-			DisplayName:     "Llama 3.3 70B (Local)",
-			ProviderType:    ProviderLocal,
-			BaseURL:         "http://localhost:11434/v1",
-			APIKey:          "",
-			ProjectMappings: []string{"Antigravity Swiss Knife"},
-			QuotaType:       QuotaTypeNA, // Local has no quota limit -> Empty grey ring, N/A
-			PrepaidBalance:  0,
-			TotalBudget:     0,
-			QuotaFraction:   nil,
-			IsDefault:       false,
-			ContextWindow:   131072,
-			Enabled:         true,
-			CreatedAt:       now,
-			UpdatedAt:       now,
+			ID:             "ollama-local-llama3",
+			Name:           "llama3.3:70b",
+			DisplayName:    "Llama 3.3 70B (Local)",
+			ProviderType:   ProviderLocal,
+			BaseURL:        "http://localhost:11434/v1",
+			APIKey:         "",
+			QuotaType:      QuotaTypeNA, // Local has no quota limit -> Empty grey ring, N/A
+			PrepaidBalance: 0,
+			TotalBudget:    0,
+			QuotaFraction:  nil,
+			IsDefault:      false,
+			ContextWindow:  131072,
+			Enabled:        true,
+			CreatedAt:      now,
+			UpdatedAt:      now,
 		},
 	}
 }

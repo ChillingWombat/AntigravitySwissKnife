@@ -21,7 +21,7 @@ import {
   Layers,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount, TargetApp } from '../types'
-import { normalizePlanTier, toAccountState } from '../types'
+import { isProOrAbovePlan, normalizePlanTier, toAccountState } from '../types'
 import { TABLE_MIN_WIDTH } from '../utils/layoutTokens'
 import { useContextMenuPlacement } from '../utils/useContextMenuPlacement'
 import { getAccountTableDisplay, parseAccountErrorAlert } from '../utils/accountPresentation'
@@ -416,8 +416,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const polledAccounts5h = accounts.filter((a) => typeof a.quota_5h_available === 'number')
   const fallback5h = polledAccounts5h.length > 0 ? (polledAccounts5h.reduce((sum, a) => sum + (a.quota_5h_available as number), 0) / polledAccounts5h.length) : null
 
+  const polledAccounts5hArgon = accounts.filter((a) => typeof a.quota_5h_argon === 'number')
+  const fallback5hArgon = polledAccounts5hArgon.length > 0 ? (polledAccounts5hArgon.reduce((sum, a) => sum + (a.quota_5h_argon as number), 0) / polledAccounts5hArgon.length) : null
+
   const polledAccountsWeekly = accounts.filter((a) => typeof a.quota_weekly === 'number')
   const fallbackWeekly = polledAccountsWeekly.length > 0 ? (polledAccountsWeekly.reduce((sum, a) => sum + (a.quota_weekly as number), 0) / polledAccountsWeekly.length) : null
+
+  const polledAccountsWeeklyArgon = accounts.filter((a) => typeof a.quota_weekly_argon === 'number')
+  const fallbackWeeklyArgon = polledAccountsWeeklyArgon.length > 0 ? (polledAccountsWeeklyArgon.reduce((sum, a) => sum + (a.quota_weekly_argon as number), 0) / polledAccountsWeeklyArgon.length) : null
 
   const polledAccountsClaude5h = accounts.filter((a) => typeof a.quota_5h_claude_gpt === 'number')
   const fallback5hClaude = polledAccountsClaude5h.length > 0 ? (polledAccountsClaude5h.reduce((sum, a) => sum + (a.quota_5h_claude_gpt as number), 0) / polledAccountsClaude5h.length) : null
@@ -428,8 +434,15 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const raw5hGemini = fleet?.fleet_5h_gemini_available ?? fleet?.fleet_5h_available ?? fallback5h
   const gauge5hGemini = raw5hGemini !== null && !isNaN(raw5hGemini) ? Math.round(raw5hGemini * 100) : null
 
+  const raw5hArgon = fleet?.fleet_5h_argon_available ?? fallback5hArgon
+  const gauge5hArgon = raw5hArgon !== null && !isNaN(raw5hArgon) ? Math.round(raw5hArgon * 100) : null
+
   const rawWeeklyGemini = fleet?.fleet_weekly_gemini_available ?? fleet?.fleet_weekly_available ?? fallbackWeekly
   const gaugeWeeklyGemini = rawWeeklyGemini !== null && !isNaN(rawWeeklyGemini) ? Math.round(rawWeeklyGemini * 100) : null
+
+  const rawWeeklyArgon = fleet?.fleet_weekly_argon_available ?? fallbackWeeklyArgon
+  const gaugeWeeklyArgon = rawWeeklyArgon !== null && !isNaN(rawWeeklyArgon) ? Math.round(rawWeeklyArgon * 100) : null
+  const showGeminiArgonMatrix = gauge5hArgon !== null && gaugeWeeklyArgon !== null
 
   const raw5hClaude = fleet?.fleet_5h_claude_gpt_available ?? fallback5hClaude
   const gauge5hClaude = raw5hClaude !== null && !isNaN(raw5hClaude) ? Math.round(raw5hClaude * 100) : null
@@ -820,67 +833,141 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           </div>
 
           {rules?.allow_non_gemini_native_models ? (
-            /* 2x2 Progress Rings Layout with grey horizontal split line */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, justifyContent: 'center' }}>
-              {/* Row 1: Gemini Models */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
-                  <CircularGauge
-                    percentage={gauge5hGemini}
-                    title="Gemini 5H"
-                    size={72}
-                    strokeWidth={8}
-                  />
-                  <CircularGauge
-                    percentage={gaugeWeeklyGemini}
-                    title="Gemini 7D"
-                    size={72}
-                    strokeWidth={8}
-                  />
+            showGeminiArgonMatrix ? (
+              <div
+                style={{
+                  flex: 1,
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  justifyItems: 'center',
+                  alignContent: 'center',
+                  rowGap: '10px',
+                  columnGap: '24px',
+                }}
+              >
+                <CircularGauge percentage={gauge5hGemini} title="Gemini 5H" size={66} strokeWidth={8} />
+                <CircularGauge percentage={gaugeWeeklyGemini} title="Gemini 7D" size={66} strokeWidth={8} />
+                <CircularGauge percentage={gauge5hArgon} title="Argon 5H" size={66} strokeWidth={8} />
+                <CircularGauge percentage={gaugeWeeklyArgon} title="Argon 7D" size={66} strokeWidth={8} />
+                <CircularGauge percentage={gauge5hClaude} title="Non-Gemini 5H" size={66} strokeWidth={8} />
+                <CircularGauge percentage={gaugeWeeklyClaude} title="Non-Gemini 7D" size={66} strokeWidth={8} />
+              </div>
+            ) : (
+              /* Gemini and non-Gemini quotas without a complete Argon matrix. */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, justifyContent: 'center' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '10px' }}>
+                    <CircularGauge
+                      percentage={gauge5hGemini}
+                      title="Gemini 5H"
+                      size={68}
+                      strokeWidth={8}
+                    />
+                    <CircularGauge
+                      percentage={gaugeWeeklyGemini}
+                      title="Gemini 7D"
+                      size={68}
+                      strokeWidth={8}
+                    />
+                    {gauge5hArgon !== null && (
+                      <CircularGauge
+                        percentage={gauge5hArgon}
+                        title="Argon 5H"
+                        size={68}
+                        strokeWidth={8}
+                      />
+                    )}
+                    {gaugeWeeklyArgon !== null && (
+                      <CircularGauge
+                        percentage={gaugeWeeklyArgon}
+                        title="Argon 7D"
+                        size={68}
+                        strokeWidth={8}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ height: '1px', backgroundColor: 'var(--border)', width: '100%', margin: '4px 0' }} />
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
+                    <CircularGauge
+                      percentage={gauge5hClaude}
+                      title="Non-Gemini 5H"
+                      size={72}
+                      strokeWidth={8}
+                    />
+                    <CircularGauge
+                      percentage={gaugeWeeklyClaude}
+                      title="Non-Gemini 7D"
+                      size={72}
+                      strokeWidth={8}
+                    />
+                  </div>
                 </div>
               </div>
-
-              {/* Grey horizontal split line in between */}
-              <div style={{ height: '1px', backgroundColor: 'var(--border)', width: '100%', margin: '4px 0' }} />
-
-              {/* Row 2: Non-Gemini models (Claude, GPT, and other non-Gemini quotas) */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: '12px' }}>
-                  <CircularGauge
-                    percentage={gauge5hClaude}
-                    title="Non-Gemini 5H"
-                    size={72}
-                    strokeWidth={8}
-                  />
-                  <CircularGauge
-                    percentage={gaugeWeeklyClaude}
-                    title="Non-Gemini 7D"
-                    size={72}
-                    strokeWidth={8}
-                  />
-                </div>
-              </div>
-            </div>
+            )
           ) : (
-            /* Standard 1x2 Progress Rings */
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-around',
-                gap: '16px',
-              }}
-            >
-              <CircularGauge
-                percentage={gauge5h}
-                title="5H"
-              />
-              <CircularGauge
-                percentage={gaugeWeekly}
-                title="7D"
-              />
-            </div>
+            showGeminiArgonMatrix ? (
+              /* Complete Gemini/Argon coverage uses a deliberate 2x2 matrix. */
+              <div
+                style={{
+                  flex: 1,
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  justifyItems: 'center',
+                  alignContent: 'center',
+                  rowGap: '14px',
+                  columnGap: '28px',
+                }}
+              >
+                <CircularGauge percentage={gauge5h} title="Gemini 5H" size={72} strokeWidth={8} />
+                <CircularGauge percentage={gaugeWeekly} title="Gemini 7D" size={72} strokeWidth={8} />
+                <CircularGauge percentage={gauge5hArgon} title="Argon 5H" size={72} strokeWidth={8} />
+                <CircularGauge percentage={gaugeWeeklyArgon} title="Argon 7D" size={72} strokeWidth={8} />
+              </div>
+            ) : (
+              /* Standard quota rings; Argon rows appear only when data exists. */
+              <div
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-around',
+                  gap: '16px',
+                }}
+              >
+                <CircularGauge
+                  percentage={gauge5h}
+                  title="Gemini 5H"
+                  size={78}
+                  strokeWidth={8}
+                />
+                <CircularGauge
+                  percentage={gaugeWeekly}
+                  title="Gemini 7D"
+                  size={78}
+                  strokeWidth={8}
+                />
+                {gauge5hArgon !== null && (
+                  <CircularGauge
+                    percentage={gauge5hArgon}
+                    title="Argon 5H"
+                    size={78}
+                    strokeWidth={8}
+                  />
+                )}
+                {gaugeWeeklyArgon !== null && (
+                  <CircularGauge
+                    percentage={gaugeWeeklyArgon}
+                    title="Argon 7D"
+                    size={78}
+                    strokeWidth={8}
+                  />
+                )}
+              </div>
+            )
           )}
         </div>
       </div>
@@ -1117,6 +1204,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               const claudeWeekly = hasClaudeWeekly ? (acc.quota_weekly_claude_gpt as number) : 0
               const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > thresholdWeekly || hasCredits
               const hasNonGeminiHealthy = Boolean(rules?.allow_non_gemini_native_models) && claude5h > threshold && isClaudeWeeklyHealthy
+              const showArgonQuota = isProOrAbovePlan(acc.plan_tier) || typeof acc.quota_weekly_argon === 'number'
+              const hasArgon5hQuota = typeof acc.quota_5h_argon === 'number'
               const isHealthy = (hasGeminiHealthy || hasNonGeminiHealthy) && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('BANNED') && Boolean(acc.refresh_token?.trim())
               const isNextSwitch = Boolean(nextSwitchCandidate && acc.email.toLowerCase() === nextSwitchCandidate.toLowerCase())
               return (
@@ -1177,7 +1266,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     {renderPlanTierBadge(acc.plan_tier)}
                   </td>
 
-                  <td style={{ padding: '12px', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '12px', verticalAlign: 'top' }}>
                     {(() => {
                       const avail5h = acc.quota_5h_available ?? current5h
                       const hasDiff = Math.abs(avail5h - current5h) > 0.001
@@ -1200,6 +1289,17 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                 title={tooltip5hGemini}
                               />
                             </div>
+                            {hasArgon5hQuota && (
+                              <div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                                  <span>Argon</span>
+                                </div>
+                                <HorizontalQuotaBar
+                                  fraction={acc.quota_5h_argon ?? null}
+                                  title={acc.reset_horizon_5h_argon_text || 'Gemini 4 Argon 5H cycle'}
+                                />
+                              </div>
+                            )}
                             <div>
                               <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                                 <span>Non-Gemini</span>
@@ -1212,6 +1312,32 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           </div>
                         )
                       }
+                      if (showArgonQuota) {
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                            <div>
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                                <span>Gemini</span>
+                              </div>
+                              <HorizontalQuotaBar
+                                fraction={current5h}
+                                title={tooltip5hGemini}
+                              />
+                            </div>
+                            {hasArgon5hQuota && (
+                              <div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                                  <span>Argon</span>
+                                </div>
+                                <HorizontalQuotaBar
+                                  fraction={acc.quota_5h_argon ?? null}
+                                  title={acc.reset_horizon_5h_argon_text || 'Gemini 4 Argon 5H cycle'}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )
+                      }
                       return (
                         <HorizontalQuotaBar
                           fraction={current5h}
@@ -1221,18 +1347,31 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     })()}
                   </td>
 
-                  <td style={{ padding: '12px', verticalAlign: 'middle' }}>
-                    {rules?.allow_non_gemini_native_models ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        <div>
+                  <td style={{ padding: '12px', verticalAlign: 'top' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                      <div>
+                        {showArgonQuota && (
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                             <span>Gemini</span>
                           </div>
+                        )}
+                        <HorizontalQuotaBar
+                          fraction={acc.quota_weekly ?? 0}
+                          title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
+                        />
+                      </div>
+                      {showArgonQuota && (
+                        <div>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                            <span>Argon</span>
+                          </div>
                           <HorizontalQuotaBar
-                            fraction={acc.quota_weekly ?? 0}
-                            title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
+                            fraction={acc.quota_weekly_argon ?? null}
+                            title={acc.reset_horizon_weekly_argon_text || 'Gemini 4 Argon 7D cycle'}
                           />
                         </div>
+                      )}
+                      {rules?.allow_non_gemini_native_models && (
                         <div>
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                             <span>Non-Gemini</span>
@@ -1242,13 +1381,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                             title="Non-Gemini 7D cycle"
                           />
                         </div>
-                      </div>
-                    ) : (
-                      <HorizontalQuotaBar
-                        fraction={acc.quota_weekly ?? 0}
-                        title={acc.reset_horizon_weekly_text || '7D cycle'}
-                      />
-                    )}
+                      )}
+                    </div>
                   </td>
 
                   <td style={{ padding: '12px 8px', textAlign: 'center' }}>

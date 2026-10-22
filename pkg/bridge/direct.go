@@ -304,19 +304,34 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 
 	switch action {
 	case "status":
-		var availableTools []string
-		for _, tool := range []string{"grim", "scrot", "import"} {
-			if _, err := exec.LookPath(tool); err == nil {
-				availableTools = append(availableTools, tool)
-			}
+		caps := computerUseCapabilities()
+		availableTools := make([]string, 0, len(caps))
+		for tool := range caps {
+			availableTools = append(availableTools, tool)
 		}
+		sort.Strings(availableTools)
 		if runtime.GOOS == "windows" {
 			availableTools = append(availableTools, "windows-screen-capture")
 		}
-		if len(availableTools) == 0 {
-			return "Computer use actuator not configured: no screen capture tool installed", nil
+		actions := []string{}
+		if caps["xdotool"] || caps["ydotool"] {
+			actions = append(actions, "move", "click", "drag", "scroll", "type", "key", "hotkey")
 		}
-		return fmt.Sprintf("Computer use actuator ready (available tools: %s)", strings.Join(availableTools, ", ")), nil
+		if caps["wl-copy"] || caps["xclip"] {
+			actions = append(actions, "clipboard_get", "clipboard_set")
+		}
+		if len(caps) == 0 {
+			return "Computer use actuator not configured: no screen capture or input tool installed (grim/scrot/import, xdotool/ydotool, wl-clipboard/xclip)", nil
+		}
+		payload := map[string]interface{}{
+			"status":         "ready",
+			"tools":          availableTools,
+			"input_actions":  actions,
+			"screenshot":     caps["grim"] || caps["scrot"] || caps["import"] || runtime.GOOS == "windows",
+			"always_enabled": []string{"wait", "status"},
+		}
+		data, _ := json.MarshalIndent(payload, "", "  ")
+		return string(data), nil
 
 	case "screenshot":
 		// Genuine capture implementation:
@@ -361,10 +376,233 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 
 		return "", fmt.Errorf("screenshot capture not configured: no active display or capture utility available (grim/scrot/import/windows-screen-capture)")
 
-	case "click", "type":
-		return "", fmt.Errorf("action %q not configured: UI automation driver not installed", action)
+	case "move", "click", "drag", "scroll", "type", "key", "hotkey", "wait", "clipboard_get", "clipboard_set":
+		return dh.computerUseInput(action, args)
 
 	default:
 		return "", fmt.Errorf("unsupported computer use action: %s", action)
 	}
+}
+
+// computerUseCapabilities lists the installed UI automation binaries.
+func computerUseCapabilities() map[string]bool {
+	caps := map[string]bool{}
+	for _, tool := range []string{"xdotool", "ydotool", "wtype", "xclip", "wl-copy", "wl-paste", "grim", "scrot", "import"} {
+		if _, err := exec.LookPath(tool); err == nil {
+			caps[tool] = true
+		}
+	}
+	return caps
+}
+
+// runTiny executes one short-lived automation command and returns its output.
+func runTiny(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	core.SetHiddenConsole(cmd)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("%s %s failed: %w (%s)", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// computerUseInput drives pointer, keyboard, wait and clipboard actions. Every
+// action either really runs or returns a precise "install X" error: no silent
+// no-ops, because an agent cannot tell a no-op from success.
+func (dh *DirectHandler) computerUseInput(action string, args map[string]interface{}) (string, error) {
+	caps := computerUseCapabilities()
+
+	intArg := func(key string, fallback int) int {
+		if v, ok := args[key].(float64); ok {
+			return int(v)
+		}
+		return fallback
+	}
+	strArg := func(key string) string {
+		if v, ok := args[key].(string); ok {
+			return v
+		}
+		return ""
+	}
+
+	switch action {
+	case "clipboard_get":
+		if caps["wl-paste"] {
+			if out, err := runTiny("wl-paste", "--no-newline"); err == nil {
+				return out, nil
+			}
+		}
+		if caps["xclip"] {
+			if out, err := runTiny("xclip", "-selection", "clipboard", "-o"); err == nil {
+				return out, nil
+			}
+		}
+		return "", fmt.Errorf("clipboard_get is not available: install wl-clipboard or xclip")
+
+	case "clipboard_set":
+		text := strArg("text")
+		if text == "" {
+			return "", fmt.Errorf("text is required for clipboard_set")
+		}
+		var cmd *exec.Cmd
+		switch {
+		case caps["wl-copy"]:
+			cmd = exec.Command("wl-copy")
+		case caps["xclip"]:
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		default:
+			return "", fmt.Errorf("clipboard_set is not available: install wl-clipboard or xclip")
+		}
+		cmd.Stdin = strings.NewReader(text)
+		core.SetHiddenConsole(cmd)
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("clipboard_set failed: %w", err)
+		}
+		return fmt.Sprintf("clipboard updated (%d bytes)", len(text)), nil
+
+	case "wait":
+		seconds := 1.0
+		if v, ok := args["seconds"].(float64); ok && v > 0 {
+			seconds = v
+		}
+		if seconds > 30 {
+			seconds = 30
+		}
+		time.Sleep(time.Duration(seconds * float64(time.Second)))
+		return fmt.Sprintf("waited %.1fs", seconds), nil
+	}
+
+	if !caps["xdotool"] && !caps["ydotool"] {
+		return "", fmt.Errorf("UI automation driver not installed: install xdotool (X11/XWayland) or ydotool (Wayland)")
+	}
+	useXdotool := caps["xdotool"]
+
+	switch action {
+	case "move":
+		x, y := intArg("x", 0), intArg("y", 0)
+		if useXdotool {
+			if _, err := runTiny("xdotool", "mousemove", strconv.Itoa(x), strconv.Itoa(y)); err != nil {
+				return "", err
+			}
+		} else if _, err := runTiny("ydotool", "mousemove", "--absolute", "-x", strconv.Itoa(x), "-y", strconv.Itoa(y)); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("pointer moved to %d,%d", x, y), nil
+
+	case "click":
+		x, y := intArg("x", 0), intArg("y", 0)
+		button := strings.ToLower(strArg("button"))
+		if button == "" {
+			button = "left"
+		}
+		if useXdotool {
+			if _, err := runTiny("xdotool", "mousemove", strconv.Itoa(x), strconv.Itoa(y)); err != nil {
+				return "", err
+			}
+			buttonCode := map[string]string{"left": "1", "middle": "2", "right": "3"}[button]
+			if buttonCode == "" {
+				buttonCode = "1"
+			}
+			if _, err := runTiny("xdotool", "click", buttonCode); err != nil {
+				return "", err
+			}
+		} else {
+			code := map[string]string{"left": "0xC0", "middle": "0xC1", "right": "0xC2"}[button]
+			if code == "" {
+				code = "0xC0"
+			}
+			if _, err := runTiny("ydotool", "mousemove", "--absolute", "-x", strconv.Itoa(x), "-y", strconv.Itoa(y)); err != nil {
+				return "", err
+			}
+			if _, err := runTiny("ydotool", "click", code); err != nil {
+				return "", err
+			}
+		}
+		return fmt.Sprintf("%s click at %d,%d", button, x, y), nil
+
+	case "drag":
+		if !useXdotool {
+			return "", fmt.Errorf("drag requires xdotool")
+		}
+		x, y := intArg("x", 0), intArg("y", 0)
+		toX, toY := intArg("to_x", x), intArg("to_y", y)
+		if _, err := runTiny("xdotool", "mousemove", strconv.Itoa(x), strconv.Itoa(y)); err != nil {
+			return "", err
+		}
+		if _, err := runTiny("xdotool", "mousedown", "1"); err != nil {
+			return "", err
+		}
+		if _, err := runTiny("xdotool", "mousemove", "--sync", strconv.Itoa(toX), strconv.Itoa(toY)); err != nil {
+			_, _ = runTiny("xdotool", "mouseup", "1")
+			return "", err
+		}
+		if _, err := runTiny("xdotool", "mouseup", "1"); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("dragged from %d,%d to %d,%d", x, y, toX, toY), nil
+
+	case "scroll":
+		amount := intArg("amount", 3)
+		x, y := intArg("x", 0), intArg("y", 0)
+		if x != 0 || y != 0 {
+			if _, err := runTiny("xdotool", "mousemove", strconv.Itoa(x), strconv.Itoa(y)); err != nil {
+				return "", err
+			}
+		}
+		button := "5"
+		if amount < 0 {
+			button = "4"
+			amount = -amount
+		}
+		if amount > 50 {
+			amount = 50
+		}
+		for i := 0; i < amount; i++ {
+			if _, err := runTiny("xdotool", "click", button); err != nil {
+				return "", err
+			}
+		}
+		return fmt.Sprintf("scrolled %d wheel clicks at %d,%d", amount, x, y), nil
+
+	case "type":
+		text := strArg("text")
+		if text == "" {
+			return "", fmt.Errorf("text is required for type")
+		}
+		if useXdotool {
+			if _, err := runTiny("xdotool", "type", "--clearmodifiers", "--delay", "12", text); err != nil {
+				return "", err
+			}
+		} else if caps["wtype"] {
+			if _, err := runTiny("wtype", text); err != nil {
+				return "", err
+			}
+		} else {
+			return "", fmt.Errorf("typing needs xdotool or wtype")
+		}
+		return fmt.Sprintf("typed %d characters", len([]rune(text))), nil
+
+	case "key", "hotkey":
+		keys := strArg("keys")
+		if keys == "" {
+			keys = strArg("text")
+		}
+		if keys == "" {
+			return "", fmt.Errorf("keys is required for %s", action)
+		}
+		if useXdotool {
+			if _, err := runTiny("xdotool", "key", "--clearmodifiers", keys); err != nil {
+				return "", err
+			}
+		} else if caps["wtype"] {
+			if _, err := runTiny("wtype", "-M", "ctrl", keys); err != nil {
+				return "", err
+			}
+		} else {
+			return "", fmt.Errorf("key input needs xdotool or wtype")
+		}
+		return fmt.Sprintf("pressed %s", keys), nil
+	}
+
+	return "", fmt.Errorf("unsupported computer use action: %s", action)
 }

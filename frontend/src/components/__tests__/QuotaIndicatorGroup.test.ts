@@ -42,13 +42,47 @@ describe('Component DOM: QuotaIndicatorGroup (<QuotaIndicatorGroup />)', () => {
     assert.ok(text.includes('5H'), '5H window label must be visible')
     assert.ok(text.includes('7D'), '7D window label must be visible')
     assert.ok(text.includes('Monthly'), 'Monthly window label must be visible')
-    assert.ok(text.includes('70%') && text.includes('5%'), 'each window keeps its own value')
+    assert.ok(text.includes('70% left') && text.includes('5% left'), 'each window appends "left" when missing')
 
     const labels = querySelectorAll('span')
     assert.ok(
       labels.some((s) => s.textContent?.trim() === '5H'),
       'each window must render its own label span'
     )
+
+    unmount()
+  })
+
+  it('normalizes percentage left text and eliminates duplicate percentage beside the bar', async () => {
+    const { querySelectorAll, container, unmount } = await mount(
+      React.createElement(QuotaIndicatorGroup, {
+        buckets: [
+          { label: '5H', fraction: 0.73, value: '73%' },
+          { label: '7D', fraction: 0.4, value: '40% left' },
+          { label: '30D', fraction: 0.15 },
+          { label: 'Monthly', fraction: null, value: 'Unlimited' },
+        ],
+      })
+    )
+
+    const spans = querySelectorAll<HTMLSpanElement>('span')
+    // Each of the 4 buckets must have exactly 2 spans (label + valueText) and 0 spans inside HorizontalQuotaBar
+    assert.equal(spans.length, 8, 'must render exactly 2 spans per bucket without trailing bar percentages')
+
+    const spanTexts = spans.map((s) => s.textContent?.trim())
+    assert.deepEqual(spanTexts, [
+      '5H',
+      '73% left',
+      '7D',
+      '40% left',
+      '30D',
+      '15% left',
+      'Monthly',
+      'Unlimited',
+    ])
+
+    const text = container.textContent || ''
+    assert.ok(!text.includes('40% left left'), 'must not duplicate "left" suffix')
 
     unmount()
   })

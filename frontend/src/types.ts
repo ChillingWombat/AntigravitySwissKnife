@@ -33,13 +33,19 @@ export interface QuotaSummary {
   plan_tier?: string
   credits?: number
   quota_5h_fraction?: number
+  quota_5h_argon?: number | null
   quota_weekly_fraction?: number
+  quota_weekly_argon?: number | null
   quota_5h_claude_gpt?: number
   quota_weekly_claude_gpt?: number
   reset_seconds_5h?: number
   reset_horizon_text?: string
+  reset_seconds_5h_argon?: number
+  reset_horizon_5h_argon_text?: string
   reset_seconds_weekly?: number
   reset_horizon_weekly_text?: string
+  reset_seconds_weekly_argon?: number
+  reset_horizon_weekly_argon_text?: string
   models: ModelQuota[]
   min_fraction: number
   overall_health: string
@@ -102,7 +108,19 @@ export function normalizePlanTier(raw?: string): string {
   if (lower.includes('enterprise') || lower.includes('teams_tier_enterprise')) return 'Enterprise'
   if (lower.includes('plus')) return 'Plus'
   if (lower.includes('pro') || lower.includes('standard') || lower.includes('code assist') || lower.includes('ai premium') || lower.includes('g1_ai') || lower.includes('team')) return 'Pro'
-  return trimmed
+  // An unknown tier means the plan could not be fetched: show Free rather than
+  // echoing a product label (the API answers unlicensed accounts with
+  // "Antigravity") back as if it were a plan.
+  return 'Free'
+}
+
+export function isProOrAbovePlan(raw?: string): boolean {
+  const tier = normalizePlanTier(raw)
+  return tier === 'Pro' ||
+    tier === 'Ultra 5X' ||
+    tier === 'Ultra 10X' ||
+    tier === 'Ultra 20X' ||
+    tier === 'Enterprise'
 }
 
 export type SwitchMode = 'balanced' | 'max_tokens' | 'max_continuous'
@@ -131,11 +149,17 @@ export interface AccountState {
   quota_5h_available?: number | null
   reset_seconds?: number
   quota_weekly?: number | null
+  quota_weekly_argon?: number | null
   reset_seconds_weekly?: number
+  reset_seconds_weekly_argon?: number
   quota_5h_claude_gpt?: number | null
   quota_weekly_claude_gpt?: number | null
   reset_horizon_text: string
+  quota_5h_argon?: number | null
+  reset_seconds_5h_argon?: number
+  reset_horizon_5h_argon_text?: string
   reset_horizon_weekly_text?: string
+  reset_horizon_weekly_argon_text?: string
   has_mfa: boolean
   totp_secret?: string
   refresh_token?: string
@@ -191,11 +215,16 @@ export function toAccountState(acc: any, activeEmail?: string, allowNonGemini?: 
     status,
     quota_5h_current: hasError ? 0.0 : (typeof acc.quota_5h_current === 'number' ? acc.quota_5h_current : 1.0),
     quota_5h_available: hasError ? 0.0 : (typeof acc.quota_5h_available === 'number' ? acc.quota_5h_available : 1.0),
+    quota_5h_argon: hasError ? null : (typeof acc.quota_5h_argon === 'number' ? acc.quota_5h_argon : null),
     quota_weekly: hasError ? 0.0 : (typeof acc.quota_weekly === 'number' ? acc.quota_weekly : 1.0),
+    quota_weekly_argon: hasError ? null : (typeof acc.quota_weekly_argon === 'number' ? acc.quota_weekly_argon : null),
     quota_5h_claude_gpt: hasError ? 0.0 : (typeof acc.quota_5h_claude_gpt === 'number' ? acc.quota_5h_claude_gpt : (typeof acc.quota_5h_claude === 'number' ? acc.quota_5h_claude : (acc.quota_5h_claude_gpt === null ? null : undefined))),
     quota_weekly_claude_gpt: hasError ? 0.0 : (typeof acc.quota_weekly_claude_gpt === 'number' ? acc.quota_weekly_claude_gpt : (typeof acc.quota_weekly_claude === 'number' ? acc.quota_weekly_claude : (acc.quota_weekly_claude_gpt === null ? null : undefined))),
     reset_horizon_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_text || 'Ready'),
+    reset_seconds_5h_argon: typeof acc.reset_seconds_5h_argon === 'number' ? acc.reset_seconds_5h_argon : 0,
+    reset_horizon_5h_argon_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_5h_argon_text || ''),
     reset_horizon_weekly_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_weekly_text || 'Ready'),
+    reset_horizon_weekly_argon_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_weekly_argon_text || ''),
     has_mfa: Boolean(acc.has_totp || acc.totp_secret),
     totp_secret: acc.totp_secret || '',
     refresh_token: acc.refresh_token || '',
@@ -212,7 +241,9 @@ export interface FleetQuotaSummary {
   fleet_5h_available: number | null
   fleet_weekly_available: number | null
   fleet_5h_gemini_available?: number | null
+  fleet_5h_argon_available?: number | null
   fleet_weekly_gemini_available?: number | null
+  fleet_weekly_argon_available?: number | null
   fleet_5h_claude_gpt_available?: number | null
   fleet_weekly_claude_gpt_available?: number | null
   total_accounts: number
@@ -390,7 +421,6 @@ export interface CustomModel {
   gcp_region?: string
   gcp_service_account_key?: string
   custom_quota_endpoint?: string
-  project_mappings: string[]
   quota_type: QuotaType
   quota_manual_override?: boolean
   balance_value?: string
@@ -597,7 +627,6 @@ export interface CustomModelsConfig {
   active_model_id?: string
   next_internal_id?: number
   models: CustomModel[]
-  project_binds: Record<string, string>
   pricing_records?: ModelPricingRecord[]
 }
 

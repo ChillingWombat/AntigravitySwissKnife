@@ -2,6 +2,7 @@ package quota
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
@@ -14,6 +15,21 @@ type ModelQuota struct {
 	ResetTime    time.Time `json:"reset_time"`
 	ResetText    string    `json:"reset_text"`
 	HealthStatus string    `json:"health_status"`
+}
+
+func isArgonQuotaIdentifier(values ...string) bool {
+	value := strings.ToLower(strings.Join(values, " "))
+	return strings.Contains(value, "argon") ||
+		strings.Contains(value, "gemini-4") ||
+		strings.Contains(value, "gemini 4")
+}
+
+func isWeeklyQuota(model ModelQuota, now time.Time) bool {
+	name := strings.ToLower(model.ModelName)
+	if strings.Contains(name, "weekly") || strings.Contains(name, "7d") {
+		return true
+	}
+	return !model.ResetTime.IsZero() && model.ResetTime.Sub(now) > 12*time.Hour
 }
 
 // ComputeHealth determines the status tier based on remaining fraction.
@@ -48,23 +64,29 @@ func FormatResetHorizon(resetTime time.Time, now time.Time) string {
 
 // QuotaSummary consolidates per-model quotas for an account.
 type QuotaSummary struct {
-	AccountEmail           string       `json:"account_email"`
-	PlanTier               string       `json:"plan_tier,omitempty"`
-	Credits                float64      `json:"credits"`
-	Quota5hFraction        float64      `json:"quota_5h_fraction,omitempty"`
-	QuotaWeeklyFraction    float64      `json:"quota_weekly_fraction,omitempty"`
-	Quota5hClaudeGPT       float64      `json:"quota_5h_claude_gpt,omitempty"`
-	QuotaWeeklyClaudeGPT   float64      `json:"quota_weekly_claude_gpt,omitempty"`
-	ClaudeWeeklyBucketPresent bool     `json:"claude_weekly_bucket_present,omitempty"`
-	ResetSeconds5h         float64      `json:"reset_seconds_5h,omitempty"`
-	ResetHorizonText       string       `json:"reset_horizon_text,omitempty"`
-	ResetSecondsWeekly     float64      `json:"reset_seconds_weekly,omitempty"`
-	ResetHorizonWeeklyText string       `json:"reset_horizon_weekly_text,omitempty"`
-	ResetTimeWeekly        time.Time    `json:"reset_time_weekly,omitempty"`
-	Models                 []ModelQuota `json:"models"`
-	MinFraction            float64      `json:"min_fraction"`
-	OverallHealth          string       `json:"overall_health"`
-	ErrorMessage           string       `json:"error_message,omitempty"`
-	ErrorStatus            string       `json:"error_status,omitempty"`
-	LastPolled             time.Time    `json:"last_polled"`
+	AccountEmail                string       `json:"account_email"`
+	PlanTier                    string       `json:"plan_tier,omitempty"`
+	Credits                     float64      `json:"credits"`
+	Quota5hFraction             float64      `json:"quota_5h_fraction,omitempty"`
+	Quota5hArgon                *float64     `json:"quota_5h_argon,omitempty"`
+	QuotaWeeklyFraction         float64      `json:"quota_weekly_fraction,omitempty"`
+	QuotaWeeklyArgon            *float64     `json:"quota_weekly_argon,omitempty"`
+	Quota5hClaudeGPT            float64      `json:"quota_5h_claude_gpt,omitempty"`
+	QuotaWeeklyClaudeGPT        float64      `json:"quota_weekly_claude_gpt,omitempty"`
+	ClaudeWeeklyBucketPresent   bool         `json:"claude_weekly_bucket_present,omitempty"`
+	ResetSeconds5h              float64      `json:"reset_seconds_5h,omitempty"`
+	ResetHorizonText            string       `json:"reset_horizon_text,omitempty"`
+	ResetSeconds5hArgon         float64      `json:"reset_seconds_5h_argon,omitempty"`
+	ResetHorizon5hArgonText     string       `json:"reset_horizon_5h_argon_text,omitempty"`
+	ResetSecondsWeekly          float64      `json:"reset_seconds_weekly,omitempty"`
+	ResetHorizonWeeklyText      string       `json:"reset_horizon_weekly_text,omitempty"`
+	ResetSecondsWeeklyArgon     float64      `json:"reset_seconds_weekly_argon,omitempty"`
+	ResetHorizonWeeklyArgonText string       `json:"reset_horizon_weekly_argon_text,omitempty"`
+	ResetTimeWeekly             time.Time    `json:"reset_time_weekly,omitempty"`
+	Models                      []ModelQuota `json:"models"`
+	MinFraction                 float64      `json:"min_fraction"`
+	OverallHealth               string       `json:"overall_health"`
+	ErrorMessage                string       `json:"error_message,omitempty"`
+	ErrorStatus                 string       `json:"error_status,omitempty"`
+	LastPolled                  time.Time    `json:"last_polled"`
 }
