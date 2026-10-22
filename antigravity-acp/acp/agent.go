@@ -1,0 +1,142 @@
+// Package acp exposes a surface over the Agent Client Protocol.
+package acp
+
+import (
+	"context"
+	"strings"
+	"sync"
+
+	acpsdk "github.com/coder/acp-go-sdk"
+
+	"github.com/ChillingWombat/AntigravitySwissKnife/antigravity-acp/surface"
+)
+
+// Agent implements acpsdk.Agent on top of one surface.
+type Agent struct {
+	surface surface.Surface
+	conn    *acpsdk.AgentSideConnection
+
+	mu       sync.Mutex
+	sessions map[string]acpsdk.SessionId
+}
+
+var _ acpsdk.Agent = (*Agent)(nil)
+
+func New(s surface.Surface) *Agent {
+	return &Agent{surface: s, sessions: map[string]acpsdk.SessionId{}}
+}
+
+// Attach gives the agent the connection it pushes updates through. The connection
+// is created after the agent, so it is set here rather than in the constructor.
+func (a *Agent) Attach(conn *acpsdk.AgentSideConnection) { a.conn = conn }
+
+func (a *Agent) Initialize(ctx context.Context, p acpsdk.InitializeRequest) (acpsdk.InitializeResponse, error) {
+	if p.ProtocolVersion != acpsdk.ProtocolVersionNumber {
+		return acpsdk.InitializeResponse{}, acpsdk.NewInvalidParams(map[string]any{
+			"error": "unsupported protocolVersion",
+		})
+	}
+	return acpsdk.InitializeResponse{
+		ProtocolVersion: acpsdk.ProtocolVersionNumber,
+		AgentInfo:       &acpsdk.Implementation{Name: "antigravity-acp", Version: "0.1.0"},
+		AgentCapabilities: acpsdk.AgentCapabilities{
+			PromptCapabilities:  acpsdk.PromptCapabilities{},
+			McpCapabilities:     acpsdk.McpCapabilities{},
+			SessionCapabilities: acpsdk.SessionCapabilities{},
+		},
+		AuthMethods: []acpsdk.AuthMethod{},
+	}, nil
+}
+
+// Authenticate is a no-op: the CLI and the app already hold Google credentials.
+func (a *Agent) Authenticate(ctx context.Context, p acpsdk.AuthenticateRequest) (acpsdk.AuthenticateResponse, error) {
+	return acpsdk.AuthenticateResponse{}, nil
+}
+
+func (a *Agent) Logout(ctx context.Context, p acpsdk.LogoutRequest) (acpsdk.LogoutResponse, error) {
+	return acpsdk.LogoutResponse{}, acpsdk.NewMethodNotFound("logout")
+}
+
+func (a *Agent) NewSession(ctx context.Context, p acpsdk.NewSessionRequest) (acpsdk.NewSessionResponse, error) {
+	id, err := a.surface.Start(ctx, surface.SessionOptions{Cwd: p.Cwd})
+	if err != nil {
+		return acpsdk.NewSessionResponse{}, err
+	}
+	a.mu.Lock()
+	a.sessions[id] = acpsdk.SessionId(id)
+	a.mu.Unlock()
+	return acpsdk.NewSessionResponse{SessionId: acpsdk.SessionId(id)}, nil
+}
+
+// Prompt runs one turn and streams the answer back as session updates.
+func (a *Agent) Prompt(ctx context.Context, p acpsdk.PromptRequest) (acpsdk.PromptResponse, error) {
+	text := promptText(p.Prompt)
+	reason, err := a.surface.Send(ctx, string(p.SessionId), text, func(ev surface.Event) error {
+		if ev.Kind != surface.EventText || ev.Text == "" {
+			return nil
+		}
+		return a.conn.SessionUpdate(ctx, acpsdk.SessionNotification{
+			SessionId: p.SessionId,
+			Update:    acpsdk.UpdateAgentMessageText(ev.Text),
+		})
+	})
+	if err != nil {
+		return acpsdk.PromptResponse{}, err
+	}
+	return acpsdk.PromptResponse{StopReason: stopReason(reason)}, nil
+}
+
+func (a *Agent) Cancel(ctx context.Context, p acpsdk.CancelNotification) error {
+	return a.surface.Cancel(ctx, string(p.SessionId))
+}
+
+func (a *Agent) CloseSession(ctx context.Context, p acpsdk.CloseSessionRequest) (acpsdk.CloseSessionResponse, error) {
+	if err := a.surface.Close(ctx, string(p.SessionId)); err != nil {
+		return acpsdk.CloseSessionResponse{}, err
+	}
+	a.mu.Lock()
+	delete(a.sessions, string(p.SessionId))
+	a.mu.Unlock()
+	return acpsdk.CloseSessionResponse{}, nil
+}
+
+// The rest are capability-gated on the wire; answer -32601 rather than pretend.
+func (a *Agent) ListSessions(context.Context, acpsdk.ListSessionsRequest) (acpsdk.ListSessionsResponse, error) {
+	return acpsdk.ListSessionsResponse{}, acpsdk.NewMethodNotFound(acpsdk.AgentMethodSessionList)
+}
+
+func (a *Agent) ResumeSession(context.Context, acpsdk.ResumeSessionRequest) (acpsdk.ResumeSessionResponse, error) {
+	return acpsdk.ResumeSessionResponse{}, acpsdk.NewMethodNotFound("session/resume")
+}
+
+func (a *Agent) SetSessionMode(context.Context, acpsdk.SetSessionModeRequest) (acpsdk.SetSessionModeResponse, error) {
+	return acpsdk.SetSessionModeResponse{}, acpsdk.NewMethodNotFound(acpsdk.AgentMethodSessionSetMode)
+}
+
+func (a *Agent) SetSessionConfigOption(context.Context, acpsdk.SetSessionConfigOptionRequest) (acpsdk.SetSessionConfigOptionResponse, error) {
+	return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewMethodNotFound(acpsdk.AgentMethodSessionSetConfigOption)
+}
+
+// promptText flattens the client's content blocks into the string a surface takes.
+func promptText(blocks []acpsdk.ContentBlock) string {
+	var out strings.Builder
+	for _, block := range blocks {
+		if block.Text != nil && block.Text.Text != "" {
+			out.WriteString(block.Text.Text)
+		}
+	}
+	return out.String()
+}
+
+func stopReason(r surface.StopReason) acpsdk.StopReason {
+	switch r {
+	case surface.StopCancelled:
+		return acpsdk.StopReasonCancelled
+	case surface.StopRefusal:
+		return acpsdk.StopReasonRefusal
+	case surface.StopMaxTokens:
+		return acpsdk.StopReasonMaxTokens
+	default:
+		return acpsdk.StopReasonEndTurn
+	}
+}
