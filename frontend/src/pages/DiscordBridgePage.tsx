@@ -4,7 +4,9 @@ import {
   Check,
   Power,
   Eye,
-  EyeOff,, AlertCircle } from 'lucide-react'
+  EyeOff,
+  AlertCircle,
+} from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 

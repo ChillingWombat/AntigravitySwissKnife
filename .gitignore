@@ -75,3 +75,6 @@ vault.key
 *.swp
 *.bak
 app.asar.bak
+
+# stray build output from cmd/acp-probe
+antigravity-acp/acp-probe
