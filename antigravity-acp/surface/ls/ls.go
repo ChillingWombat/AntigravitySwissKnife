@@ -87,6 +87,11 @@ func (s *Surface) Start(ctx context.Context, opts surface.SessionOptions) (strin
 	if workspace == "" {
 		workspace = "."
 	}
+	// The server rejects a relative or doubled path ("invalid path: //"), so the
+	// workspace must be absolute before it becomes a file URI.
+	if abs, err := filepath.Abs(workspace); err == nil {
+		workspace = abs
+	}
 	var reply struct {
 		CascadeID string `json:"cascadeId"`
 	}
