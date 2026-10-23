@@ -91,6 +91,20 @@ export function getAcpStatusPresentation(status: string) {
         label: 'CONNECTED',
         whiteSpace: 'nowrap' as const,
       }
+    case 'installed_idle':
+      return {
+        bg: '#fef7e0',
+        color: '#b06000',
+        label: 'INSTALLED',
+        whiteSpace: 'nowrap' as const,
+      }
+    case 'not_found':
+      return {
+        bg: '#f1f3f4',
+        color: '#5f6368',
+        label: 'NOT FOUND',
+        whiteSpace: 'nowrap' as const,
+      }
     case 'listening':
       return {
         bg: '#fef7e0',

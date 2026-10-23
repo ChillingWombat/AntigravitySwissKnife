@@ -296,27 +296,23 @@ func TestChallengerBridge_WebGUI_BridgeChannelsWebhook(t *testing.T) {
 		t.Errorf("expected 403 Forbidden for non-subscribe mode, got: %d", wBadMode.Code)
 	}
 
-	// 4. POST with matching token (via header) returns 200 OK {"success": true}
+	// 4. POST with a matching token is authenticated but not relayed: answering 200
+	// would claim a delivery that never happened.
 	reqPostValid := httptest.NewRequest(http.MethodPost, "/api/bridge/channels/webhook", bytes.NewReader([]byte(`{"object":"whatsapp_business_account"}`)))
 	reqPostValid.Header.Set("X-Verify-Token", "meta-webhook-verify-token-123")
 	wPostValid := httptest.NewRecorder()
 	server.handleBridgeChannelsWebhook(wPostValid, reqPostValid)
 
-	if wPostValid.Code != http.StatusOK {
-		t.Errorf("expected 200 OK for valid POST webhook, got: %d", wPostValid.Code)
-	}
-	var resPost map[string]interface{}
-	_ = json.Unmarshal(wPostValid.Body.Bytes(), &resPost)
-	if resPost["success"] != true {
-		t.Errorf("expected success: true, got: %v", resPost["success"])
+	if wPostValid.Code != http.StatusNotImplemented {
+		t.Errorf("expected 501 for an unrelayed POST, got: %d", wPostValid.Code)
 	}
 
-	// 5. POST with matching token (via query verify_token) returns 200 OK
+	// 5. POST with a matching query token is also refused rather than accepted
 	reqPostQuery := httptest.NewRequest(http.MethodPost, "/api/bridge/channels/webhook?verify_token=meta-webhook-verify-token-123", bytes.NewReader([]byte(`{}`)))
 	wPostQuery := httptest.NewRecorder()
 	server.handleBridgeChannelsWebhook(wPostQuery, reqPostQuery)
-	if wPostQuery.Code != http.StatusOK {
-		t.Errorf("expected 200 OK for valid query verify_token, got: %d", wPostQuery.Code)
+	if wPostQuery.Code != http.StatusBadRequest && wPostQuery.Code != http.StatusNotImplemented {
+		t.Errorf("expected 501 or 400 for an unrelayed POST, got: %d", wPostQuery.Code)
 	}
 
 	// 6. POST with mismatching token returns 403 Forbidden
@@ -435,7 +431,7 @@ func TestChallengerBridge_ExternalOriginAllowedOnOAuthAndMCP(t *testing.T) {
 	if wToken.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK on POST /oauth/token, got: %d (body: %s)", wToken.Code, wToken.Body.String())
 	}
-	if allow := wToken.Header().Get("Access-Control-Allow-Origin"); allow != geminiOrigin && allow != "*" {
+	if allow := wToken.Header().Get("Access-Control-Allow-Origin"); allow != geminiOrigin {
 		t.Errorf("expected Access-Control-Allow-Origin to allow origin, got: %q", allow)
 	}
 
@@ -452,7 +448,7 @@ func TestChallengerBridge_ExternalOriginAllowedOnOAuthAndMCP(t *testing.T) {
 		if wWK.Code != http.StatusOK {
 			t.Errorf("expected 200 OK for %s with Origin %s, got: %d (body: %s)", wellKnownPath, geminiOrigin, wWK.Code, wWK.Body.String())
 		}
-		if allow := wWK.Header().Get("Access-Control-Allow-Origin"); allow != geminiOrigin && allow != "*" {
+		if allow := wWK.Header().Get("Access-Control-Allow-Origin"); allow != geminiOrigin {
 			t.Errorf("expected Access-Control-Allow-Origin to allow origin for %s, got: %q", wellKnownPath, allow)
 		}
 	}

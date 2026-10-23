@@ -579,13 +579,13 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                         style={{
                           fontWeight: 600,
                           color:
-                            agent.ping_latency_ms > 0 && agent.ping_latency_ms < 3
+                            (agent.ping_latency_ms ?? 0) > 0 && (agent.ping_latency_ms ?? 0) < 3
                               ? '#137333'
                               : '#b06000',
                           whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
                         }}
                       >
-                        {agent.ping_latency_ms > 0 ? `${agent.ping_latency_ms} ms` : 'Unreachable'}
+                        {(agent.ping_latency_ms ?? 0) > 0 ? `${agent.ping_latency_ms} ms` : 'Unreachable'}
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
