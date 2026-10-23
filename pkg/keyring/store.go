@@ -307,6 +307,57 @@ func (acc *Account) RecoverCredentialsFromNotes() bool {
 	return true
 }
 
+// mergeAccountLocked folds non-empty/newer credentials, notes, passwords, and statuses from src into dest.
+// Caller must hold s.mu.
+func (s *Store) mergeAccountLocked(dest *Account, src *Account) {
+	if dest == nil || src == nil {
+		return
+	}
+	if dest.Password == "" && src.Password != "" {
+		dest.Password = src.Password
+	}
+	if dest.TOTPSecret == "" && src.TOTPSecret != "" {
+		dest.TOTPSecret = src.TOTPSecret
+		dest.HasTOTP = true
+	}
+	if dest.Notes == "" && src.Notes != "" {
+		dest.Notes = src.Notes
+	}
+	if (dest.Label == "" || dest.Label == dest.Email) && src.Label != "" && src.Label != src.Email {
+		dest.Label = src.Label
+	}
+	if (dest.PlanTier == "" || dest.PlanTier == "Free") && src.PlanTier != "" && src.PlanTier != "Free" {
+		dest.PlanTier = src.PlanTier
+	}
+	if dest.Status != "ACTIVE" && src.Status == "ACTIVE" {
+		dest.Status = src.Status
+		dest.IsActive = true
+	}
+	if dest.Credits == 0 && src.Credits > 0 {
+		dest.Credits = src.Credits
+	}
+	if src.AllowClaudeGPT {
+		dest.AllowClaudeGPT = true
+	}
+	if src.EnableCreditOverages {
+		dest.EnableCreditOverages = true
+	}
+
+	if dest.RefreshToken == "" && src.RefreshToken != "" {
+		dest.RefreshToken = src.RefreshToken
+		dest.AccessToken = src.AccessToken
+		dest.IDToken = src.IDToken
+		dest.TokenExpiry = src.TokenExpiry
+		dest.Credential = src.Credential
+	} else if src.RefreshToken != "" && !src.TokenExpiry.IsZero() && src.TokenExpiry.After(dest.TokenExpiry) {
+		dest.RefreshToken = src.RefreshToken
+		dest.AccessToken = src.AccessToken
+		dest.IDToken = src.IDToken
+		dest.TokenExpiry = src.TokenExpiry
+		dest.Credential = src.Credential
+	}
+}
+
 func (s *Store) load() error {
 	data, err := os.ReadFile(s.accountsPath)
 	if err != nil {
@@ -330,263 +381,161 @@ func (s *Store) load() error {
 	s.accounts = make(map[string]*Account)
 
 	trimmed := bytes.TrimSpace(ff.Accounts)
+	var rawItems []rawAccountItem
 	if len(trimmed) > 0 && trimmed[0] == '{' {
-		// Map format (Python compatibility)
+		// Map format (Python compatibility and standard swiss.json format)
 		var accMap map[string]rawAccountItem
 		if err := json.Unmarshal(ff.Accounts, &accMap); err == nil {
+			rawItems = make([]rawAccountItem, 0, len(accMap))
 			for email, item := range accMap {
-				em := item.Email
-				if em == "" {
-					em = email
+				if item.Email == "" {
+					item.Email = email
 				}
-				isActive := s.activeEmail != "" && strings.EqualFold(em, s.activeEmail)
-				status := strings.ToUpper(strings.TrimSpace(item.Status))
-				if status == "" {
-					if item.IsHealthy != nil && !*item.IsHealthy {
-						status = "ERROR"
-					} else if isActive {
-						status = "ACTIVE"
-					} else {
-						status = "STANDBY"
-					}
-				} else if !isActive && status == "ACTIVE" {
-					status = "STANDBY"
-				} else if isActive && status == "STANDBY" {
-					status = "ACTIVE"
-				}
-				priority := strings.TrimSpace(item.Priority)
-				if priority == "" {
-					priority = "High"
-				}
-				password := core.DecryptCredential(item.Password)
-				totpSecret := core.DecryptCredential(item.TOTPSecret)
-				accessToken := core.DecryptCredential(item.AccessToken)
-				refreshToken := core.DecryptCredential(item.RefreshToken)
-				idToken := core.DecryptCredential(item.IDToken)
-				tokenExpiry := parseTokenExpiry(item.TokenExpiry)
-				if item.Credential != nil {
-					if accessToken == "" && item.Credential.AccessToken != "" {
-						accessToken = core.DecryptCredential(item.Credential.AccessToken)
-					}
-					if refreshToken == "" && item.Credential.RefreshToken != "" {
-						refreshToken = core.DecryptCredential(item.Credential.RefreshToken)
-					}
-					if idToken == "" && item.Credential.IDToken != "" {
-						idToken = core.DecryptCredential(item.Credential.IDToken)
-					}
-					if tokenExpiry.IsZero() && item.Credential.Expiry != "" {
-						tokenExpiry = parseTokenExpiry(item.Credential.Expiry)
-					}
-				}
-
-				if strings.TrimSpace(refreshToken) == "" && item.Notes != "" {
-					if rf, at, id, exp, ok := ExtractOAuthFromJSONOrNotes(item.Notes); ok {
-						refreshToken = rf
-						if accessToken == "" && at != "" {
-							accessToken = at
-						}
-						if idToken == "" && id != "" {
-							idToken = id
-						}
-						if tokenExpiry.IsZero() && !exp.IsZero() {
-							tokenExpiry = exp
-						}
-					}
-				}
-
-				errMsg := ""
-				if strings.TrimSpace(refreshToken) == "" && status != "BANNED" && !core.IsRunningTests() {
-					status = "ERROR"
-					errMsg = "Missing credentials / re-authentication required"
-				} else if status == "NEEDS_REAUTH" {
-					status = "ERROR"
-					errMsg = "Missing credentials / re-authentication required"
-				} else if status == "ERROR" || status == "BANNED" {
-					errMsg = item.ErrorMessage
-					if strings.Contains(strings.ToLower(errMsg), "missing credentials") && strings.TrimSpace(refreshToken) != "" {
-						errMsg = ""
-						if isActive {
-							status = "ACTIVE"
-						} else {
-							status = "STANDBY"
-						}
-					}
-				}
-
-				var cred *OAuthCredential
-				if item.Credential != nil {
-					cred = &OAuthCredential{
-						AccessToken:  accessToken,
-						RefreshToken: refreshToken,
-						IDToken:      idToken,
-						Expiry:       item.Credential.Expiry,
-					}
-				} else if refreshToken != "" || accessToken != "" {
-					cred = &OAuthCredential{
-						AccessToken:  accessToken,
-						RefreshToken: refreshToken,
-						IDToken:      idToken,
-					}
-					if !tokenExpiry.IsZero() {
-						cred.Expiry = tokenExpiry.UTC().Format(time.RFC3339Nano)
-					}
-				}
-
-				acc := &Account{
-					Email:                em,
-					Label:                item.Label,
-					PlanTier:             item.PlanTier,
-					Status:               status,
-					ErrorMessage:         errMsg,
-					Priority:             priority,
-					Notes:                item.Notes,
-					Password:             password,
-					TOTPSecret:           totpSecret,
-					HasTOTP:              totpSecret != "",
-					IsActive:             isActive,
-					AccessToken:          accessToken,
-					RefreshToken:         refreshToken,
-					IDToken:              idToken,
-					TokenExpiry:          tokenExpiry,
-					Credits:              item.Credits,
-					EnableCreditOverages: item.EnableCreditOverages,
-					AllowClaudeGPT:       item.AllowClaudeGPT,
-					Credential:           cred,
-				}
-				acc.RecoverCredentialsFromNotes()
-				s.accounts[em] = acc
+				rawItems = append(rawItems, item)
 			}
-			return nil
 		}
+	} else if len(trimmed) > 0 && trimmed[0] == '[' {
+		_ = json.Unmarshal(ff.Accounts, &rawItems)
 	}
 
-	// Array format fallback
-	var accList []rawAccountItem
-	if err := json.Unmarshal(ff.Accounts, &accList); err == nil {
-		for _, item := range accList {
-			isActive := s.activeEmail != "" && strings.EqualFold(item.Email, s.activeEmail)
-			status := strings.ToUpper(strings.TrimSpace(item.Status))
-			if status == "" {
-				if item.IsHealthy != nil && !*item.IsHealthy {
-					status = "ERROR"
-				} else if isActive {
+	mergedAny := false
+	for _, item := range rawItems {
+		em := strings.TrimSpace(item.Email)
+		if em == "" {
+			continue
+		}
+		isActive := s.activeEmail != "" && (strings.EqualFold(em, s.activeEmail) || EmailsEquivalent(em, s.activeEmail))
+		status := strings.ToUpper(strings.TrimSpace(item.Status))
+		if status == "" {
+			if item.IsHealthy != nil && !*item.IsHealthy {
+				status = "ERROR"
+			} else if isActive {
+				status = "ACTIVE"
+			} else {
+				status = "STANDBY"
+			}
+		} else if !isActive && status == "ACTIVE" {
+			status = "STANDBY"
+		} else if isActive && status == "STANDBY" {
+			status = "ACTIVE"
+		}
+		priority := strings.TrimSpace(item.Priority)
+		if priority == "" {
+			priority = "High"
+		}
+		password := core.DecryptCredential(item.Password)
+		totpSecret := core.DecryptCredential(item.TOTPSecret)
+		accessToken := core.DecryptCredential(item.AccessToken)
+		refreshToken := core.DecryptCredential(item.RefreshToken)
+		idToken := core.DecryptCredential(item.IDToken)
+		tokenExpiry := parseTokenExpiry(item.TokenExpiry)
+		if item.Credential != nil {
+			if accessToken == "" && item.Credential.AccessToken != "" {
+				accessToken = core.DecryptCredential(item.Credential.AccessToken)
+			}
+			if refreshToken == "" && item.Credential.RefreshToken != "" {
+				refreshToken = core.DecryptCredential(item.Credential.RefreshToken)
+			}
+			if idToken == "" && item.Credential.IDToken != "" {
+				idToken = core.DecryptCredential(item.Credential.IDToken)
+			}
+			if tokenExpiry.IsZero() && item.Credential.Expiry != "" {
+				tokenExpiry = parseTokenExpiry(item.Credential.Expiry)
+			}
+		}
+
+		if strings.TrimSpace(refreshToken) == "" && item.Notes != "" {
+			if rf, at, id, exp, ok := ExtractOAuthFromJSONOrNotes(item.Notes); ok {
+				refreshToken = rf
+				if accessToken == "" && at != "" {
+					accessToken = at
+				}
+				if idToken == "" && id != "" {
+					idToken = id
+				}
+				if tokenExpiry.IsZero() && !exp.IsZero() {
+					tokenExpiry = exp
+				}
+			}
+		}
+
+		errMsg := ""
+		if strings.TrimSpace(refreshToken) == "" && status != "BANNED" && !core.IsRunningTests() {
+			status = "ERROR"
+			errMsg = "Missing credentials / re-authentication required"
+		} else if status == "NEEDS_REAUTH" {
+			status = "ERROR"
+			errMsg = "Missing credentials / re-authentication required"
+		} else if status == "ERROR" || status == "BANNED" {
+			errMsg = item.ErrorMessage
+			if strings.Contains(strings.ToLower(errMsg), "missing credentials") && strings.TrimSpace(refreshToken) != "" {
+				errMsg = ""
+				if isActive {
 					status = "ACTIVE"
 				} else {
 					status = "STANDBY"
 				}
-			} else if !isActive && status == "ACTIVE" {
-				status = "STANDBY"
-			} else if isActive && status == "STANDBY" {
-				status = "ACTIVE"
 			}
-			priority := strings.TrimSpace(item.Priority)
-			if priority == "" {
-				priority = "High"
-			}
-			password := core.DecryptCredential(item.Password)
-			totpSecret := core.DecryptCredential(item.TOTPSecret)
-			accessToken := core.DecryptCredential(item.AccessToken)
-			refreshToken := core.DecryptCredential(item.RefreshToken)
-			idToken := core.DecryptCredential(item.IDToken)
-			tokenExpiry := parseTokenExpiry(item.TokenExpiry)
-			if item.Credential != nil {
-				if accessToken == "" && item.Credential.AccessToken != "" {
-					accessToken = core.DecryptCredential(item.Credential.AccessToken)
-				}
-				if refreshToken == "" && item.Credential.RefreshToken != "" {
-					refreshToken = core.DecryptCredential(item.Credential.RefreshToken)
-				}
-				if idToken == "" && item.Credential.IDToken != "" {
-					idToken = core.DecryptCredential(item.Credential.IDToken)
-				}
-				if tokenExpiry.IsZero() && item.Credential.Expiry != "" {
-					tokenExpiry = parseTokenExpiry(item.Credential.Expiry)
-				}
-			}
-
-			if strings.TrimSpace(refreshToken) == "" && item.Notes != "" {
-				if rf, at, id, exp, ok := ExtractOAuthFromJSONOrNotes(item.Notes); ok {
-					refreshToken = rf
-					if accessToken == "" && at != "" {
-						accessToken = at
-					}
-					if idToken == "" && id != "" {
-						idToken = id
-					}
-					if tokenExpiry.IsZero() && !exp.IsZero() {
-						tokenExpiry = exp
-					}
-				}
-			}
-
-			errMsg := ""
-			if strings.TrimSpace(refreshToken) == "" && status != "BANNED" && !core.IsRunningTests() {
-				status = "ERROR"
-				errMsg = "Missing credentials / re-authentication required"
-			} else if status == "NEEDS_REAUTH" {
-				status = "ERROR"
-				errMsg = "Missing credentials / re-authentication required"
-			} else if status == "ERROR" || status == "BANNED" {
-				errMsg = item.ErrorMessage
-				if strings.Contains(strings.ToLower(errMsg), "missing credentials") && strings.TrimSpace(refreshToken) != "" {
-					errMsg = ""
-					if isActive {
-						status = "ACTIVE"
-					} else {
-						status = "STANDBY"
-					}
-				}
-			}
-
-			var cred *OAuthCredential
-			if item.Credential != nil {
-				cred = &OAuthCredential{
-					AccessToken:  accessToken,
-					RefreshToken: refreshToken,
-					IDToken:      idToken,
-					Expiry:       item.Credential.Expiry,
-				}
-			} else if refreshToken != "" || accessToken != "" {
-				cred = &OAuthCredential{
-					AccessToken:  accessToken,
-					RefreshToken: refreshToken,
-					IDToken:      idToken,
-				}
-				if !tokenExpiry.IsZero() {
-					cred.Expiry = tokenExpiry.UTC().Format(time.RFC3339Nano)
-				}
-			}
-
-			acc := &Account{
-				Email:                item.Email,
-				Label:                item.Label,
-				PlanTier:             item.PlanTier,
-				Status:               status,
-				ErrorMessage:         errMsg,
-				Priority:             priority,
-				Notes:                item.Notes,
-				Password:             password,
-				TOTPSecret:           totpSecret,
-				HasTOTP:              totpSecret != "",
-				IsActive:             isActive,
-				AccessToken:          accessToken,
-				RefreshToken:         refreshToken,
-				IDToken:              idToken,
-				TokenExpiry:          tokenExpiry,
-				Credits:              item.Credits,
-				EnableCreditOverages: item.EnableCreditOverages,
-				AllowClaudeGPT:       item.AllowClaudeGPT,
-				Credential:           cred,
-			}
-			acc.RecoverCredentialsFromNotes()
-			s.accounts[item.Email] = acc
 		}
+
+		var cred *OAuthCredential
+		if item.Credential != nil {
+			cred = &OAuthCredential{
+				AccessToken:  accessToken,
+				RefreshToken: refreshToken,
+				IDToken:      idToken,
+				Expiry:       item.Credential.Expiry,
+			}
+		} else if refreshToken != "" || accessToken != "" {
+			cred = &OAuthCredential{
+				AccessToken:  accessToken,
+				RefreshToken: refreshToken,
+				IDToken:      idToken,
+			}
+			if !tokenExpiry.IsZero() {
+				cred.Expiry = tokenExpiry.UTC().Format(time.RFC3339Nano)
+			}
+		}
+
+		acc := &Account{
+			Email:                em,
+			Label:                item.Label,
+			PlanTier:             item.PlanTier,
+			Status:               status,
+			ErrorMessage:         errMsg,
+			Priority:             priority,
+			Notes:                item.Notes,
+			Password:             password,
+			TOTPSecret:           totpSecret,
+			HasTOTP:              totpSecret != "",
+			IsActive:             isActive,
+			AccessToken:          accessToken,
+			RefreshToken:         refreshToken,
+			IDToken:              idToken,
+			TokenExpiry:          tokenExpiry,
+			Credits:              item.Credits,
+			EnableCreditOverages: item.EnableCreditOverages,
+			AllowClaudeGPT:       item.AllowClaudeGPT,
+			Credential:           cred,
+		}
+		acc.RecoverCredentialsFromNotes()
+
+		if canonical := s.canonicalEmailLocked(em); canonical != "" && canonical != em {
+			// Equivalent account already loaded (e.g. casing or dot variant). Merge credentials if existing is older/empty.
+			existing := s.accounts[canonical]
+			if existing != nil {
+				s.mergeAccountLocked(existing, acc)
+				mergedAny = true
+				continue
+			}
+		}
+		s.accounts[em] = acc
 	}
 
 	if s.activeEmail != "" {
 		found := false
 		for em := range s.accounts {
-			if strings.EqualFold(em, s.activeEmail) {
+			if strings.EqualFold(em, s.activeEmail) || EmailsEquivalent(em, s.activeEmail) {
 				s.activeEmail = em
 				found = true
 				break
@@ -595,6 +544,10 @@ func (s *Store) load() error {
 		if !found {
 			s.activeEmail = ""
 		}
+	}
+
+	if mergedAny {
+		_ = s.save()
 	}
 	return nil
 }
@@ -987,6 +940,7 @@ func (s *Store) GetAccount(email string) (*Account, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	email = strings.TrimSpace(email)
 	acc, exists := s.accounts[email]
 	if !exists {
 		for e, a := range s.accounts {
@@ -1010,6 +964,9 @@ func (s *Store) AddOrUpdateAccount(acc *Account) error {
 
 	acc.RecoverCredentialsFromNotes()
 	acc.HasTOTP = (acc.TOTPSecret != "")
+	if canonical := s.canonicalEmailLocked(acc.Email); canonical != "" && canonical != acc.Email {
+		acc.Email = canonical
+	}
 	// Masked payloads carry placeholders instead of secrets; keep the values
 	// that are already stored rather than overwriting them with the sentinels.
 	if existing := s.accounts[acc.Email]; existing != nil {
@@ -1137,6 +1094,10 @@ func (s *Store) SetTOTPSecret(email, secret string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	email = strings.TrimSpace(email)
+	if canonical := s.canonicalEmailLocked(email); canonical != email {
+		email = canonical
+	}
 	acc, exists := s.accounts[email]
 	if !exists {
 		return fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
@@ -1151,6 +1112,10 @@ func (s *Store) SetAccessToken(email, accessToken string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	email = strings.TrimSpace(email)
+	if canonical := s.canonicalEmailLocked(email); canonical != email {
+		email = canonical
+	}
 	acc, exists := s.accounts[email]
 	if !exists {
 		return fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
@@ -1167,11 +1132,19 @@ func (s *Store) SetActiveAccount(email string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var target *Account
-	for e, a := range s.accounts {
-		if strings.EqualFold(e, email) {
-			target = a
-			break
+	email = strings.TrimSpace(email)
+	targetEmail := email
+	if canonical := s.canonicalEmailLocked(email); canonical != email {
+		targetEmail = canonical
+	}
+	target := s.accounts[targetEmail]
+	if target == nil {
+		for e, a := range s.accounts {
+			if strings.EqualFold(e, email) || EmailsEquivalent(e, email) {
+				target = a
+				targetEmail = e
+				break
+			}
 		}
 	}
 	if target == nil {
@@ -1189,7 +1162,7 @@ func (s *Store) SetActiveAccount(email string) error {
 	s.activeEmail = target.Email
 	s.lastManualSwitchTime = time.Now()
 	for _, a := range s.accounts {
-		if strings.EqualFold(a.Email, target.Email) {
+		if strings.EqualFold(a.Email, target.Email) || EmailsEquivalent(a.Email, target.Email) {
 			a.IsActive = true
 			if a.Status != "BANNED" && a.Status != "ERROR" && a.Status != "NEEDS_REAUTH" {
 				a.Status = "ACTIVE"
@@ -1224,6 +1197,11 @@ func (s *Store) UpdateAccountDetails(email, label, planTier, status, priority, n
 func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, notes, password, totpSecret, refreshToken string, credits float64, enableCreditOverages, allowClaudeGPT, setActive bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	email = strings.TrimSpace(email)
+	if canonical := s.canonicalEmailLocked(email); canonical != email {
+		email = canonical
+	}
 
 	acc, exists := s.accounts[email]
 	targetStatus := strings.ToUpper(strings.TrimSpace(status))
@@ -1532,13 +1510,18 @@ func (s *Store) RemoveAccount(email string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	email = strings.TrimSpace(email)
 	if _, exists := s.accounts[email]; !exists {
-		return fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
+		if canonical := s.canonicalEmailLocked(email); canonical != email {
+			email = canonical
+		} else {
+			return fmt.Errorf("%w: %s", core.ErrAccountNotFound, email)
+		}
 	}
 
 	delete(s.accounts, email)
 
-	if s.activeEmail == email {
+	if strings.EqualFold(s.activeEmail, email) || EmailsEquivalent(s.activeEmail, email) {
 		s.activeEmail = ""
 		for e, a := range s.accounts {
 			s.activeEmail = e
