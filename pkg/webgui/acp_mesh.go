@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -236,6 +237,14 @@ func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndp
 	var latencyValue interface{}
 	version, tools := "", []string{}
 	handshake := "never"
+	transport := "socket"
+	if strings.TrimSpace(agent.Endpoint) == "" {
+		// stdio servers are started by their client, so the binary is the state.
+		transport = "stdio"
+		if _, statErr := os.Stat(expandHome(agent.BinaryPath)); statErr == nil {
+			status = "installed_idle"
+		}
+	}
 	switch {
 	case reachable:
 		status = "connected"
@@ -262,10 +271,23 @@ func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndp
 		"ping_latency_ms": latencyValue,
 		"supported_tools": tools,
 		"last_handshake":  handshake,
+		"transport":       transport,
 		"custom":          agent.Custom,
 		"os_default":      agent.OSDefault,
 		"editable":        true,
 	}
+}
+
+// expandHome resolves a leading ~ so binary presence can be checked.
+func expandHome(path string) string {
+	if !strings.HasPrefix(path, "~") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, strings.TrimPrefix(path, "~"))
 }
 
 // buildACPMeshResponse assembles the full registry response for a config.

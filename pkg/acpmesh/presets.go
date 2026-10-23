@@ -30,6 +30,9 @@ import (
 const (
 	PresetAntigravity    = "agent-antigravity"
 	PresetAntigravityCLI = "agent-antigravity-cli"
+	// PresetAntigravityACP is this project's own adapter. It speaks ACP over stdio,
+	// so it has no endpoint to probe: presence of the binary is the whole state.
+	PresetAntigravityACP = "agent-antigravity-acp"
 	PresetDevin          = "agent-devin"
 	PresetOpenCode       = "agent-opencode"
 	PresetDeepSeek       = "agent-deepseek-harness"
@@ -130,6 +133,14 @@ func Presets() []Preset {
 			BinaryLinux:       "~/.local/bin/agy",
 			BinaryWindows:     "~/.local/bin/agy.exe",
 			StatusWhenRunning: "connected",
+		},
+		{
+			ID:            PresetAntigravityACP,
+			Name:          "Antigravity ACP Adapter",
+			Type:          "ACP stdio server",
+			BinaryLinux:   "~/.local/bin/antigravity-acp",
+			BinaryDarwin:  "~/.local/bin/antigravity-acp",
+			BinaryWindows: "%USERPROFILE%/bin/antigravity-acp.exe",
 		},
 		{
 			ID:      PresetDevin,
