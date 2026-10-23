@@ -296,23 +296,29 @@ func TestChallengerBridge_WebGUI_BridgeChannelsWebhook(t *testing.T) {
 		t.Errorf("expected 403 Forbidden for non-subscribe mode, got: %d", wBadMode.Code)
 	}
 
-	// 4. POST with a matching token is authenticated but not relayed: answering 200
-	// would claim a delivery that never happened.
+	// 4. POST with a matching token is accepted. The payload carries no messages, so
+	// nothing is relayed and the handler reports zero; a message-bearing payload is
+	// covered by the relay tests, which must not spawn a real turn here.
 	reqPostValid := httptest.NewRequest(http.MethodPost, "/api/bridge/channels/webhook", bytes.NewReader([]byte(`{"object":"whatsapp_business_account"}`)))
 	reqPostValid.Header.Set("X-Verify-Token", "meta-webhook-verify-token-123")
 	wPostValid := httptest.NewRecorder()
 	server.handleBridgeChannelsWebhook(wPostValid, reqPostValid)
 
-	if wPostValid.Code != http.StatusNotImplemented {
-		t.Errorf("expected 501 for an unrelayed POST, got: %d", wPostValid.Code)
+	if wPostValid.Code != http.StatusOK {
+		t.Errorf("expected 200 for an authenticated POST, got: %d", wPostValid.Code)
+	}
+	var accepted map[string]interface{}
+	_ = json.Unmarshal(wPostValid.Body.Bytes(), &accepted)
+	if accepted["accepted"] != float64(0) {
+		t.Errorf("expected zero accepted messages, got %v", accepted["accepted"])
 	}
 
-	// 5. POST with a matching query token is also refused rather than accepted
+	// 5. POST with a matching query token is accepted too
 	reqPostQuery := httptest.NewRequest(http.MethodPost, "/api/bridge/channels/webhook?verify_token=meta-webhook-verify-token-123", bytes.NewReader([]byte(`{}`)))
 	wPostQuery := httptest.NewRecorder()
 	server.handleBridgeChannelsWebhook(wPostQuery, reqPostQuery)
-	if wPostQuery.Code != http.StatusBadRequest && wPostQuery.Code != http.StatusNotImplemented {
-		t.Errorf("expected 501 or 400 for an unrelayed POST, got: %d", wPostQuery.Code)
+	if wPostQuery.Code != http.StatusOK {
+		t.Errorf("expected 200 for an authenticated POST, got: %d", wPostQuery.Code)
 	}
 
 	// 6. POST with mismatching token returns 403 Forbidden

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { ChannelRoutingSettings } from '../components/ChannelRoutingSettings'
 import {
   Check,
   Power,
@@ -361,6 +362,12 @@ export const WhatsAppBridgePage: React.FC = () => {
               style={{ width: '100%' }}
             />
           </div>
+
+          <ChannelRoutingSettings
+            config={config}
+            disabled={loading}
+            onChange={(next) => setConfig((prev: any) => ({ ...prev, ...next }))}
+          />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
             <button
