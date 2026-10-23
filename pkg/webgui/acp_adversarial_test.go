@@ -263,11 +263,11 @@ func TestAdversarial_9NodeFleetValidation(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&fullResult)
 	resp.Body.Close()
 
-	if fullResult.MeshNodes != 9 {
-		t.Errorf("expected exactly 9 mesh nodes, got %d", fullResult.MeshNodes)
+	if fullResult.MeshNodes != 10 {
+		t.Errorf("expected 10 mesh nodes (9 presets + the ACP adapter), got %d", fullResult.MeshNodes)
 	}
-	if len(fullResult.Agents) != 9 {
-		t.Errorf("expected exactly 9 agents in array, got %d", len(fullResult.Agents))
+	if len(fullResult.Agents) != 10 {
+		t.Errorf("expected 10 agents in array, got %d", len(fullResult.Agents))
 	}
 
 	expectedNodes := []struct {
@@ -304,9 +304,12 @@ func TestAdversarial_9NodeFleetValidation(t *testing.T) {
 		if nType, _ := node["type"].(string); nType != exp.nodeType {
 			t.Errorf("node %s: expected type '%s', got '%s'", exp.id, exp.nodeType, nType)
 		}
-		tools, ok := node["supported_tools"].([]interface{})
-		if !ok || len(tools) == 0 {
-			t.Errorf("node %s: missing or empty supported_tools", exp.id)
+		// Negotiated data exists only where a probe succeeded; presets with a silent
+		// endpoint must report none.
+		if status, _ := node["status"].(string); status == "connected" {
+			if tools, ok := node["supported_tools"].([]interface{}); !ok || len(tools) == 0 {
+				t.Errorf("node %s: connected without supported_tools", exp.id)
+			}
 		}
 	}
 
@@ -362,8 +365,8 @@ func TestAdversarial_9NodeFleetValidation(t *testing.T) {
 	if len(ghostResult.Agents) != 0 {
 		t.Errorf("expected 0 agents for unknown ID, got %d", len(ghostResult.Agents))
 	}
-	if ghostResult.MeshNodes != 9 {
-		t.Errorf("expected mesh_nodes count to remain 9, got %d", ghostResult.MeshNodes)
+	if ghostResult.MeshNodes != 10 {
+		t.Errorf("expected mesh_nodes count to remain 10, got %d", ghostResult.MeshNodes)
 	}
 }
 

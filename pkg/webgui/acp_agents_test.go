@@ -164,8 +164,11 @@ func TestACPAgentRegistryEndpoints(t *testing.T) {
 		if devin["os_default"] != true {
 			t.Fatal("preset must fall back to its OS default after DELETE")
 		}
-		if devin["acp_version"] != "v1.2.0" {
-			t.Fatalf("preset version must be restored, got %v", devin["acp_version"])
+		// The preset's version is a declaration, not a handshake result: it is only
+		// reported once the endpoint answers. With no override and no probe, the node
+		// must not present one.
+		if devin["acp_version"] != "" {
+			t.Fatalf("unreachable preset must not report a version, got %v", devin["acp_version"])
 		}
 	})
 

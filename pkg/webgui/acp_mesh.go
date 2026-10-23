@@ -258,6 +258,11 @@ func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndp
 	case running:
 		status = "installed_idle"
 	}
+	if !reachable && (agent.Custom || agent.Declared) {
+		// A user typed this metadata themselves; echoing it is not a fake handshake,
+		// while a preset's invented values would be.
+		version, tools = agent.Version, agent.Tools
+	}
 
 	return map[string]interface{}{
 		"id":              agent.ID,

@@ -2911,11 +2911,17 @@ func TestWebGUIUtilitiesACPEndpoint(t *testing.T) {
 		if port, _ := agent["port_socket"].(string); port == "" {
 			t.Errorf("agent %s has empty port_socket", expID)
 		}
-		if ver, _ := agent["acp_version"].(string); ver == "" {
-			t.Errorf("agent %s has empty acp_version", expID)
-		}
-		if tools, ok := agent["supported_tools"].([]interface{}); !ok || len(tools) == 0 {
-			t.Errorf("agent %s has empty or invalid supported_tools", expID)
+		// Version and tools are negotiated data: they exist only for a reachable
+		// endpoint, or for a user-declared agent. Presets with a silent endpoint
+		// report neither, by design.
+		status, _ := agent["status"].(string)
+		if status == "connected" {
+			if ver, _ := agent["acp_version"].(string); ver == "" {
+				t.Errorf("connected agent %s has empty acp_version", expID)
+			}
+			if tools, ok := agent["supported_tools"].([]interface{}); !ok || len(tools) == 0 {
+				t.Errorf("connected agent %s has empty or invalid supported_tools", expID)
+			}
 		}
 	}
 

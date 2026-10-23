@@ -333,6 +333,9 @@ type Resolved struct {
 	Custom            bool
 	OSDefault         bool
 	StatusWhenRunning string
+	// Declared marks metadata the user supplied themselves, which may be reported
+	// without a handshake. Preset defaults are not declared.
+	Declared bool
 }
 
 // Merge combines the built-in presets with the persisted agent configuration.
@@ -373,6 +376,9 @@ func Merge(overrides []core.ACPAgentConfig, env Env) []Resolved {
 		}
 		if len(o.Tools) > 0 {
 			r.Tools = append([]string(nil), o.Tools...)
+		}
+		if o.Version != "" || len(o.Tools) > 0 || strings.TrimSpace(o.Endpoint) != "" {
+			r.Declared = true
 		}
 		if endpoint := strings.TrimSpace(o.Endpoint); endpoint != "" {
 			r.Endpoint = endpoint
