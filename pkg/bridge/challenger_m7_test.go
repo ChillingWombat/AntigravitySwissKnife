@@ -67,9 +67,10 @@ func TestChallengerM7_DirectHandler_LiveWindowsScreenshot(t *testing.T) {
 	_ = os.Remove(filePath)
 }
 
-// TestChallengerM7_DirectHandler_InputActuatorsRejectFakeSuccess empirically verifies that
-// all input automation actions (click, type, drag, hover, etc.) fail with explicit errors
-// informing the agent that automation drivers are not installed, rather than returning fake success.
+// TestChallengerM7_DirectHandler_InputActuatorsRejectFakeSuccess verifies that input
+// actions without their required arguments fail explicitly rather than reporting a
+// success that never happened. Real input is not executed here on purpose: it would
+// move the user's pointer.
 func TestChallengerM7_DirectHandler_InputActuatorsRejectFakeSuccess(t *testing.T) {
 	dh := NewDirectHandler()
 
@@ -79,7 +80,7 @@ func TestChallengerM7_DirectHandler_InputActuatorsRejectFakeSuccess(t *testing.T
 		if err == nil {
 			t.Errorf("action %q returned nil error and fake success: %q", act, res)
 		}
-		if !strings.Contains(err.Error(), "not configured") || !strings.Contains(err.Error(), "driver not installed") {
+		if !strings.Contains(err.Error(), "requires") {
 			t.Errorf("action %q returned unexpected error message: %v", act, err)
 		}
 	}

@@ -45,16 +45,18 @@ func (dh *DirectHandler) RunCommand(args map[string]interface{}) (string, error)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
-	var shellCmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		shellCmd = exec.CommandContext(ctx, "cmd.exe", "/c", cmdStr)
-		// Hidden console (not CREATE_NO_WINDOW): the arbitrary command may spawn
-		// console subprocesses of its own (npm/node/python...) — they inherit the
-		// hidden console instead of allocating visible windows.
-		core.SetHiddenConsoleInherit(shellCmd)
-	} else {
-		shellCmd = exec.CommandContext(ctx, "bash", "-c", cmdStr)
+	// Execute argv directly. A shell would hand caller-supplied text to bash or
+	// cmd.exe, which turns any argument into a second command. Pipelines and
+	// redirection therefore belong in the caller's own tooling, not here.
+	tokens, splitErr := splitCommand(cmdStr)
+	if splitErr != nil {
+		return "", splitErr
 	}
+	if len(tokens) == 0 {
+		return "", fmt.Errorf("command is required")
+	}
+	shellCmd := exec.CommandContext(ctx, tokens[0], tokens[1:]...)
+	core.SetHiddenConsoleInherit(shellCmd)
 	shellCmd.Dir = cwd
 
 	out, err := shellCmd.CombinedOutput()
@@ -313,6 +315,9 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 		if runtime.GOOS == "windows" {
 			availableTools = append(availableTools, "windows-screen-capture")
 		}
+		if driver := inputDriver(); driver != "" {
+			availableTools = append(availableTools, driver)
+		}
 		if len(availableTools) == 0 {
 			return "Computer use actuator not configured: no screen capture tool installed", nil
 		}
@@ -344,6 +349,18 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 			}
 		}
 
+		// macOS capture
+		if runtime.GOOS == "darwin" {
+			outPath := filepath.Join(os.TempDir(), fmt.Sprintf("bridge_screenshot_%d.png", time.Now().UnixNano()))
+			cmd := exec.Command("screencapture", "-x", outPath)
+			core.SetHiddenConsole(cmd)
+			if err := cmd.Run(); err == nil {
+				if fi, statErr := os.Stat(outPath); statErr == nil && fi.Size() > 0 {
+					return fmt.Sprintf("Screenshot captured via screencapture to %s (%d bytes)", outPath, fi.Size()), nil
+				}
+			}
+		}
+
 		// Windows capture using powershell
 		if runtime.GOOS == "windows" {
 			outPath := filepath.Join(os.TempDir(), fmt.Sprintf("bridge_screenshot_%d.png", time.Now().UnixNano()))
@@ -361,10 +378,94 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 
 		return "", fmt.Errorf("screenshot capture not configured: no active display or capture utility available (grim/scrot/import/windows-screen-capture)")
 
-	case "click", "type":
-		return "", fmt.Errorf("action %q not configured: UI automation driver not installed", action)
+	case "click":
+		x, xOK := intArg(args["x"])
+		y, yOK := intArg(args["y"])
+		if !xOK || !yOK {
+			return "", fmt.Errorf("click requires integer x and y coordinates")
+		}
+		if err := performClick(x, y); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Clicked at %d,%d", x, y), nil
+
+	case "type":
+		text, _ := args["text"].(string)
+		if text == "" {
+			return "", fmt.Errorf("type requires text")
+		}
+		if err := performType(text); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Typed %d characters", len([]rune(text))), nil
 
 	default:
 		return "", fmt.Errorf("unsupported computer use action: %s", action)
 	}
+}
+
+// intArg accepts the number shapes JSON decoding produces for coordinates.
+func intArg(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case json.Number:
+		if parsed, err := n.Int64(); err == nil {
+			return int(parsed), true
+		}
+	}
+	return 0, false
+}
+
+// splitCommand turns a command line into argv, honouring single and double quotes
+// and backslash escapes. It deliberately does not expand variables, globs or pipes.
+func splitCommand(line string) ([]string, error) {
+	var (
+		args    []string
+		current strings.Builder
+		quote   rune
+		escaped bool
+		started bool
+	)
+	for _, r := range line {
+		switch {
+		case escaped:
+			current.WriteRune(r)
+			escaped = false
+			started = true
+		case r == '\\' && quote != '\'':
+			escaped = true
+			started = true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				current.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote = r
+			started = true
+		case r == ' ' || r == '\t' || r == '\n':
+			if started {
+				args = append(args, current.String())
+				current.Reset()
+				started = false
+			}
+		default:
+			current.WriteRune(r)
+			started = true
+		}
+	}
+	if escaped {
+		return nil, fmt.Errorf("command ends with a dangling escape")
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("command has an unterminated quote")
+	}
+	if started {
+		args = append(args, current.String())
+	}
+	return args, nil
 }

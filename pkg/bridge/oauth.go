@@ -130,10 +130,28 @@ func ResolveExternalBaseURL(r *http.Request, fallbackGatewayURL string) string {
 	return fmt.Sprintf("%s://%s", proto, host)
 }
 
+// setOAuthCORS echoes the caller's origin only when it is a client we serve. These
+// endpoints publish public metadata, but a wildcard also lets any page read
+// responses in a browser context, which is not needed.
+func setOAuthCORS(w http.ResponseWriter, r *http.Request) {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return
+	}
+	allowed := origin == "https://gemini.google.com" ||
+		strings.HasPrefix(origin, "http://localhost:") ||
+		strings.HasPrefix(origin, "http://127.0.0.1:")
+	if !allowed {
+		return
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Vary", "Origin")
+}
+
 // ServeOAuthProtectedResource serves RFC 9728 OAuth 2.0 Protected Resource Metadata.
 func (s *Service) ServeOAuthProtectedResource(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		setOAuthCORS(w, r)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "*")
 		w.WriteHeader(http.StatusOK)
@@ -156,7 +174,7 @@ func (s *Service) ServeOAuthProtectedResource(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setOAuthCORS(w, r)
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(metadata)
 }
@@ -164,7 +182,7 @@ func (s *Service) ServeOAuthProtectedResource(w http.ResponseWriter, r *http.Req
 // ServeOAuthMetadata serves RFC 8414 Authorization Server Metadata and OpenID Configuration.
 func (s *Service) ServeOAuthMetadata(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		setOAuthCORS(w, r)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "*")
 		w.WriteHeader(http.StatusOK)
@@ -192,7 +210,7 @@ func (s *Service) ServeOAuthMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setOAuthCORS(w, r)
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(metadata)
 }
@@ -200,7 +218,7 @@ func (s *Service) ServeOAuthMetadata(w http.ResponseWriter, r *http.Request) {
 // ServeOAuthRegister serves RFC 7591 Dynamic Client Registration.
 func (s *Service) ServeOAuthRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		setOAuthCORS(w, r)
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "*")
 		w.WriteHeader(http.StatusOK)
@@ -241,7 +259,7 @@ func (s *Service) ServeOAuthRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setOAuthCORS(w, r)
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -675,7 +693,7 @@ func (s *Service) renderAuthorizePage(w http.ResponseWriter, r *http.Request, st
 // ServeOAuthAuthorize handles GET and POST requests for the OAuth 2.0 authorization endpoint.
 func (s *Service) ServeOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		setOAuthCORS(w, r)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "*")
 		w.WriteHeader(http.StatusOK)
@@ -772,7 +790,7 @@ func (s *Service) issueCodeAndRedirect(w http.ResponseWriter, r *http.Request, r
 // ServeOAuthToken handles token exchange for authorization_code, refresh_token, and client_credentials grants.
 func (s *Service) ServeOAuthToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		setOAuthCORS(w, r)
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "*")
 		w.WriteHeader(http.StatusOK)
@@ -784,7 +802,7 @@ func (s *Service) ServeOAuthToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setOAuthCORS(w, r)
 
 	var grantType, code, codeVerifier, redirectURI, clientID, clientSecret, refreshToken string
 

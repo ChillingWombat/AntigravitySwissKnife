@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -226,30 +227,41 @@ func findACPAgentProcess(procs []process.ProcEntry, agent acpmesh.Resolved) (boo
 // the custom / os_default / editable flags.
 func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndpoint bool) map[string]interface{} {
 	reachable, latency := false, 0.0
-	// Custom agents and user-configured endpoints are probed regardless of
-	// process detection: a reachable TCP endpoint is meaningful on its own.
 	if running || agent.Custom || hasExplicitEndpoint {
 		reachable, latency = acpmesh.ProbeEndpoint(agent.Endpoint, 20*time.Millisecond)
 	}
 
-	status := "unreachable"
-	handshake := "Offline"
+	// Report only what was measured. A detected process with a silent endpoint is
+	// installed, not connected, and its preset tool list is not a negotiation.
+	status := "not_found"
+	var latencyValue interface{}
+	version, tools := "", []string{}
+	handshake := "never"
+	transport := "socket"
+	if strings.TrimSpace(agent.Endpoint) == "" {
+		// stdio servers are started by their client, so the binary is the state.
+		transport = "stdio"
+		if _, statErr := os.Stat(expandHome(agent.BinaryPath)); statErr == nil {
+			status = "installed_idle"
+		}
+	}
 	switch {
 	case reachable:
 		status = "connected"
 		if agent.StatusWhenRunning == "active_hosting" {
 			status = "active_hosting"
 		}
-		handshake = "Just now"
+		latencyValue = latency
+		version = agent.Version
+		tools = agent.Tools
+		handshake = "just now"
 	case running:
-		// The process exists but its endpoint does not answer. Keep the
-		// historical presentation rather than reporting a live daemon offline.
-		status = agent.StatusWhenRunning
-		if status == "" {
-			status = "connected"
-		}
-		latency = agent.SimLatencyMS
-		handshake = "Just now"
+		status = "installed_idle"
+	}
+	if !reachable && (agent.Custom || agent.Declared) {
+		// A user typed this metadata themselves; echoing it is not a fake handshake,
+		// while a preset's invented values would be.
+		version, tools = agent.Version, agent.Tools
 	}
 
 	return map[string]interface{}{
@@ -259,15 +271,31 @@ func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndp
 		"binary_path":     agent.BinaryPath,
 		"pid":             pid,
 		"port_socket":     agent.Endpoint,
-		"acp_version":     agent.Version,
+		"acp_version":     version,
 		"status":          status,
-		"ping_latency_ms": latency,
-		"supported_tools": agent.Tools,
+		"ping_latency_ms": latencyValue,
+		"supported_tools": tools,
 		"last_handshake":  handshake,
+		"transport":       transport,
 		"custom":          agent.Custom,
 		"os_default":      agent.OSDefault,
 		"editable":        true,
 	}
+}
+
+// expandHome resolves ~ and %VAR% so binary presence can be checked on every OS.
+func expandHome(path string) string {
+	if strings.Contains(path, "%") {
+		path = os.Expand(path, func(name string) string { return os.Getenv(name) })
+	}
+	if !strings.HasPrefix(path, "~") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, strings.TrimPrefix(path, "~"))
 }
 
 // buildACPMeshResponse assembles the full registry response for a config.
