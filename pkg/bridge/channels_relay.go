@@ -15,9 +15,10 @@ import (
 // InboundMessage is one chat message from an external channel, reduced to what the
 // relay needs: who sent it, what it says, and an id for idempotency.
 type InboundMessage struct {
-	ID   string
-	From string
-	Text string
+	ID        string
+	From      string
+	ChannelID string
+	Text      string
 }
 
 // whatsAppInbound matches the subset of the Cloud API payload we act on.

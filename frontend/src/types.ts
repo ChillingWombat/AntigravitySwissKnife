@@ -784,67 +784,6 @@ export interface ArchivedProjectItem {
   archived_at: string
 }
 
-
-// Scheduled Task Templates types
-export interface TemplateSchedule {
-  frequency: string
-  time_of_day: string
-  days_of_week: number[]
-  cron_expression: string
-  schedule_text?: string
-}
-
-export interface TemplateParameter {
-  key: string
-  label: string
-  type: string
-  default_value: string
-  description: string
-}
-
-export interface ScheduledTemplate {
-  id: string
-  title: string
-  subtitle: string
-  category: string
-  icon: string
-  description: string
-  default_schedule: TemplateSchedule
-  required_tools: string[]
-  required_skills: string[]
-  parameters: TemplateParameter[]
-  prompt_template: string
-}
-
-export interface DeployTaskRequest {
-  template_id: string
-  display_name: string
-  cron_expression: string
-  timezone?: string
-  target_project: string
-  custom_prompt?: string
-  parameters: Record<string, string>
-}
-
-export interface SidecarTaskInfo {
-  id: string
-  display_name: string
-  cron_expression: string
-  timezone?: string
-  schedule_text?: string
-  prompt_preview: string
-  prompt?: string
-  path: string
-}
-
-export interface UpdateTaskRequest {
-  id: string
-  display_name: string
-  cron_expression: string
-  timezone?: string
-  prompt: string
-}
-
 export interface AutoArchiveResult {
   success: boolean
   archived_count: number

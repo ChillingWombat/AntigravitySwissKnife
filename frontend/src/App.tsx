@@ -7,7 +7,6 @@ import { SwitcherSettingsPage } from './pages/SwitcherSettingsPage'
 import { SystemSettingsPage } from './pages/SystemSettingsPage'
 import { CustomModelsPage } from './pages/CustomModelsPage'
 import { AppEnhancementsPage } from './pages/AppEnhancementsPage'
-import { ScheduledTemplatesPage } from './pages/ScheduledTemplatesPage'
 import { ArchivedProjectsPage } from './pages/ArchivedProjectsPage'
 import { ExtensionsPage } from './pages/ExtensionsPage'
 import { TokenMonitorPage } from './pages/TokenMonitorPage'
@@ -20,7 +19,7 @@ import { toAccountState } from './types'
 import { api, setSessionToken, getSessionToken } from './api'
 
 export const App: React.FC = () => {
-  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect
+  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 6: Archived, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: FP, 2: Rules
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Auxiliary Panel
@@ -112,23 +111,31 @@ export const App: React.FC = () => {
           const namedRouteMap: Record<string, number> = {
             quota: 0,
             dashboard: 0,
-            enhancements: 2,
+            switcher: 0,
+            fingerprints: 0,
             settings: 2,
-            cache: 3,
-            fingerprints: 4,
-            models: 5,
-            bridge: 6,
-            logs: 7,
+            models: 3,
+            custommodels: 3,
+            enhancements: 4,
+            archived: 6,
+            extensions: 7,
+            tokenmonitor: 8,
+            tokens: 8,
+            utilities: 9,
+            bridge: 10,
+            remote: 10,
           }
-          if (namedRouteMap[target.toLowerCase()] !== undefined) {
-            setCurrentTool(namedRouteMap[target.toLowerCase()])
+          const lower = target.toLowerCase()
+          if (namedRouteMap[lower] !== undefined) {
+            if (lower === 'fingerprints') {
+              setCurrentTab(1)
+            }
+            setCurrentTool(namedRouteMap[lower])
             return
           }
         }
         if (typeof target === 'number' && !isNaN(target) && target >= 0 && target <= 10) {
-          if (target === 10) {
-            setCurrentTool(7)
-          } else if (target === 1) {
+          if (target === 1 || target === 5) {
             setCurrentTool(0)
           } else {
             setCurrentTool(target)
@@ -157,7 +164,7 @@ export const App: React.FC = () => {
     if (status && !status.daemon_running && (currentTool === 7 || currentTool === 10)) {
       setCurrentTool(0)
     }
-    if (currentTool === 1) {
+    if (currentTool === 1 || currentTool === 5) {
       setCurrentTool(0)
     }
   }, [status?.daemon_running, currentTool])
@@ -200,7 +207,7 @@ export const App: React.FC = () => {
             onSelectTab={setCurrentTab}
             activeAccount={status?.active_account || fleet?.active_account || null}
           />
-        ) : (currentTool !== 5 && currentTool !== 6) ? (
+        ) : (currentTool !== 6) ? (
           <header
             style={{
               height: '72px',
@@ -503,11 +510,6 @@ export const App: React.FC = () => {
             {currentTool === 4 && (
               <ErrorBoundary>
                 <AppEnhancementsPage activeCategoryTab={enhancementTab} />
-              </ErrorBoundary>
-            )}
-            {currentTool === 5 && (
-              <ErrorBoundary>
-                <ScheduledTemplatesPage />
               </ErrorBoundary>
             )}
             {currentTool === 6 && (

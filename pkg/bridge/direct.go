@@ -398,6 +398,29 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 			return "", err
 		}
 		return fmt.Sprintf("Typed %d characters", len([]rune(text))), nil
+	case "move":
+		x, xOK := intArg(args["x"])
+		y, yOK := intArg(args["y"])
+		if !xOK || !yOK {
+			return "", fmt.Errorf("move requires integer x and y coordinates")
+		}
+		if err := performMove(x, y); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Moved to %d,%d", x, y), nil
+
+	case "key", "hotkey":
+		keys, _ := args["keys"].(string)
+		if keys == "" {
+			keys, _ = args["key"].(string)
+		}
+		if keys == "" {
+			return "", fmt.Errorf("%s requires keys", action)
+		}
+		if err := performKey(keys); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Pressed %s", keys), nil
 
 	default:
 		return "", fmt.Errorf("unsupported computer use action: %s", action)

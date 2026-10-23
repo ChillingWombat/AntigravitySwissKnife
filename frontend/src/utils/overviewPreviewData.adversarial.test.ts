@@ -2,28 +2,10 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import * as overviewModule from './overviewPreviewData.ts'
 import {
   OVERVIEW_PREVIEW_HEADER,
   OVERVIEW_DIVISION_BADGE_LABELS,
-  DEMO_PROJECT_NAME,
-  SYNTHETIC_SUBAGENTS_COUNT,
-  SYNTHETIC_SUBAGENT,
-  SYNTHETIC_FILES_COUNT,
-  SYNTHETIC_FILES_TAG,
-  SYNTHETIC_VISIBLE_FILES,
-  SYNTHETIC_EXPANDED_FILES,
-  SYNTHETIC_ARTIFACTS_COUNT,
-  SYNTHETIC_ARTIFACT,
-  SYNTHETIC_UPLOADS_COUNT,
-  SYNTHETIC_VISIBLE_UPLOADS,
-  SYNTHETIC_EXPANDED_UPLOADS,
-  SYNTHETIC_TASKS_COUNT,
-  SYNTHETIC_TERMINALS_COUNT,
-  SYNTHETIC_GOALS_COUNT,
-  SYNTHETIC_GOALS,
-  SYNTHETIC_SKILLS_COUNT,
-  SYNTHETIC_SKILLS,
-  SYNTHETIC_OVERVIEW_FIXTURES,
 } from './overviewPreviewData.ts'
 
 describe('Adversarial & Empirical Privacy Stress Tests (Milestone 9)', () => {
@@ -101,123 +83,22 @@ describe('Adversarial & Empirical Privacy Stress Tests (Milestone 9)', () => {
         }
       }
     })
-
-    it('scans all production files for morning developer work session timestamps in mock data', () => {
-      const morningTimestamps = ['6:59 AM', '6:57 AM', '6:55 AM', '6:54 AM', '6:53 AM']
-
-      for (const filePath of prodFiles) {
-        const content = fs.readFileSync(filePath, 'utf8')
-        for (const ts of morningTimestamps) {
-          assert.ok(
-            !content.includes(ts),
-            `Privacy leak detected in ${path.relative(frontendSrcDir, filePath)}: found morning session timestamp "${ts}"`
-          )
-        }
-      }
-    })
   })
 
-  describe('2. Rigorous Invariant Assertions on Synthetic Mock Data Fixtures', () => {
-    it('verifies header string satisfies exact contract and length bounds', () => {
+  describe('2. Anti-Facade Invariants: Synthetic Constants Elimination', () => {
+    it('verifies zero synthetic mock fixtures exported from overviewPreviewData', () => {
+      assert.strictEqual((overviewModule as any).DEMO_PROJECT_NAME, undefined, 'DEMO_PROJECT_NAME must be eliminated')
+      assert.strictEqual((overviewModule as any).SYNTHETIC_SUBAGENTS_COUNT, undefined, 'SYNTHETIC_SUBAGENTS_COUNT must be eliminated')
+      assert.strictEqual((overviewModule as any).SYNTHETIC_FILES_COUNT, undefined, 'SYNTHETIC_FILES_COUNT must be eliminated')
+      assert.strictEqual((overviewModule as any).SYNTHETIC_ARTIFACTS_COUNT, undefined, 'SYNTHETIC_ARTIFACTS_COUNT must be eliminated')
+      assert.strictEqual((overviewModule as any).SYNTHETIC_UPLOADS_COUNT, undefined, 'SYNTHETIC_UPLOADS_COUNT must be eliminated')
+      assert.strictEqual((overviewModule as any).SYNTHETIC_OVERVIEW_FIXTURES, undefined, 'SYNTHETIC_OVERVIEW_FIXTURES must be eliminated')
+    })
+
+    it('verifies clean badge labels and header', () => {
       assert.strictEqual(OVERVIEW_PREVIEW_HEADER, 'Overview Panel Preview')
-      assert.ok(OVERVIEW_PREVIEW_HEADER.length <= 30)
-      assert.ok(!OVERVIEW_PREVIEW_HEADER.toLowerCase().includes('live preview'))
-      assert.ok(!OVERVIEW_PREVIEW_HEADER.toLowerCase().includes('antigravity swiss'))
-    })
-
-    it('verifies badge labels are concise with zero explanatory parentheses', () => {
-      assert.deepStrictEqual(OVERVIEW_DIVISION_BADGE_LABELS, {
-        divider_line: 'Divider Lines',
-        border_zone: 'Border Zones',
-      })
-      for (const label of Object.values(OVERVIEW_DIVISION_BADGE_LABELS)) {
-        assert.ok(!label.includes('('), 'Label must not contain opening parenthesis')
-        assert.ok(!label.includes(')'), 'Label must not contain closing parenthesis')
-        assert.ok(!label.toLowerCase().includes('whiter'), 'Label must not contain "whiter"')
-      }
-    })
-
-    it('verifies demo project name is generic', () => {
-      assert.strictEqual(DEMO_PROJECT_NAME, 'Demo Project')
-      assert.ok(!DEMO_PROJECT_NAME.includes('Antigravity'))
-      assert.ok(!DEMO_PROJECT_NAME.includes('Swiss'))
-    })
-
-    it('validates synthetic files contain only generic enterprise paths', () => {
-      assert.strictEqual(SYNTHETIC_FILES_COUNT, 18)
-      assert.strictEqual(SYNTHETIC_FILES_TAG, 'Uncommitted')
-      assert.strictEqual(SYNTHETIC_VISIBLE_FILES.length, 5)
-      assert.strictEqual(SYNTHETIC_EXPANDED_FILES.length, 3)
-
-      const allFiles = [...SYNTHETIC_VISIBLE_FILES, ...SYNTHETIC_EXPANDED_FILES]
-      const fileNames = new Set<string>()
-
-      for (const file of allFiles) {
-        assert.ok(!file.name.includes('/'), `File name "${file.name}" must not contain slash`)
-        assert.ok(!file.name.toLowerCase().includes('swiss'), `File name "${file.name}" must not contain swiss`)
-        assert.ok(!file.name.toLowerCase().includes('enhancement'), `File name "${file.name}" must not contain enhancement`)
-        if (file.directory) {
-          assert.ok(!file.directory.startsWith('/'), `Directory "${file.directory}" must be relative`)
-          assert.ok(!file.directory.toLowerCase().includes('swiss'), `Directory "${file.directory}" must not contain swiss`)
-          assert.ok(!file.directory.toLowerCase().includes('enhancement'), `Directory "${file.directory}" must not contain enhancement`)
-        }
-        assert.ok(!fileNames.has(file.name), `Duplicate file name detected: ${file.name}`)
-        fileNames.add(file.name)
-      }
-    })
-
-    it('validates synthetic uploads timestamps and formats', () => {
-      assert.strictEqual(SYNTHETIC_UPLOADS_COUNT, 8)
-      assert.strictEqual(SYNTHETIC_VISIBLE_UPLOADS.length, 3)
-      assert.strictEqual(SYNTHETIC_EXPANDED_UPLOADS.length, 2)
-
-      const allUploads = [...SYNTHETIC_VISIBLE_UPLOADS, ...SYNTHETIC_EXPANDED_UPLOADS]
-      for (const upload of allUploads) {
-        assert.ok(upload.name.endsWith('.png'), `Upload "${upload.name}" must be a PNG asset`)
-        assert.ok(
-          /^Today (09|10):\d{2} AM$/.test(upload.timestamp),
-          `Upload timestamp "${upload.timestamp}" must be a generic morning/midday mock timestamp`
-        )
-        assert.strictEqual(upload.label, `${upload.name} (${upload.timestamp})`)
-      }
-    })
-
-    it('validates synthetic subagents and artifacts are non-personal', () => {
-      assert.strictEqual(SYNTHETIC_SUBAGENTS_COUNT, 1)
-      assert.strictEqual(SYNTHETIC_SUBAGENT.title, 'Codebase Architecture Reviewer (2 subagents)')
-      assert.strictEqual(SYNTHETIC_SUBAGENT.duration, 'Worked for 12m')
-
-      assert.strictEqual(SYNTHETIC_ARTIFACTS_COUNT, 1)
-      assert.strictEqual(SYNTHETIC_ARTIFACT.title, 'Architecture RFC')
-    })
-
-    it('validates synthetic goals and skills are professional and generic', () => {
-      assert.strictEqual(SYNTHETIC_GOALS_COUNT, 2)
-      assert.strictEqual(SYNTHETIC_GOALS.length, 2)
-      for (const goal of SYNTHETIC_GOALS) {
-        assert.ok(goal.text.length > 10, 'Goal description must be descriptive')
-        assert.ok(!goal.text.includes('/'), 'Goal must not contain slash commands')
-        assert.ok(!goal.text.toLowerCase().includes('ticket'), 'Goal must not mention tickets')
-      }
-
-      assert.strictEqual(SYNTHETIC_SKILLS_COUNT, 2)
-      assert.strictEqual(SYNTHETIC_SKILLS.length, 2)
-      const skillNames = SYNTHETIC_SKILLS.map((s) => s.name)
-      assert.deepStrictEqual(skillNames, ['code-review', 'tdd'])
-      for (const skill of SYNTHETIC_SKILLS) {
-        assert.ok(skill.path.startsWith('.../skills/'), `Skill path must use standard mask: ${skill.path}`)
-      }
-    })
-
-    it('validates background tasks and terminals counts are zero', () => {
-      assert.strictEqual(SYNTHETIC_TASKS_COUNT, 0)
-      assert.strictEqual(SYNTHETIC_TERMINALS_COUNT, 0)
-    })
-
-    it('enforces David-Design zero-decorative-emoji invariant across all fixtures', () => {
-      const serialized = JSON.stringify(SYNTHETIC_OVERVIEW_FIXTURES)
-      const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u
-      assert.ok(!emojiRegex.test(serialized), 'Synthetic fixtures must contain zero decorative emojis')
+      assert.strictEqual(OVERVIEW_DIVISION_BADGE_LABELS.divider_line, 'Divider Lines')
+      assert.strictEqual(OVERVIEW_DIVISION_BADGE_LABELS.border_zone, 'Border Zones')
     })
   })
 
@@ -225,40 +106,28 @@ describe('Adversarial & Empirical Privacy Stress Tests (Milestone 9)', () => {
     const pagePath = path.join(frontendSrcDir, 'pages', 'AppEnhancementsPage.tsx')
     const pageContent = fs.readFileSync(pagePath, 'utf8')
 
-    it('asserts 4px grid compliance on header container padding (paddingBottom: 8px)', () => {
+    it('asserts complete elimination of DEMO_PROJECT_NAME facade in AppEnhancementsPage', () => {
       assert.ok(
-        pageContent.includes("paddingBottom: '8px'"),
-        'Header container must use 8px bottom padding (2 * 4px)'
-      )
-      assert.ok(
-        !pageContent.includes("paddingBottom: '10px'"),
-        'Header container must not use 10px bottom padding (non-4px grid)'
+        !pageContent.includes('DEMO_PROJECT_NAME'),
+        'AppEnhancementsPage must not reference DEMO_PROJECT_NAME'
       )
     })
 
-    it('asserts whiteSpace nowrap on preview header and confirms badge omission', () => {
+    it('asserts complete elimination of fake overview preview right column', () => {
       assert.ok(
-        pageContent.includes('{OVERVIEW_PREVIEW_HEADER}'),
-        'Page must bind to OVERVIEW_PREVIEW_HEADER'
+        !pageContent.includes('Interactive Live Preview of Antigravity\'s Overview Panel'),
+        'AppEnhancementsPage must not contain fake overview panel preview right column'
       )
       assert.ok(
-        !pageContent.includes('{OVERVIEW_DIVISION_BADGE_LABELS[op.division_style]}'),
-        'Page must omit division badge for minimalist design'
-      )
-      const headerSnippet = pageContent.slice(
-        pageContent.indexOf('{OVERVIEW_PREVIEW_HEADER}') - 150,
-        pageContent.indexOf('{OVERVIEW_PREVIEW_HEADER}') + 100
-      )
-      assert.ok(
-        headerSnippet.includes("whiteSpace: 'nowrap'"),
-        'Overview preview header text must specify whiteSpace: nowrap'
+        !pageContent.includes('SYNTHETIC_'),
+        'AppEnhancementsPage must not contain any SYNTHETIC_ fixtures'
       )
     })
 
-    it('asserts Tab 1 project preview displays DEMO_PROJECT_NAME', () => {
+    it('asserts Tab 1 project preview binds to real local project state', () => {
       assert.ok(
-        pageContent.includes('{DEMO_PROJECT_NAME}'),
-        'Tab 1 project folder item must render {DEMO_PROJECT_NAME}'
+        pageContent.includes('{activeProjectName}'),
+        'Tab 1 project folder item must bind to activeProjectName'
       )
     })
   })

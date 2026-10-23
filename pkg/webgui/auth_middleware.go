@@ -107,8 +107,8 @@ func isPublicPath(p string) bool {
 		return true
 	}
 	// 6. External channel webhooks (enforces hub.verify_token / webhook token authentication)
-	if clean == "/api/bridge/channels/telegram/webhook" {
-		// Authenticated by the bot token in the query string, like the WhatsApp hook.
+	if clean == "/api/bridge/channels/telegram/webhook" || clean == "/api/bridge/channels/discord/webhook" {
+		// Authenticated by bot token in header / payload
 		return true
 	}
 	if clean == "/api/bridge/channels/webhook" || strings.HasPrefix(clean, "/api/bridge/channels/webhook/") {

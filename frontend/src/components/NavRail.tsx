@@ -7,7 +7,6 @@ import {
   Circle,
   Cpu,
   Zap,
-  Clock,
   Archive,
   Boxes,
   Coins,
@@ -17,7 +16,7 @@ import {
 import type { SystemStatus } from '../types'
 
 interface NavRailProps {
-  currentTool: number // 0: Switcher, 2: System Settings, 3: Custom Models, 4: Enhancements, 5: Automations, 6: Archived Projects, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect
+  currentTool: number // 0: Switcher, 2: System Settings, 3: Custom Models, 4: Enhancements, 6: Archived Projects, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect
   onSelectTool: (idx: number) => void
   status: SystemStatus | null
 }
@@ -269,28 +268,6 @@ export const NavRail: React.FC<NavRailProps> = ({
         >
           <Wrench size={18} color={currentTool === 9 ? 'var(--primary)' : 'var(--text-muted)'} />
           Utilities
-        </button>
-
-        <button
-          id="btnNavAutomations"
-          onClick={() => onSelectTool(5)}
-          style={{
-            width: '100%',
-            textAlign: 'left',
-            padding: '9px 12px',
-            borderRadius: '20px',
-            fontSize: '13px',
-            fontWeight: currentTool === 5 ? 600 : 500,
-            color: currentTool === 5 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 5 ? 'var(--primary-container)' : 'transparent',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <Clock size={18} color={currentTool === 5 ? 'var(--primary)' : 'var(--text-muted)'} />
-          Task Automations
         </button>
 
         <button

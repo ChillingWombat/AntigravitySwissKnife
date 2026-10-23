@@ -81,12 +81,14 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
     const selectedIds = selectedCands.map((c) => c.id)
     if (selectedIds.length === 0) return
 
+    const startTime = performance.now()
     setIsImporting(true)
     setImportProgress(25)
     try {
       const res = await api.executeImport(selectedIds, selectedSource, projectMatchMode)
       setImportProgress(100)
       setIsImporting(false)
+      const elapsedMs = Math.max(1, Math.round(performance.now() - startTime))
       const msg = res.message || `Successfully imported ${selectedIds.length} conversations into Antigravity!`
       setImportFeedback(msg)
 
@@ -97,7 +99,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
         conversation_count: selectedIds.length,
         target_project: selectedCands[0]?.target_antigravity_project || 'Antigravity Workspace',
         status: 'completed',
-        duration_ms: 380,
+        duration_ms: elapsedMs,
       }
       const updated = [newHistItem, ...history]
       setHistory(updated)

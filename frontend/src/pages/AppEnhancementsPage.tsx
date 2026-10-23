@@ -10,10 +10,7 @@ import {
   Split,
   CheckCircle2,
   FileText,
-  Image,
   Globe,
-  Maximize2,
-  X,
   ChevronDown,
   ChevronUp,
   ChevronRight,
@@ -21,25 +18,6 @@ import {
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 import type { EnhancementsConfig, GUIConfig } from '../types'
-import {
-  OVERVIEW_PREVIEW_HEADER,
-  DEMO_PROJECT_NAME,
-  SYNTHETIC_SUBAGENTS_COUNT,
-  SYNTHETIC_SUBAGENT,
-  SYNTHETIC_FILES_COUNT,
-  SYNTHETIC_FILES_TAG,
-  SYNTHETIC_VISIBLE_FILES,
-  SYNTHETIC_EXPANDED_FILES,
-  SYNTHETIC_ARTIFACTS_COUNT,
-  SYNTHETIC_ARTIFACT,
-  SYNTHETIC_UPLOADS_COUNT,
-  SYNTHETIC_VISIBLE_UPLOADS,
-  SYNTHETIC_EXPANDED_UPLOADS,
-  SYNTHETIC_TASKS_COUNT,
-  SYNTHETIC_TERMINALS_COUNT,
-  SYNTHETIC_GOALS,
-  SYNTHETIC_SKILLS,
-} from '../utils/overviewPreviewData'
 
 const PRESET_COLORS = [
   { name: 'Slate Black', hex: '#0f172a' },
@@ -185,29 +163,27 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   const [archiving, setArchiving] = useState(false)
   const [archiveResult, setArchiveResult] = useState<string | null>(null)
   const [previewExpanded, setPreviewExpanded] = useState(false)
-  const [overviewFilesExpanded, setOverviewFilesExpanded] = useState(false)
-  const [overviewUploadsExpanded, setOverviewUploadsExpanded] = useState(false)
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
-    tasks: true,
-    terminals: true,
-  })
 
+  const activeProjectName = projects[0] || 'Default Workspace'
+  const secondaryProjectName = projects[1] || 'Secondary Workspace'
   const baseTintOpacity = guiConfig?.tint_opacity ?? 0.15
-  const previewProjColor = guiConfig?.project_colors?.[DEMO_PROJECT_NAME] || '#0b57d0'
+  const previewProjColor = (guiConfig?.project_colors && activeProjectName in guiConfig.project_colors)
+    ? guiConfig.project_colors[activeProjectName]
+    : (Object.values(guiConfig?.project_colors || {})[0] || '#0b57d0')
+  const secondaryProjColor = (guiConfig?.project_colors && secondaryProjectName in guiConfig.project_colors)
+    ? guiConfig.project_colors[secondaryProjectName]
+    : '#059669'
   const parsedProjColor = parseColorWithAlpha(previewProjColor)
+  const parsedSecondaryColor = parseColorWithAlpha(secondaryProjColor)
   const projColorLum = (0.2126 * parsedProjColor.r + 0.7152 * parsedProjColor.g + 0.0722 * parsedProjColor.b) / 255.0
+  const secondaryColorLum = (0.2126 * parsedSecondaryColor.r + 0.7152 * parsedSecondaryColor.g + 0.0722 * parsedSecondaryColor.b) / 255.0
   const projCardTextColor = projColorLum > 0.6 ? '#0f172a' : '#ffffff'
+  const secondaryCardTextColor = secondaryColorLum > 0.6 ? '#0f172a' : '#ffffff'
   const projAccentTextColor = projColorLum > 0.6 ? '#334155' : previewProjColor
   const projColorMult = calculateColorMultiplier(parsedProjColor.r, parsedProjColor.g, parsedProjColor.b, parsedProjColor.alpha)
   const effectivePreviewOpacity = Number((baseTintOpacity * projColorMult).toFixed(3))
   const effectiveActiveOpacity = Number((Math.min(1.0, (baseTintOpacity + 0.16) * projColorMult)).toFixed(3))
 
-  const toggleSection = (key: string) => {
-    setCollapsedSections((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }))
-  }
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
@@ -1423,7 +1399,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, overflow: 'hidden' }}>
                       <Folder size={14} style={{ flexShrink: 0 }} />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {DEMO_PROJECT_NAME}
+                        {activeProjectName}
                       </span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, opacity: 0.9 }}>
@@ -1860,8 +1836,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               {/* Project Card */}
               <div
                 style={{
-                  background: '#2563eb',
-                  color: '#ffffff',
+                  background: previewProjColor,
+                  color: projCardTextColor,
                   padding: '6px 12px',
                   borderRadius: '6px',
                   fontSize: '13px',
@@ -1871,7 +1847,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   justifyContent: 'space-between',
                 }}
               >
-                <span>Demo Workspace</span>
+                <span>{activeProjectName}</span>
                 <ChevronDown size={12} strokeWidth={2} style={{ opacity: 0.85 }} />
               </div>
 
@@ -1884,13 +1860,17 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     borderRadius: '6px',
                     fontSize: '12px',
                     color: 'var(--text)',
-                    background: 'rgba(37, 99, 235, 0.08)',
+                    background: `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, 0.08)`,
                     display: 'flex',
                     justifyContent: 'space-between',
+                    alignItems: 'center',
                   }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{i + 1}h</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                    {i + 1}h
+                    <ChevronRight size={10} />
+                  </span>
                 </div>
               ))}
 
@@ -1903,7 +1883,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       borderRadius: '6px',
                       fontSize: '12px',
                       color: 'var(--text)',
-                      background: 'rgba(37, 99, 235, 0.08)',
+                      background: `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, 0.08)`,
                       display: 'flex',
                       justifyContent: 'space-between',
                     }}
@@ -1963,14 +1943,11 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       transition: 'all 0.18s ease',
                     }}
                   >
-                    <ChevronDown
-                      size={12}
-                      strokeWidth={2}
-                      style={{
-                        transform: previewExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                        transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                      }}
-                    />
+                    {previewExpanded ? (
+                      <ChevronUp size={12} strokeWidth={2} />
+                    ) : (
+                      <ChevronDown size={12} strokeWidth={2} />
+                    )}
                   </div>
                 </div>
               ) : (
@@ -1980,7 +1957,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                     padding: '4px 0',
                     fontSize: '11px',
                     fontWeight: 600,
-                    color: '#2563eb',
+                    color: previewProjColor,
                     cursor: 'pointer',
                     textAlign: 'left',
                   }}
@@ -1992,8 +1969,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               {/* Project 2: Uncontracted project demonstrating consistent bottom spacing */}
               <div
                 style={{
-                  background: '#059669',
-                  color: '#ffffff',
+                  background: secondaryProjColor,
+                  color: secondaryCardTextColor,
                   padding: '6px 12px',
                   borderRadius: '6px',
                   fontSize: '13px',
@@ -2004,7 +1981,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   marginTop: '16px',
                 }}
               >
-                <span>Secondary Project (Uncontracted)</span>
+                <span>{secondaryProjectName}</span>
                 <ChevronDown size={12} strokeWidth={2} style={{ opacity: 0.85 }} />
               </div>
               <div
@@ -2013,7 +1990,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   borderRadius: '6px',
                   fontSize: '12px',
                   color: 'var(--text)',
-                  background: 'rgba(5, 150, 105, 0.08)',
+                  background: `rgba(${parsedSecondaryColor.r}, ${parsedSecondaryColor.g}, ${parsedSecondaryColor.b}, 0.08)`,
                   display: 'flex',
                   justifyContent: 'space-between',
                 }}
@@ -2478,17 +2455,8 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
         </div>
 
         <div>
-            {/* 2-Column Layout: Settings on Left, Fixed Vertical Divider, Interactive Overview Preview on Right */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(0, 1fr) 1px 360px',
-                gap: '24px 12px',
-                alignItems: 'stretch',
-              }}
-            >
-              {/* LEFT COLUMN: Section Division Modes & Detailed Controls */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Section Division Modes & Detailed Controls */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {/* Switch 1: Replace See all / See less with refined divider */}
                 <div
                   style={{
@@ -2844,652 +2812,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   </div>
                 )}
               </div>
-
-              {/* VERTICAL DIVIDER */}
-              <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />
-
-              {/* RIGHT COLUMN: Interactive Live Preview of Antigravity's Overview Panel */}
-              <div
-                style={{
-                  width: '360px',
-                  boxSizing: 'border-box',
-                  background: 'var(--canvas)',
-                  borderRadius: '12px',
-                  border: '1px solid var(--border)',
-                  padding: '16px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px',
-                  position: 'sticky',
-                  top: '20px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                      {OVERVIEW_PREVIEW_HEADER}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Simulating the Antigravity right-side panel container */}
-                <div
-                  style={{
-                    backgroundColor: op.division_style === 'border_zone' ? '#f1f5f9' : '#ffffff',
-                    borderRadius: '10px',
-                    border: '1px solid var(--border)',
-                    padding: '14px',
-                    maxHeight: '640px',
-                    overflowY: 'auto',
-                    boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.02)',
-                  }}
-                >
-                  {/* Top Auxiliary Header Tab Strip Preview */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                      {/* Native Tab 1: Overview (Active) */}
-                      <div
-                        style={{
-                          width: '24px',
-                          height: '24px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          borderRadius: '4px',
-                          backgroundColor: 'rgba(0,0,0,0.08)',
-                          color: 'var(--text)',
-                        }}
-                        title="Overview"
-                      >
-                        <FileText size={14} />
-                      </div>
-                      {/* Native Tab 2: Review */}
-                      <div
-                        style={{
-                          width: '24px',
-                          height: '24px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          borderRadius: '4px',
-                          color: 'var(--text-muted)',
-                        }}
-                        title="Review"
-                      >
-                        <Split size={14} />
-                      </div>
-                      {/* Native Tab 3: Terminal */}
-                      <div
-                        style={{
-                          width: '24px',
-                          height: '24px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          borderRadius: '4px',
-                          color: 'var(--text-muted)',
-                          fontSize: '11px',
-                          fontFamily: 'monospace',
-                          fontWeight: 700,
-                        }}
-                        title="Terminal"
-                      >
-                        {'>_'}
-                      </div>
-                      {/* Native Plus */}
-                      <div
-                        style={{
-                          width: '20px',
-                          height: '20px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          borderRadius: '4px',
-                          color: '#94a3b8',
-                        }}
-                      >
-                        <Plus size={13} />
-                      </div>
-
-                      {/* Left Divider */}
-                      <div style={{ width: '1px', minWidth: '1px', maxWidth: '1px', height: '16px', backgroundColor: 'var(--border)', margin: '0 0.5px', flexShrink: 0, opacity: 0.7 }} />
-
-                      {/* Injected Swiss Tabs in chosen format */}
-                      {(op.aux_tabs_format || 'icon') === 'icon' ? (
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '1px', flexShrink: 0 }}>
-                          <div
-                            style={{
-                              width: '21px',
-                              minWidth: '20px',
-                              height: '24px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              borderRadius: '4px',
-                              color: 'var(--text-muted)',
-                              backgroundColor: 'transparent',
-                              flexShrink: 0,
-                            }}
-                            title="Preview Browser"
-                          >
-                            <Globe size={13.5} />
-                          </div>
-                          <div
-                            style={{
-                              width: '21px',
-                              minWidth: '20px',
-                              height: '24px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              borderRadius: '4px',
-                              color: 'var(--text-muted)',
-                              backgroundColor: 'transparent',
-                              flexShrink: 0,
-                            }}
-                            title="Files"
-                          >
-                            <Folder size={13.5} />
-                          </div>
-                          <div
-                            style={{
-                              width: '21px',
-                              minWidth: '20px',
-                              height: '24px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              borderRadius: '4px',
-                              color: 'var(--text-muted)',
-                              backgroundColor: 'transparent',
-                              flexShrink: 0,
-                            }}
-                            title="Memos"
-                          >
-                            <FileText size={13.5} />
-                          </div>
-                          <div
-                            style={{
-                              width: '21px',
-                              minWidth: '20px',
-                              height: '24px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              borderRadius: '4px',
-                              color: 'var(--text-muted)',
-                              backgroundColor: 'transparent',
-                              flexShrink: 0,
-                            }}
-                            title="GitHub"
-                          >
-                            <svg width="13.5" height="13.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
-                            </svg>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', flexShrink: 0 }}>
-                          <div
-                            style={{
-                              height: '24px',
-                              padding: '0 6px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              borderRadius: '4px',
-                              color: 'var(--text-muted)',
-                              fontSize: '11px',
-                              fontWeight: 500,
-                              whiteSpace: 'nowrap',
-                              flexShrink: 0,
-                            }}
-                          >
-                            <Globe size={13} />
-                            <span>Preview Browser</span>
-                          </div>
-                          <div
-                            style={{
-                              height: '24px',
-                              padding: '0 6px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              borderRadius: '4px',
-                              color: 'var(--text-muted)',
-                              fontSize: '11px',
-                              fontWeight: 500,
-                              whiteSpace: 'nowrap',
-                              flexShrink: 0,
-                            }}
-                          >
-                            <Folder size={13} />
-                            <span>Files</span>
-                          </div>
-                          <div
-                            style={{
-                              height: '24px',
-                              padding: '0 6px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              borderRadius: '4px',
-                              color: 'var(--text-muted)',
-                              fontSize: '11px',
-                              fontWeight: 500,
-                              whiteSpace: 'nowrap',
-                              flexShrink: 0,
-                            }}
-                          >
-                            <FileText size={13} />
-                            <span>Memos</span>
-                          </div>
-                          <div
-                            style={{
-                              height: '24px',
-                              padding: '0 6px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              borderRadius: '4px',
-                              color: 'var(--text-muted)',
-                              fontSize: '11px',
-                              fontWeight: 500,
-                              whiteSpace: 'nowrap',
-                              flexShrink: 0,
-                            }}
-                          >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
-                            </svg>
-                            <span>GitHub</span>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Right Divider */}
-                      <div style={{ width: '1px', minWidth: '1px', maxWidth: '1px', height: '16px', backgroundColor: 'var(--border)', margin: '0 0.5px', flexShrink: 0, opacity: 0.7 }} />
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', color: '#94a3b8' }}>
-                      <Maximize2 size={12} style={{ cursor: 'pointer' }} />
-                      <X size={12} style={{ cursor: 'pointer' }} />
-                    </div>
-                  </div>
-
-                  {/* Render 8 Sections accurately matching host screenshot */}
-                  {(() => {
-                    const sections = [
-                      {
-                        id: 'subagents',
-                        title: 'Subagents',
-                        count: SYNTHETIC_SUBAGENTS_COUNT,
-                        hasChevron: true,
-                        renderContent: () => (
-                          <div style={{ marginTop: '6px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontWeight: 500, color: 'var(--text)' }}>
-                              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{SYNTHETIC_SUBAGENT.title}</span>
-                              <ChevronRight size={12} strokeWidth={2} color="#94a3b8" />
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                              <CheckCircle2 size={12} color="#16a34a" />
-                              <span>{SYNTHETIC_SUBAGENT.duration}</span>
-                            </div>
-                          </div>
-                        ),
-                      },
-                      {
-                        id: 'files',
-                        title: 'Files Changed',
-                        count: SYNTHETIC_FILES_COUNT,
-                        tag: SYNTHETIC_FILES_TAG,
-                        hasChevron: true,
-                        renderContent: () => (
-                          <div style={{ marginTop: '6px' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text)' }}>
-                              {SYNTHETIC_VISIBLE_FILES.map((f, i) => (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <span style={{ color: f.extColor, fontSize: '11px', fontWeight: 700 }}>{f.extBadge}</span>
-                                  <span>
-                                    <span style={{ fontWeight: f.name === 'README.md' ? 500 : 400 }}>{f.name}</span>
-                                    {f.directory && <span style={{ color: '#94a3b8', fontSize: '11px' }}> {f.directory}</span>}
-                                  </span>
-                                </div>
-                              ))}
-
-                              {overviewFilesExpanded && (
-                                <>
-                                  {SYNTHETIC_EXPANDED_FILES.map((f, i) => (
-                                    <div key={`exp-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <span style={{ color: f.extColor, fontSize: '11px', fontWeight: 700 }}>{f.extBadge}</span>
-                                      <span>
-                                        <span>{f.name}</span>
-                                        {f.directory && <span style={{ color: '#94a3b8', fontSize: '11px' }}> {f.directory}</span>}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </>
-                              )}
-                            </div>
-
-                            {/* "See all" vs Refined Triangle Replacement */}
-                            <div style={{ marginTop: '2px' }}>
-                              {op.replace_see_all_triangle ? (
-                                <div
-                                  onClick={() => setOverviewFilesExpanded(!overviewFilesExpanded)}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: '100%',
-                                    height: '8px',
-                                    marginTop: '1px',
-                                    cursor: 'pointer',
-                                    userSelect: 'none',
-                                    boxSizing: 'border-box',
-                                  }}
-                                  title={overviewFilesExpanded ? 'Collapse files list' : `Expand all ${SYNTHETIC_FILES_COUNT} files`}
-                                >
-                                  <div
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      width: '14px',
-                                      height: '6px',
-                                      color: 'var(--text-muted)',
-                                      fontSize: '8px',
-                                      transition: 'all 0.18s ease',
-                                    }}
-                                  >
-                                    {overviewFilesExpanded ? (
-                                      <ChevronUp size={10} strokeWidth={2} />
-                                    ) : (
-                                      <ChevronDown size={10} strokeWidth={2} />
-                                    )}
-                                  </div>
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setOverviewFilesExpanded(!overviewFilesExpanded)}
-                                  style={{
-                                    fontSize: '12px',
-                                    color: '#0b57d0',
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    padding: '2px 0',
-                                    textAlign: 'left',
-                                  }}
-                                >
-                                  {overviewFilesExpanded ? 'See less' : `See all (${SYNTHETIC_FILES_COUNT})`}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ),
-                      },
-                      {
-                        id: 'artifacts',
-                        title: 'Artifacts',
-                        count: SYNTHETIC_ARTIFACTS_COUNT,
-                        hasChevron: true,
-                        renderContent: () => (
-                          <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <FileText size={13} color="var(--text-muted)" />
-                            <span>{SYNTHETIC_ARTIFACT.title}</span>
-                          </div>
-                        ),
-                      },
-                      {
-                        id: 'uploads',
-                        title: 'Uploads',
-                        count: SYNTHETIC_UPLOADS_COUNT,
-                        hasChevron: true,
-                        renderContent: () => (
-                          <div style={{ marginTop: '6px' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text)' }}>
-                              {SYNTHETIC_VISIBLE_UPLOADS.map((u, i) => (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <Image size={13} color="var(--text-muted)" />
-                                  <span>{u.label}</span>
-                                </div>
-                              ))}
-                              {overviewUploadsExpanded && (
-                                <>
-                                  {SYNTHETIC_EXPANDED_UPLOADS.map((u, i) => (
-                                    <div key={`exp-u-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <Image size={13} color="var(--text-muted)" />
-                                      <span>{u.label}</span>
-                                    </div>
-                                  ))}
-                                </>
-                              )}
-                            </div>
-
-                            <div style={{ marginTop: '2px' }}>
-                              {op.replace_see_all_triangle ? (
-                                <div
-                                  onClick={() => setOverviewUploadsExpanded(!overviewUploadsExpanded)}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: '100%',
-                                    height: '8px',
-                                    marginTop: '1px',
-                                    cursor: 'pointer',
-                                    userSelect: 'none',
-                                    boxSizing: 'border-box',
-                                  }}
-                                  title={overviewUploadsExpanded ? 'Collapse uploads' : `Expand all ${SYNTHETIC_UPLOADS_COUNT} uploads`}
-                                >
-                                  <div
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      width: '14px',
-                                      height: '6px',
-                                      color: 'var(--text-muted)',
-                                      fontSize: '8px',
-                                      transition: 'all 0.18s ease',
-                                    }}
-                                  >
-                                    {overviewUploadsExpanded ? (
-                                      <ChevronUp size={10} strokeWidth={2} />
-                                    ) : (
-                                      <ChevronDown size={10} strokeWidth={2} />
-                                    )}
-                                  </div>
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setOverviewUploadsExpanded(!overviewUploadsExpanded)}
-                                  style={{
-                                    fontSize: '12px',
-                                    color: '#0b57d0',
-                                    background: 'none',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    padding: '2px 0',
-                                    textAlign: 'left',
-                                  }}
-                                >
-                                  {overviewUploadsExpanded ? 'See less' : `See all (${SYNTHETIC_UPLOADS_COUNT})`}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ),
-                      },
-                      {
-                        id: 'tasks',
-                        title: 'Background Tasks',
-                        count: SYNTHETIC_TASKS_COUNT,
-                        hasChevron: false,
-                        renderContent: () => null,
-                      },
-                      {
-                        id: 'terminals',
-                        title: 'Terminals',
-                        count: SYNTHETIC_TERMINALS_COUNT,
-                        hasChevron: false,
-                        renderContent: () => null,
-                      },
-                      {
-                        id: 'goals',
-                        title: 'Goals',
-                        count: SYNTHETIC_GOALS.length,
-                        hasChevron: true,
-                        renderContent: () => (
-                          <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text)' }}>
-                            {SYNTHETIC_GOALS.map((g, i) => (
-                              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                <CheckCircle2 size={13} color="#16a34a" style={{ marginTop: '2px', flexShrink: 0 }} />
-                                <span style={{ lineHeight: 1.3 }}>{g.text}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ),
-                      },
-                      {
-                        id: 'skills',
-                        title: 'Skills Used',
-                        count: SYNTHETIC_SKILLS.length,
-                        hasChevron: true,
-                        renderContent: () => (
-                          <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text)' }}>
-                            {SYNTHETIC_SKILLS.map((s, i) => (
-                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <FileText size={13} color="var(--text-muted)" />
-                                <span>{s.name} <span style={{ color: '#94a3b8', fontSize: '11px' }}>{s.path}</span></span>
-                              </div>
-                            ))}
-                          </div>
-                        ),
-                      },
-                    ]
-
-                    return sections.map((sec, idx) => {
-                      const isCollapsed = collapsedSections[sec.id]
-                      const isZone = op.division_style === 'border_zone'
-                      const zoneBg =
-                        op.zone_background_contrast === 'whiter'
-                          ? '#ffffff'
-                          : op.zone_background_contrast === 'subtle'
-                          ? '#fcfdfd'
-                          : '#ffffff'
-
-                      return (
-                        <React.Fragment key={sec.id}>
-                          <div
-                            style={
-                              isZone
-                                ? {
-                                    backgroundColor: zoneBg,
-                                    border: `1px solid ${op.zone_border_color || 'var(--border)'}`,
-                                    borderRadius: `${op.zone_border_radius || 8}px`,
-                                    padding: `${op.zone_padding || 10}px`,
-                                    marginBottom: `${op.zone_gap || 10}px`,
-                                    boxShadow:
-                                      op.zone_background_contrast === 'card'
-                                        ? '0 1px 3px rgba(0,0,0,0.04)'
-                                        : '0 1px 2px rgba(0,0,0,0.02)',
-                                    transition: 'all 0.15s ease',
-                                  }
-                                : {
-                                    padding: '0',
-                                    marginBottom: idx < sections.length - 1 ? (op.division_style === 'divider_line' ? '5px' : '10px') : 0,
-                                  }
-                            }
-                          >
-                            {/* Section Header */}
-                            <div
-                              onClick={() => toggleSection(sec.id)}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                cursor: 'pointer',
-                                userSelect: 'none',
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                                  {sec.title}
-                                </span>
-                                <span
-                                  style={{
-                                    fontSize: '11px',
-                                    fontWeight: 700,
-                                    color: 'var(--text-muted)',
-                                  }}
-                                >
-                                  {sec.count}
-                                </span>
-                                {sec.hasChevron ? (
-                                  <ChevronDown
-                                    size={11}
-                                    strokeWidth={2}
-                                    color="#94a3b8"
-                                    style={{
-                                      transform: isCollapsed ? 'rotate(-90deg)' : 'none',
-                                      transition: 'transform 0.15s',
-                                    }}
-                                  />
-                                ) : (
-                                  <ChevronRight size={12} strokeWidth={2} color="#94a3b8" />
-                                )}
-                              </div>
-
-                              {sec.tag && (
-                                <span
-                                  style={{
-                                    fontSize: '10px',
-                                    fontWeight: 600,
-                                    padding: '1px 6px',
-                                    borderRadius: '4px',
-                                    background: '#f1f5f9',
-                                    color: 'var(--text-muted)',
-                                    border: '1px solid var(--border)',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '4px',
-                                  }}
-                                >
-                                  {sec.tag} <ChevronDown size={10} strokeWidth={2} />
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Section Content */}
-                            {!isCollapsed && sec.renderContent()}
-
-                          </div>
-
-                          {/* Horizontal Divider Line between sections (when in divider_line mode) */}
-                          {!isZone && op.division_style === 'divider_line' && idx < sections.length - 1 && (
-                            <div
-                              style={{
-                                height: '0px',
-                                width: 'calc(100% - 12px)',
-                                border: 'none',
-                                borderTop: '1px solid var(--border)',
-                                margin: '0 auto 5px auto',
-                                boxSizing: 'border-box',
-                              }}
-                            />
-                          )}
-                        </React.Fragment>
-                      )
-                    })
-                  })()}
-                </div>
-              </div>
-            </div>
           </div>
       </div>
     </>
