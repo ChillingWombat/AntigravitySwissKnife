@@ -35,18 +35,20 @@ type Surface struct {
 	CSRF    string
 	Client  *http.Client
 
-	mu       sync.Mutex
-	sessions map[string]surface.SessionOptions
-	offsets  map[string]uint32
+	mu        sync.Mutex
+	sessions  map[string]surface.SessionOptions
+	offsets   map[string]uint32
+	cancelled map[string]bool
 }
 
 func New(baseURL, csrf string) *Surface {
 	return &Surface{
-		BaseURL:  strings.TrimRight(baseURL, "/"),
-		CSRF:     csrf,
-		Client:   &http.Client{Timeout: 60 * time.Second},
-		sessions: map[string]surface.SessionOptions{},
-		offsets:  map[string]uint32{},
+		BaseURL:   strings.TrimRight(baseURL, "/"),
+		CSRF:      csrf,
+		Client:    &http.Client{Timeout: 60 * time.Second},
+		sessions:  map[string]surface.SessionOptions{},
+		offsets:   map[string]uint32{},
+		cancelled: map[string]bool{},
 	}
 }
 
@@ -127,6 +129,9 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 	body["cascadeConfig"] = map[string]interface{}{
 		"plannerConfig": map[string]interface{}{"planModel": model},
 	}
+	s.mu.Lock()
+	s.cancelled[sessionID] = false
+	s.mu.Unlock()
 	if err := s.Call(ctx, "SendUserCascadeMessage", body, nil); err != nil {
 		return "", err
 	}
@@ -144,6 +149,12 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 			_ = s.Cancel(context.Background(), sessionID)
 			return surface.StopCancelled, nil
 		case <-ticker.C:
+			s.mu.Lock()
+			stopped := s.cancelled[sessionID]
+			s.mu.Unlock()
+			if stopped {
+				return surface.StopCancelled, nil
+			}
 			done, err := s.pollSteps(ctx, sessionID, emit)
 			if err != nil {
 				return "", err
