@@ -318,7 +318,7 @@ export const NavRail: React.FC<NavRailProps> = ({
               color: status?.daemon_running ? 'var(--green)' : 'var(--text-muted)',
             }}
           >
-            {status?.daemon_running ? 'Daemon Active' : 'Standalone Mode'}
+            {status?.daemon_running ? 'Daemon Active' : 'Daemon Inactive'}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

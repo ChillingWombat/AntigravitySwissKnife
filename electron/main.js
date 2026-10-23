@@ -800,10 +800,63 @@ async function createWindow() {
   });
 }
 
+function getLinuxAutostartPath() {
+  return path.join(os.homedir(), '.config', 'autostart', 'antigravity-swiss-knife.desktop');
+}
+
+function getLinuxAutostartEnabled() {
+  return fs.existsSync(getLinuxAutostartPath());
+}
+
+function setLinuxAutostartEnabled(enabled) {
+  const autostartFile = getLinuxAutostartPath();
+  const autostartDir = path.dirname(autostartFile);
+  if (enabled) {
+    if (!fs.existsSync(autostartDir)) {
+      fs.mkdirSync(autostartDir, { recursive: true });
+    }
+    let binPath = process.execPath;
+    const installedPath = path.join(os.homedir(), '.local', 'share', 'antigravity-swiss-knife', 'app', 'antigravity-swiss-knife');
+    if (fs.existsSync(installedPath)) {
+      binPath = installedPath;
+    }
+    const iconPath = path.join(os.homedir(), '.local', 'share', 'antigravity-swiss-knife', 'app', 'resources', 'assets', 'logo.png');
+    const content = `[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Antigravity Swiss Knife
+Comment=Google Antigravity Desktop Companion
+Exec="${binPath}" --minimized
+Icon=${fs.existsSync(iconPath) ? iconPath : 'antigravity-swiss-knife'}
+Terminal=false
+Categories=Development;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
+`;
+    fs.writeFileSync(autostartFile, content, 'utf8');
+    return true;
+  } else {
+    if (fs.existsSync(autostartFile)) {
+      try {
+        fs.unlinkSync(autostartFile);
+      } catch (_) {}
+    }
+    return false;
+  }
+}
+
 // Setup IPC handlers
 function registerIpcHandlers() {
   ipcMain.handle('desktop:get-startup-setting', async () => {
     try {
+      if (process.platform === 'linux') {
+        const enabled = getLinuxAutostartEnabled();
+        return {
+          openAtLogin: enabled,
+          openAsHidden: true,
+          platform: 'linux',
+        };
+      }
       const settings = app.getLoginItemSettings();
       return {
         openAtLogin: settings.openAtLogin,
@@ -821,6 +874,11 @@ function registerIpcHandlers() {
       const isEnabled = typeof enabled === 'object' && enabled !== null
         ? Boolean(enabled.enabled)
         : Boolean(enabled);
+
+      if (process.platform === 'linux') {
+        const active = setLinuxAutostartEnabled(isEnabled);
+        return { success: true, openAtLogin: active };
+      }
 
       app.setLoginItemSettings({
         openAtLogin: isEnabled,

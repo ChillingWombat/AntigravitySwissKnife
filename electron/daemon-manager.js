@@ -409,6 +409,9 @@ class DaemonManager {
               console.warn(`[DaemonManager] Refusing to signal PID ${pid}: not confirmed as swiss daemon`);
             }
           }
+          if (process.platform === 'linux') {
+            this.reapOrphanedProcesses();
+          }
         } catch (err) {
           console.warn('[DaemonManager] Note stopping adopted daemon:', err.message);
         }
