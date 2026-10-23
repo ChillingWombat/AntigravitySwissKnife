@@ -313,6 +313,9 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 		if runtime.GOOS == "windows" {
 			availableTools = append(availableTools, "windows-screen-capture")
 		}
+		if driver := inputDriver(); driver != "" {
+			availableTools = append(availableTools, driver)
+		}
 		if len(availableTools) == 0 {
 			return "Computer use actuator not configured: no screen capture tool installed", nil
 		}
@@ -361,10 +364,43 @@ func (dh *DirectHandler) ComputerUse(args map[string]interface{}) (string, error
 
 		return "", fmt.Errorf("screenshot capture not configured: no active display or capture utility available (grim/scrot/import/windows-screen-capture)")
 
-	case "click", "type":
-		return "", fmt.Errorf("action %q not configured: UI automation driver not installed", action)
+	case "click":
+		x, xOK := intArg(args["x"])
+		y, yOK := intArg(args["y"])
+		if !xOK || !yOK {
+			return "", fmt.Errorf("click requires integer x and y coordinates")
+		}
+		if err := performClick(x, y); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Clicked at %d,%d", x, y), nil
+
+	case "type":
+		text, _ := args["text"].(string)
+		if text == "" {
+			return "", fmt.Errorf("type requires text")
+		}
+		if err := performType(text); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Typed %d characters", len([]rune(text))), nil
 
 	default:
 		return "", fmt.Errorf("unsupported computer use action: %s", action)
 	}
+}
+
+// intArg accepts the number shapes JSON decoding produces for coordinates.
+func intArg(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case json.Number:
+		if parsed, err := n.Int64(); err == nil {
+			return int(parsed), true
+		}
+	}
+	return 0, false
 }

@@ -143,15 +143,17 @@ func TestDirectHandler_ComputerUse_NoCannedStubs(t *testing.T) {
 		t.Errorf("unexpected status output: %s", st)
 	}
 
-	// 2. Unsupported actions fail explicitly instead of returning fake success
+	// 2. Input actions validate their arguments instead of returning fake success.
+	// They are not executed here: driving the real cursor during a test would move
+	// the user's pointer.
 	_, err = dh.ComputerUse(map[string]interface{}{"action": "click"})
-	if err == nil || !strings.Contains(err.Error(), "not configured") {
-		t.Errorf("expected click to return not configured error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "requires integer x and y") {
+		t.Errorf("expected click to require coordinates, got: %v", err)
 	}
 
 	_, err = dh.ComputerUse(map[string]interface{}{"action": "type"})
-	if err == nil || !strings.Contains(err.Error(), "not configured") {
-		t.Errorf("expected type to return not configured error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "requires text") {
+		t.Errorf("expected type to require text, got: %v", err)
 	}
 
 	// 3. Empty action errors
