@@ -103,6 +103,7 @@ func (s *Surface) Start(ctx context.Context, opts surface.SessionOptions) (strin
 	}
 	s.mu.Lock()
 	s.sessions[reply.CascadeID] = opts
+	s.offsets[reply.CascadeID] = 0
 	s.mu.Unlock()
 	return reply.CascadeID, nil
 }
@@ -113,6 +114,10 @@ type step struct {
 		Response string `json:"response"`
 	} `json:"plannerResponse"`
 	ErrorMessage *struct {
+		Error struct {
+			ShortError       string `json:"shortError"`
+			UserErrorMessage string `json:"userErrorMessage"`
+		} `json:"error"`
 		Message string `json:"message"`
 	} `json:"errorMessage"`
 }
@@ -138,6 +143,11 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 
 	ticker := time.NewTicker(400 * time.Millisecond)
 	defer ticker.Stop()
+	if err := s.seedOffset(ctx, sessionID); err != nil {
+		return "", err
+	}
+	quietTicks := 0
+	sawText := false
 	deadline := time.Now().Add(turnTimeout)
 	for {
 		if time.Now().After(deadline) {
@@ -149,15 +159,24 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 			_ = s.Cancel(context.Background(), sessionID)
 			return surface.StopCancelled, nil
 		case <-ticker.C:
+			if quietTicks > 2 && sawText {
+				return surface.StopEndTurn, nil
+			}
 			s.mu.Lock()
 			stopped := s.cancelled[sessionID]
 			s.mu.Unlock()
 			if stopped {
 				return surface.StopCancelled, nil
 			}
-			done, err := s.pollSteps(ctx, sessionID, emit)
+			done, emitted, err := s.pollSteps(ctx, sessionID, emit)
 			if err != nil {
 				return "", err
+			}
+			if emitted > 0 {
+				sawText = true
+				quietTicks = 0
+			} else {
+				quietTicks++
 			}
 			if done {
 				return surface.StopEndTurn, nil
@@ -167,7 +186,7 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 }
 
 // pollSteps reads steps past the last offset and emits new planner text.
-func (s *Surface) pollSteps(ctx context.Context, sessionID string, emit func(surface.Event) error) (bool, error) {
+func (s *Surface) pollSteps(ctx context.Context, sessionID string, emit func(surface.Event) error) (bool, int, error) {
 	s.mu.Lock()
 	offset := s.offsets[sessionID]
 	s.mu.Unlock()
@@ -186,31 +205,42 @@ func (s *Surface) pollSteps(ctx context.Context, sessionID string, emit func(sur
 		reply.Steps = reply.Trajectory.Steps
 	}
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	if len(reply.Steps) == 0 {
-		return false, nil
+		return false, 0, nil
 	}
 	done := false
+	emitted := 0
 	for _, st := range reply.Steps {
 		offset++
 		switch {
 		case st.PlannerResponse != nil && st.PlannerResponse.Response != "":
 			if err := emit(surface.Event{Kind: surface.EventText, Text: st.PlannerResponse.Response}); err != nil {
-				return false, err
+				return false, emitted, err
 			}
-			done = true
-		case st.ErrorMessage != nil && st.ErrorMessage.Message != "":
-			if err := emit(surface.Event{Kind: surface.EventError, Message: st.ErrorMessage.Message}); err != nil {
-				return false, err
+			emitted++
+		case st.ErrorMessage != nil && errorText(st) != "":
+			if err := emit(surface.Event{Kind: surface.EventError, Message: errorText(st)}); err != nil {
+				return false, emitted, err
 			}
+			emitted++
 			done = true
 		}
 	}
 	s.mu.Lock()
 	s.offsets[sessionID] = offset
 	s.mu.Unlock()
-	return done, nil
+	if done {
+		return true, emitted, nil
+	}
+	// A planner response can arrive mid-turn while tools keep running, so the turn
+	// ends when the cascade goes idle, not when text appears.
+	idle, statusErr := s.isIdle(ctx, sessionID)
+	if statusErr != nil {
+		return false, emitted, statusErr
+	}
+	return idle && len(reply.Steps) == 0, emitted, nil
 }
 
 func (s *Surface) modelFor(sessionID string) string {
@@ -340,4 +370,67 @@ func DefaultLogPath() string {
 		return ""
 	}
 	return filepath.Join(home, logDirFromHome(), "logs", "language_server.log")
+}
+
+// errorText picks the most useful message out of an error step.
+func errorText(st step) string {
+	if st.ErrorMessage == nil {
+		return ""
+	}
+	if st.ErrorMessage.Error.UserErrorMessage != "" {
+		return st.ErrorMessage.Error.UserErrorMessage
+	}
+	if st.ErrorMessage.Error.ShortError != "" {
+		return st.ErrorMessage.Error.ShortError
+	}
+	return st.ErrorMessage.Message
+}
+
+// seedOffset moves the read cursor past everything already recorded, so a prompt
+// after a restart answers the new turn instead of replaying the previous answer.
+func (s *Surface) seedOffset(ctx context.Context, sessionID string) error {
+	s.mu.Lock()
+	seeded := s.offsets[sessionID]
+	s.mu.Unlock()
+	if seeded > 0 {
+		return nil
+	}
+	count, err := s.stepCount(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.offsets[sessionID] = count
+	s.mu.Unlock()
+	return nil
+}
+
+// stepCount reads how many steps a cascade already has.
+func (s *Surface) stepCount(ctx context.Context, sessionID string) (uint32, error) {
+	var reply struct {
+		Summaries map[string]struct {
+			StepCount uint32 `json:"stepCount"`
+		} `json:"trajectorySummaries"`
+	}
+	if err := s.Call(ctx, "GetAllCascadeTrajectories", map[string]interface{}{}, &reply); err != nil {
+		return 0, err
+	}
+	return reply.Summaries[sessionID].StepCount, nil
+}
+
+// isIdle reports whether the cascade stopped running.
+func (s *Surface) isIdle(ctx context.Context, sessionID string) (bool, error) {
+	var reply struct {
+		Summaries map[string]struct {
+			Status string `json:"status"`
+		} `json:"trajectorySummaries"`
+	}
+	if err := s.Call(ctx, "GetAllCascadeTrajectories", map[string]interface{}{}, &reply); err != nil {
+		return false, err
+	}
+	status, ok := reply.Summaries[sessionID]
+	if !ok {
+		return false, nil
+	}
+	return status.Status == "CASCADE_RUN_STATUS_IDLE", nil
 }

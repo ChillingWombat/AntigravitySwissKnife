@@ -3,6 +3,7 @@ package acp
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -75,6 +76,10 @@ func (a *Agent) NewSession(ctx context.Context, p acpsdk.NewSessionRequest) (acp
 func (a *Agent) Prompt(ctx context.Context, p acpsdk.PromptRequest) (acpsdk.PromptResponse, error) {
 	text := promptText(p.Prompt)
 	reason, err := a.surface.Send(ctx, string(p.SessionId), text, func(ev surface.Event) error {
+		if ev.Kind == surface.EventError {
+			// Reporting end_turn here would tell the client the turn succeeded.
+			return fmt.Errorf("surface error: %s", ev.Message)
+		}
 		if ev.Kind != surface.EventText || ev.Text == "" {
 			return nil
 		}

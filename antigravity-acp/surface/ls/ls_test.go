@@ -31,17 +31,18 @@ func fakeServer(t *testing.T, steps []map[string]interface{}) (*Surface, *[]stri
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"cascadeId": "cascade-1"})
 		case "GetCascadeTrajectorySteps":
 			offset, _ := body["stepOffset"].(float64)
-			if int(offset) < len(steps) {
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{"steps": steps[int(offset):]})
-			} else {
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{"steps": []interface{}{}})
+			start := int(offset)
+			if start > len(steps) {
+				start = len(steps)
 			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"steps": steps[start:]})
 		case "GetAllCascadeTrajectories":
 			// The server answers with a map keyed by cascade id.
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"trajectorySummaries": map[string]interface{}{
 					"cascade-1": map[string]interface{}{
-						"stepCount":        3,
+						"stepCount":        0,
+						"status":           "CASCADE_RUN_STATUS_IDLE",
 						"lastModifiedTime": "2026-10-22T13:58:26.003746406Z",
 					},
 				},

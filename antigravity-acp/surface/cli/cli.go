@@ -25,13 +25,14 @@ type Surface struct {
 
 	mu       sync.Mutex
 	sessions map[string]surface.SessionOptions
+	convIDs  map[string]string
 }
 
 func New(bin string) *Surface {
 	if bin == "" {
 		bin = "agy"
 	}
-	return &Surface{Bin: bin, sessions: map[string]surface.SessionOptions{}}
+	return &Surface{Bin: bin, sessions: map[string]surface.SessionOptions{}, convIDs: map[string]string{}}
 }
 
 func (s *Surface) Name() string { return "cli" }
@@ -72,6 +73,9 @@ type streamEvent struct {
 // Send runs one turn and streams text deltas as they arrive.
 func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(surface.Event) error) (surface.StopReason, error) {
 	args := []string{"--output-format", "stream-json"}
+	if conv := s.conversationFor(sessionID); conv != "" {
+		args = append(args, "--conversation", conv)
+	}
 	// Execution mode decides whether the agent may modify files. Without an
 	// explicit choice agy blocks on its own permission prompt, which the stream
 	// cannot answer.
@@ -105,6 +109,14 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 			continue // unknown line: skip rather than fail the turn
 		}
 		switch ev.Event {
+		case "init":
+			// The CLI allocates the conversation id; remember it so the next turn
+			// resumes this conversation instead of starting a fresh one.
+			if ev.Init != nil && ev.Init.ConversationID != "" {
+				s.mu.Lock()
+				s.convIDs[sessionID] = ev.Init.ConversationID
+				s.mu.Unlock()
+			}
 		case "step_update":
 			if ev.StepUpdate == nil || ev.StepUpdate.TextDelta == "" {
 				continue
@@ -131,6 +143,13 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 // modeFor returns the execution mode requested for a session. Edits are the
 // default because the point of the adapter is a working agent; plan mode is the
 // explicit opt-out.
+// conversationFor returns the CLI conversation bound to a session, if any.
+func (s *Surface) conversationFor(sessionID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.convIDs[sessionID]
+}
+
 func (s *Surface) modeFor(sessionID string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

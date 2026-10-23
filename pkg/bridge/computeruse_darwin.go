@@ -5,6 +5,7 @@ package bridge
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // inputDriver reports the macOS automation path, which needs no extra binary.
@@ -19,17 +20,20 @@ func performClick(x, y int) error {
 }
 
 func performType(text string) error {
-	// Escaping quotes keeps the text inside a single AppleScript string literal.
-	escaped := ""
-	for _, r := range text {
-		if r == '"' || r == '\\' {
-			escaped += "\\"
+	// Newlines cannot be typed as keystrokes; press Return between lines instead.
+	for _, line := range strings.Split(text, "\n") {
+		if line != "" {
+			script := fmt.Sprintf(`tell application "System Events" to keystroke "%s"`, escapeAppleScript(line))
+			if err := exec.Command("osascript", "-e", script).Run(); err != nil {
+				return fmt.Errorf("type failed: %w", err)
+			}
 		}
-		escaped += string(r)
-	}
-	script := fmt.Sprintf(`tell application "System Events" to keystroke "%s"`, escaped)
-	if err := exec.Command("osascript", "-e", script).Run(); err != nil {
-		return fmt.Errorf("type failed: %w", err)
 	}
 	return nil
+}
+
+// escapeAppleScript keeps text inside one string literal.
+func escapeAppleScript(text string) string {
+	escaped := strings.ReplaceAll(text, "\\", "\\\\")
+	return strings.ReplaceAll(escaped, `"`, `\\"`)
 }
