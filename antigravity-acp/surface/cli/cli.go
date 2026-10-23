@@ -26,13 +26,14 @@ type Surface struct {
 	mu       sync.Mutex
 	sessions map[string]surface.SessionOptions
 	convIDs  map[string]string
+	procs    map[string]*exec.Cmd
 }
 
 func New(bin string) *Surface {
 	if bin == "" {
 		bin = "agy"
 	}
-	return &Surface{Bin: bin, sessions: map[string]surface.SessionOptions{}, convIDs: map[string]string{}}
+	return &Surface{Bin: bin, sessions: map[string]surface.SessionOptions{}, convIDs: map[string]string{}, procs: map[string]*exec.Cmd{}}
 }
 
 func (s *Surface) Name() string { return "cli" }
@@ -99,6 +100,14 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 	if err := cmd.Start(); err != nil {
 		return surface.StopReason(""), fmt.Errorf("start agy: %w", err)
 	}
+	s.mu.Lock()
+	s.procs[sessionID] = cmd
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.procs, sessionID)
+		s.mu.Unlock()
+	}()
 
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64<<10), 8<<20)
@@ -169,7 +178,17 @@ func (s *Surface) modeFor(sessionID string) string {
 	return "accept-edits"
 }
 
-func (s *Surface) Cancel(ctx context.Context, sessionID string) error { return nil }
+// Cancel stops the running turn by killing its process. The conversation id is
+// already recorded, so the next turn resumes the same conversation.
+func (s *Surface) Cancel(ctx context.Context, sessionID string) error {
+	s.mu.Lock()
+	cmd := s.procs[sessionID]
+	s.mu.Unlock()
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	return cmd.Process.Kill()
+}
 
 func (s *Surface) List(ctx context.Context) ([]surface.SessionInfo, error) { return nil, nil }
 
