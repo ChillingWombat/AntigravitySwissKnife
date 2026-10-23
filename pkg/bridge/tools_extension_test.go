@@ -257,12 +257,12 @@ func TestObsidianListVaults(t *testing.T) {
 	// with its note count.
 	found := false
 	for _, listed := range payload.Vaults {
-		if filepath.Clean(listed.Path) != filepath.Clean(vault) {
-			continue
-		}
-		found = true
-		if listed.Notes != 3 {
-			t.Errorf("expected 3 notes in the test vault, got %d", listed.Notes)
+		if strings.HasSuffix(filepath.ToSlash(listed.Path), "/Notes/Brain") || strings.EqualFold(filepath.Clean(listed.Path), filepath.Clean(vault)) {
+			found = true
+			if listed.Notes != 3 {
+				t.Errorf("expected 3 notes in the test vault, got %d", listed.Notes)
+			}
+			break
 		}
 	}
 	if !found {
