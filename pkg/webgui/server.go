@@ -7007,9 +7007,14 @@ func (s *Server) handleBridgeChannelsWebhook(w http.ResponseWriter, r *http.Requ
 			}
 		}
 
-		writeJSON(w, map[string]interface{}{
-			"success": true,
-		})
+		// Accepting the payload without relaying it would be a facade: WhatsApp
+		// would believe the message was delivered and the user would get no answer.
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if len(bytes.TrimSpace(body)) == 0 {
+			http.Error(w, "empty webhook payload", http.StatusBadRequest)
+			return
+		}
+		http.Error(w, "relay not implemented: the payload was not delivered to Antigravity", http.StatusNotImplemented)
 		return
 
 	default:
