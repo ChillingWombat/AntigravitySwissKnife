@@ -3,9 +3,13 @@ package bridge
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 // InboundMessage is one chat message from an external channel, reduced to what the
@@ -60,10 +64,39 @@ func ParseWhatsAppInbound(body []byte) ([]InboundMessage, error) {
 // webhook for days, and answering the same question repeatedly is worse than
 // dropping it.
 var (
-	seenMu  sync.Mutex
-	seenIDs = map[string]time.Time{}
-	seenTTL = 48 * time.Hour
+	seenMu     sync.Mutex
+	seenIDs    = map[string]time.Time{}
+	seenTTL    = 48 * time.Hour
+	seenLoaded bool
 )
+
+// seenStorePath is where the dedupe window survives a restart. A daemon restart must
+// not re-answer messages WhatsApp is still retrying.
+func seenStorePath() string {
+	return filepath.Join(core.GetConfigDir(), "channel_seen.json")
+}
+
+func loadSeenStore() {
+	data, err := os.ReadFile(seenStorePath())
+	if err != nil {
+		return
+	}
+	var stored map[string]time.Time
+	if json.Unmarshal(data, &stored) == nil {
+		for id, at := range stored {
+			seenIDs[id] = at
+		}
+	}
+}
+
+func saveSeenStore() {
+	data, err := json.Marshal(seenIDs)
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(seenStorePath()), 0700)
+	_ = os.WriteFile(seenStorePath(), data, 0600)
+}
 
 // MarkMessageSeen reports whether this message is new, recording it when it is.
 func MarkMessageSeen(id string) bool {
@@ -72,6 +105,10 @@ func MarkMessageSeen(id string) bool {
 	}
 	seenMu.Lock()
 	defer seenMu.Unlock()
+	if !seenLoaded {
+		loadSeenStore()
+		seenLoaded = true
+	}
 	now := time.Now()
 	for key, at := range seenIDs {
 		if now.Sub(at) > seenTTL {
@@ -82,6 +119,7 @@ func MarkMessageSeen(id string) bool {
 		return false
 	}
 	seenIDs[id] = now
+	saveSeenStore()
 	return true
 }
 

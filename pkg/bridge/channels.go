@@ -58,11 +58,15 @@ type ChannelsConfig struct {
 
 // ChannelState reports the live status of an external chat channel.
 type ChannelState struct {
-	Enabled       bool   `json:"enabled"`
-	Connected     bool   `json:"connected"`
-	Identity      string `json:"identity,omitempty"`
-	StatusText    string `json:"status_text"`
-	LastMessageAt string `json:"last_message_at,omitempty"`
+	Enabled bool `json:"enabled"`
+	// InboundSupported says whether this build can receive messages from the channel.
+	// WhatsApp and Telegram have webhook handlers; Discord does not, and saying so is
+	// better than a switch that implies otherwise.
+	InboundSupported bool   `json:"inbound_supported"`
+	Connected        bool   `json:"connected"`
+	Identity         string `json:"identity,omitempty"`
+	StatusText       string `json:"status_text"`
+	LastMessageAt    string `json:"last_message_at,omitempty"`
 }
 
 // ChannelsStatus aggregates live statuses for all 3 chat channels.
@@ -101,8 +105,10 @@ func DefaultChannelsConfig() ChannelsConfig {
 			Enabled:        false,
 			BotToken:       "",
 			AllowedChatIDs: make([]string, 0),
-			Polling:        true,
-			WebhookURL:     "",
+			// Long polling has no implementation; the webhook endpoint does. Defaulting
+			// this on would promise a delivery path that does not exist.
+			Polling:    false,
+			WebhookURL: "",
 		},
 		Discord: DiscordConfig{
 			Enabled:         false,
@@ -204,6 +210,14 @@ func (cm *ChannelsManager) UpdateConfig(c ChannelsConfig) error {
 		c.AgentBackend = ""
 	}
 	c.DefaultProject = strings.TrimSpace(c.DefaultProject)
+	if c.DefaultProject != "" {
+		if !filepath.IsAbs(c.DefaultProject) {
+			return fmt.Errorf("default project must be an absolute path")
+		}
+		if info, statErr := os.Stat(c.DefaultProject); statErr != nil || !info.IsDir() {
+			return fmt.Errorf("default project %q is not a directory", c.DefaultProject)
+		}
+	}
 
 	if cm.verifiedIdentities != nil {
 		if !c.WhatsApp.Enabled || c.WhatsApp.AccessToken != cm.config.WhatsApp.AccessToken {
@@ -230,10 +244,11 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 	waVerified := cm.verifiedIdentities != nil && cm.verifiedIdentities["whatsapp"] != ""
 	waConfigured := strings.TrimSpace(cm.config.WhatsApp.AccessToken) != "" || strings.TrimSpace(cm.config.WhatsApp.PhoneNumberID) != ""
 	waState := ChannelState{
-		Enabled:       cm.config.WhatsApp.Enabled,
-		Connected:     cm.config.WhatsApp.Enabled && waVerified,
-		Identity:      cm.getVerifiedIdentity("whatsapp"),
-		LastMessageAt: cm.getLastMessageAt("whatsapp"),
+		Enabled:          cm.config.WhatsApp.Enabled,
+		InboundSupported: true,
+		Connected:        cm.config.WhatsApp.Enabled && waVerified,
+		Identity:         cm.getVerifiedIdentity("whatsapp"),
+		LastMessageAt:    cm.getLastMessageAt("whatsapp"),
 	}
 	if !waState.Enabled {
 		waState.StatusText = "Disabled"
@@ -249,10 +264,11 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 	tgVerified := cm.verifiedIdentities != nil && cm.verifiedIdentities["telegram"] != ""
 	tgConfigured := strings.TrimSpace(cm.config.Telegram.BotToken) != ""
 	tgState := ChannelState{
-		Enabled:       cm.config.Telegram.Enabled,
-		Connected:     cm.config.Telegram.Enabled && tgVerified,
-		Identity:      cm.getVerifiedIdentity("telegram"),
-		LastMessageAt: cm.getLastMessageAt("telegram"),
+		Enabled:          cm.config.Telegram.Enabled,
+		InboundSupported: true,
+		Connected:        cm.config.Telegram.Enabled && tgVerified,
+		Identity:         cm.getVerifiedIdentity("telegram"),
+		LastMessageAt:    cm.getLastMessageAt("telegram"),
 	}
 	if !tgState.Enabled {
 		tgState.StatusText = "Disabled"
@@ -268,10 +284,11 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 	dcVerified := cm.verifiedIdentities != nil && cm.verifiedIdentities["discord"] != ""
 	dcConfigured := strings.TrimSpace(cm.config.Discord.BotToken) != ""
 	dcState := ChannelState{
-		Enabled:       cm.config.Discord.Enabled,
-		Connected:     cm.config.Discord.Enabled && dcVerified,
-		Identity:      cm.getVerifiedIdentity("discord"),
-		LastMessageAt: cm.getLastMessageAt("discord"),
+		Enabled:          cm.config.Discord.Enabled,
+		InboundSupported: false,
+		Connected:        cm.config.Discord.Enabled && dcVerified,
+		Identity:         cm.getVerifiedIdentity("discord"),
+		LastMessageAt:    cm.getLastMessageAt("discord"),
 	}
 	if !dcState.Enabled {
 		dcState.StatusText = "Disabled"

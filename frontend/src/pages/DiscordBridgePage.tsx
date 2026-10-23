@@ -4,8 +4,7 @@ import {
   Check,
   Power,
   Eye,
-  EyeOff,
-} from 'lucide-react'
+  EyeOff,, AlertCircle } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 
@@ -126,6 +125,25 @@ export const DiscordBridgePage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {status?.discord?.inbound_supported === false && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 14px',
+            borderRadius: '8px',
+            border: '1px solid var(--border)',
+            backgroundColor: 'var(--canvas)',
+            fontSize: '12px',
+            color: 'var(--text-muted)',
+          }}
+        >
+          <AlertCircle size={14} />
+          <span>Outbound only: this build posts to Discord but cannot receive messages from it. Use WhatsApp or Telegram for inbound chat.</span>
+        </div>
+      )}
+
       {/* 1. Overview, Live Status & Enable Toggle */}
       <div className="google-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>

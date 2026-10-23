@@ -1,6 +1,10 @@
 package bridge
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+	"time"
+)
 
 const whatsappTextPayload = `{
   "object":"whatsapp_business_account",
@@ -36,15 +40,20 @@ func TestParseWhatsAppInboundRejectsGarbage(t *testing.T) {
 	}
 }
 
-// WhatsApp retries webhooks for days; the same message must be relayed once.
+// WhatsApp retries webhooks for days; the same message must be relayed once. The
+// dedupe window persists to disk, so each run needs its own ids.
 func TestMarkMessageSeenIsIdempotent(t *testing.T) {
-	if !MarkMessageSeen("wamid.dedupe-1") {
+	suffix := time.Now().UnixNano()
+	first := fmt.Sprintf("wamid.dedupe-%d-a", suffix)
+	second := fmt.Sprintf("wamid.dedupe-%d-b", suffix)
+
+	if !MarkMessageSeen(first) {
 		t.Fatal("first delivery must be accepted")
 	}
-	if MarkMessageSeen("wamid.dedupe-1") {
+	if MarkMessageSeen(first) {
 		t.Error("retry must be rejected")
 	}
-	if !MarkMessageSeen("wamid.dedupe-2") {
+	if !MarkMessageSeen(second) {
 		t.Error("a different message must be accepted")
 	}
 	if !MarkMessageSeen("") {

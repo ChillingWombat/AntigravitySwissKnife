@@ -7425,15 +7425,22 @@ func (s *Server) relayWhatsApp(cfg bridge.ChannelsConfig, message bridge.Inbound
 	reply, err := service.AnswerChannelMessage(message.Text, project)
 	if err != nil {
 		log.Printf("[channels] whatsapp relay failed for %s: %v", message.ID, err)
+		s.replyWhatsApp(cfg, message.From, "The agent could not answer that message. Check the bridge logs.")
 		return
 	}
 	if strings.TrimSpace(cfg.WhatsApp.PhoneNumberID) == "" || strings.TrimSpace(cfg.WhatsApp.AccessToken) == "" {
 		log.Printf("[channels] whatsapp reply dropped: phone number id or access token missing")
 		return
 	}
+	s.replyWhatsApp(cfg, message.From, reply)
+}
+
+// replyWhatsApp posts one text message to a WhatsApp number, logging rather than
+// swallowing a rejection.
+func (s *Server) replyWhatsApp(cfg bridge.ChannelsConfig, to, reply string) {
 	payload, _ := json.Marshal(map[string]interface{}{
 		"messaging_product": "whatsapp",
-		"to":                message.From,
+		"to":                to,
 		"type":              "text",
 		"text":              map[string]string{"body": reply},
 	})
@@ -7457,7 +7464,7 @@ func (s *Server) relayWhatsApp(cfg bridge.ChannelsConfig, message bridge.Inbound
 		log.Printf("[channels] whatsapp reply rejected: HTTP %d %s", response.StatusCode, strings.TrimSpace(string(snippet)))
 		return
 	}
-	service.RecordChannelActivity("whatsapp")
+	s.getBridgeService().RecordChannelActivity("whatsapp")
 }
 
 // handleBridgeTelegramWebhook receives one Telegram update, relays the text to the
@@ -7473,9 +7480,10 @@ func (s *Server) handleBridgeTelegramWebhook(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "telegram bridge is disabled", http.StatusForbidden)
 		return
 	}
-	// The token in the URL is the shared secret Telegram presents; it must match the
-	// bot token, so a stranger cannot post prompts into the agent.
-	if provided := strings.TrimSpace(r.URL.Query().Get("token")); provided == "" || provided != strings.TrimSpace(cfg.Telegram.BotToken) {
+	// Telegram sends the secret in a header. A token in the URL would be recorded by
+	// every proxy and access log between here and Telegram.
+	provided := strings.TrimSpace(r.Header.Get("X-Telegram-Bot-Api-Secret-Token"))
+	if provided == "" || provided != strings.TrimSpace(cfg.Telegram.BotToken) {
 		http.Error(w, "invalid token", http.StatusForbidden)
 		return
 	}
@@ -7504,6 +7512,9 @@ func (s *Server) relayTelegram(cfg bridge.ChannelsConfig, message bridge.Inbound
 	reply, err := service.AnswerChannelMessage(message.Text, cfg.DefaultProject)
 	if err != nil {
 		log.Printf("[channels] telegram relay failed for %s: %v", message.ID, err)
+		if sendErr := bridge.SendTelegramReply(cfg.Telegram.BotToken, message.From, "The agent could not answer that message. Check the bridge logs."); sendErr != nil {
+			log.Printf("[channels] telegram failure notice could not be sent: %v", sendErr)
+		}
 		return
 	}
 	if err := bridge.SendTelegramReply(cfg.Telegram.BotToken, message.From, reply); err != nil {
