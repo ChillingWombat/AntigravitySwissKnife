@@ -280,7 +280,14 @@ func (h *CLIHandler) resolveBinary() (string, error) {
 }
 
 // runTurn executes one CLI turn and waits for it.
+// runTurn keeps the historical signature; it runs in the daemon's working directory.
 func (h *CLIHandler) runTurn(prompt, conversationID, model, effort string, timeout time.Duration) (*cliTurnResult, error) {
+	return h.runTurnIn(prompt, conversationID, model, effort, "", timeout)
+}
+
+// runTurnIn runs one turn in the given directory. cwd is the workspace a caller asked
+// for, which is how a channel's default project reaches the CLI.
+func (h *CLIHandler) runTurnIn(prompt, conversationID, model, effort, cwd string, timeout time.Duration) (*cliTurnResult, error) {
 	bin, err := h.resolveBinary()
 	if err != nil {
 		return nil, err
@@ -347,6 +354,9 @@ func (h *CLIHandler) runTurn(prompt, conversationID, model, effort string, timeo
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = h.workDir()
+	if strings.TrimSpace(cwd) != "" {
+		cmd.Dir = cwd
+	}
 	if len(gatewayEnv) > 0 {
 		env := os.Environ()
 		for key, value := range gatewayEnv {
@@ -460,7 +470,7 @@ func (h *CLIHandler) CreateConversation(args map[string]interface{}) (string, er
 	model := argString(args, "model", "")
 	timeout := secondsArg(args, "timeout_seconds", cliTurnTimeoutDefault)
 	started := time.Now()
-	result, err := h.runTurn(prompt, "", model, argString(args, "effort", ""), timeout)
+	result, err := h.runTurnIn(prompt, "", model, argString(args, "effort", ""), argString(args, "cwd", ""), timeout)
 	if err != nil {
 		return "", err
 	}

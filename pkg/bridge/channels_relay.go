@@ -85,28 +85,60 @@ func MarkMessageSeen(id string) bool {
 	return true
 }
 
-// AnswerChannelMessage runs one turn on the configured backend and returns the
-// agent's reply text. The project acts as the working directory so every channel
-// lands in the same workspace.
+// channelTurnSerial keeps inbound turns from colliding on the backend's pending-run
+// lock. Chats are low volume; queueing costs nothing and losing a message costs trust.
+var channelTurnSerial sync.Mutex
+
+// AnswerChannelMessage runs one turn on the backend chosen for channels and returns
+// the reply text. The project becomes the working directory so every channel lands in
+// the same workspace.
 func (s *Service) AnswerChannelMessage(text, project string) (string, error) {
+	channelTurnSerial.Lock()
+	defer channelTurnSerial.Unlock()
+
+	backend := s.agentForChannel()
 	args := map[string]interface{}{"prompt": text}
 	if strings.TrimSpace(project) != "" {
 		args["cwd"] = project
 	}
-	raw, err := s.agent().CreateConversation(args)
+	raw, err := backend.CreateConversation(args)
 	if err != nil {
 		return "", err
 	}
+
 	var parsed map[string]interface{}
-	if json.Unmarshal([]byte(raw), &parsed) == nil {
-		for _, key := range []string{"response", "text", "message"} {
+	jsonOK := json.Unmarshal([]byte(raw), &parsed) == nil
+
+	// The desktop app dispatches and returns instructions, not an answer; the reply
+	// only exists after the turn is awaited.
+	if jsonOK {
+		if status, _ := parsed["status"].(string); status == "dispatched" {
+			conversationID, _ := parsed["conversation_id"].(string)
+			awaited, awaitErr := backend.AwaitResponse(map[string]interface{}{
+				"conversation_id": conversationID,
+				"timeout_seconds": 180,
+			})
+			if awaitErr != nil {
+				return "", awaitErr
+			}
+			raw = awaited
+			parsed = nil
+			jsonOK = json.Unmarshal([]byte(raw), &parsed) == nil
+		}
+	}
+
+	if jsonOK {
+		for _, key := range []string{"response", "text", "content"} {
 			if value, ok := parsed[key].(string); ok && strings.TrimSpace(value) != "" {
 				return value, nil
 			}
 		}
+		// Never hand internal metadata to a chat participant.
+		return "", fmt.Errorf("the agent finished without a text reply")
 	}
+
 	if strings.TrimSpace(raw) == "" {
-		return "", fmt.Errorf("agent returned no reply")
+		return "", fmt.Errorf("the agent returned no reply")
 	}
-	return raw, nil
+	return strings.TrimSpace(raw), nil
 }

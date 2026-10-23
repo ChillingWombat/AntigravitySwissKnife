@@ -166,7 +166,11 @@ func TestChallengerBridge_WebGUI_BridgeChannelsConfig_RedactionAndUnredacted(t *
 		t.Fatalf("failed to create bridge service: %v", err)
 	}
 
-	// Update channels config with sensitive tokens
+	// Update channels config with sensitive tokens. The manager persists to the shared
+	// test config directory, so the original must be restored or later tests inherit
+	// a bot token and start calling the real Telegram API.
+	originalCfg := bridgeSvc.GetChannelsConfig()
+	t.Cleanup(func() { _ = bridgeSvc.UpdateChannelsConfig(originalCfg) })
 	chCfg := bridgeSvc.GetChannelsConfig()
 	chCfg.WhatsApp.AccessToken = "secret-wa-access-token"
 	chCfg.WhatsApp.VerifyToken = "secret-wa-verify-token"

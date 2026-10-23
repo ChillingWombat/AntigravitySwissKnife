@@ -7400,6 +7400,10 @@ func (s *Server) handleBridgeChannelsWebhook(w http.ResponseWriter, r *http.Requ
 		// them is correct, not a fake success.
 		project := cfg.DefaultProject
 		for _, message := range inbound {
+			if !whatsAppNumberAllowed(cfg.WhatsApp.AllowedNumbers, message.From) {
+				log.Printf("[channels] whatsapp message from %s dropped: not in the allowed numbers", message.From)
+				continue
+			}
 			if !bridge.MarkMessageSeen(message.ID) {
 				continue
 			}
@@ -7482,6 +7486,10 @@ func (s *Server) handleBridgeTelegramWebhook(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	for _, message := range inbound {
+		if !telegramChatAllowed(cfg.Telegram.AllowedChatIDs, message.From) {
+			log.Printf("[channels] telegram message from %s dropped: not in the allowed chats", message.From)
+			continue
+		}
 		if !bridge.MarkMessageSeen(message.ID) {
 			continue
 		}
@@ -7503,6 +7511,34 @@ func (s *Server) relayTelegram(cfg bridge.ChannelsConfig, message bridge.Inbound
 		return
 	}
 	service.RecordChannelActivity("telegram")
+}
+
+// whatsAppNumberAllowed applies the configured whitelist. An empty list means "no
+// restriction", which is what the settings page promises.
+func whatsAppNumberAllowed(allowed []string, from string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	sender := strings.TrimPrefix(strings.TrimSpace(from), "+")
+	for _, entry := range allowed {
+		if strings.TrimPrefix(strings.TrimSpace(entry), "+") == sender {
+			return true
+		}
+	}
+	return false
+}
+
+// telegramChatAllowed applies the configured chat whitelist.
+func telegramChatAllowed(allowed []string, chatID string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, entry := range allowed {
+		if strings.TrimSpace(entry) == strings.TrimSpace(chatID) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

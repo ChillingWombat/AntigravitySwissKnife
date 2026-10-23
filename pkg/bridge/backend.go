@@ -233,6 +233,21 @@ func (s *Service) agent() agentBackend {
 	return &appBackend{svc: s, lead: s.leadHdl}
 }
 
+// agentForChannel resolves the backend for channel traffic: the channel setting wins
+// when it names a surface, otherwise the bridge-wide choice applies.
+func (s *Service) agentForChannel() agentBackend {
+	preference := normalizeAgentBackend(s.channelsMgr.GetConfig().AgentBackend)
+	if preference == "" {
+		preference = AgentAuto
+	}
+	switch resolveAgentBackend(preference, s.cliHdl != nil) {
+	case AgentCLI:
+		return &cliBackend{svc: s, cli: s.cliHdl}
+	default:
+		return &appBackend{svc: s, lead: s.leadHdl}
+	}
+}
+
 // SetAgentBackend stores the preferred backend ("auto", "app" or "cli").
 func (s *Service) SetAgentBackend(value string) (string, error) {
 	normalized := normalizeAgentBackend(value)
