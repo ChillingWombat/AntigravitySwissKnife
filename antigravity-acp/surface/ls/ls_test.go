@@ -1,0 +1,105 @@
+package ls
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/ChillingWombat/AntigravitySwissKnife/antigravity-acp/surface"
+)
+
+// fakeServer answers the four RPCs a turn needs and records what it was called with.
+func fakeServer(t *testing.T, steps []map[string]interface{}) (*Surface, *[]string, *[]map[string]interface{}) {
+	t.Helper()
+	var calls []string
+	var bodies []map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("x-codeium-csrf-token"); got != "tok" {
+			t.Errorf("missing csrf header, got %q", got)
+		}
+		method := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		calls = append(calls, method)
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+
+		switch method {
+		case "StartCascade":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"cascadeId": "cascade-1"})
+		case "GetCascadeTrajectorySteps":
+			offset, _ := body["stepOffset"].(float64)
+			if int(offset) < len(steps) {
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"steps": steps[int(offset):]})
+			} else {
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"steps": []interface{}{}})
+			}
+		case "GetAllCascadeTrajectories":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"trajectories": []map[string]string{{"cascadeId": "cascade-1"}}})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return New(srv.URL, "tok"), &calls, &bodies
+}
+
+func TestStartSendsCascadeSource(t *testing.T) {
+	s, _, bodies := fakeServer(t, nil)
+	id, err := s.Start(context.Background(), surface.SessionOptions{Cwd: "/tmp/work"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if id != "cascade-1" {
+		t.Errorf("cascade id = %q", id)
+	}
+	body := (*bodies)[0]
+	if body["source"] != "CORTEX_TRAJECTORY_SOURCE_AGENT_API" {
+		t.Errorf("source = %v", body["source"])
+	}
+	uris, _ := body["workspaceUris"].([]interface{})
+	if len(uris) != 1 || uris[0] != "file:///tmp/work" {
+		t.Errorf("workspaceUris = %v", body["workspaceUris"])
+	}
+}
+
+func TestSendStreamsPlannerResponseOnce(t *testing.T) {
+	steps := []map[string]interface{}{
+		{"type": "CORTEX_STEP_TYPE_USER_INPUT"},
+		{"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE", "plannerResponse": map[string]interface{}{"response": "hello there"}},
+	}
+	s, calls, _ := fakeServer(t, steps)
+	var text []string
+	reason, err := s.Send(context.Background(), "cascade-1", "hi", func(ev surface.Event) error {
+		if ev.Kind == surface.EventText {
+			text = append(text, ev.Text)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if reason != surface.StopEndTurn {
+		t.Errorf("stop reason = %q", reason)
+	}
+	if strings.Join(text, "") != "hello there" {
+		t.Errorf("text = %q", text)
+	}
+	seen := strings.Join(*calls, ",")
+	if !strings.Contains(seen, "SendUserCascadeMessage") || !strings.Contains(seen, "GetCascadeTrajectorySteps") {
+		t.Errorf("calls = %s", seen)
+	}
+}
+
+func TestListReadsTrajectories(t *testing.T) {
+	s, _, _ := fakeServer(t, nil)
+	sessions, err := s.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].ID != "cascade-1" {
+		t.Errorf("sessions = %+v", sessions)
+	}
+}
