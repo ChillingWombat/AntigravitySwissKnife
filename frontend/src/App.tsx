@@ -161,13 +161,10 @@ export const App: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    if (status && !status.daemon_running && (currentTool === 7 || currentTool === 10)) {
-      setCurrentTool(0)
-    }
     if (currentTool === 1 || currentTool === 5) {
       setCurrentTool(0)
     }
-  }, [status?.daemon_running, currentTool])
+  }, [currentTool])
 
   if (isLocked) {
     return (

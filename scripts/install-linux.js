@@ -73,10 +73,33 @@ function ensureBuildExists(forceRebuild = false) {
   const mainBin = path.join(unpackedDir, 'antigravity-swiss-knife.bin');
   const daemonBin = path.join(unpackedDir, 'resources', 'bin', 'swiss');
 
-  const bundleReady = fs.existsSync(mainExe) && fs.existsSync(mainBin) && fs.existsSync(daemonBin);
+  let bundleReady = fs.existsSync(mainExe) && fs.existsSync(mainBin) && fs.existsSync(daemonBin);
+
+  if (bundleReady && !forceRebuild) {
+    try {
+      const bundleMtime = fs.statSync(mainExe).mtimeMs;
+      const keyFiles = [
+        'package.json',
+        'electron/main.js',
+        'electron/daemon-manager.js',
+        'cmd/swiss/main.go',
+        'frontend/src/App.tsx',
+        'frontend/src/pages/CustomModelsPage.tsx',
+        'pkg/webgui/server.go'
+      ];
+      for (const f of keyFiles) {
+        const fullPath = path.join(rootDir, f);
+        if (fs.existsSync(fullPath) && fs.statSync(fullPath).mtimeMs > bundleMtime) {
+          log(`Source file ${f} is newer than unpacked bundle. Forcing release rebuild...`);
+          bundleReady = false;
+          break;
+        }
+      }
+    } catch (_) {}
+  }
 
   if (!bundleReady || forceRebuild) {
-    log('Linux unpacked bundle missing or incomplete. Building release...');
+    log('Linux unpacked bundle missing, incomplete or stale. Building release...');
     execSync('node scripts/build-release.js linux --unpacked', {
       cwd: rootDir,
       stdio: 'inherit'

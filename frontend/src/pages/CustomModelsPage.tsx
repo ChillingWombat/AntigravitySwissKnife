@@ -22,6 +22,7 @@ import {
   Upload,
   ExternalLink,
   Wallet,
+  SlidersHorizontal,
 } from 'lucide-react'
 import type {
   CustomModel,
@@ -1265,27 +1266,53 @@ export const CustomModelsPage: React.FC = () => {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Model Source
-          </span>
-          <button
-            onClick={() => setPageView('models')}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              border: '1px solid var(--border)',
-              borderRadius: '18px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: 'var(--text)',
-              backgroundColor: 'var(--surface)',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Back to models
-          </button>
+          <div style={{ display: 'inline-flex', gap: '4px', padding: '3px', borderRadius: '8px', backgroundColor: 'var(--tonal)' }}>
+            <button
+              type="button"
+              data-testid="btnTabCustomModels"
+              onClick={() => setPageView('models')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: 500,
+                color: 'var(--text-muted)',
+                backgroundColor: 'transparent',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <Cpu size={14} />
+              Models
+            </button>
+            <button
+              type="button"
+              data-testid="btnTabModelSource"
+              onClick={() => setPageView('model_source')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: 600,
+                color: 'var(--primary)',
+                backgroundColor: 'var(--surface)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+              }}
+            >
+              <SlidersHorizontal size={14} />
+              Model Source & Mode Settings
+            </button>
+          </div>
         </div>
         <ModelSourceTab />
       </div>
@@ -1294,25 +1321,54 @@ export const CustomModelsPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button
-          onClick={() => setPageView('model_source')}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            border: '1px solid var(--border)',
-            borderRadius: '18px',
-            padding: '6px 14px',
-            fontSize: '12px',
-            fontWeight: 600,
-            color: 'var(--text)',
-            backgroundColor: 'var(--surface)',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Model Source
-        </button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'inline-flex', gap: '4px', padding: '3px', borderRadius: '8px', backgroundColor: 'var(--tonal)' }}>
+          <button
+            type="button"
+            data-testid="btnTabCustomModels"
+            onClick={() => setPageView('models')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: 'var(--primary)',
+              backgroundColor: 'var(--surface)',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+            }}
+          >
+            <Cpu size={14} />
+            Models
+          </button>
+          <button
+            type="button"
+            data-testid="btnTabModelSource"
+            onClick={() => setPageView('model_source')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 500,
+              color: 'var(--text-muted)',
+              backgroundColor: 'transparent',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <SlidersHorizontal size={14} />
+            Model Source & Mode Settings
+          </button>
+        </div>
       </div>
       {/* Top Bar Left Filter Pills via Portal */}
       {portalLeftTarget &&

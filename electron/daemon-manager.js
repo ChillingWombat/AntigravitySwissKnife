@@ -125,8 +125,8 @@ class DaemonManager {
         if (pid === process.pid || pid <= 1) continue;
         try {
           const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
-          if ((cmdline.includes('swiss') || cmdline.includes('antigravity-swiss')) && cmdline.includes('daemon')) {
-            console.log(`[DaemonManager] Reaping unmanaged orphaned Go daemon process (PID: ${pid})...`);
+          if ((cmdline.includes('swiss') || cmdline.includes('antigravity-swiss')) && (cmdline.includes('daemon') || cmdline.includes('web'))) {
+            console.log(`[DaemonManager] Reaping unmanaged orphaned Go process (PID: ${pid})...`);
             try {
               process.kill(pid, 'SIGTERM');
               signaled = true;
@@ -209,8 +209,8 @@ class DaemonManager {
    */
   async checkStatus(timeoutMs = 1000) {
     const health = await this.requestJson('/health', timeoutMs);
-    if (health && health.status === 'ok' && typeof health.version === 'string' && health.version.trim()) {
-      return { ...health, daemon_running: true };
+    if (health && health.status === 'ok' && health.daemon_running === true && typeof health.version === 'string' && health.version.trim()) {
+      return health;
     }
 
     const status = await this.requestJson('/api/status', timeoutMs, this.getAuthHeaders());
