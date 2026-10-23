@@ -7385,19 +7385,74 @@ func (s *Server) handleBridgeChannelsWebhook(w http.ResponseWriter, r *http.Requ
 			}
 		}
 
-		// Accepting the payload without relaying it would be a facade: WhatsApp
-		// would believe the message was delivered and the user would get no answer.
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if len(bytes.TrimSpace(body)) == 0 {
 			http.Error(w, "empty webhook payload", http.StatusBadRequest)
 			return
 		}
-		http.Error(w, "relay not implemented: the payload was not delivered to Antigravity", http.StatusNotImplemented)
+		inbound, err := bridge.ParseWhatsAppInbound(body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// Status callbacks and non-text messages carry nothing to relay; acknowledging
+		// them is correct, not a fake success.
+		project := cfg.DefaultProject
+		for _, message := range inbound {
+			if !bridge.MarkMessageSeen(message.ID) {
+				continue
+			}
+			go s.relayWhatsApp(cfg, message, project)
+		}
+		writeJSON(w, map[string]interface{}{"accepted": len(inbound)})
 		return
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// relayWhatsApp answers one inbound message on the configured backend and posts the
+// reply back through the Cloud API. It runs outside the request so WhatsApp gets its
+// 200 immediately; a long turn must not hold the webhook open.
+func (s *Server) relayWhatsApp(cfg bridge.ChannelsConfig, message bridge.InboundMessage, project string) {
+	service := s.getBridgeService()
+	reply, err := service.AnswerChannelMessage(message.Text, project)
+	if err != nil {
+		log.Printf("[channels] whatsapp relay failed for %s: %v", message.ID, err)
+		return
+	}
+	if strings.TrimSpace(cfg.WhatsApp.PhoneNumberID) == "" || strings.TrimSpace(cfg.WhatsApp.AccessToken) == "" {
+		log.Printf("[channels] whatsapp reply dropped: phone number id or access token missing")
+		return
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"messaging_product": "whatsapp",
+		"to":                message.From,
+		"type":              "text",
+		"text":              map[string]string{"body": reply},
+	})
+	url := "https://graph.facebook.com/v21.0/" + cfg.WhatsApp.PhoneNumberID + "/messages"
+	request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		log.Printf("[channels] whatsapp reply request: %v", err)
+		return
+	}
+	request.Header.Set("Authorization", "Bearer "+cfg.WhatsApp.AccessToken)
+	request.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 30 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		log.Printf("[channels] whatsapp reply failed: %v", err)
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+		log.Printf("[channels] whatsapp reply rejected: HTTP %d %s", response.StatusCode, strings.TrimSpace(string(snippet)))
+		return
+	}
+	service.RecordChannelActivity("whatsapp")
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

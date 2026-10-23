@@ -273,6 +273,12 @@ func (s *Service) GetChannelsStatus() ChannelsStatus {
 	return s.channelsMgr.GetStatus()
 }
 
+// RecordChannelActivity notes that a channel delivered or received a message, so the
+// status page shows real activity.
+func (s *Service) RecordChannelActivity(channel string) {
+	s.channelsMgr.RecordActivity(channel)
+}
+
 // GetChannelsConfig returns persistent settings for chat channels.
 func (s *Service) GetChannelsConfig() ChannelsConfig {
 	return s.channelsMgr.GetConfig()

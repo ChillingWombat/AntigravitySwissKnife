@@ -11,9 +11,12 @@ import (
 // with Config.AgentBackend; "auto" prefers the CLI because a short-lived process
 // costs less than keeping the GUI on the critical path.
 const (
-	AgentAuto    = "auto"
-	AgentApp     = "app"
-	AgentCLI     = "cli"
+	AgentAuto = "auto"
+	AgentApp  = "app"
+	AgentCLI  = "cli"
+	// AgentACP drives the Antigravity ACP agent over stdio. It keeps its own
+	// conversation store, separate from the app and the CLI.
+	AgentACP     = "acp"
 	agentUnknown = ""
 )
 
@@ -24,6 +27,8 @@ func normalizeAgentBackend(raw string) string {
 		return AgentCLI
 	case "app", "gui", "desktop", "antigravity", "antigravity_2", "antigravity-2":
 		return AgentApp
+	case "acp", "agy_acp", "agy-acp", "antigravity_acp", "antigravity-acp":
+		return AgentACP
 	case "", "auto", "automatic", "default":
 		return AgentAuto
 	}
@@ -156,6 +161,10 @@ func resolveAgentBackend(requested string, cliReady bool) string {
 	switch normalizeAgentBackend(requested) {
 	case AgentApp:
 		return AgentApp
+	case AgentACP:
+		// Availability of the ACP agent is checked when a turn runs; the preference
+		// itself is honoured here so status can report it.
+		return AgentACP
 	case AgentCLI:
 		if cliReady {
 			return AgentCLI

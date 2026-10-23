@@ -479,13 +479,13 @@ func TestWebGUICustomModelsEndpoints(t *testing.T) {
 
 	// 3. POST /api/custom_models (create custom model)
 	newModel := map[string]interface{}{
-		"id":               "test-ollama-qwen",
-		"name":             "qwen2.5-coder:32b",
-		"display_name":     "Qwen 2.5 Coder 32B (Local)",
-		"provider_type":    "local",
-		"base_url":         "http://localhost:11434/v1",
-		"quota_type":       "none",
-		"enabled":          true,
+		"id":            "test-ollama-qwen",
+		"name":          "qwen2.5-coder:32b",
+		"display_name":  "Qwen 2.5 Coder 32B (Local)",
+		"provider_type": "local",
+		"base_url":      "http://localhost:11434/v1",
+		"quota_type":    "none",
+		"enabled":       true,
 	}
 	data, _ := json.Marshal(newModel)
 	resp, err = http.Post(baseURL+"/api/custom_models", "application/json", bytes.NewReader(data))

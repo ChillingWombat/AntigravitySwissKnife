@@ -48,6 +48,12 @@ type ChannelsConfig struct {
 	WhatsApp WhatsAppConfig `json:"whatsapp"`
 	Telegram TelegramConfig `json:"telegram"`
 	Discord  DiscordConfig  `json:"discord"`
+	// AgentBackend decides which Antigravity surface answers an inbound message:
+	// cli (default), app, or acp. Empty means the bridge-wide setting applies.
+	AgentBackend string `json:"agent_backend,omitempty"`
+	// DefaultProject is the workspace every inbound message lands in, so the three
+	// channels share one context instead of three unrelated ones.
+	DefaultProject string `json:"default_project,omitempty"`
 }
 
 // ChannelState reports the live status of an external chat channel.
@@ -64,6 +70,10 @@ type ChannelsStatus struct {
 	WhatsApp ChannelState `json:"whatsapp"`
 	Telegram ChannelState `json:"telegram"`
 	Discord  ChannelState `json:"discord"`
+	// AgentBackend and DefaultProject report what inbound messages will use, so the
+	// UI never has to guess.
+	AgentBackend   string `json:"agent_backend"`
+	DefaultProject string `json:"default_project"`
 }
 
 // ChannelsManager coordinates WhatsApp, Telegram, and Discord agent bridges.
@@ -185,6 +195,16 @@ func (cm *ChannelsManager) UpdateConfig(c ChannelsConfig) error {
 		c.Discord.BotToken = cm.config.Discord.BotToken
 	}
 
+	switch normalizeAgentBackend(c.AgentBackend) {
+	case AgentCLI, AgentApp, AgentACP:
+		c.AgentBackend = normalizeAgentBackend(c.AgentBackend)
+	case AgentAuto:
+		c.AgentBackend = AgentAuto
+	default:
+		c.AgentBackend = ""
+	}
+	c.DefaultProject = strings.TrimSpace(c.DefaultProject)
+
 	if cm.verifiedIdentities != nil {
 		if !c.WhatsApp.Enabled || c.WhatsApp.AccessToken != cm.config.WhatsApp.AccessToken {
 			delete(cm.verifiedIdentities, "whatsapp")
@@ -264,9 +284,11 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 	}
 
 	return ChannelsStatus{
-		WhatsApp: waState,
-		Telegram: tgState,
-		Discord:  dcState,
+		WhatsApp:       waState,
+		Telegram:       tgState,
+		Discord:        dcState,
+		AgentBackend:   cm.config.AgentBackend,
+		DefaultProject: cm.config.DefaultProject,
 	}
 }
 
