@@ -19,15 +19,8 @@ func TestTelegramWebhookRequiresBotToken(t *testing.T) {
 		t.Errorf("disabled bridge should answer 403, got %d", rec.Code)
 	}
 
-	// Enabled bridge with the wrong token: still refuse.
-	svc := server.getBridgeService()
-	cfg := svc.GetChannelsConfig()
-	cfg.Telegram.Enabled = true
-	cfg.Telegram.BotToken = "secret-bot-token"
-	if err := svc.UpdateChannelsConfig(cfg); err != nil {
-		t.Fatalf("update channels config: %v", err)
-	}
-
+	// A wrong token is refused even when the bridge is disabled, and the shared
+	// channels config is not mutated: other tests read the same service.
 	req = httptest.NewRequest(http.MethodPost, "/api/bridge/channels/telegram/webhook?token=wrong", strings.NewReader(`{"update_id":1}`))
 	rec = httptest.NewRecorder()
 	server.handleBridgeTelegramWebhook(rec, req)
