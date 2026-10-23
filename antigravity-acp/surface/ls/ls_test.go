@@ -37,7 +37,15 @@ func fakeServer(t *testing.T, steps []map[string]interface{}) (*Surface, *[]stri
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{"steps": []interface{}{}})
 			}
 		case "GetAllCascadeTrajectories":
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"trajectories": []map[string]string{{"cascadeId": "cascade-1"}}})
+			// The server answers with a map keyed by cascade id.
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"trajectorySummaries": map[string]interface{}{
+					"cascade-1": map[string]interface{}{
+						"stepCount":        3,
+						"lastModifiedTime": "2026-10-22T13:58:26.003746406Z",
+					},
+				},
+			})
 		default:
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
 		}

@@ -50,6 +50,13 @@ type SessionInfo struct {
 	UpdatedAt int64
 }
 
+// HistoryProvider is implemented by surfaces that can replay a past conversation.
+// It exists as a separate interface so a surface without history is not forced to
+// pretend it has any.
+type HistoryProvider interface {
+	History(ctx context.Context, sessionID string) ([]Event, error)
+}
+
 // Surface is one way of talking to Antigravity. Implementations own their
 // transport; the ACP layer only sees Send and its event stream.
 type Surface interface {

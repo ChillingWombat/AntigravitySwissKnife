@@ -216,19 +216,51 @@ func (s *Surface) Cancel(ctx context.Context, sessionID string) error {
 }
 
 func (s *Surface) List(ctx context.Context) ([]surface.SessionInfo, error) {
+	// The server answers with a map keyed by cascade id, not a list.
 	var reply struct {
-		Trajectories []struct {
-			CascadeID string `json:"cascadeId"`
-		} `json:"trajectories"`
+		Summaries map[string]struct {
+			StepCount        int    `json:"stepCount"`
+			LastModifiedTime string `json:"lastModifiedTime"`
+			CreatedTime      string `json:"createdTime"`
+			Status           string `json:"status"`
+		} `json:"trajectorySummaries"`
 	}
 	if err := s.Call(ctx, "GetAllCascadeTrajectories", map[string]interface{}{}, &reply); err != nil {
 		return nil, err
 	}
-	out := make([]surface.SessionInfo, 0, len(reply.Trajectories))
-	for _, trajectory := range reply.Trajectories {
-		out = append(out, surface.SessionInfo{ID: trajectory.CascadeID})
+	out := make([]surface.SessionInfo, 0, len(reply.Summaries))
+	for id, summary := range reply.Summaries {
+		info := surface.SessionInfo{ID: id}
+		if stamp, perr := time.Parse(time.RFC3339Nano, summary.LastModifiedTime); perr == nil {
+			info.UpdatedAt = stamp.Unix()
+		}
+		out = append(out, info)
 	}
 	return out, nil
+}
+
+// History replays the planner responses already recorded in a cascade.
+func (s *Surface) History(ctx context.Context, sessionID string) ([]surface.Event, error) {
+	var reply struct {
+		Steps      []step `json:"steps"`
+		Trajectory *struct {
+			Steps []step `json:"steps"`
+		} `json:"trajectory"`
+	}
+	if err := s.Call(ctx, "GetCascadeTrajectorySteps", map[string]interface{}{"cascadeId": sessionID, "stepOffset": 0}, &reply); err != nil {
+		return nil, err
+	}
+	steps := reply.Steps
+	if len(steps) == 0 && reply.Trajectory != nil {
+		steps = reply.Trajectory.Steps
+	}
+	events := make([]surface.Event, 0, len(steps))
+	for _, st := range steps {
+		if st.PlannerResponse != nil && st.PlannerResponse.Response != "" {
+			events = append(events, surface.Event{Kind: surface.EventText, Text: st.PlannerResponse.Response})
+		}
+	}
+	return events, nil
 }
 
 func (s *Surface) Close(ctx context.Context, sessionID string) error {

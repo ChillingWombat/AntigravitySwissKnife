@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 
@@ -21,6 +22,7 @@ type Agent struct {
 }
 
 var _ acpsdk.Agent = (*Agent)(nil)
+var _ acpsdk.AgentLoader = (*Agent)(nil)
 
 func New(s surface.Surface) *Agent {
 	return &Agent{surface: s, sessions: map[string]acpsdk.SessionId{}}
@@ -40,9 +42,10 @@ func (a *Agent) Initialize(ctx context.Context, p acpsdk.InitializeRequest) (acp
 		ProtocolVersion: acpsdk.ProtocolVersionNumber,
 		AgentInfo:       &acpsdk.Implementation{Name: "antigravity-acp", Version: "0.1.0"},
 		AgentCapabilities: acpsdk.AgentCapabilities{
+			LoadSession:         true,
 			PromptCapabilities:  acpsdk.PromptCapabilities{},
 			McpCapabilities:     acpsdk.McpCapabilities{},
-			SessionCapabilities: acpsdk.SessionCapabilities{},
+			SessionCapabilities: acpsdk.SessionCapabilities{List: &acpsdk.SessionListCapabilities{}},
 		},
 		AuthMethods: []acpsdk.AuthMethod{},
 	}, nil
@@ -100,9 +103,54 @@ func (a *Agent) CloseSession(ctx context.Context, p acpsdk.CloseSessionRequest) 
 	return acpsdk.CloseSessionResponse{}, nil
 }
 
-// The rest are capability-gated on the wire; answer -32601 rather than pretend.
-func (a *Agent) ListSessions(context.Context, acpsdk.ListSessionsRequest) (acpsdk.ListSessionsResponse, error) {
-	return acpsdk.ListSessionsResponse{}, acpsdk.NewMethodNotFound(acpsdk.AgentMethodSessionList)
+// ListSessions reports the conversations the surface knows about.
+func (a *Agent) ListSessions(ctx context.Context, _ acpsdk.ListSessionsRequest) (acpsdk.ListSessionsResponse, error) {
+	infos, err := a.surface.List(ctx)
+	if err != nil {
+		return acpsdk.ListSessionsResponse{}, err
+	}
+	sessions := make([]acpsdk.SessionInfo, 0, len(infos))
+	for _, info := range infos {
+		entry := acpsdk.SessionInfo{SessionId: acpsdk.SessionId(info.ID)}
+		if info.Title != "" {
+			title := info.Title
+			entry.Title = &title
+		}
+		if info.UpdatedAt > 0 {
+			stamp := time.Unix(info.UpdatedAt, 0).UTC().Format(time.RFC3339)
+			entry.UpdatedAt = &stamp
+		}
+		sessions = append(sessions, entry)
+	}
+	return acpsdk.ListSessionsResponse{Sessions: sessions}, nil
+}
+
+// LoadSession replays a recorded conversation as updates, which is what the
+// protocol requires before the client may prompt again.
+func (a *Agent) LoadSession(ctx context.Context, p acpsdk.LoadSessionRequest) (acpsdk.LoadSessionResponse, error) {
+	provider, ok := a.surface.(surface.HistoryProvider)
+	if !ok {
+		return acpsdk.LoadSessionResponse{}, acpsdk.NewMethodNotFound("session/load")
+	}
+	events, err := provider.History(ctx, string(p.SessionId))
+	if err != nil {
+		return acpsdk.LoadSessionResponse{}, err
+	}
+	for _, ev := range events {
+		if ev.Kind != surface.EventText || ev.Text == "" {
+			continue
+		}
+		if err := a.conn.SessionUpdate(ctx, acpsdk.SessionNotification{
+			SessionId: p.SessionId,
+			Update:    acpsdk.UpdateAgentMessageText(ev.Text),
+		}); err != nil {
+			return acpsdk.LoadSessionResponse{}, err
+		}
+	}
+	a.mu.Lock()
+	a.sessions[string(p.SessionId)] = p.SessionId
+	a.mu.Unlock()
+	return acpsdk.LoadSessionResponse{}, nil
 }
 
 func (a *Agent) ResumeSession(context.Context, acpsdk.ResumeSessionRequest) (acpsdk.ResumeSessionResponse, error) {
