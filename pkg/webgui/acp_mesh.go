@@ -278,8 +278,11 @@ func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndp
 	}
 }
 
-// expandHome resolves a leading ~ so binary presence can be checked.
+// expandHome resolves ~ and %VAR% so binary presence can be checked on every OS.
 func expandHome(path string) string {
+	if strings.Contains(path, "%") {
+		path = os.Expand(path, func(name string) string { return os.Getenv(name) })
+	}
 	if !strings.HasPrefix(path, "~") {
 		return path
 	}

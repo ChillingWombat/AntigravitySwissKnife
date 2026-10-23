@@ -73,6 +73,9 @@ type streamEvent struct {
 // Send runs one turn and streams text deltas as they arrive.
 func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(surface.Event) error) (surface.StopReason, error) {
 	args := []string{"--output-format", "stream-json"}
+	if cwd := s.cwdFor(sessionID); cwd != "" {
+		args = append(args, "--add-dir", cwd)
+	}
 	if conv := s.conversationFor(sessionID); conv != "" {
 		args = append(args, "--conversation", conv)
 	}
@@ -143,6 +146,13 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 // modeFor returns the execution mode requested for a session. Edits are the
 // default because the point of the adapter is a working agent; plan mode is the
 // explicit opt-out.
+// cwdFor returns the working directory the client asked for at session creation.
+func (s *Surface) cwdFor(sessionID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sessions[sessionID].Cwd
+}
+
 // conversationFor returns the CLI conversation bound to a session, if any.
 func (s *Surface) conversationFor(sessionID string) string {
 	s.mu.Lock()
