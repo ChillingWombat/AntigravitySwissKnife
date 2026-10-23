@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,17 @@ if [ "$1" = "models" ]; then
 fi
 printf '{"conversation_id":"` + conversationID + `","status":"SUCCESS","response":"pong","duration_seconds":1.5,"num_turns":1,"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}\n'
 `
+	if runtime.GOOS == "windows" {
+		path = filepath.Join(dir, "agy.cmd")
+		script = `@echo off
+if "%1"=="models" (
+  echo gemini-4-argon-high	Gemini 4 Argon (High)
+  echo gemini-3.8-flash-low	Gemini 3.8 Flash (Low)
+  exit /b 0
+)
+echo {"conversation_id":"` + conversationID + `","status":"SUCCESS","response":"pong","duration_seconds":1.5,"num_turns":1,"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}
+`
+	}
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
 		t.Fatalf("write fake cli: %v", err)
 	}

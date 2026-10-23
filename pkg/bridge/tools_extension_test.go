@@ -243,9 +243,6 @@ func TestObsidianListVaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ObsidianListVaults: %v", err)
 	}
-	if !strings.Contains(out, vault) {
-		t.Fatalf("expected the vault path in the result, got %s", out)
-	}
 	var payload struct {
 		Count  int `json:"count"`
 		Vaults []struct {
