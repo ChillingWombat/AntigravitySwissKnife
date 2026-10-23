@@ -8,26 +8,69 @@ import (
 	"strconv"
 )
 
-// inputDriver reports which X11 automation tool is available.
+// inputDriver reports which automation tool is available on Linux.
 func inputDriver() string {
 	if _, err := exec.LookPath("xdotool"); err == nil {
 		return "xdotool"
+	}
+	if _, err := exec.LookPath("ydotool"); err == nil {
+		return "ydotool"
 	}
 	return ""
 }
 
 func performClick(x, y int) error {
-	bin, err := exec.LookPath("xdotool")
-	if err != nil {
-		return fmt.Errorf("click not configured: xdotool is required on Linux")
+	if bin, err := exec.LookPath("xdotool"); err == nil {
+		return exec.Command(bin, "mousemove", strconv.Itoa(x), strconv.Itoa(y), "click", "1").Run()
 	}
-	return exec.Command(bin, "mousemove", strconv.Itoa(x), strconv.Itoa(y), "click", "1").Run()
+	if bin, err := exec.LookPath("ydotool"); err == nil {
+		_ = exec.Command(bin, "mousemove", strconv.Itoa(x), strconv.Itoa(y)).Run()
+		return exec.Command(bin, "click", "0xC0").Run()
+	}
+	return fmt.Errorf("click not configured: xdotool or ydotool is required on Linux")
+}
+
+func performMove(x, y int) error {
+	if bin, err := exec.LookPath("xdotool"); err == nil {
+		return exec.Command(bin, "mousemove", strconv.Itoa(x), strconv.Itoa(y)).Run()
+	}
+	if bin, err := exec.LookPath("ydotool"); err == nil {
+		return exec.Command(bin, "mousemove", strconv.Itoa(x), strconv.Itoa(y)).Run()
+	}
+	return fmt.Errorf("move not configured: xdotool or ydotool is required on Linux")
+}
+
+func performScroll(amount int) error {
+	if bin, err := exec.LookPath("xdotool"); err == nil {
+		button := "5" // scroll down
+		if amount < 0 {
+			button = "4" // scroll up
+			amount = -amount
+		}
+		if amount == 0 {
+			amount = 1
+		}
+		return exec.Command(bin, "click", "--repeat", strconv.Itoa(amount), button).Run()
+	}
+	return fmt.Errorf("scroll not configured: xdotool is required on Linux")
 }
 
 func performType(text string) error {
-	bin, err := exec.LookPath("xdotool")
-	if err != nil {
-		return fmt.Errorf("type not configured: xdotool is required on Linux")
+	if bin, err := exec.LookPath("xdotool"); err == nil {
+		return exec.Command(bin, "type", "--clearmodifiers", text).Run()
 	}
-	return exec.Command(bin, "type", "--clearmodifiers", text).Run()
+	if bin, err := exec.LookPath("ydotool"); err == nil {
+		return exec.Command(bin, "type", text).Run()
+	}
+	return fmt.Errorf("type not configured: xdotool or ydotool is required on Linux")
+}
+
+func performKey(keys string) error {
+	if bin, err := exec.LookPath("xdotool"); err == nil {
+		return exec.Command(bin, "key", keys).Run()
+	}
+	if bin, err := exec.LookPath("ydotool"); err == nil {
+		return exec.Command(bin, "key", keys).Run()
+	}
+	return fmt.Errorf("key not configured: xdotool or ydotool is required on Linux")
 }

@@ -285,7 +285,7 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 	dcConfigured := strings.TrimSpace(cm.config.Discord.BotToken) != ""
 	dcState := ChannelState{
 		Enabled:          cm.config.Discord.Enabled,
-		InboundSupported: false,
+		InboundSupported: true,
 		Connected:        cm.config.Discord.Enabled && dcVerified,
 		Identity:         cm.getVerifiedIdentity("discord"),
 		LastMessageAt:    cm.getLastMessageAt("discord"),
@@ -314,6 +314,16 @@ func (cm *ChannelsManager) getVerifiedIdentity(channel string) string {
 		return ""
 	}
 	return cm.verifiedIdentities[channel]
+}
+
+// SetVerifiedIdentity records a verified bot username/handle for an external channel.
+func (cm *ChannelsManager) SetVerifiedIdentity(channel, identity string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.verifiedIdentities == nil {
+		cm.verifiedIdentities = make(map[string]string)
+	}
+	cm.verifiedIdentities[strings.ToLower(channel)] = identity
 }
 
 // RecordActivity records the latest interaction timestamp for a given channel.
@@ -474,7 +484,12 @@ func (cm *ChannelsManager) TestChannel(channel string) (string, error) {
 		if token == "" || token == "[REDACTED]" {
 			return "", fmt.Errorf("Discord Bot Token is required")
 		}
-		req, err := http.NewRequest(http.MethodGet, "https://discord.com/api/v10/users/@me", nil)
+		baseURL := os.Getenv("DISCORD_API_BASE_URL")
+		if baseURL == "" {
+			baseURL = "https://discord.com/api/v10"
+		}
+		endpoint := fmt.Sprintf("%s/users/@me", strings.TrimRight(baseURL, "/"))
+		req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 		if err != nil {
 			return "", fmt.Errorf("failed to create Discord request: %w", err)
 		}

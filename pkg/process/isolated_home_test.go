@@ -9,6 +9,7 @@ import (
 func TestPrepareIsolatedHomeSharesCredentialsAndKeepsStatePrivate(t *testing.T) {
 	realHome := t.TempDir()
 	t.Setenv("HOME", realHome)
+	t.Setenv("USERPROFILE", realHome)
 	gemini := filepath.Join(realHome, ".gemini")
 	if err := os.MkdirAll(filepath.Join(gemini, "antigravity"), 0700); err != nil {
 		t.Fatal(err)

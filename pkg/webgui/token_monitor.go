@@ -207,6 +207,9 @@ func (s *Server) getAntigravityDataDir() string {
 	if dir != "" {
 		return dir
 	}
+	if env := os.Getenv("ANTIGRAVITY_DATA_DIR"); env != "" {
+		return env
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".gemini", "antigravity")
 }

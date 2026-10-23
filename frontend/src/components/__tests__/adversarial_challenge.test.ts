@@ -275,7 +275,6 @@ describe('Adversarial Stress: NavRail Exhaustive Tab Dispatch & Layout Invariant
       { id: '#btnNavBridge', toolIdx: 10 },
       { id: '#btnNavTokenMonitor', toolIdx: 8 },
       { id: '#btnNavUtilities', toolIdx: 9 },
-      { id: '#btnNavAutomations', toolIdx: 5 },
       { id: '#btnNavArchivedProjects', toolIdx: 6 },
       { id: '#btnNavSystemSettings', toolIdx: 2 },
     ]
@@ -311,7 +310,7 @@ describe('Adversarial Stress: NavRail Exhaustive Tab Dispatch & Layout Invariant
     )
 
     const buttons = querySelectorAll<HTMLButtonElement>('button')
-    assert.ok(buttons.length >= 10, 'Must have at least 10 buttons when daemon is online')
+    assert.equal(buttons.length, 9, 'Must have exactly 9 buttons when daemon is online')
 
     const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u
 

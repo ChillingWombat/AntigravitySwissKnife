@@ -43,7 +43,6 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/revival"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/system"
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/templates"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/totp"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/vault"
 )
@@ -62,7 +61,6 @@ type Server struct {
 	systemDetector      *system.Detector
 	appReleaseManager   *system.AppReleaseManager
 	enhancementsStore   *enhancements.Store
-	templatesStore      *templates.Store
 	oauthMgr            *keyring.GoogleOAuthManager
 	githubService       *github.Service
 	vaultManager        *vault.Manager
@@ -99,7 +97,6 @@ func NewServer(addr string, socketPath string) *Server {
 	sysDetector := system.NewDetector()
 	appRelMgr := system.NewAppReleaseManager()
 	enhStore, _ := enhancements.NewStore("")
-	tmplStore, _ := templates.NewStore("")
 	oauthMgr := keyring.NewGoogleOAuthManager("", "")
 	ghStore, _ := github.NewStore("")
 	ghTracker := github.NewAgentTracker("", ghStore)
@@ -119,7 +116,6 @@ func NewServer(addr string, socketPath string) *Server {
 		systemDetector:     sysDetector,
 		appReleaseManager:  appRelMgr,
 		enhancementsStore:  enhStore,
-		templatesStore:     tmplStore,
 		oauthMgr:           oauthMgr,
 		githubService:      ghService,
 		vaultManager:       vaultMgr,
@@ -270,15 +266,6 @@ func (s *Server) getEnhancementsStore() *enhancements.Store {
 		s.enhancementsStore, _ = enhancements.NewStore("")
 	}
 	return s.enhancementsStore
-}
-
-func (s *Server) getTemplatesStore() *templates.Store {
-	s.lazyMu.Lock()
-	defer s.lazyMu.Unlock()
-	if s.templatesStore == nil {
-		s.templatesStore, _ = templates.NewStore("")
-	}
-	return s.templatesStore
 }
 
 // SetRevivalEngine replaces the revivalEngine on the server (useful for tests).
@@ -483,12 +470,6 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/enhancements/apply", s.handleEnhancementsApply)
 	mux.HandleFunc("/api/extensions/community", s.handleCommunityExtensions)
 
-	// Scheduled Task Templates (Automations)
-	mux.HandleFunc("/api/templates", s.handleTemplates)
-	mux.HandleFunc("/api/templates/deploy", s.handleTemplatesDeploy)
-	mux.HandleFunc("/api/templates/sidecars", s.handleTemplatesSidecars)
-	mux.HandleFunc("/api/templates/sidecars/update", s.handleTemplatesSidecarsUpdate)
-
 	// Google OAuth Extraction
 	mux.HandleFunc("/api/oauth/google/start", s.handleGoogleOAuthStart)
 	mux.HandleFunc("/api/oauth/google/cancel", s.handleGoogleOAuthCancel)
@@ -559,6 +540,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/bridge/channels/test", s.handleBridgeChannelsTest)
 	mux.HandleFunc("/api/bridge/channels/webhook", s.handleBridgeChannelsWebhook)
 	mux.HandleFunc("/api/bridge/channels/telegram/webhook", s.handleBridgeTelegramWebhook)
+	mux.HandleFunc("/api/bridge/channels/discord/webhook", s.handleBridgeDiscordWebhook)
 	mux.HandleFunc("/remote", s.handleBridgeRemoteConsole)
 	mux.HandleFunc("/remote/", s.handleBridgeRemoteConsole)
 
@@ -664,6 +646,9 @@ func (s *Server) Stop() error {
 			}
 		}
 	}
+	if s.bridgeService != nil {
+		s.bridgeService.Stop()
+	}
 	if s.httpServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -741,7 +726,7 @@ func isExternalOriginAllowedPath(p string) bool {
 	if isPublicIconPath(clean) {
 		return true
 	}
-	if clean == "/api/bridge/channels/webhook" || strings.HasPrefix(clean, "/api/bridge/channels/webhook/") {
+	if clean == "/api/bridge/channels/webhook" || strings.HasPrefix(clean, "/api/bridge/channels/webhook/") || clean == "/api/bridge/channels/telegram/webhook" || clean == "/api/bridge/channels/discord/webhook" {
 		return true
 	}
 	return false
@@ -3806,174 +3791,6 @@ func (s *Server) handleCommunityExtensions(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// Scheduled Task Templates handlers
-
-func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
-	if s.getTemplatesStore() == nil {
-		http.Error(w, "templates store not initialized", http.StatusInternalServerError)
-		return
-	}
-
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	templateID := r.URL.Query().Get("id")
-	if templateID != "" {
-		tmpl, err := s.templatesStore.GetTemplateByID(templateID)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		writeJSON(w, tmpl)
-		return
-	}
-
-	writeJSON(w, s.templatesStore.GetTemplates())
-}
-
-func (s *Server) handleTemplatesDeploy(w http.ResponseWriter, r *http.Request) {
-	if s.getTemplatesStore() == nil {
-		http.Error(w, "templates store not initialized", http.StatusInternalServerError)
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req templates.DeployTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	info, err := s.templatesStore.DeploySidecar(req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, map[string]interface{}{
-		"success": true,
-		"task":    info,
-	})
-}
-
-func (s *Server) handleTemplatesSidecars(w http.ResponseWriter, r *http.Request) {
-	if s.getTemplatesStore() == nil {
-		http.Error(w, "templates store not initialized", http.StatusInternalServerError)
-		return
-	}
-
-	if r.Method == http.MethodGet {
-		tasks, err := s.templatesStore.ListSidecars()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, tasks)
-		return
-	}
-
-	if r.Method == http.MethodPut {
-		var req templates.UpdateSidecarRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-		task, err := s.templatesStore.UpdateSidecar(req)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, map[string]interface{}{"success": true, "task": task})
-		return
-	}
-
-	if r.Method == http.MethodDelete {
-		id := r.URL.Query().Get("id")
-		if id == "" {
-			var body struct {
-				ID string `json:"id"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			id = body.ID
-		}
-		if id == "" {
-			http.Error(w, "missing task id parameter", http.StatusBadRequest)
-			return
-		}
-
-		if err := s.templatesStore.DeleteSidecar(id); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, map[string]interface{}{"success": true, "deleted": id})
-		return
-	}
-
-	if r.Method == http.MethodPost {
-		var body struct {
-			Action         string `json:"action"`
-			ID             string `json:"id"`
-			DisplayName    string `json:"display_name"`
-			CronExpression string `json:"cron_expression"`
-			Prompt         string `json:"prompt"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
-			if body.Action == "delete" && body.ID != "" {
-				if err := s.templatesStore.DeleteSidecar(body.ID); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				writeJSON(w, map[string]interface{}{"success": true, "deleted": body.ID})
-				return
-			}
-			if body.Action == "update" && body.ID != "" {
-				task, err := s.templatesStore.UpdateSidecar(templates.UpdateSidecarRequest{
-					ID:             body.ID,
-					DisplayName:    body.DisplayName,
-					CronExpression: body.CronExpression,
-					Prompt:         body.Prompt,
-				})
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				writeJSON(w, map[string]interface{}{"success": true, "task": task})
-				return
-			}
-		}
-	}
-
-	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-}
-
-func (s *Server) handleTemplatesSidecarsUpdate(w http.ResponseWriter, r *http.Request) {
-	if s.getTemplatesStore() == nil {
-		http.Error(w, "templates store not initialized", http.StatusInternalServerError)
-		return
-	}
-	if r.Method != http.MethodPost && r.Method != http.MethodPut {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req templates.UpdateSidecarRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	task, err := s.templatesStore.UpdateSidecar(req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, map[string]interface{}{"success": true, "task": task})
-}
-
 func (s *Server) handleGoogleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed: POST required", http.StatusMethodNotAllowed)
@@ -6343,13 +6160,42 @@ func (s *Server) handleFilesReveal(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{"success": false, "error": errJail.Error()})
 		return
 	}
+	isFile := false
 	if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
-		target = filepath.Dir(target)
+		isFile = true
 	}
 	if !core.IsRunningTests() && !gui.IsTestExecution() {
-		_ = core.LaunchDetachedProcess(exec.Command("xdg-open", target))
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "windows":
+			cleanPath := filepath.Clean(target)
+			if isFile {
+				cmd = exec.Command("explorer.exe", "/select,"+cleanPath)
+			} else {
+				cmd = exec.Command("explorer.exe", cleanPath)
+			}
+		case "darwin":
+			if isFile {
+				cmd = exec.Command("open", "-R", target)
+			} else {
+				cmd = exec.Command("open", target)
+			}
+		default:
+			dir := target
+			if isFile {
+				dir = filepath.Dir(target)
+			}
+			cmd = exec.Command("xdg-open", dir)
+		}
+		if cmd != nil {
+			_ = core.LaunchDetachedProcess(cmd)
+		}
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "revealed": target})
+	revealed := target
+	if isFile && runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		revealed = filepath.Dir(target)
+	}
+	writeJSON(w, map[string]interface{}{"success": true, "revealed": revealed})
 }
 
 func (s *Server) handleFilesTerminal(w http.ResponseWriter, r *http.Request) {
@@ -7522,6 +7368,49 @@ func (s *Server) relayTelegram(cfg bridge.ChannelsConfig, message bridge.Inbound
 		return
 	}
 	service.RecordChannelActivity("telegram")
+}
+
+// handleBridgeDiscordWebhook receives a Discord webhook event, relays it to the configured agent,
+// and posts the response back to Discord.
+func (s *Server) handleBridgeDiscordWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	service := s.getBridgeService()
+	cfg := service.GetChannelsConfig()
+	if !cfg.Discord.Enabled {
+		http.Error(w, "discord bridge is disabled", http.StatusForbidden)
+		return
+	}
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	cleanToken := strings.TrimSpace(cfg.Discord.BotToken)
+	expectedAuth := cleanToken
+	if !strings.HasPrefix(expectedAuth, "Bot ") {
+		expectedAuth = "Bot " + expectedAuth
+	}
+	if authHeader == "" || (authHeader != expectedAuth && authHeader != cleanToken) {
+		http.Error(w, "invalid authorization token", http.StatusForbidden)
+		return
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	inbound, err := bridge.ParseDiscordInbound(body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	for _, message := range inbound {
+		msg := bridge.DiscordMessage{
+			ID:        strings.TrimPrefix(message.ID, "dc-"),
+			ChannelID: message.ChannelID,
+			Author: bridge.DiscordMessageAuthor{
+				ID: message.From,
+			},
+			Content: message.Text,
+		}
+		go service.RelayDiscordMessage(cfg, msg)
+	}
+	writeJSON(w, map[string]interface{}{"accepted": len(inbound)})
 }
 
 // whatsAppNumberAllowed applies the configured whitelist. An empty list means "no

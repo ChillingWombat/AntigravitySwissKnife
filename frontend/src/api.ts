@@ -18,10 +18,6 @@ import type {
   EnhancementsConfig,
   CommunityExtension,
   ArchivedProjectItem,
-  ScheduledTemplate,
-  DeployTaskRequest,
-  UpdateTaskRequest,
-  SidecarTaskInfo,
   GUIConfig,
   ProviderType,
   FetchModelsResponse,
@@ -849,30 +845,6 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ horizon }),
-    }),
-
-  // Scheduled Task Templates (Automations)
-  getTemplates: () => request<ScheduledTemplate[]>('/api/templates'),
-
-  deployTemplate: (data: DeployTaskRequest) =>
-    request<{ success: boolean; task: SidecarTaskInfo }>('/api/templates/deploy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    }),
-
-  getSidecars: () => request<SidecarTaskInfo[]>('/api/templates/sidecars'),
-
-  updateSidecar: (data: UpdateTaskRequest) =>
-    request<{ success: boolean; task: SidecarTaskInfo }>('/api/templates/sidecars/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    }),
-
-  deleteSidecar: (id: string) =>
-    request<{ success: boolean; deleted: string }>(`/api/templates/sidecars?id=${encodeURIComponent(id)}`, {
-      method: 'DELETE',
     }),
 
   // Real Custom Models Security Audit API

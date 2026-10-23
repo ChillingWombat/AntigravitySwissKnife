@@ -1,8 +1,10 @@
 package bridge
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -108,11 +110,14 @@ type Service struct {
 	leadHdl   *LeadHandler
 	cliHdl    *CLIHandler
 	// Custom models are surfaced through the same model tools as native ones.
-	customModels   customModelProvider
-	activateCustom customModelActivator
-	gatewayTokenFn func() string
-	remoteMgr      *RemoteManager
-	channelsMgr    *ChannelsManager
+	customModels    customModelProvider
+	activateCustom  customModelActivator
+	gatewayTokenFn  func() string
+	remoteMgr       *RemoteManager
+	channelsMgr     *ChannelsManager
+	discordGW       *DiscordGatewayClient
+	discordGWCancel context.CancelFunc
+	discordGWMu     sync.Mutex
 }
 
 // DefaultConfig initializes recommended default bridge settings.
@@ -222,6 +227,10 @@ func NewService(configPath string) (*Service, error) {
 		}()
 	}
 
+	if !gui.IsTestExecution() {
+		s.syncDiscordGateway()
+	}
+
 	return s, nil
 }
 
@@ -291,12 +300,109 @@ func (s *Service) GetChannelsConfigRedacted() ChannelsConfig {
 
 // UpdateChannelsConfig updates chat channel settings.
 func (s *Service) UpdateChannelsConfig(cfg ChannelsConfig) error {
-	return s.channelsMgr.UpdateConfig(cfg)
+	err := s.channelsMgr.UpdateConfig(cfg)
+	if err == nil {
+		s.syncDiscordGateway()
+	}
+	return err
 }
 
 // TestChannel executes connectivity check for a given channel.
 func (s *Service) TestChannel(name string) (string, error) {
-	return s.channelsMgr.TestChannel(name)
+	res, err := s.channelsMgr.TestChannel(name)
+	if err == nil && strings.ToLower(name) == "discord" {
+		s.syncDiscordGateway()
+	}
+	return res, err
+}
+
+// syncDiscordGateway starts or stops the Discord Gateway WebSocket listener based on configuration.
+func (s *Service) syncDiscordGateway() {
+	s.discordGWMu.Lock()
+	defer s.discordGWMu.Unlock()
+
+	cfg := s.channelsMgr.GetConfig()
+	token := strings.TrimSpace(cfg.Discord.BotToken)
+	cleanToken := strings.TrimPrefix(token, "Bot ")
+	shouldRun := cfg.Discord.Enabled && cleanToken != "" && cleanToken != "[REDACTED]" && cleanToken != "******"
+
+	if s.discordGW != nil {
+		if !shouldRun || s.discordGW.token != cleanToken {
+			if s.discordGWCancel != nil {
+				s.discordGWCancel()
+				s.discordGWCancel = nil
+			}
+			s.discordGW.Stop()
+			s.discordGW = nil
+		}
+	}
+
+	if shouldRun && s.discordGW == nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		s.discordGWCancel = cancel
+		gwURL := os.Getenv("DISCORD_GATEWAY_URL")
+		if gwURL == "" {
+			gwURL = "wss://gateway.discord.gg/?v=10&encoding=json"
+		}
+		gw := NewDiscordGatewayClient(gwURL, cleanToken, func(msg DiscordMessage) {
+			go s.RelayDiscordMessage(cfg, msg)
+		}, func(username, id string) {
+			s.channelsMgr.SetVerifiedIdentity("discord", username)
+		})
+		s.discordGW = gw
+		go gw.Start(ctx)
+	}
+}
+
+// stopDiscordGateway terminates the active Discord Gateway client connection.
+func (s *Service) stopDiscordGateway() {
+	s.discordGWMu.Lock()
+	defer s.discordGWMu.Unlock()
+	if s.discordGW != nil {
+		if s.discordGWCancel != nil {
+			s.discordGWCancel()
+			s.discordGWCancel = nil
+		}
+		s.discordGW.Stop()
+		s.discordGW = nil
+	}
+}
+
+// RelayDiscordMessage processes an inbound Discord message through AnswerChannelMessage
+// and posts the generated response back to the originating channel.
+func (s *Service) RelayDiscordMessage(cfg ChannelsConfig, msg DiscordMessage) {
+	if msg.Author.Bot {
+		return
+	}
+	text := strings.TrimSpace(msg.Content)
+	if text == "" {
+		return
+	}
+	if !discordChannelAllowed(cfg.Discord.AllowedChannels, msg.ChannelID) {
+		log.Printf("[channels] discord message from channel %s dropped: not in allowed channels", msg.ChannelID)
+		return
+	}
+	if !discordUserAllowed(cfg.Discord.AllowedUsers, msg.Author.ID) {
+		log.Printf("[channels] discord message from user %s dropped: not in allowed users", msg.Author.ID)
+		return
+	}
+	if !MarkMessageSeen("dc-" + msg.ID) {
+		return
+	}
+
+	reply, err := s.AnswerChannelMessage(text, cfg.DefaultProject)
+	if err != nil {
+		log.Printf("[channels] discord relay failed for %s: %v", msg.ID, err)
+		if sendErr := SendDiscordReply(cfg.Discord.BotToken, msg.ChannelID, "The agent could not answer that message. Check the bridge logs."); sendErr != nil {
+			log.Printf("[channels] discord failure notice could not be sent: %v", sendErr)
+		}
+		return
+	}
+	if err := SendDiscordReply(cfg.Discord.BotToken, msg.ChannelID, reply); err != nil {
+		log.Printf("[channels] discord reply failed for %s: %v", msg.ID, err)
+		return
+	}
+	s.RecordChannelActivity("discord")
 }
 
 // GetRawAuthToken returns the raw unmasked auth token (for internal authentication testing).
@@ -502,6 +608,13 @@ func (s *Service) StartRemoteTunnel(tType, customURL string) (TunnelStatus, erro
 // StopRemoteTunnel terminates remote tunneling for remote control.
 func (s *Service) StopRemoteTunnel() {
 	s.remoteMgr.StopTunnel()
+}
+
+// Stop gracefully shuts down all bridge tunnels and active gateway connections.
+func (s *Service) Stop() {
+	s.StopTunnel()
+	s.StopRemoteTunnel()
+	s.stopDiscordGateway()
 }
 
 // GetRemoteTunnelStatus returns current remote control tunnel status.

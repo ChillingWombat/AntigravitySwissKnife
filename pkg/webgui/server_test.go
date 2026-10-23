@@ -537,7 +537,7 @@ func TestWebGUICustomModelsEndpoints(t *testing.T) {
 	resp.Body.Close()
 }
 
-func TestWebGUIEnhancementsAndTemplatesEndpoints(t *testing.T) {
+func TestWebGUIEnhancementsEndpoints(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
@@ -570,44 +570,6 @@ func TestWebGUIEnhancementsAndTemplatesEndpoints(t *testing.T) {
 	resp, err = http.Post(baseURL+"/api/enhancements/update", "application/json", bytes.NewReader(bData))
 	if err != nil {
 		t.Fatalf("POST /api/enhancements/update failed: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-	resp.Body.Close()
-
-	// 3. GET /api/templates
-	resp, err = http.Get(baseURL + "/api/templates")
-	if err != nil {
-		t.Fatalf("GET /api/templates failed: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-	var tmpls []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&tmpls); err != nil {
-		t.Fatalf("failed to decode templates: %v", err)
-	}
-	resp.Body.Close()
-
-	if len(tmpls) == 0 {
-		t.Errorf("expected templates catalog not to be empty")
-	}
-
-	// 4. GET /api/templates?id=daily-news-feed-digest
-	resp, err = http.Get(baseURL + "/api/templates?id=daily-news-feed-digest")
-	if err != nil {
-		t.Fatalf("GET /api/templates?id=... failed: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-	resp.Body.Close()
-
-	// 5. GET /api/templates/sidecars
-	resp, err = http.Get(baseURL + "/api/templates/sidecars")
-	if err != nil {
-		t.Fatalf("GET /api/templates/sidecars failed: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)

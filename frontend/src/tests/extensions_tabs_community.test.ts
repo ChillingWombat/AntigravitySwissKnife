@@ -135,11 +135,11 @@ describe('Extensions top tab switcher & Community Extensions UI (#203)', () => {
 
     // Header condition allows currentTool === 7 to render top header
     assert.ok(
-      appSrc.includes('currentTool !== 5 && currentTool !== 6'),
+      appSrc.includes('currentTool !== 6'),
       'header condition must permit currentTool === 7'
     )
     assert.ok(
-      !appSrc.includes('currentTool !== 5 && currentTool !== 6 && currentTool !== 7'),
+      !appSrc.includes('currentTool !== 7'),
       'old header exclusion for tool 7 must be removed'
     )
 
