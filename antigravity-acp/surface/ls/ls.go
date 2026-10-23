@@ -274,6 +274,16 @@ func (s *Surface) History(ctx context.Context, sessionID string) ([]surface.Even
 	return events, nil
 }
 
+// SetModel changes the planner model used by the next turn of a session.
+func (s *Surface) SetModel(ctx context.Context, sessionID, model string) error {
+	s.mu.Lock()
+	opts := s.sessions[sessionID]
+	opts.Model = model
+	s.sessions[sessionID] = opts
+	s.mu.Unlock()
+	return nil
+}
+
 func (s *Surface) Close(ctx context.Context, sessionID string) error {
 	s.mu.Lock()
 	delete(s.sessions, sessionID)

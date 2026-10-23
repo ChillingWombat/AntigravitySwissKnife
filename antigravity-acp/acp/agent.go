@@ -161,8 +161,27 @@ func (a *Agent) SetSessionMode(context.Context, acpsdk.SetSessionModeRequest) (a
 	return acpsdk.SetSessionModeResponse{}, acpsdk.NewMethodNotFound(acpsdk.AgentMethodSessionSetMode)
 }
 
-func (a *Agent) SetSessionConfigOption(context.Context, acpsdk.SetSessionConfigOptionRequest) (acpsdk.SetSessionConfigOptionResponse, error) {
-	return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewMethodNotFound(acpsdk.AgentMethodSessionSetConfigOption)
+// SetSessionConfigOption changes the model for a session when the surface can.
+// The request is a union: only the id-valued form names a model.
+func (a *Agent) SetSessionConfigOption(ctx context.Context, p acpsdk.SetSessionConfigOptionRequest) (acpsdk.SetSessionConfigOptionResponse, error) {
+	selector, ok := a.surface.(surface.ModelSelector)
+	if !ok {
+		return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewMethodNotFound(acpsdk.AgentMethodSessionSetConfigOption)
+	}
+	if p.ValueId == nil {
+		return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewInvalidParams(map[string]any{
+			"error": "only the model option takes an id value",
+		})
+	}
+	if p.ValueId.ConfigId != "model" {
+		return acpsdk.SetSessionConfigOptionResponse{}, acpsdk.NewInvalidParams(map[string]any{
+			"error": "only the model option is supported",
+		})
+	}
+	if err := selector.SetModel(ctx, string(p.ValueId.SessionId), string(p.ValueId.Value)); err != nil {
+		return acpsdk.SetSessionConfigOptionResponse{}, err
+	}
+	return acpsdk.SetSessionConfigOptionResponse{}, nil
 }
 
 // promptText flattens the client's content blocks into the string a surface takes.

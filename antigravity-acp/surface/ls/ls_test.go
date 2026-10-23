@@ -111,3 +111,35 @@ func TestListReadsTrajectories(t *testing.T) {
 		t.Errorf("sessions = %+v", sessions)
 	}
 }
+
+// Selecting a model must change the planner model of the next turn.
+func TestSetModelChangesPlannerModel(t *testing.T) {
+	steps := []map[string]interface{}{
+		{"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE", "plannerResponse": map[string]interface{}{"response": "done"}},
+	}
+	s, _, bodies := fakeServer(t, steps)
+	if _, err := s.Start(context.Background(), surface.SessionOptions{Cwd: "/tmp"}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := s.SetModel(context.Background(), "cascade-1", "MODEL_PLACEHOLDER_M999"); err != nil {
+		t.Fatalf("SetModel: %v", err)
+	}
+	if _, err := s.Send(context.Background(), "cascade-1", "hi", func(surface.Event) error { return nil }); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	var planner string
+	for _, body := range *bodies {
+		config, _ := body["cascadeConfig"].(map[string]interface{})
+		if config == nil {
+			continue
+		}
+		plannerConfig, _ := config["plannerConfig"].(map[string]interface{})
+		if plannerConfig != nil {
+			planner, _ = plannerConfig["planModel"].(string)
+		}
+	}
+	if planner != "MODEL_PLACEHOLDER_M999" {
+		t.Errorf("planModel = %q, want the selected model", planner)
+	}
+}

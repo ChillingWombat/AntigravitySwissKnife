@@ -50,6 +50,13 @@ type SessionInfo struct {
 	UpdatedAt int64
 }
 
+// ModelSelector is implemented by surfaces that can change the model of an open
+// session. Selection goes through the adapter because the Antigravity picker is fed
+// by the server's own catalogue and cannot list gateway models.
+type ModelSelector interface {
+	SetModel(ctx context.Context, sessionID, model string) error
+}
+
 // HistoryProvider is implemented by surfaces that can replay a past conversation.
 // It exists as a separate interface so a surface without history is not forced to
 // pretend it has any.
