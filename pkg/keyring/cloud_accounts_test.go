@@ -54,6 +54,10 @@ func TestNormalizeCloudTier(t *testing.T) {
 		{"free", "Free"},
 		{"tier_free", "Free"},
 		{"", "Pro"},
+		// A product label is not a plan: undeterminable tiers report Free.
+		{"Antigravity", "Free"},
+		{"Antigravity Pro", "Pro"},
+		{"nonsense", "Free"},
 	}
 
 	for _, tc := range tests {

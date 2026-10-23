@@ -55,6 +55,7 @@ import {
 } from '../utils/testConnectionButton'
 import { MODEL_CARD_MIN_WIDTH, MODEL_CARD_GRID_GAP } from '../utils/layoutTokens'
 import { api } from '../api'
+import { ModelSourceTab } from '../components/ModelSourceTab'
 
 const inferProviderType = (url: string): ProviderType => {
   const lower = (url || '').toLowerCase()
@@ -94,6 +95,7 @@ const normalizeQuotaType = (t?: string | null): QuotaType => {
 }
 
 export const CustomModelsPage: React.FC = () => {
+  const [pageView, setPageView] = useState<'models' | 'model_source'>('models')
   const [config, setConfig] = useState<CustomModelsConfig | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
   const [feedback, setFeedback] = useState<string | null>(null)
@@ -369,7 +371,6 @@ export const CustomModelsPage: React.FC = () => {
       gcp_project_id: project,
       gcp_region: region,
       gcp_service_account_key: effSaKey,
-      project_mappings: ['*'],
       quota_type: 'balance',
       quota_value: 'Active (GCP Billing)',
       balance_value: 'Active (GCP Billing)',
@@ -480,7 +481,6 @@ export const CustomModelsPage: React.FC = () => {
       gcp_project_id: project,
       gcp_region: region,
       gcp_service_account_key: saKey,
-      project_mappings: isEdit ? gcpEditingModel.project_mappings : ['*'],
       quota_type: 'balance',
       quota_manual_override: true,
       quota_value: effectiveQuota,
@@ -790,7 +790,6 @@ export const CustomModelsPage: React.FC = () => {
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
       custom_quota_endpoint: customQuotaEndpoint.trim() || undefined,
-      project_mappings: ['*'],
       quota_type: editingModel?.quota_type || 'na',
       balance_value: editingModel?.balance_value,
       quota_value: editingModel?.quota_value,
@@ -868,7 +867,6 @@ export const CustomModelsPage: React.FC = () => {
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
       custom_quota_endpoint: customQuotaEndpoint.trim() || undefined,
-      project_mappings: ['*'],
       quota_type: quotaType,
       prepaid_balance: 0,
       total_budget: 0,
@@ -942,7 +940,6 @@ export const CustomModelsPage: React.FC = () => {
       base_url: baseUrl.trim() || ep,
       api_key: apiKey.trim(),
       custom_quota_endpoint: ep,
-      project_mappings: ['*'],
       quota_type: quotaType,
       prepaid_balance: 0,
       total_budget: 0,
@@ -1090,7 +1087,6 @@ export const CustomModelsPage: React.FC = () => {
       gcp_region: editingModel?.gcp_region,
       gcp_service_account_key: editingModel?.gcp_service_account_key,
       custom_quota_endpoint: customQuotaEndpoint.trim() || undefined,
-      project_mappings: ['*'],
       quota_type: quotaType,
       quota_manual_override: quotaManualOverride,
       balance_value: quotaType === 'balance' ? (balanceValue.trim() || undefined) : undefined,
@@ -1265,8 +1261,59 @@ export const CustomModelsPage: React.FC = () => {
   const filterStats = computeModelFilterStats(models)
   const filteredModels = filterModels(models, modelFilter)
 
+  if (pageView === 'model_source') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+            Model Source
+          </span>
+          <button
+            onClick={() => setPageView('models')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              border: '1px solid var(--border)',
+              borderRadius: '18px',
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: 'var(--text)',
+              backgroundColor: 'var(--surface)',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Back to models
+          </button>
+        </div>
+        <ModelSourceTab />
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          onClick={() => setPageView('model_source')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            border: '1px solid var(--border)',
+            borderRadius: '18px',
+            padding: '6px 14px',
+            fontSize: '12px',
+            fontWeight: 600,
+            color: 'var(--text)',
+            backgroundColor: 'var(--surface)',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Model Source
+        </button>
+      </div>
       {/* Top Bar Left Filter Pills via Portal */}
       {portalLeftTarget &&
         createPortal(

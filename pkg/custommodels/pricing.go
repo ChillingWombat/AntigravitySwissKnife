@@ -1233,16 +1233,11 @@ func (s *Store) DeletePricingModel(internalID int64, modelID string) error {
 	// Remove from PricingRecords
 	s.config.PricingRecords = append(s.config.PricingRecords[:targetIdx], s.config.PricingRecords[targetIdx+1:]...)
 
-	// If backed by a user CustomModel, remove from s.config.Models and ProjectBinds
+	// If backed by a user CustomModel, remove it from s.config.Models
 	if rec.CustomModelID != "" || rec.InternalID > 0 {
 		filtered := make([]CustomModel, 0, len(s.config.Models))
 		for _, cm := range s.config.Models {
 			if (rec.CustomModelID != "" && cm.ID == rec.CustomModelID) || (rec.InternalID > 0 && cm.InternalID == rec.InternalID) {
-				for p, boundID := range s.config.ProjectBinds {
-					if boundID == cm.ID {
-						delete(s.config.ProjectBinds, p)
-					}
-				}
 				continue
 			}
 			filtered = append(filtered, cm)

@@ -428,7 +428,14 @@ func TestWebGUIAppReleaseEndpoints(t *testing.T) {
 }
 
 func TestWebGUICustomModelsEndpoints(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	cmStore, err := custommodels.NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create custom models store: %v", err)
+	}
 	srv := NewServer("127.0.0.1:0", "")
+	srv.SetCustomModelsStore(cmStore)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -477,7 +484,6 @@ func TestWebGUICustomModelsEndpoints(t *testing.T) {
 		"display_name":     "Qwen 2.5 Coder 32B (Local)",
 		"provider_type":    "local",
 		"base_url":         "http://localhost:11434/v1",
-		"project_mappings": []string{"ProjectAlpha"},
 		"quota_type":       "none",
 		"enabled":          true,
 	}
@@ -491,20 +497,33 @@ func TestWebGUICustomModelsEndpoints(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// 4. POST /api/custom_models/bind
-	bindPayload := map[string]string{
-		"project":  "ProjectAlpha",
-		"model_id": "test-ollama-qwen",
-	}
-	bData, _ := json.Marshal(bindPayload)
-	resp, err = http.Post(baseURL+"/api/custom_models/bind", "application/json", bytes.NewReader(bData))
+	// 4. POST /api/custom_models/active — the selected model is app-wide, not bound
+	// to a project.
+	activePayload := map[string]string{"model_id": "test-ollama-qwen"}
+	aData, _ := json.Marshal(activePayload)
+	resp, err = http.Post(baseURL+"/api/custom_models/active", "application/json", bytes.NewReader(aData))
 	if err != nil {
-		t.Fatalf("POST /api/custom_models/bind failed: %v", err)
+		t.Fatalf("POST /api/custom_models/active failed: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d (%s)", resp.StatusCode, string(body))
 	}
+	var activeResp map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&activeResp)
 	resp.Body.Close()
+	if activeResp["active_model_id"] != "test-ollama-qwen" {
+		t.Errorf("expected the active model to be recorded, got %v", activeResp)
+	}
+
+	// A project binding endpoint must not exist any more.
+	bindResp, err := http.Post(baseURL+"/api/custom_models/bind", "application/json", bytes.NewReader([]byte(`{"project":"ProjectAlpha","model_id":"test-ollama-qwen"}`)))
+	if err == nil {
+		if bindResp.StatusCode != http.StatusNotFound {
+			t.Errorf("expected /api/custom_models/bind to be gone, got %d", bindResp.StatusCode)
+		}
+		bindResp.Body.Close()
+	}
 
 	// 5. DELETE /api/custom_models?id=test-ollama-qwen
 	req, _ := http.NewRequest(http.MethodDelete, baseURL+"/api/custom_models?id=test-ollama-qwen", nil)
@@ -1451,6 +1470,7 @@ func TestWebGUIUtilitiesImportEndpoints(t *testing.T) {
 func TestWebGUIAvailableModelsAndRules(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	t.Setenv("ANTIGRAVITY_DATA_DIR", tempDir)
 	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "daemon.sock"))
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
@@ -1541,6 +1561,7 @@ func TestWebGUIAvailableModelsAndRules(t *testing.T) {
 func TestWebGUICORSMiddlewareAndColorEndpoints(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	t.Setenv("ANTIGRAVITY_DATA_DIR", tempDir)
 	guiStore, err := gui.NewStore(filepath.Join(tempDir, "gui_config.json"))
 	if err != nil {
 		t.Fatalf("failed to init guiStore: %v", err)
@@ -2962,6 +2983,7 @@ func TestWebGUIUtilitiesACPEndpoint(t *testing.T) {
 func TestCacheConfig_UnlimitedDefaultsAndPersistence(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	t.Setenv("ANTIGRAVITY_DATA_DIR", tempDir)
 
 	dummySock := filepath.Join(tempDir, "isolated.sock")
 	srv := NewServer("127.0.0.1:0", dummySock)
@@ -3070,8 +3092,15 @@ func TestCacheConfig_UnlimitedDefaultsAndPersistence(t *testing.T) {
 func TestSubagentModelStrategy_RulesAPI(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	t.Setenv("ANTIGRAVITY_DATA_DIR", tempDir)
 	dummySock := filepath.Join(tempDir, "dummy.sock")
+	cmStore, err := custommodels.NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create custom models store: %v", err)
+	}
 	srv := NewServer("127.0.0.1:0", dummySock)
+	srv.SetCustomModelsStore(cmStore)
+	srv.SetAntigravityDataDir(tempDir)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -3133,8 +3162,15 @@ func TestSubagentModelStrategy_RulesAPI(t *testing.T) {
 func TestCustomModels_DefaultCustomModelByNameAndID(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	t.Setenv("ANTIGRAVITY_DATA_DIR", tempDir)
 	dummySock := filepath.Join(tempDir, "dummy.sock")
+	cmStore, err := custommodels.NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create custom models store: %v", err)
+	}
 	srv := NewServer("127.0.0.1:0", dummySock)
+	srv.SetCustomModelsStore(cmStore)
+	srv.SetAntigravityDataDir(tempDir)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -3272,8 +3308,15 @@ func TestCustomModels_DefaultCustomModelByNameAndID(t *testing.T) {
 func TestCustomModels_DeleteClearsNameBasedDefaultAndStoreFlags(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	t.Setenv("ANTIGRAVITY_DATA_DIR", tempDir)
 	dummySock := filepath.Join(tempDir, "dummy.sock")
+	cmStore, err := custommodels.NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create custom models store: %v", err)
+	}
 	srv := NewServer("127.0.0.1:0", dummySock)
+	srv.SetCustomModelsStore(cmStore)
+	srv.SetAntigravityDataDir(tempDir)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -3366,6 +3409,7 @@ func TestCustomModels_DeleteClearsNameBasedDefaultAndStoreFlags(t *testing.T) {
 func TestCustomModels_DefaultGateOnFailedLastTest(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	t.Setenv("ANTIGRAVITY_DATA_DIR", tempDir)
 
 	// Seed a store whose GCP model carries a persisted failed connectivity test.
 	seed := `{
@@ -3381,7 +3425,6 @@ func TestCustomModels_DefaultGateOnFailedLastTest(t *testing.T) {
       "gcp_project_id": "proj-a",
       "gcp_region": "global",
       "gcp_service_account_key": "{\"type\":\"service_account\",\"project_id\":\"proj-a\",\"private_key\":\"k\",\"client_email\":\"sa@proj-a.iam.gserviceaccount.com\"}",
-      "project_mappings": ["*"],
       "quota_type": "balance",
       "quota_manual_override": true,
       "is_default": false,
@@ -3389,15 +3432,20 @@ func TestCustomModels_DefaultGateOnFailedLastTest(t *testing.T) {
       "last_tested_at": "2026-10-18T00:00:00Z",
       "enabled": true
     }
-  ],
-  "project_binds": {}
+  ]
 }`
 	if err := os.WriteFile(filepath.Join(tempDir, "custom_models.json"), []byte(seed), 0600); err != nil {
 		t.Fatalf("failed to seed custom_models.json: %v", err)
 	}
 
 	dummySock := filepath.Join(tempDir, "dummy.sock")
+	cmStore, err := custommodels.NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create custom models store: %v", err)
+	}
 	srv := NewServer("127.0.0.1:0", dummySock)
+	srv.SetCustomModelsStore(cmStore)
+	srv.SetAntigravityDataDir(tempDir)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -3494,6 +3542,7 @@ func TestCustomModels_DefaultGateOnFailedLastTest(t *testing.T) {
 func TestCustomModels_KeyEndpointAndDynamicBalanceReconciliation(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	t.Setenv("ANTIGRAVITY_DATA_DIR", tempDir)
 
 	rawSAKey := `{"type":"service_account","project_id":"test-proj","private_key":"my-secret-key","client_email":"sa@test-proj.iam.gserviceaccount.com"}`
 	seed := fmt.Sprintf(`{
@@ -3509,7 +3558,6 @@ func TestCustomModels_KeyEndpointAndDynamicBalanceReconciliation(t *testing.T) {
       "gcp_project_id": "test-proj",
       "gcp_region": "global",
       "gcp_service_account_key": %q,
-      "project_mappings": ["*"],
       "quota_type": "balance",
       "balance_value": "300",
       "quota_value": "300",
@@ -3519,15 +3567,20 @@ func TestCustomModels_KeyEndpointAndDynamicBalanceReconciliation(t *testing.T) {
       "is_default": true,
       "enabled": true
     }
-  ],
-  "project_binds": {}
+  ]
 }`, rawSAKey)
 	if err := os.WriteFile(filepath.Join(tempDir, "custom_models.json"), []byte(seed), 0600); err != nil {
 		t.Fatalf("failed to seed custom_models.json: %v", err)
 	}
 
 	dummySock := filepath.Join(tempDir, "dummy.sock")
+	cmStore, err := custommodels.NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create custom models store: %v", err)
+	}
 	srv := NewServer("127.0.0.1:0", dummySock)
+	srv.SetCustomModelsStore(cmStore)
+	srv.SetAntigravityDataDir(tempDir)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -3577,5 +3630,102 @@ func TestCustomModels_KeyEndpointAndDynamicBalanceReconciliation(t *testing.T) {
 	pct, hasInfo := m.CalculatePercentage()
 	if !hasInfo || pct != 100 {
 		t.Errorf("expected CalculatePercentage() to return (100, true), got (%d, %v)", pct, hasInfo)
+	}
+}
+
+func TestCustomModels_GeminiQuotaExhaustedBackupActivation(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	t.Setenv("ANTIGRAVITY_DATA_DIR", tempDir)
+
+	kStore, err := keyring.NewStore("")
+	if err != nil {
+		t.Fatalf("keyring.NewStore failed: %v", err)
+	}
+	testAcc := &keyring.Account{
+		Email: "developer@example.com",
+	}
+	if err := kStore.AddOrUpdateAccount(testAcc); err != nil {
+		t.Fatalf("AddOrUpdateAccount failed: %v", err)
+	}
+
+	cmStore, err := custommodels.NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("custommodels.NewStore failed: %v", err)
+	}
+	backupModel := custommodels.CustomModel{
+		ID:           "backup-claude",
+		Name:         "claude-3-7-sonnet",
+		DisplayName:  "Claude 3.7 Sonnet (Backup)",
+		ProviderType: custommodels.ProviderAnthropic,
+		BaseURL:      "https://api.anthropic.com/v1",
+		IsDefault:    true,
+		Enabled:      true,
+	}
+	if err := cmStore.SaveModel(backupModel); err != nil {
+		t.Fatalf("SaveModel failed: %v", err)
+	}
+
+	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "dummy.sock"))
+	srv.SetCustomModelsStore(cmStore)
+	srv.SetAntigravityDataDir(tempDir)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start failed: %v", err)
+	}
+	defer srv.Stop()
+
+	// 1. Case A: Gemini quota is healthy (5h > 0)
+	quota.SaveQuotaCache(map[string]*quota.QuotaSummary{
+		"developer@example.com": {
+			AccountEmail:        "developer@example.com",
+			Quota5hFraction:     0.80,
+			QuotaWeeklyFraction: 0.90,
+		},
+	})
+
+	if srv.isGeminiQuotaExhausted() {
+		t.Errorf("expected isGeminiQuotaExhausted() == false when Gemini quota is healthy")
+	}
+
+	baseURL := "http://" + srv.Addr()
+	resp, err := http.Get(baseURL + "/api/custom_models")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/custom_models failed: %v", err)
+	}
+	var resA custommodels.Config
+	if err := json.NewDecoder(resp.Body).Decode(&resA); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if resA.GeminiQuotaExhausted {
+		t.Errorf("expected GeminiQuotaExhausted to be false when quota is healthy")
+	}
+
+	// 2. Case B: Gemini quota is fully exhausted (both 5h and weekly <= 0)
+	quota.SaveQuotaCache(map[string]*quota.QuotaSummary{
+		"developer@example.com": {
+			AccountEmail:        "developer@example.com",
+			Quota5hFraction:     0.0,
+			QuotaWeeklyFraction: 0.0,
+		},
+	})
+
+	if !srv.isGeminiQuotaExhausted() {
+		t.Errorf("expected isGeminiQuotaExhausted() == true when Gemini quota is exhausted")
+	}
+
+	respB, err := http.Get(baseURL + "/api/custom_models")
+	if err != nil || respB.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/custom_models failed: %v", err)
+	}
+	var resB custommodels.Config
+	if err := json.NewDecoder(respB.Body).Decode(&resB); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+	respB.Body.Close()
+
+	if !resB.GeminiQuotaExhausted {
+		t.Errorf("expected GeminiQuotaExhausted to be true when quota is exhausted")
 	}
 }

@@ -520,6 +520,14 @@ async function updateTrayMenu() {
         } else if (typeof singleQuota.quota_weekly === 'number') {
           activeAcc.quota_weekly = singleQuota.quota_weekly;
         }
+        if (typeof singleQuota.quota_5h_argon === 'number') {
+          activeAcc.quota_5h_argon = singleQuota.quota_5h_argon;
+          activeAcc.reset_horizon_5h_argon_text = singleQuota.reset_horizon_5h_argon_text;
+        }
+        if (typeof singleQuota.quota_weekly_argon === 'number') {
+          activeAcc.quota_weekly_argon = singleQuota.quota_weekly_argon;
+          activeAcc.reset_horizon_weekly_argon_text = singleQuota.reset_horizon_weekly_argon_text;
+        }
       }
     } catch {}
   }

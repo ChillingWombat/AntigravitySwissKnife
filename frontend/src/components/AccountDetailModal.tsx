@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, Link, ExternalLink } from 'lucide-react'
 import type { AccountState } from '../types'
+import { isProOrAbovePlan } from '../types'
 import { renderPlanTierBadge } from '../pages/QuotaDashboardPage'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
 import { ToggleSwitch } from './ToggleSwitch'
@@ -102,11 +103,23 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [liveQuotaWeekly, setLiveQuotaWeekly] = useState<number | null>(
     account.quota_weekly ?? null
   )
+  const [liveQuota5hArgon, setLiveQuota5hArgon] = useState<number | null>(
+    account.quota_5h_argon ?? null
+  )
+  const [liveQuotaWeeklyArgon, setLiveQuotaWeeklyArgon] = useState<number | null>(
+    account.quota_weekly_argon ?? null
+  )
   const [liveResetHorizon, setLiveResetHorizon] = useState<string | null>(
     account.reset_horizon_text || null
   )
   const [liveResetHorizonWeekly, setLiveResetHorizonWeekly] = useState<string | null>(
     account.reset_horizon_weekly_text || null
+  )
+  const [liveResetHorizon5hArgon, setLiveResetHorizon5hArgon] = useState<string | null>(
+    account.reset_horizon_5h_argon_text || null
+  )
+  const [liveResetHorizonWeeklyArgon, setLiveResetHorizonWeeklyArgon] = useState<string | null>(
+    account.reset_horizon_weekly_argon_text || null
   )
   const [currentPlanTier, setCurrentPlanTier] = useState<string>(account.plan_tier || '')
   const [isRefreshingQuota, setIsRefreshingQuota] = useState(false)
@@ -151,8 +164,12 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     if (!q) return
     if (q.quota_5h_fraction !== undefined) setLiveQuota5h(q.quota_5h_fraction)
     if (q.quota_weekly_fraction !== undefined) setLiveQuotaWeekly(q.quota_weekly_fraction)
+    if (q.quota_5h_argon !== undefined) setLiveQuota5hArgon(q.quota_5h_argon)
+    if (q.quota_weekly_argon !== undefined) setLiveQuotaWeeklyArgon(q.quota_weekly_argon)
     if (q.reset_horizon_text) setLiveResetHorizon(q.reset_horizon_text)
+    if (q.reset_horizon_5h_argon_text) setLiveResetHorizon5hArgon(q.reset_horizon_5h_argon_text)
     if (q.reset_horizon_weekly_text) setLiveResetHorizonWeekly(q.reset_horizon_weekly_text)
+    if (q.reset_horizon_weekly_argon_text) setLiveResetHorizonWeeklyArgon(q.reset_horizon_weekly_argon_text)
     if (q.plan_tier) {
       account.plan_tier = q.plan_tier
       setCurrentPlanTier(q.plan_tier)
@@ -1007,6 +1024,40 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 title={isQuotaConnected ? (liveResetHorizonWeekly || account.reset_horizon_weekly_text || 'Resets on 7D cycle') : 'Pending login and connection'}
               />
             </div>
+
+            {liveQuota5hArgon !== null && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
+                  <span style={{ fontWeight: 500, color: 'var(--text)' }}>Gemini 4 Argon 5H Quota:</span>
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    {isQuotaConnected ? (liveResetHorizon5hArgon || account.reset_horizon_5h_argon_text || 'Resets on 5H cycle') : 'Not connected'}
+                  </span>
+                </div>
+                <HorizontalQuotaBar
+                  fraction={isQuotaConnected ? liveQuota5hArgon : null}
+                  disabled={!isQuotaConnected}
+                  maxWidth="100%"
+                  title={isQuotaConnected ? (liveResetHorizon5hArgon || account.reset_horizon_5h_argon_text || 'Resets on Gemini 4 Argon 5H cycle') : 'Pending login and connection'}
+                />
+              </div>
+            )}
+
+            {(isProOrAbovePlan(currentPlanTier) || liveQuotaWeeklyArgon !== null) && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
+                  <span style={{ fontWeight: 500, color: 'var(--text)' }}>Gemini 4 Argon 7D Quota:</span>
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    {isQuotaConnected ? (liveResetHorizonWeeklyArgon || account.reset_horizon_weekly_argon_text || 'Resets on 7D cycle') : 'Not connected'}
+                  </span>
+                </div>
+                <HorizontalQuotaBar
+                  fraction={isQuotaConnected ? liveQuotaWeeklyArgon : null}
+                  disabled={!isQuotaConnected}
+                  maxWidth="100%"
+                  title={isQuotaConnected ? (liveResetHorizonWeeklyArgon || account.reset_horizon_weekly_argon_text || 'Resets on Gemini 4 Argon 7D cycle') : 'Pending login and connection'}
+                />
+              </div>
+            )}
           </div>
         </div>
 

@@ -210,3 +210,63 @@ func TestFetchLiveQuotaBreakdown_DetectsPaidProModel(t *testing.T) {
 		t.Fatalf("expected paid Pro model in catalog, known=%v paid=%v", bd.ModelCatalogKnown, bd.HasPaidProModel)
 	}
 }
+
+func TestFetchLiveQuotaBreakdown_SeparatesGeminiAndArgonQuota(t *testing.T) {
+	now := time.Now()
+	payload := `{
+		"groups": [
+			{
+				"displayName": "Gemini Models",
+				"buckets": [
+					{"bucketId": "gemini-weekly", "displayName": "Weekly Limit Remaining", "window": "weekly", "remainingFraction": 0.72, "resetTime": "` + now.Add(6*24*time.Hour).Format(time.RFC3339) + `"},
+					{"bucketId": "gemini-5h", "displayName": "Five Hour Limit Remaining", "window": "5h", "remainingFraction": 0.91, "resetTime": "` + now.Add(4*time.Hour).Format(time.RFC3339) + `"}
+				]
+			},
+			{
+				"displayName": "Gemini 4 Argon",
+				"buckets": [
+					{"bucketId": "argon-5h", "displayName": "Five Hour Limit Remaining", "window": "5h", "remainingFraction": 0.63, "resetTime": "` + now.Add(3*time.Hour).Format(time.RFC3339) + `"},
+					{"bucketId": "argon-weekly", "displayName": "Weekly Limit Remaining", "window": "weekly", "remainingFraction": 0, "resetTime": "` + now.Add(5*24*time.Hour).Format(time.RFC3339) + `"}
+				]
+			}
+		]
+	}`
+
+	origURLs := CloudCodeRetrieveQuotaURLs
+	defer func() { CloudCodeRetrieveQuotaURLs = origURLs }()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer srv.Close()
+	CloudCodeRetrieveQuotaURLs = []string{srv.URL}
+
+	bd, err := FetchLiveQuotaBreakdown("dummy_token", "")
+	if err != nil {
+		t.Fatalf("FetchLiveQuotaBreakdown failed: %v", err)
+	}
+	if bd.QuotaWeeklyGemini != 0.72 {
+		t.Errorf("Gemini weekly = %v, want 0.72", bd.QuotaWeeklyGemini)
+	}
+	if bd.Quota5hGemini != 0.91 {
+		t.Errorf("Gemini 5H = %v, want 0.91", bd.Quota5hGemini)
+	}
+	if bd.Quota5hArgon == nil {
+		t.Fatal("Argon 5H bucket was not captured")
+	}
+	if *bd.Quota5hArgon != 0.63 {
+		t.Errorf("Argon 5H = %v, want 0.63", *bd.Quota5hArgon)
+	}
+	if bd.ResetSeconds5hArgon <= 0 {
+		t.Errorf("expected a future Argon 5H reset horizon, got %v", bd.ResetSeconds5hArgon)
+	}
+	if bd.QuotaWeeklyArgon == nil {
+		t.Fatal("Argon weekly bucket was not captured")
+	}
+	if *bd.QuotaWeeklyArgon != 0 {
+		t.Errorf("Argon weekly = %v, want exhausted value 0", *bd.QuotaWeeklyArgon)
+	}
+	if bd.ResetSecondsWeeklyArgon <= 0 {
+		t.Errorf("expected a future Argon reset horizon, got %v", bd.ResetSecondsWeeklyArgon)
+	}
+}

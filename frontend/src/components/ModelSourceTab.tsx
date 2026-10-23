@@ -1,0 +1,338 @@
+import React, { useEffect, useState } from 'react'
+import { AlertCircle, AlertTriangle, Copy, Check, Play, RefreshCw } from 'lucide-react'
+import { api } from '../api'
+
+type AppKey = 'antigravity' | 'vscode'
+
+interface AppProfile {
+  source: 'native' | 'custom'
+  subagents: 'app' | 'cli'
+}
+
+interface Integration {
+  mode: 'profile_isolation' | 'api_proxy'
+  apps: Record<AppKey, AppProfile>
+  proxy: { scope: 'antigravity' | 'external'; pin?: string }
+}
+
+const DEFAULT_INTEGRATION: Integration = {
+  mode: 'profile_isolation',
+  apps: {
+    antigravity: { source: 'native', subagents: 'app' },
+    vscode: { source: 'native', subagents: 'app' },
+  },
+  proxy: { scope: 'antigravity', pin: '' },
+}
+
+const cardStyle: React.CSSProperties = {
+  backgroundColor: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: '12px',
+  padding: '18px 20px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '14px',
+}
+
+const sectionLabelStyle: React.CSSProperties = {
+  fontSize: '11px',
+  fontWeight: 700,
+  color: 'var(--text-muted)',
+  letterSpacing: '0.8px',
+  textTransform: 'uppercase',
+}
+
+const segmentedStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  gap: '2px',
+  padding: '3px',
+  borderRadius: '8px',
+  backgroundColor: 'var(--tonal)',
+}
+
+function segmentStyle(active: boolean): React.CSSProperties {
+  return {
+    border: 'none',
+    borderRadius: '6px',
+    padding: '6px 14px',
+    fontSize: '12px',
+    fontWeight: active ? 600 : 500,
+    color: active ? 'var(--primary)' : 'var(--text-muted)',
+    backgroundColor: active ? 'var(--surface)' : 'transparent',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  }
+}
+
+const actionStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
+  border: '1px solid var(--border)',
+  borderRadius: '18px',
+  padding: '6px 14px',
+  fontSize: '12px',
+  fontWeight: 600,
+  color: 'var(--text)',
+  backgroundColor: 'var(--surface)',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+}
+
+const riskStyle = (tone: 'orange' | 'red'): React.CSSProperties => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
+  fontSize: '11px',
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
+  color: tone === 'orange' ? '#b45309' : '#b91c1c',
+})
+
+export const ModelSourceTab: React.FC = () => {
+  const [integration, setIntegration] = useState<Integration>(DEFAULT_INTEGRATION)
+  const [endpoint, setEndpoint] = useState('')
+  const [geminiBase, setGeminiBase] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [launching, setLaunching] = useState<AppKey | null>(null)
+  const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const res = await api.getCustomModelIntegration()
+      if (res?.integration) setIntegration({ ...DEFAULT_INTEGRATION, ...res.integration })
+      setEndpoint(res?.endpoint || '')
+      setGeminiBase(res?.gemini_base || '')
+    } catch (err) {
+      setFeedback({ text: `Could not load settings: ${(err as Error).message}`, isError: true })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+  }, [])
+
+  const save = async (next: Integration) => {
+    setIntegration(next)
+    setSaving(true)
+    setFeedback(null)
+    try {
+      const res = await api.updateCustomModelIntegration(next)
+      if (res?.integration) setIntegration({ ...DEFAULT_INTEGRATION, ...res.integration })
+    } catch (err) {
+      setFeedback({ text: `Save failed: ${(err as Error).message}`, isError: true })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const setApp = (app: AppKey, patch: Partial<AppProfile>) => {
+    const next: Integration = {
+      ...integration,
+      apps: { ...integration.apps, [app]: { ...integration.apps[app], ...patch } },
+    }
+    save(next)
+  }
+
+  const launch = async (app: AppKey) => {
+    setLaunching(app)
+    setFeedback(null)
+    try {
+      const res = await api.launchCustomModelApp(app)
+      const source = res?.source === 'custom' ? 'custom models' : 'native models'
+      const note = res?.launch_note ? ` ${res.launch_note}` : ''
+      const settings = res?.settings ? ` (${res.settings})` : ''
+      setFeedback({ text: `Started ${app === 'antigravity' ? 'Antigravity 2.0' : 'VS Code'} with ${source}${settings}.${note}`, isError: false })
+    } catch (err) {
+      setFeedback({ text: `Launch failed: ${(err as Error).message}`, isError: true })
+    } finally {
+      setLaunching(null)
+    }
+  }
+
+  const copyEndpoint = async () => {
+    try {
+      await navigator.clipboard.writeText(endpoint)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setFeedback({ text: 'Clipboard is not available', isError: true })
+    }
+  }
+
+  const appRow = (app: AppKey, label: string) => {
+    const profile = integration.apps[app]
+    const isCustom = profile.source === 'custom'
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>{label}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={segmentedStyle}>
+              <button style={segmentStyle(!isCustom)} onClick={() => setApp(app, { source: 'native' })}>
+                Native models
+              </button>
+              <button style={segmentStyle(isCustom)} onClick={() => setApp(app, { source: 'custom' })}>
+                Custom models
+              </button>
+            </div>
+            <button style={actionStyle} onClick={() => launch(app)} disabled={launching === app}>
+              <Play size={13} />
+              {launching === app ? 'Starting…' : 'Launch'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const isProxy = integration.mode === 'api_proxy'
+  const isExternal = integration.proxy.scope === 'external'
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {feedback && (
+        <div
+          style={{
+            padding: '10px 14px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            border: '1px solid var(--border)',
+            color: feedback.isError ? '#b91c1c' : 'var(--text)',
+            backgroundColor: 'var(--canvas)',
+          }}
+        >
+          {feedback.text}
+        </div>
+      )}
+
+      <div style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <span style={sectionLabelStyle}>Integration mode</span>
+          <button style={actionStyle} onClick={load} disabled={loading || saving}>
+            <RefreshCw size={13} /> Reload
+          </button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
+          <button
+            onClick={() => save({ ...integration, mode: 'profile_isolation' })}
+            style={{
+              textAlign: 'left',
+              padding: '14px',
+              borderRadius: '10px',
+              border: !isProxy ? '2px solid var(--primary)' : '1px solid var(--border)',
+              backgroundColor: 'var(--canvas)',
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>Profile Isolation</div>
+            <p style={{ margin: '4px 0 0', fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Each app runs on its own profile with a single catalog. Native windows stay untouched; custom-model windows run separately.
+            </p>
+          </button>
+          <button
+            onClick={() => save({ ...integration, mode: 'api_proxy' })}
+            style={{
+              textAlign: 'left',
+              padding: '14px',
+              borderRadius: '10px',
+              border: isProxy ? '2px solid var(--primary)' : '1px solid var(--border)',
+              backgroundColor: 'var(--canvas)',
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>API Proxy</span>
+              <span style={riskStyle('orange')}>
+                <AlertTriangle size={12} /> Potential Ban Risk
+              </span>
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Routes Antigravity through the local proxy so one catalog can serve both model types. Native model traffic passes through the daemon.
+            </p>
+          </button>
+        </div>
+      </div>
+
+      {!isProxy && (
+        <div style={cardStyle}>
+          <span style={sectionLabelStyle}>Apps</span>
+          {appRow('antigravity', 'Antigravity 2.0')}
+          {appRow('vscode', 'VS Code')}
+        </div>
+      )}
+
+      {isProxy && (
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+            <span style={sectionLabelStyle}>Proxy scope</span>
+            <div style={segmentedStyle}>
+              <button
+                style={segmentStyle(!isExternal)}
+                onClick={() => save({ ...integration, proxy: { ...integration.proxy, scope: 'antigravity' } })}
+              >
+                Antigravity apps only
+              </button>
+              <button
+                style={segmentStyle(isExternal)}
+                onClick={() => save({ ...integration, proxy: { ...integration.proxy, scope: 'external' } })}
+              >
+                Also expose to external agents
+              </button>
+            </div>
+          </div>
+          {isExternal && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={riskStyle('red')}>
+                <AlertCircle size={12} /> Increased Ban Risk
+              </span>
+              <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                External agents can call native models through this endpoint.
+              </span>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+            <span style={sectionLabelStyle}>OpenAI protocol</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <code style={{ fontSize: '12px', color: 'var(--text)' }}>{endpoint || '—'}/models</code>
+              <button style={actionStyle} onClick={copyEndpoint}>
+                {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy endpoint'}
+              </button>
+            </div>
+            <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+              `/v1/chat/completions`. Gemini model calls are converted to the Gemini protocol before reaching Google.
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+            <span style={sectionLabelStyle}>Gemini protocol</span>
+            <code style={{ fontSize: '12px', color: 'var(--text)' }}>{geminiBase || '—'}/models</code>
+            <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+              Gemini models only, listed and served without conversion.
+            </span>
+          </div>
+
+          {isExternal && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '12px', color: 'var(--text)', whiteSpace: 'nowrap' }}>PIN / private key (optional)</span>
+              <input
+                type="password"
+                value={integration.proxy.pin || ''}
+                onChange={(e) => setIntegration({ ...integration, proxy: { ...integration.proxy, pin: e.target.value } })}
+                onBlur={() => save(integration)}
+                placeholder="Require a PIN for external calls"
+                style={{ flex: '1 1 240px', minWidth: '200px', padding: '7px 10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '12px' }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

@@ -493,6 +493,11 @@ func TestIsTrialWarningTextAndNormalize(t *testing.T) {
 		{"Google AI Pro", PlanTierPro},
 		{"Google AI Plus", PlanTierPlus},
 		{"Ultra 20X", PlanTierUltra20X},
+		// An unlicensed account gets a tier named after the app, not a plan.
+		{"Antigravity", PlanTierFree},
+		{"antigravity", PlanTierFree},
+		{"Antigravity Pro", PlanTierPro},
+		{"totally unknown", PlanTierFree},
 	}
 
 	for _, tc := range tests {

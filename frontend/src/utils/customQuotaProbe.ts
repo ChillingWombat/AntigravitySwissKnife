@@ -62,7 +62,6 @@ export function buildDraftModelForQuotaProbe(params: {
     base_url: params.baseUrl.trim() || ep,
     api_key: params.apiKey?.trim() || '',
     custom_quota_endpoint: ep,
-    project_mappings: ['*'],
     quota_type: params.quotaType || 'na',
     prepaid_balance: 0,
     total_budget: 0,

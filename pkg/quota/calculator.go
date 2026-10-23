@@ -23,41 +23,46 @@ const (
 	SwitchModeMaxTokens     = "max_tokens"
 	SwitchModeMaxContinuous = "max_continuous"
 
-	MinProactiveSwitchDwellSeconds = 600.0   // 10 minutes
-	FiveHourWindowSeconds          = 18000.0 // 5 hours
+	MinProactiveSwitchDwellSeconds = 600.0    // 10 minutes
+	FiveHourWindowSeconds          = 18000.0  // 5 hours
 	WeeklyWindowSeconds            = 604800.0 // 7 days
 )
 
 var horizonUnitRegex = regexp.MustCompile(`(?i)(\d+)\s*([dhms])`)
 
-
 // AccountQuotaState represents live quota state and credential horizons for an account.
 type AccountQuotaState struct {
-	Email                string  `json:"email"`
-	Label                string  `json:"label"`
-	PlanTier             string  `json:"plan_tier"`
-	Credits              float64 `json:"credits"`
-	EnableCreditOverages bool    `json:"enable_credit_overages"`
-	AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
-	IsActive             bool    `json:"is_active"`
-	Status               string  `json:"status"`
-	Priority             string  `json:"priority,omitempty"`
-	Notes                string  `json:"notes,omitempty"`
-	Password             string  `json:"password,omitempty"`
-	HasTOTP              bool    `json:"has_totp"`
-	TOTPSecret           string  `json:"totp_secret"`
-	AccessToken          string  `json:"access_token,omitempty"`
-	RefreshToken         string  `json:"refresh_token"`
-	Quota5hCurrent       float64 `json:"quota_5h_current"`
-	ResetSeconds         float64 `json:"reset_seconds"`
-	QuotaWeekly          float64 `json:"quota_weekly"`
-	Quota5hAvailable     float64 `json:"quota_5h_available"`
-	Quota5hClaudeGPT       float64 `json:"quota_5h_claude_gpt"`
-	QuotaWeeklyClaudeGPT   float64 `json:"quota_weekly_claude_gpt"`
-	ResetHorizonText       string  `json:"reset_horizon_text"`
-	ResetSecondsWeekly     float64 `json:"reset_seconds_weekly"`
-	ResetHorizonWeeklyText string  `json:"reset_horizon_weekly_text"`
-	ErrorMessage           string  `json:"error_message,omitempty"`
+	Email                       string   `json:"email"`
+	Label                       string   `json:"label"`
+	PlanTier                    string   `json:"plan_tier"`
+	Credits                     float64  `json:"credits"`
+	EnableCreditOverages        bool     `json:"enable_credit_overages"`
+	AllowClaudeGPT              bool     `json:"allow_claude_gpt"`
+	IsActive                    bool     `json:"is_active"`
+	Status                      string   `json:"status"`
+	Priority                    string   `json:"priority,omitempty"`
+	Notes                       string   `json:"notes,omitempty"`
+	Password                    string   `json:"password,omitempty"`
+	HasTOTP                     bool     `json:"has_totp"`
+	TOTPSecret                  string   `json:"totp_secret"`
+	AccessToken                 string   `json:"access_token,omitempty"`
+	RefreshToken                string   `json:"refresh_token"`
+	Quota5hCurrent              float64  `json:"quota_5h_current"`
+	ResetSeconds                float64  `json:"reset_seconds"`
+	Quota5hArgon                *float64 `json:"quota_5h_argon"`
+	QuotaWeekly                 float64  `json:"quota_weekly"`
+	QuotaWeeklyArgon            *float64 `json:"quota_weekly_argon"`
+	Quota5hAvailable            float64  `json:"quota_5h_available"`
+	Quota5hClaudeGPT            float64  `json:"quota_5h_claude_gpt"`
+	QuotaWeeklyClaudeGPT        float64  `json:"quota_weekly_claude_gpt"`
+	ResetHorizonText            string   `json:"reset_horizon_text"`
+	ResetSeconds5hArgon         float64  `json:"reset_seconds_5h_argon"`
+	ResetHorizon5hArgonText     string   `json:"reset_horizon_5h_argon_text"`
+	ResetSecondsWeekly          float64  `json:"reset_seconds_weekly"`
+	ResetHorizonWeeklyText      string   `json:"reset_horizon_weekly_text"`
+	ResetSecondsWeeklyArgon     float64  `json:"reset_seconds_weekly_argon"`
+	ResetHorizonWeeklyArgonText string   `json:"reset_horizon_weekly_argon_text"`
+	ErrorMessage                string   `json:"error_message,omitempty"`
 }
 
 // ComputeEffective5hAvailable calculates available quota in the next 5 hours with reset replenishing.
@@ -116,7 +121,9 @@ type FleetQuotaSummary struct {
 	Fleet5hAvailable              float64             `json:"fleet_5h_available"`
 	FleetWeeklyAvailable          float64             `json:"fleet_weekly_available"`
 	Fleet5hGeminiAvailable        float64             `json:"fleet_5h_gemini_available"`
+	Fleet5hArgonAvailable         *float64            `json:"fleet_5h_argon_available"`
 	FleetWeeklyGeminiAvailable    float64             `json:"fleet_weekly_gemini_available"`
+	FleetWeeklyArgonAvailable     *float64            `json:"fleet_weekly_argon_available"`
 	Fleet5hClaudeGPTAvailable     float64             `json:"fleet_5h_claude_gpt_available"`
 	FleetWeeklyClaudeGPTAvailable float64             `json:"fleet_weekly_claude_gpt_available"`
 	TotalAccounts                 int                 `json:"total_accounts"`
@@ -145,19 +152,41 @@ func ComputeFleetSummary(accounts []AccountQuotaState, activeEmail string) Fleet
 	}
 
 	sum5h := 0.0
+	sum5hArgon := 0.0
+	count5hArgon := 0
 	sumWeekly := 0.0
+	sumWeeklyArgon := 0.0
+	countWeeklyArgon := 0
 	sum5hClaude := 0.0
 	sumWeeklyClaude := 0.0
 
 	for _, acc := range accounts {
 		sum5h += acc.Quota5hAvailable
+		if acc.Quota5hArgon != nil {
+			sum5hArgon += *acc.Quota5hArgon
+			count5hArgon++
+		}
 		sumWeekly += acc.QuotaWeekly
+		if acc.QuotaWeeklyArgon != nil {
+			sumWeeklyArgon += *acc.QuotaWeeklyArgon
+			countWeeklyArgon++
+		}
 		sum5hClaude += acc.Quota5hClaudeGPT
 		sumWeeklyClaude += acc.QuotaWeeklyClaudeGPT
 	}
 
 	avg5h := math.Max(0.0, math.Min(1.0, sum5h/float64(total)))
+	var avg5hArgon *float64
+	if count5hArgon > 0 {
+		value := math.Max(0.0, math.Min(1.0, sum5hArgon/float64(count5hArgon)))
+		avg5hArgon = &value
+	}
 	avgWeekly := math.Max(0.0, math.Min(1.0, sumWeekly/float64(total)))
+	var avgWeeklyArgon *float64
+	if countWeeklyArgon > 0 {
+		value := math.Max(0.0, math.Min(1.0, sumWeeklyArgon/float64(countWeeklyArgon)))
+		avgWeeklyArgon = &value
+	}
 	avg5hClaude := math.Max(0.0, math.Min(1.0, sum5hClaude/float64(total)))
 	avgWeeklyClaude := math.Max(0.0, math.Min(1.0, sumWeeklyClaude/float64(total)))
 
@@ -172,7 +201,9 @@ func ComputeFleetSummary(accounts []AccountQuotaState, activeEmail string) Fleet
 		Fleet5hAvailable:              avg5h,
 		FleetWeeklyAvailable:          avgWeekly,
 		Fleet5hGeminiAvailable:        avg5h,
+		Fleet5hArgonAvailable:         avg5hArgon,
 		FleetWeeklyGeminiAvailable:    avgWeekly,
+		FleetWeeklyArgonAvailable:     avgWeeklyArgon,
 		Fleet5hClaudeGPTAvailable:     avg5hClaude,
 		FleetWeeklyClaudeGPTAvailable: avgWeeklyClaude,
 		TotalAccounts:                 total,
@@ -481,8 +512,14 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 		curSecWeekly := 0.0
 		cur5hClaude := 0.0
 		curWeeklyClaude := 0.0
+		var cur5hArgon *float64
+		var curWeeklyArgon *float64
 		resText := "Not Polled"
+		res5hArgonText := ""
 		resWeeklyText := "Not Polled"
+		resWeeklyArgonText := ""
+		curSec5hArgon := 0.0
+		curSecWeeklyArgon := 0.0
 		tier := acc.PlanTier
 		credits := acc.Credits
 
@@ -515,8 +552,19 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 			credits = s.Credits
 			cur5h = s.Quota5hFraction
 			curWeekly = s.QuotaWeeklyFraction
+			if s.Quota5hArgon != nil {
+				value := ClampFraction(*s.Quota5hArgon)
+				cur5hArgon = &value
+			}
+			if s.QuotaWeeklyArgon != nil {
+				value := ClampFraction(*s.QuotaWeeklyArgon)
+				curWeeklyArgon = &value
+			}
 			if cur5h == 0 && curWeekly == 0 && len(s.Models) > 0 {
 				for _, m := range s.Models {
+					if isArgonQuotaIdentifier(m.ModelName) {
+						continue
+					}
 					mLower := strings.ToLower(m.ModelName)
 					if strings.Contains(mLower, "weekly") {
 						curWeekly = m.Fraction
@@ -534,6 +582,32 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 				}
 				if curWeekly == 0 && cur5h > 0 {
 					curWeekly = cur5h
+				}
+			}
+			if cur5hArgon == nil {
+				for _, m := range s.Models {
+					if isArgonQuotaIdentifier(m.ModelName) && !isWeeklyQuota(m, now) {
+						value := ClampFraction(m.Fraction)
+						cur5hArgon = &value
+						if !m.ResetTime.IsZero() && m.ResetTime.After(now) {
+							curSec5hArgon = m.ResetTime.Sub(now).Seconds()
+						}
+						res5hArgonText = m.ResetText
+						break
+					}
+				}
+			}
+			if curWeeklyArgon == nil {
+				for _, m := range s.Models {
+					if isArgonQuotaIdentifier(m.ModelName) && isWeeklyQuota(m, now) {
+						value := ClampFraction(m.Fraction)
+						curWeeklyArgon = &value
+						if !m.ResetTime.IsZero() && m.ResetTime.After(now) {
+							curSecWeeklyArgon = m.ResetTime.Sub(now).Seconds()
+						}
+						resWeeklyArgonText = m.ResetText
+						break
+					}
 				}
 			}
 			if s.Quota5hClaudeGPT > 0 {
@@ -554,11 +628,23 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 			if s.ResetHorizonText != "" {
 				resText = s.ResetHorizonText
 			}
+			if s.ResetSeconds5hArgon > 0 {
+				curSec5hArgon = s.ResetSeconds5hArgon
+			}
+			if s.ResetHorizon5hArgonText != "" {
+				res5hArgonText = s.ResetHorizon5hArgonText
+			}
 			if s.ResetSecondsWeekly > 0 {
 				curSecWeekly = s.ResetSecondsWeekly
 			}
 			if s.ResetHorizonWeeklyText != "" && s.ResetHorizonWeeklyText != "Not Polled" {
 				resWeeklyText = s.ResetHorizonWeeklyText
+			}
+			if s.ResetSecondsWeeklyArgon > 0 {
+				curSecWeeklyArgon = s.ResetSecondsWeeklyArgon
+			}
+			if s.ResetHorizonWeeklyArgonText != "" {
+				resWeeklyArgonText = s.ResetHorizonWeeklyArgonText
 			}
 			if !s.ResetTimeWeekly.IsZero() && s.ResetTimeWeekly.After(now) {
 				curSecWeekly = s.ResetTimeWeekly.Sub(now).Seconds()
@@ -708,6 +794,12 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 			curSecWeekly = 0.0
 			cur5hClaude = 0.0
 			curWeeklyClaude = 0.0
+			cur5hArgon = nil
+			curWeeklyArgon = nil
+			curSec5hArgon = 0.0
+			curSecWeeklyArgon = 0.0
+			res5hArgonText = ""
+			resWeeklyArgonText = ""
 			if status == "BANNED" {
 				resText = "Banned"
 				resWeeklyText = "Banned"
@@ -718,31 +810,37 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 		}
 
 		results = append(results, AccountQuotaState{
-			Email:                  email,
-			Label:                  label,
-			PlanTier:               tier,
-			Credits:                credits,
-			EnableCreditOverages:   acc.EnableCreditOverages,
-			AllowClaudeGPT:         acc.AllowClaudeGPT,
-			IsActive:               acc.IsActive,
-			Status:                 status,
-			Priority:               prio,
-			Notes:                  acc.Notes,
-			Password:               "",
-			HasTOTP:                acc.HasTOTP || acc.TOTPSecret != "",
-			TOTPSecret:             "",
-			AccessToken:            "",
-			RefreshToken:           redactTokenIndicator(acc.RefreshToken),
-			Quota5hCurrent:         cur5h,
-			ResetSeconds:           curSec,
-			QuotaWeekly:            curWeekly,
-			Quota5hAvailable:       avail5h,
-			Quota5hClaudeGPT:       cur5hClaude,
-			QuotaWeeklyClaudeGPT:   curWeeklyClaude,
-			ResetHorizonText:       resText,
-			ResetSecondsWeekly:     curSecWeekly,
-			ResetHorizonWeeklyText: resWeeklyText,
-			ErrorMessage:           errorMessage,
+			Email:                       email,
+			Label:                       label,
+			PlanTier:                    tier,
+			Credits:                     credits,
+			EnableCreditOverages:        acc.EnableCreditOverages,
+			AllowClaudeGPT:              acc.AllowClaudeGPT,
+			IsActive:                    acc.IsActive,
+			Status:                      status,
+			Priority:                    prio,
+			Notes:                       acc.Notes,
+			Password:                    "",
+			HasTOTP:                     acc.HasTOTP || acc.TOTPSecret != "",
+			TOTPSecret:                  "",
+			AccessToken:                 "",
+			RefreshToken:                redactTokenIndicator(acc.RefreshToken),
+			Quota5hCurrent:              cur5h,
+			ResetSeconds:                curSec,
+			Quota5hArgon:                cur5hArgon,
+			QuotaWeekly:                 curWeekly,
+			QuotaWeeklyArgon:            curWeeklyArgon,
+			Quota5hAvailable:            avail5h,
+			Quota5hClaudeGPT:            cur5hClaude,
+			QuotaWeeklyClaudeGPT:        curWeeklyClaude,
+			ResetHorizonText:            resText,
+			ResetSeconds5hArgon:         curSec5hArgon,
+			ResetHorizon5hArgonText:     res5hArgonText,
+			ResetSecondsWeekly:          curSecWeekly,
+			ResetHorizonWeeklyText:      resWeeklyText,
+			ResetSecondsWeeklyArgon:     curSecWeeklyArgon,
+			ResetHorizonWeeklyArgonText: resWeeklyArgonText,
+			ErrorMessage:                errorMessage,
 		})
 	}
 
@@ -1288,7 +1386,7 @@ func ShouldSwitchProactivelyMaxTokens(active, bestStandby AccountQuotaState, thr
 	hasSufficientDwell := activeDwellSec >= MinProactiveSwitchDwellSeconds
 	if !hasSufficientDwell && activeDwellSec <= 0.0 {
 		// If dwell is untracked (daemon restart), infer dwell from active's running 5h clock (used >= 10m into 5h window)
-		if active.ResetSeconds > 0.0 && active.ResetSeconds <= (FiveHourWindowSeconds - MinProactiveSwitchDwellSeconds) {
+		if active.ResetSeconds > 0.0 && active.ResetSeconds <= (FiveHourWindowSeconds-MinProactiveSwitchDwellSeconds) {
 			hasSufficientDwell = true
 		}
 	}
@@ -1411,8 +1509,8 @@ func EvaluateAutoSwitchWithThresholdsAndRouting(accounts []AccountQuotaState, ac
 
 // EvaluateAutoSwitchForApp evaluates auto-rotation for a specific application appType.
 // In individual mode:
-//   1. It first searches for a healthy standby account NOT in use by any app.
-//   2. Only if no unused standby accounts exist does it fall back to sharing an account with other apps.
+//  1. It first searches for a healthy standby account NOT in use by any app.
+//  2. Only if no unused standby accounts exist does it fall back to sharing an account with other apps.
 func EvaluateAutoSwitchForApp(
 	accounts []AccountQuotaState,
 	currentAppEmail string,
@@ -1761,4 +1859,3 @@ func SortAccountQuotaStatesWithThresholdsAndRouting(accounts []AccountQuotaState
 
 	return items
 }
-

@@ -1010,11 +1010,11 @@ func TestGitHubExtensionScriptPerExtensionMainPage(t *testing.T) {
 	js := GenerateGitHubExtensionScript()
 
 	tokens := []string{
-		"swissExtVisibility",                    // extensions map handle in setupLeftNavTabs
-		"main_page",                             // per-extension main-page visibility key
-		"__SWISS_ENH_CONFIG__.extensions",       // reads EnhancementsConfig.extensions
-		"isMainSectionEnabled",                  // global main-section floor stays
-		"isLeftPanelEnabled",                    // global left-panel floor stays
+		"swissExtVisibility",              // extensions map handle in setupLeftNavTabs
+		"main_page",                       // per-extension main-page visibility key
+		"__SWISS_ENH_CONFIG__.extensions", // reads EnhancementsConfig.extensions
+		"isMainSectionEnabled",            // global main-section floor stays
+		"isLeftPanelEnabled",              // global left-panel floor stays
 	}
 	for _, tok := range tokens {
 		if !strings.Contains(js, tok) {
@@ -1245,4 +1245,47 @@ if (window.__swissGHDaemonCheckInterval) clearInterval(window.__swissGHDaemonChe
 	}
 }
 
+// The GitHub Workspace entry points must be gated on a strict per-project repo
+// probe, so a project without a GitHub remote shows a disabled button instead of
+// another project's issues.
+func TestGitHubWorkspaceBlockedForRepoLessProjects(t *testing.T) {
+	js := GenerateGitHubExtensionScript()
 
+	required := []string{
+		"api/github/repo?strict=1&workspace_path=",
+		"function probeRepoAvailability",
+		"function isGitHubWorkspaceBlocked",
+		"function applyGitHubButtonGate",
+		"function renderGitHubUnavailableHTML",
+		"data-swiss-github-blocked",
+		"GitHub Workspace requires a GitHub repository",
+	}
+	for _, id := range required {
+		if !strings.Contains(js, id) {
+			t.Errorf("expected the GitHub Workspace gate to use %q", id)
+		}
+	}
+
+	// The strict probe must run for both the stage and the auxiliary workspace
+	// before any repo data is rendered.
+	probeAt := strings.Index(js, "await probeRepoAvailability(stageWs)")
+	bundleAt := strings.Index(js, "const primary = await fetchWorkspaceBundle(wsPath);")
+	if probeAt == -1 || bundleAt == -1 || probeAt > bundleAt {
+		t.Error("the strict repo probe must run before the workspace bundle fetch")
+	}
+
+	// A repo-less project must clear the previous project's work items.
+	blockedAt := strings.Index(js, "if (repoAvailabilityFor(stageWs) === false) {")
+	if blockedAt == -1 {
+		t.Fatal("missing the repo-less short circuit in fetchRepoData")
+	}
+	blockedBlock := js[blockedAt:]
+	if end := strings.Index(blockedBlock, "if (activeMainStageExt === \"github\")"); end > 0 {
+		blockedBlock = blockedBlock[:end]
+	}
+	for _, reset := range []string{"currentRepo = null;", "cachedIssues = [];", "cachedKanbanBoard = null;"} {
+		if !strings.Contains(blockedBlock, reset) {
+			t.Errorf("a repo-less project must reset %q", reset)
+		}
+	}
+}

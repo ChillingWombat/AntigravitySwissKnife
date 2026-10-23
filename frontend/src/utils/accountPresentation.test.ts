@@ -124,6 +124,15 @@ describe('accountPresentation utility', () => {
       assert.strictEqual(normalizePlanTier('ultra 20x'), 'Ultra 20X')
       assert.strictEqual(normalizePlanTier('ultra'), 'Ultra 20X')
     })
+
+    it('falls back to Free when the tier is only a product label', async () => {
+      const { normalizePlanTier } = await import('../types.ts')
+      // Google answers an unlicensed account with a tier named after the app.
+      assert.strictEqual(normalizePlanTier('Antigravity'), 'Free')
+      assert.strictEqual(normalizePlanTier('antigravity'), 'Free')
+      assert.strictEqual(normalizePlanTier('Antigravity Pro'), 'Pro')
+      assert.strictEqual(normalizePlanTier('something unparseable'), 'Free')
+    })
   })
 
   describe('normalizeMfaSecret', () => {
@@ -261,6 +270,31 @@ describe('accountPresentation utility', () => {
       assert.ok(pageSrc.includes('title="Non-Gemini 7D cycle"'), 'should title the weekly bar Non-Gemini 7-day cycle')
       assert.ok(!pageSrc.includes('Claude/GPT'), 'should not contain legacy Claude/GPT quota labels')
       assert.ok(!pageSrc.includes('Claude &amp; GPT'), 'should not contain legacy Claude & GPT quota labels')
+    })
+
+    it('verifies separate Gemini and Gemini 4 Argon 5H/7D gauges and bars', async () => {
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const pageSrc = fs.readFileSync(
+        path.resolve(import.meta.dirname, '../pages/QuotaDashboardPage.tsx'),
+        'utf8'
+      )
+      const modalSrc = fs.readFileSync(
+        path.resolve(import.meta.dirname, '../components/AccountDetailModal.tsx'),
+        'utf8'
+      )
+      assert.ok(pageSrc.includes('title="Gemini 7D"'), 'should render a Gemini 7D ring')
+      assert.ok(pageSrc.includes('title="Argon 5H"'), 'should render a separate Argon 5H ring')
+      assert.ok(pageSrc.includes('title="Argon 7D"'), 'should render a separate Argon 7D ring')
+      assert.ok(pageSrc.includes('gauge5hArgon !== null'), 'should omit the Argon 5H ring when no fleet Argon quota exists')
+      assert.ok(pageSrc.includes('gaugeWeeklyArgon !== null'), 'should omit the Argon 7D ring when no fleet Argon quota exists')
+      assert.ok(pageSrc.includes('showGeminiArgonMatrix'), 'should switch to the complete Gemini/Argon matrix only when both windows exist')
+      assert.ok(pageSrc.includes("gridTemplateColumns: 'repeat(2, minmax(0, 1fr))'"), 'should render the complete matrix as two columns')
+      assert.ok(pageSrc.includes('quota_5h_argon'), 'should bind the 5H Argon bar to real quota data')
+      assert.ok(pageSrc.includes('quota_weekly_argon'), 'should bind the Argon bar to real Argon quota data')
+      assert.ok(pageSrc.includes('if (showArgonQuota)'), 'should align the Gemini 5H bar using the 7D header structure only when Argon is present')
+      assert.ok(modalSrc.includes('Gemini 4 Argon 5H Quota'), 'account details should show Argon 5H quota')
+      assert.ok(modalSrc.includes('Gemini 4 Argon 7D Quota'), 'account details should show Argon 7D quota')
     })
 
     it('verifies QuotaDashboardPage displays Credit column header and reduced column width', async () => {

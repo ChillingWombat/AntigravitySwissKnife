@@ -25,6 +25,25 @@ describe('Dual-Engine Model Routing & Quota Cooldown Switchability (R1)', () => 
       assert.strictEqual(state.quota_weekly_claude_gpt, 0.90)
     })
 
+    it('preserves the separate Gemini 4 Argon 5H and weekly quotas', () => {
+      const raw = {
+        email: 'argon@example.com',
+        plan_tier: 'Pro',
+        quota_5h_argon: 0.44,
+        quota_weekly: 0.72,
+        quota_weekly_argon: 0.31,
+        reset_horizon_5h_argon_text: 'Resets in 3h 20m',
+        reset_horizon_weekly_argon_text: 'Resets in 4d 8h',
+        status: 'STANDBY',
+      }
+      const state = toAccountState(raw)
+      assert.strictEqual(state.quota_5h_argon, 0.44)
+      assert.strictEqual(state.quota_weekly, 0.72)
+      assert.strictEqual(state.quota_weekly_argon, 0.31)
+      assert.strictEqual(state.reset_horizon_5h_argon_text, 'Resets in 3h 20m')
+      assert.strictEqual(state.reset_horizon_weekly_argon_text, 'Resets in 4d 8h')
+    })
+
     it('falls back to quota_5h_claude and quota_weekly_claude aliases', () => {
       const raw = {
         email: 'user@example.com',

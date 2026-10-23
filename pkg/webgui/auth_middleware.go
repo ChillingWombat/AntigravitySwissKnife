@@ -120,6 +120,21 @@ func isPublicPath(p string) bool {
 	if strings.HasPrefix(clean, "/api/bridge/oauth/") {
 		return true
 	}
+	// 8. LLM gateway for custom models. Antigravity surfaces authenticate with the
+	// gateway's own bearer token (custommodels.Gateway.authorize), not the GUI
+	// session token, because the CLI only sends Authorization: Bearer <key>.
+	if clean == "/v1" || strings.HasPrefix(clean, "/v1/") {
+		// OpenAI-shaped model gateway: it enforces its own bearer token.
+		return true
+	}
+	if clean == "/v1beta" || strings.HasPrefix(clean, "/v1beta/") {
+		return true
+	}
+	// 9. Cloud Code proxy for the language server. It authenticates upstream with
+	// the caller's own Google OAuth bearer and is only reachable on loopback.
+	if clean == "/v1internal" || strings.HasPrefix(clean, "/v1internal:") || strings.HasPrefix(clean, "/v1internal/") {
+		return true
+	}
 	return false
 }
 

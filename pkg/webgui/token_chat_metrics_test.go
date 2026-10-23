@@ -3,7 +3,9 @@ package webgui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestGetChatMetricsForConversation(t *testing.T) {
@@ -310,5 +312,99 @@ func TestGetChatMetricsForConversation_RealWorldStepStartTimestamps(t *testing.T
 	}
 	if res.Summary.ContextTokens != 6050 {
 		t.Errorf("expected summary context tokens 6050, got %d", res.Summary.ContextTokens)
+	}
+}
+
+func TestExtractUserPromptText(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "wrapped request drops the metadata tail",
+			in:   "<USER_REQUEST>\nwhat code should i write for q1?\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nThe current local time is: 2026-10-21\n</ADDITIONAL_METADATA>",
+			want: "what code should i write for q1?",
+		},
+		{
+			name: "unwrapped payload keeps its words",
+			in:   "plain prompt with no envelope",
+			want: "plain prompt with no envelope",
+		},
+		{
+			name: "collapses every whitespace run to one space",
+			in:   "<USER_REQUEST>\r\n\tfirst line\n\n   second line\t</USER_REQUEST>",
+			want: "first line second line",
+		},
+		{
+			name: "multi-line code block survives as one line",
+			in:   "<USER_REQUEST>\nfix this:\n```go\nf()\n```\n</USER_REQUEST>",
+			want: "fix this: ```go f() ```",
+		},
+		{
+			name: "empty payload stays empty",
+			in:   "",
+			want: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ExtractUserPromptText(tc.in); got != tc.want {
+				t.Errorf("ExtractUserPromptText(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExtractUserPromptText_TruncatesOnRuneBoundary(t *testing.T) {
+	long := strings.Repeat("字", chatPromptTextLimit)
+	got := ExtractUserPromptText("<USER_REQUEST>" + long + "</USER_REQUEST>")
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncated prompt must stay valid UTF-8, got %q", got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("truncated prompt must end with an ellipsis, got %q", got)
+	}
+	if utf8.RuneCountInString(got) > chatPromptTextLimit+1 {
+		t.Errorf("truncated prompt must stay within the limit, got %d runes", utf8.RuneCountInString(got))
+	}
+}
+
+func TestGetChatMetricsForConversation_PromptsFollowTurnOrder(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+
+	convID := "test-conv-prompts"
+	brainLogDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs")
+	if err := os.MkdirAll(brainLogDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	transcriptContent := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-10-21T05:00:00Z","content":"<USER_REQUEST>first prompt</USER_REQUEST><ADDITIONAL_METADATA>time</ADDITIONAL_METADATA>"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-21T05:00:01Z","input_tokens":10,"output_tokens":5,"duration_ms":1000}
+{"step_index":2,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-10-21T05:00:05Z","content":"<USER_REQUEST>second prompt</USER_REQUEST>"}
+{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-21T05:00:06Z","input_tokens":20,"output_tokens":5,"duration_ms":1000}
+`
+	if err := os.WriteFile(filepath.Join(brainLogDir, "transcript.jsonl"), []byte(transcriptContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := GetChatMetricsForConversation(convID, "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Prompts) != 2 {
+		t.Fatalf("expected 2 prompts, got %d (%+v)", len(res.Prompts), res.Prompts)
+	}
+	if res.Prompts[0].Index != 0 || res.Prompts[0].Text != "first prompt" {
+		t.Errorf("unexpected prompt 0: %+v", res.Prompts[0])
+	}
+	if res.Prompts[1].Index != 1 || res.Prompts[1].Text != "second prompt" {
+		t.Errorf("unexpected prompt 1: %+v", res.Prompts[1])
+	}
+	if res.UserPromptCount != len(res.Prompts) {
+		t.Errorf("prompt list (%d) must match user_prompt_count (%d)", len(res.Prompts), res.UserPromptCount)
 	}
 }

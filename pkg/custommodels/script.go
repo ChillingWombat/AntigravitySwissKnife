@@ -11,7 +11,7 @@ import (
 func GenerateCustomModelsScript(cfg *Config) string {
 	// Custom models must not be baked permanently into the offline Electron renderer.
 	// Initial state starts empty; config is loaded dynamically only when the Swiss Knife daemon is running and inference is supported.
-	cfgJSON := []byte(`{"version":"1.0.0","inference_supported":true,"models":[],"project_binds":{}}`)
+	cfgJSON := []byte(`{"version":"1.0.0","inference_supported":true,"gemini_quota_exhausted":false,"models":[]}`)
 	if cfg != nil {
 		cfgCopy := *cfg
 		cfgCopy.InferenceSupported = true
@@ -26,7 +26,6 @@ func GenerateCustomModelsScript(cfg *Config) string {
   try {
     let customConfig = %s;
     if (!customConfig.models) customConfig.models = [];
-    if (!customConfig.project_binds) customConfig.project_binds = {};
 
     // Auth headers provider matching daemon session authentication
     function getSwissAuthHeaders(extra = {}) {
@@ -54,37 +53,16 @@ func GenerateCustomModelsScript(cfg *Config) string {
             if (loaded) {
               customConfig = loaded;
               if (!customConfig.models) customConfig.models = [];
-              if (!customConfig.project_binds) customConfig.project_binds = {};
               return;
             }
           }
         }
       } catch (_) {}
-      customConfig = { version: "1.0.0", inference_supported: false, models: [], project_binds: {} };
+      customConfig = { version: "1.0.0", inference_supported: false, models: [] };
     }
 
     refreshCustomConfig();
     setInterval(refreshCustomConfig, 5000);
-
-    function getActiveProjectName() {
-      // Detect current project name from document title, active sidebar row, or workspace header
-      const selectedRow = document.querySelector('[data-testid="conversation-row-sidebar"][data-selected="true"]');
-      if (selectedRow) {
-        const pName = selectedRow.getAttribute("data-swiss-project");
-        if (pName) return pName;
-      }
-      const projectHeader = document.querySelector('[data-project-card="true"]');
-      if (projectHeader) {
-        const pName = projectHeader.getAttribute("data-swiss-project") || projectHeader.textContent.trim();
-        if (pName) return pName;
-      }
-      const wsTitle = document.querySelector('[data-testid="workspace-title"], [data-testid="project-name"]');
-      if (wsTitle && wsTitle.textContent.trim()) {
-        return wsTitle.textContent.trim();
-      }
-      const title = document.title || "";
-      return title.split(" - ")[0].trim() || "Default Project";
-    }
 
     function isCustomModelInferenceAvailable() {
       return Boolean(
@@ -190,16 +168,11 @@ func GenerateCustomModelsScript(cfg *Config) string {
       });
     }
 
-    function unbindCustomModelForActiveProject() {
-      const curProject = getActiveProjectName();
-      if (!customConfig.project_binds) customConfig.project_binds = {};
-      const curLower = (curProject || "").trim().toLowerCase();
-      Object.keys(customConfig.project_binds).forEach(k => {
-        if (k.trim().toLowerCase() === curLower) {
-          customConfig.project_binds[k] = "native";
-        }
-      });
-      customConfig.project_binds[curProject] = "native";
+    function clearSessionCustomModel() {
+      if (typeof window !== "undefined") {
+        window.__swiss_session_custom_model_id = null;
+      }
+      customConfig.active_model_id = "";
       const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
       if (trigger) {
         trigger.removeAttribute("data-swiss-custom-bound");
@@ -223,10 +196,10 @@ func GenerateCustomModelsScript(cfg *Config) string {
         } catch (_) {}
       }
       removeCustomThinkingSubmenu();
-      fetch("http://127.0.0.1:8765/api/custom_models/bind", {
+      fetch("http://127.0.0.1:8765/api/custom_models/active", {
         method: "POST",
         headers: getSwissAuthHeaders(),
-        body: JSON.stringify({ project: curProject, model_id: "native" })
+        body: JSON.stringify({ model_id: "" })
       }).catch(() => {});
     }
 
@@ -246,14 +219,59 @@ func GenerateCustomModelsScript(cfg *Config) string {
         const panelItem = target.closest('[data-testid="model-selector-panel"] [role="menuitem"]');
         const clickedItem = nativeOption || panelItem;
         if (!clickedItem || (clickedItem.textContent || "").trim() === "View Usage") return;
-        unbindCustomModelForActiveProject();
+        clearSessionCustomModel();
       }, true);
     }
 
+    // The host menus (Projects panel display options, conversation menus, ...) are
+    // also [role="menu"], so the custom-model group may only be attached to the
+    // model selector's own popover. Anchor on the model-selector testids; never
+    // fall back to "the first open menu" on the page.
+    function getModelSelectorPopover() {
+      const panel = document.querySelector('[data-testid="model-selector-panel"]');
+      const anchor = panel || document.querySelector(
+        '[data-testid="model-selector-item"], ' +
+        '[data-testid="model-selector-header"], ' +
+        '[data-testid="model-selector-effort-group"], ' +
+        '[data-testid="model-selector-context-window-option"]'
+      );
+      if (!anchor) return null;
+      return anchor.closest('[role="menu"]:not(#swiss-custom-thinking-submenu), [data-radix-popper-content-wrapper], .model-dropdown-menu, .bg-card') || panel || null;
+    }
+
     // 1. Hook Model Selector Trigger Pill & Dropdown
+    // Bridge hook: the Gemini Bridge daemon selects a custom model without
+    // clicking the dropdown. Same effect as a user pick: session id, app-wide
+    // active model, and the model pill label.
+    if (typeof window !== "undefined") {
+      window.__swissSetCustomModel = function (modelID) {
+        const wanted = String(modelID || "").trim();
+        if (!wanted) return { success: false, reason: "model_id_required" };
+        const models = customConfig.models || [];
+        const model = models.find(m => m && m.enabled && (m.id === wanted || m.name === wanted));
+        if (!model) return { success: false, reason: "unknown_or_disabled_model" };
+        window.__swiss_session_custom_model_id = model.id;
+        customConfig.active_model_id = model.id;
+        const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
+        if (trigger) {
+          const label = trigger.querySelector("span") || trigger;
+          if (!trigger.getAttribute("data-swiss-native-label") && label) {
+            trigger.setAttribute("data-swiss-native-label", (label.textContent || "").trim());
+          }
+          renderTriggerModelLabel(trigger, model);
+        }
+        removeCustomThinkingSubmenu();
+        fetch("http://127.0.0.1:8765/api/custom_models/active", {
+          method: "POST",
+          headers: getSwissAuthHeaders(),
+          body: JSON.stringify({ model_id: model.id })
+        }).catch(() => {});
+        return { success: true, model_id: model.id, label: model.display_name || model.name || model.id };
+      };
+    }
+
     function updateModelSelector() {
       const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
-      const curProject = getActiveProjectName();
 
       // Always remove any legacy external thinking pill in the composer bar
       const legacyThinkingPill = document.querySelector("#swiss-thinking-level-pill");
@@ -286,7 +304,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
           } catch (_) {}
         }
 
-        const popover = document.querySelector('[role="menu"]:not(#swiss-custom-thinking-submenu), [data-radix-popper-content-wrapper], .model-dropdown-menu');
+        const popover = getModelSelectorPopover();
         if (popover) {
           const customGrp = popover.querySelector(".swiss-custom-models-menu-group");
           if (customGrp) customGrp.remove();
@@ -300,16 +318,29 @@ func GenerateCustomModelsScript(cfg *Config) string {
         return;
       }
 
-      // Check if a custom model is explicitly bound to this project (case-insensitive lookup)
-      let boundModelId = customConfig?.project_binds?.[curProject];
-      if (!boundModelId && curProject && customConfig?.project_binds) {
-        const curLower = curProject.trim().toLowerCase();
-        const matchedKey = Object.keys(customConfig.project_binds).find(k => k.trim().toLowerCase() === curLower);
-        if (matchedKey) boundModelId = customConfig.project_binds[matchedKey];
-      }
+      // Determine activeCustomModel. A model is never bound to a project: the pick
+      // is per session, falling back to the app-wide active model, and only then to
+      // the quota-exhaustion backup.
       let activeCustomModel = null;
-      if (boundModelId && boundModelId !== "native") {
-        activeCustomModel = (customConfig?.models || []).find(m => m.id === boundModelId && m.enabled) || null;
+      const selectable = customConfig.models || [];
+      if (typeof window !== "undefined" && window.__swiss_session_custom_model_id) {
+        activeCustomModel = selectable.find(m => m.id === window.__swiss_session_custom_model_id && m.enabled) || null;
+      }
+      if (!activeCustomModel && customConfig.active_model_id) {
+        activeCustomModel = selectable.find(m => m.id === customConfig.active_model_id && m.enabled) || null;
+      }
+      if (!activeCustomModel && customConfig.gemini_quota_exhausted === true) {
+        // Gemini quota is exhausted: fall back to the configured backup model.
+        const defId = customConfig.default_custom_model;
+        if (defId) {
+          activeCustomModel = selectable.find(m => (m.id === defId || m.name === defId) && m.enabled) || null;
+        }
+        if (!activeCustomModel) {
+          activeCustomModel = selectable.find(m => m.is_default && m.enabled) || null;
+        }
+        if (!activeCustomModel) {
+          activeCustomModel = selectable.find(m => m.enabled) || null;
+        }
       }
 
       // Update trigger pill text if custom model is bound
@@ -345,10 +376,9 @@ func GenerateCustomModelsScript(cfg *Config) string {
         }
       }
 
-      // Detect open dropdown menu
-      const panel = document.querySelector('[data-testid="model-selector-panel"]');
-      const popover = (panel && panel.closest('[role="menu"]:not(#swiss-custom-thinking-submenu), [data-radix-popper-content-wrapper], .model-dropdown-menu, .bg-card')) ||
-        document.querySelector('[role="menu"]:not(#swiss-custom-thinking-submenu), [data-radix-popper-content-wrapper], .model-dropdown-menu');
+      // Detect open model selector dropdown. Other host menus are [role="menu"]
+      // too, so the lookup is anchored on the model selector itself.
+      const popover = getModelSelectorPopover();
       if (!popover) {
         removeCustomThinkingSubmenu();
         return;
@@ -422,7 +452,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
             removeCustomThinkingSubmenu();
           });
           it.addEventListener("click", async () => {
-            unbindCustomModelForActiveProject();
+            clearSessionCustomModel();
           }, true);
         }
       });
@@ -532,16 +562,13 @@ func GenerateCustomModelsScript(cfg *Config) string {
             itemEl.__swissSyncHoverState = syncHoverState;
 
             async function selectCustomModelWithLevel(chosenLevel) {
+              if (typeof window !== "undefined") {
+                window.__swiss_session_custom_model_id = m.id;
+              }
               if (chosenLevel) {
                 m.thinking_level = chosenLevel;
               }
-              if (!customConfig.project_binds) customConfig.project_binds = {};
-              const curLower = curProject.trim().toLowerCase();
-              const matchedKey = Object.keys(customConfig.project_binds).find(k => k.trim().toLowerCase() === curLower);
-              if (matchedKey && matchedKey !== curProject) {
-                delete customConfig.project_binds[matchedKey];
-              }
-              customConfig.project_binds[curProject] = m.id;
+              customConfig.active_model_id = m.id;
 
               if (trigger) {
                 const label = trigger.querySelector("span") || trigger;
@@ -562,10 +589,10 @@ func GenerateCustomModelsScript(cfg *Config) string {
                     body: JSON.stringify({ model_id: m.id, level: chosenLevel })
                   });
                 }
-                await fetch("http://127.0.0.1:8765/api/custom_models/bind", {
+                await fetch("http://127.0.0.1:8765/api/custom_models/active", {
                   method: "POST",
                   headers: getSwissAuthHeaders(),
-                  body: JSON.stringify({ project: curProject, model_id: m.id })
+                  body: JSON.stringify({ model_id: m.id })
                 });
               } catch (_) {}
             }

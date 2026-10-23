@@ -145,7 +145,9 @@ func NormalizePlanTier(raw string) string {
 	if strings.Contains(lower, "pro") || strings.Contains(lower, "standard") || strings.Contains(lower, "code assist") || strings.Contains(lower, "ai premium") || strings.Contains(lower, "g1_ai") || strings.Contains(lower, "team") {
 		return PlanTierPro
 	}
-	return trimmed
+	// Unrecognised tiers are product labels, not plans: Google answers an
+	// unlicensed account with a tier named after the app ("Antigravity").
+	return PlanTierFree
 }
 
 func normalizeOptionalPlanTier(raw string) string {
@@ -579,26 +581,34 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 }
 
 type LiveQuotaBreakdown struct {
-	Quota5hGemini          float64
-	QuotaWeeklyGemini      float64
-	Quota5hClaudeGPT       float64
-	QuotaWeeklyClaudeGPT   float64
-	SubscriptionTier       string
-	ExplicitTrial          bool
-	Credits                float64
-	HasClaudeGPTRights     bool
-	HasClaude              bool
-	HasGPT                 bool
-	HasClaudeWeeklyBucket  bool
-	ModelCatalogKnown      bool
-	HasPaidProModel        bool
-	ResetTime5h            time.Time
-	ResetTimeWeekly        time.Time
-	ResetHorizonText       string
-	ResetSeconds5h         float64
-	ResetHorizonWeeklyText string
-	ResetSecondsWeekly     float64
-	Models                 []ModelQuota
+	Quota5hGemini               float64
+	Quota5hArgon                *float64
+	QuotaWeeklyGemini           float64
+	QuotaWeeklyArgon            *float64
+	Quota5hClaudeGPT            float64
+	QuotaWeeklyClaudeGPT        float64
+	SubscriptionTier            string
+	ExplicitTrial               bool
+	Credits                     float64
+	HasClaudeGPTRights          bool
+	HasClaude                   bool
+	HasGPT                      bool
+	HasClaudeWeeklyBucket       bool
+	ModelCatalogKnown           bool
+	HasPaidProModel             bool
+	ResetTime5h                 time.Time
+	ResetTimeWeekly             time.Time
+	ResetHorizonText            string
+	ResetSeconds5h              float64
+	ResetTime5hArgon            time.Time
+	ResetSeconds5hArgon         float64
+	ResetHorizon5hArgonText     string
+	ResetHorizonWeeklyText      string
+	ResetSecondsWeekly          float64
+	ResetTimeWeeklyArgon        time.Time
+	ResetSecondsWeeklyArgon     float64
+	ResetHorizonWeeklyArgonText string
+	Models                      []ModelQuota
 }
 
 // ClampFraction clamps quota fractions strictly between 0.0 and 1.0, guarding against NaN and Inf.
@@ -996,7 +1006,35 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 						if modelItem.ModelName == "" {
 							modelItem.ModelName = b.BucketID
 						}
+						isArgonBucket := isArgonQuotaIdentifier(g.DisplayName, b.BucketID, b.DisplayName)
+						if isArgonBucket {
+							if modelItem.ModelName == "Weekly Limit Remaining" {
+								modelItem.ModelName = "Gemini 4 Argon Weekly"
+							} else if modelItem.ModelName == "Five Hour Limit Remaining" {
+								modelItem.ModelName = "Gemini 4 Argon 5H"
+							}
+						}
 						breakdown.Models = append(breakdown.Models, modelItem)
+
+						if isArgonBucket {
+							remainingArgon := remaining
+							if w == "weekly" {
+								breakdown.QuotaWeeklyArgon = &remainingArgon
+								breakdown.ResetTimeWeeklyArgon = rTime
+								breakdown.ResetHorizonWeeklyArgonText = FormatResetHorizon(rTime, now)
+								if !rTime.IsZero() && rTime.After(now) {
+									breakdown.ResetSecondsWeeklyArgon = rTime.Sub(now).Seconds()
+								}
+							} else if w == "5h" {
+								breakdown.Quota5hArgon = &remainingArgon
+								breakdown.ResetTime5hArgon = rTime
+								breakdown.ResetHorizon5hArgonText = FormatResetHorizon(rTime, now)
+								if !rTime.IsZero() && rTime.After(now) {
+									breakdown.ResetSeconds5hArgon = rTime.Sub(now).Seconds()
+								}
+							}
+							continue
+						}
 
 						if strings.Contains(gName, "gemini") {
 							if w == "5h" {
@@ -1062,6 +1100,26 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 						HealthStatus: ComputeHealth(remaining),
 					})
 					name := strings.ToLower(b.ModelID)
+					isArgonBucket := isArgonQuotaIdentifier(b.ModelID, b.DisplayName)
+					if isArgonBucket {
+						remainingArgon := remaining
+						if w == "weekly" {
+							breakdown.QuotaWeeklyArgon = &remainingArgon
+							breakdown.ResetTimeWeeklyArgon = rTime
+							breakdown.ResetHorizonWeeklyArgonText = FormatResetHorizon(rTime, now)
+							if !rTime.IsZero() && rTime.After(now) {
+								breakdown.ResetSecondsWeeklyArgon = rTime.Sub(now).Seconds()
+							}
+						} else if w == "5h" {
+							breakdown.Quota5hArgon = &remainingArgon
+							breakdown.ResetTime5hArgon = rTime
+							breakdown.ResetHorizon5hArgonText = FormatResetHorizon(rTime, now)
+							if !rTime.IsZero() && rTime.After(now) {
+								breakdown.ResetSeconds5hArgon = rTime.Sub(now).Seconds()
+							}
+						}
+						continue
+					}
 					if strings.Contains(name, "claude") || strings.Contains(name, "gpt") {
 						breakdown.HasClaudeGPTRights = true
 						if strings.Contains(name, "claude") {
@@ -1401,6 +1459,14 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 	}
 
+	if breakdown != nil && acc.IsActive && (breakdown.Quota5hArgon == nil || breakdown.QuotaWeeklyArgon == nil) {
+		// The CloudCode REST summary omits Gemini 4 Argon buckets for paid Pro accounts.
+		// Only the active account can be read from Antigravity's local language server.
+		if argonQuota, err := fetchLanguageServerArgonQuota(acc.Email, now); err == nil {
+			applyLanguageServerArgon(breakdown, argonQuota, now)
+		}
+	}
+
 	var apiErr *QuotaAPIError
 	if qErr != nil {
 		if ae, ok := qErr.(*QuotaAPIError); ok {
@@ -1505,23 +1571,29 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 
 		summary := &QuotaSummary{
-			AccountEmail:              acc.Email,
-			PlanTier:                  tier,
-			Credits:                   credits,
-			Quota5hFraction:           breakdown.Quota5hGemini,
-			QuotaWeeklyFraction:       breakdown.QuotaWeeklyGemini,
-			Quota5hClaudeGPT:          breakdown.Quota5hClaudeGPT,
-			QuotaWeeklyClaudeGPT:      breakdown.QuotaWeeklyClaudeGPT,
-			ClaudeWeeklyBucketPresent: breakdown.HasClaudeWeeklyBucket,
-			ResetSeconds5h:            breakdown.ResetSeconds5h,
-			ResetHorizonText:          breakdown.ResetHorizonText,
-			ResetSecondsWeekly:        breakdown.ResetSecondsWeekly,
-			ResetHorizonWeeklyText:    breakdown.ResetHorizonWeeklyText,
-			ResetTimeWeekly:           breakdown.ResetTimeWeekly,
-			Models:                    breakdown.Models,
-			MinFraction:               minFrac,
-			OverallHealth:             ComputeHealth(minFrac),
-			LastPolled:                now,
+			AccountEmail:                acc.Email,
+			PlanTier:                    tier,
+			Credits:                     credits,
+			Quota5hFraction:             breakdown.Quota5hGemini,
+			Quota5hArgon:                breakdown.Quota5hArgon,
+			QuotaWeeklyFraction:         breakdown.QuotaWeeklyGemini,
+			QuotaWeeklyArgon:            breakdown.QuotaWeeklyArgon,
+			Quota5hClaudeGPT:            breakdown.Quota5hClaudeGPT,
+			QuotaWeeklyClaudeGPT:        breakdown.QuotaWeeklyClaudeGPT,
+			ClaudeWeeklyBucketPresent:   breakdown.HasClaudeWeeklyBucket,
+			ResetSeconds5h:              breakdown.ResetSeconds5h,
+			ResetHorizonText:            breakdown.ResetHorizonText,
+			ResetSeconds5hArgon:         breakdown.ResetSeconds5hArgon,
+			ResetHorizon5hArgonText:     breakdown.ResetHorizon5hArgonText,
+			ResetSecondsWeekly:          breakdown.ResetSecondsWeekly,
+			ResetHorizonWeeklyText:      breakdown.ResetHorizonWeeklyText,
+			ResetSecondsWeeklyArgon:     breakdown.ResetSecondsWeeklyArgon,
+			ResetHorizonWeeklyArgonText: breakdown.ResetHorizonWeeklyArgonText,
+			ResetTimeWeekly:             breakdown.ResetTimeWeekly,
+			Models:                      breakdown.Models,
+			MinFraction:                 minFrac,
+			OverallHealth:               ComputeHealth(minFrac),
+			LastPolled:                  now,
 		}
 		return summary, nil
 	}

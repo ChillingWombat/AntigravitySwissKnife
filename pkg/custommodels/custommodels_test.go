@@ -97,9 +97,6 @@ func TestCustomModel_Validate(t *testing.T) {
 	if m.DisplayName != "gpt-4o" {
 		t.Errorf("expected DisplayName to default to Name")
 	}
-	if len(m.ProjectMappings) == 0 || m.ProjectMappings[0] != "*" {
-		t.Errorf("expected default project mappings to [*]")
-	}
 
 	// GCP model auto-derives BaseURL
 	mGCP := CustomModel{
@@ -132,17 +129,16 @@ func TestStore_CRUDAndBindings(t *testing.T) {
 
 	// Add new custom model
 	newModel := CustomModel{
-		ID:              "custom-deepseek",
-		Name:            "deepseek-chat",
-		DisplayName:     "DeepSeek Chat V3",
-		ProviderType:    ProviderOpenAI,
-		BaseURL:         "https://api.deepseek.com/v1",
-		APIKey:          "sk-deepseek-test",
-		ProjectMappings: []string{"Project Alpha", "Project Beta"},
-		QuotaType:       QuotaCostBased,
-		PrepaidBalance:  10.0,
-		TotalBudget:     20.0,
-		Enabled:         true,
+		ID:             "custom-deepseek",
+		Name:           "deepseek-chat",
+		DisplayName:    "DeepSeek Chat V3",
+		ProviderType:   ProviderOpenAI,
+		BaseURL:        "https://api.deepseek.com/v1",
+		APIKey:         "sk-deepseek-test",
+		QuotaType:      QuotaCostBased,
+		PrepaidBalance: 10.0,
+		TotalBudget:    20.0,
+		Enabled:        true,
 	}
 
 	if err := store.SaveModel(newModel); err != nil {
@@ -158,20 +154,12 @@ func TestStore_CRUDAndBindings(t *testing.T) {
 		t.Errorf("expected display name %q, got %q", "DeepSeek Chat V3", m.DisplayName)
 	}
 
-	// Test project matching
-	matched := store.GetModelForProject("Project Alpha")
-	if matched == nil || matched.ID != "custom-deepseek" {
-		t.Errorf("expected custom-deepseek for Project Alpha")
+	// The active model is app-wide: models are never bound to projects.
+	if err := store.SetActiveModel("custom-deepseek"); err != nil {
+		t.Fatalf("failed to set active model: %v", err)
 	}
-
-	// Test explicit project binding
-	if err := store.BindProject("SpecialProject", "custom-deepseek"); err != nil {
-		t.Fatalf("failed to bind project: %v", err)
-	}
-
-	bound := store.GetModelForProject("SpecialProject")
-	if bound == nil || bound.ID != "custom-deepseek" {
-		t.Errorf("expected custom-deepseek for bound SpecialProject")
+	if active := store.GetConfig().ActiveModelID; active != "custom-deepseek" {
+		t.Errorf("expected active model custom-deepseek, got %q", active)
 	}
 
 	// Test persistence across reloads
@@ -190,6 +178,49 @@ func TestStore_CRUDAndBindings(t *testing.T) {
 	}
 	if _, err := store2.GetModel("custom-deepseek"); err == nil {
 		t.Errorf("expected error getting deleted model")
+	}
+}
+
+func TestStore_SetActiveModel(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	m := CustomModel{
+		ID:           "backup-model",
+		Name:         "backup-llm",
+		DisplayName:  "Backup LLM",
+		ProviderType: ProviderOpenAI,
+		BaseURL:      "https://api.openai.com/v1",
+		Enabled:      true,
+	}
+	if err := store.SaveModel(m); err != nil {
+		t.Fatalf("failed to save model: %v", err)
+	}
+
+	// Selecting by ID and by name both resolve.
+	if err := store.SetActiveModel("backup-model"); err != nil {
+		t.Fatalf("SetActiveModel by id: %v", err)
+	}
+	if got := store.GetConfig().ActiveModelID; got != "backup-model" {
+		t.Errorf("expected active model backup-model, got %q", got)
+	}
+
+	// "native" and "" both hand the session back to the native model.
+	if err := store.SetActiveModel("native"); err != nil {
+		t.Fatalf("SetActiveModel native: %v", err)
+	}
+	if got := store.GetConfig().ActiveModelID; got != "" {
+		t.Errorf("native must clear the active model, got %q", got)
+	}
+
+	// Unknown models are rejected instead of silently stored.
+	if err := store.SetActiveModel("does-not-exist"); err == nil {
+		t.Error("expected an error when activating an unknown model")
+	}
+	if got := store.GetConfig().ActiveModelID; got != "" {
+		t.Errorf("a rejected activation must not change the active model, got %q", got)
 	}
 }
 
@@ -447,8 +478,8 @@ func TestGenerateCustomModelsScript_SubmenuEdgeCases(t *testing.T) {
 	if !strings.Contains(script, `!(label.textContent || "").includes(cleanName)`) {
 		t.Errorf("expected script to re-sync trigger label if textContent does not include cleanName")
 	}
-	if !strings.Contains(script, "curProject.trim().toLowerCase()") {
-		t.Errorf("expected script to perform case-insensitive project bind lookup")
+	if strings.Contains(script, "project_binds") {
+		t.Errorf("custom models must not be bound to projects: project_binds is gone")
 	}
 
 	// 5. [P3] Immediate menu dismissal on selection before network fetch
@@ -458,35 +489,37 @@ func TestGenerateCustomModelsScript_SubmenuEdgeCases(t *testing.T) {
 	}
 	selectFn := script[selectFnIdx:]
 	popoverRemoveIdx := strings.Index(selectFn, "popover.remove()")
-	fetchBindIdx := strings.Index(selectFn, "/api/custom_models/bind")
+	fetchActiveIdx := strings.Index(selectFn, "/api/custom_models/active")
 	fetchThinkingIdx := strings.Index(selectFn, "/api/custom_models/thinking_level")
-	if popoverRemoveIdx == -1 || fetchBindIdx == -1 || fetchThinkingIdx == -1 {
+	if popoverRemoveIdx == -1 || fetchActiveIdx == -1 || fetchThinkingIdx == -1 {
 		t.Errorf("missing expected statements in selectCustomModelWithLevel")
 	}
-	if popoverRemoveIdx > fetchBindIdx || popoverRemoveIdx > fetchThinkingIdx {
-		t.Errorf("expected popover.remove() to occur before awaiting fetch calls in selectCustomModelWithLevel, got popoverRemoveIdx=%d fetchBindIdx=%d fetchThinkingIdx=%d", popoverRemoveIdx, fetchBindIdx, fetchThinkingIdx)
+	if popoverRemoveIdx > fetchActiveIdx || popoverRemoveIdx > fetchThinkingIdx {
+		t.Errorf("expected popover.remove() to occur before awaiting fetch calls in selectCustomModelWithLevel, got popoverRemoveIdx=%d fetchActiveIdx=%d fetchThinkingIdx=%d", popoverRemoveIdx, fetchActiveIdx, fetchThinkingIdx)
 	}
 }
 
 func TestGenerateCustomModelsScript_NativeModelUnbindCapture(t *testing.T) {
 	script := GenerateCustomModelsScript(nil)
 
-	helperIdx := strings.Index(script, "function unbindCustomModelForActiveProject()")
+	helperIdx := strings.Index(script, "function clearSessionCustomModel()")
 	if helperIdx == -1 {
-		t.Fatalf("expected script to define unbindCustomModelForActiveProject")
+		t.Fatalf("expected script to define clearSessionCustomModel")
 	}
 	helperEndIdx := strings.Index(script[helperIdx:], "// 1. Hook Model Selector Trigger Pill & Dropdown")
 	if helperEndIdx == -1 {
-		t.Fatalf("expected unbindCustomModelForActiveProject helper to precede updateModelSelector")
+		t.Fatalf("expected clearSessionCustomModel helper to precede updateModelSelector")
 	}
 	helperScript := script[helperIdx : helperIdx+helperEndIdx]
+	if strings.Contains(helperScript, "project_binds") {
+		t.Error("clearSessionCustomModel must not touch project bindings")
+	}
 	for _, want := range []string{
-		`Object.keys(customConfig.project_binds).forEach`,
-		`customConfig.project_binds[k] = "native";`,
-		`customConfig.project_binds[curProject] = "native";`,
+		`customConfig.active_model_id = "";`,
 		`trigger.removeAttribute("data-swiss-custom-bound");`,
 		`trigger.removeAttribute("data-swiss-native-label");`,
-		`body: JSON.stringify({ project: curProject, model_id: "native" })`,
+		`body: JSON.stringify({ model_id: "" })`,
+		`/api/custom_models/active`,
 	} {
 		if !strings.Contains(helperScript, want) {
 			t.Errorf("expected unbind helper to contain %q", want)
@@ -502,8 +535,8 @@ func TestGenerateCustomModelsScript_NativeModelUnbindCapture(t *testing.T) {
 		t.Fatalf("expected native model click listener to precede bottom action detection")
 	}
 	nativeListener := script[nativeListenerIdx : nativeListenerIdx+nativeListenerEndIdx]
-	if !strings.Contains(nativeListener, "unbindCustomModelForActiveProject();") {
-		t.Errorf("expected native model click listener to unbind the custom model")
+	if !strings.Contains(nativeListener, "clearSessionCustomModel();") {
+		t.Errorf("expected native model click listener to clear the custom model selection")
 	}
 	if !strings.Contains(nativeListener, "}, true);") {
 		t.Errorf("expected native model click listener to use capture phase")
@@ -528,7 +561,7 @@ func TestGenerateCustomModelsScript_NativeModelUnbindCapture(t *testing.T) {
 		`target.closest(".swiss-custom-models-menu-group")`,
 		`target.closest("#swiss-custom-thinking-submenu")`,
 		`(clickedItem.textContent || "").trim() === "View Usage"`,
-		`unbindCustomModelForActiveProject();`,
+		`clearSessionCustomModel();`,
 		`}, true);`,
 	} {
 		if !strings.Contains(captureListener, want) {
@@ -566,7 +599,7 @@ func TestResolveEndpoint_Custom(t *testing.T) {
 
 	base := "https://opencode.ai/zen/go"
 	resBase := ResolveEndpoint(ProviderCustom, base, "custom-model")
-	expected := "https://opencode.ai/zen/go/v1/chat/completions"
+	expected := "https://opencode.ai/inference/go/openai/v1/chat/completions"
 	if resBase != expected {
 		t.Errorf("expected ResolveEndpoint to resolve %q to %q, got %q", base, expected, resBase)
 	}
@@ -1013,13 +1046,22 @@ func TestDetectAndFetchQuota_GCP(t *testing.T) {
 }
 
 func TestOpenCodeEndpointResolution(t *testing.T) {
-	ep1 := ResolveEndpoint(ProviderCustom, "https://opencode.ai/zen/go", "deepseek-v4-flash")
-	if ep1 != "https://opencode.ai/zen/go/v1/chat/completions" {
-		t.Errorf("expected https://opencode.ai/zen/go/v1/chat/completions, got %s", ep1)
+	const want = "https://opencode.ai/inference/go/openai/v1/chat/completions"
+	// The retired /zen/go base and the canonical URL both resolve to the current
+	// inference endpoint, whichever provider type the entry was saved with.
+	cases := []struct {
+		provider ProviderType
+		base     string
+	}{
+		{ProviderCustom, "https://opencode.ai/zen/go"},
+		{ProviderOpenAI, "https://opencode.ai/zen/go"},
+		{ProviderCustom, want},
+		{ProviderCustom, "https://opencode.ai/inference/go/openai/v1"},
 	}
-	ep2 := ResolveEndpoint(ProviderOpenAI, "https://opencode.ai/zen/go", "deepseek-v4-flash")
-	if ep2 != "https://opencode.ai/zen/go/v1/chat/completions" {
-		t.Errorf("expected https://opencode.ai/zen/go/v1/chat/completions, got %s", ep2)
+	for _, tc := range cases {
+		if got := ResolveEndpoint(tc.provider, tc.base, "deepseek-v4-flash"); got != want {
+			t.Errorf("ResolveEndpoint(%s, %q) = %q, want %q", tc.provider, tc.base, got, want)
+		}
 	}
 }
 
@@ -1060,4 +1102,98 @@ func TestGenerateCustomModelsScript_AuthHeaders(t *testing.T) {
 	if !strings.Contains(script, "X-Session-Token") {
 		t.Errorf("expected getSwissAuthHeaders to set X-Session-Token")
 	}
+}
+
+func TestGenerateCustomModelsScript_BackupModelAutoSelection(t *testing.T) {
+	cfg := &Config{
+		GeminiQuotaExhausted: true,
+		DefaultCustomModel:   "backup-model-1",
+		Models: []CustomModel{
+			{
+				ID:           "backup-model-1",
+				Name:         "claude-3-7-sonnet",
+				DisplayName:  "Claude 3.7 Sonnet",
+				ProviderType: ProviderAnthropic,
+				Enabled:      true,
+			},
+		},
+	}
+	script := GenerateCustomModelsScript(cfg)
+
+	// Verify gemini_quota_exhausted check is embedded
+	if !strings.Contains(script, "customConfig.gemini_quota_exhausted === true") {
+		t.Errorf("expected script to verify gemini_quota_exhausted")
+	}
+	// Verify window.__swiss_session_custom_model_id check is embedded
+	if !strings.Contains(script, "window.__swiss_session_custom_model_id") {
+		t.Errorf("expected script to track session custom model selection")
+	}
+	// Verify default_custom_model fallback is present
+	if !strings.Contains(script, "customConfig.default_custom_model") {
+		t.Errorf("expected script to inspect default_custom_model when quota is exhausted")
+	}
+	// Verify unbind resets session selection
+	if !strings.Contains(script, "window.__swiss_session_custom_model_id = null") {
+		t.Errorf("expected unbindCustomModelForActiveProject to clear window.__swiss_session_custom_model_id")
+	}
+}
+
+// The Projects panel display-options menu, conversation menus and other host
+// surfaces are also [role="menu"]. The custom-model group may only be attached
+// to the model selector's own popover, otherwise it shows up in those menus.
+func TestGenerateCustomModelsScript_OnlyInjectsIntoModelSelectorPopover(t *testing.T) {
+	script := GenerateCustomModelsScript(nil)
+
+	if !containsSubstring(script, "function getModelSelectorPopover()") {
+		t.Fatal("expected a getModelSelectorPopover helper anchoring the injection on the model selector")
+	}
+
+	// No lookup may start from a bare document-wide role="menu" query.
+	for _, banned := range []string{
+		`document.querySelector('[role="menu"]:not(#swiss-custom-thinking-submenu), [data-radix-popper-content-wrapper], .model-dropdown-menu')`,
+		`document.querySelector('[role="menu"]:not(#swiss-custom-thinking-submenu)`,
+	} {
+		if containsSubstring(script, banned) {
+			t.Errorf("custom model injection must not query %q", banned)
+		}
+	}
+
+	// Both call sites (unavailable-inference cleanup and the injector) must use it.
+	if got := countSubstring(script, "getModelSelectorPopover()"); got < 3 {
+		t.Errorf("expected the definition plus two call sites of getModelSelectorPopover(), found %d occurrences", got)
+	}
+
+	// The group is what ends up in the wrong menu, so it must be created only
+	// after the anchor check succeeded.
+	injectAt := indexSubstring(script, "const popover = getModelSelectorPopover();")
+	if injectAt == -1 {
+		t.Fatal("expected the injector to resolve the popover through getModelSelectorPopover()")
+	}
+	groupAt := indexSubstring(script, `customContainer.className = "swiss-custom-models-menu-group"`)
+	if groupAt == -1 {
+		t.Fatal("expected the custom model group element to be created")
+	}
+	if groupAt < injectAt {
+		t.Error("the custom model group must not be created before the model selector popover is resolved")
+	}
+}
+
+func countSubstring(s, sub string) int {
+	count := 0
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			count++
+			i += len(sub) - 1
+		}
+	}
+	return count
+}
+
+func indexSubstring(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }

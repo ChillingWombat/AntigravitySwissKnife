@@ -203,19 +203,19 @@ func ReadCloudAccountsDB(homeDir string) ([]DiscoveredCloudAccount, error) {
 			decQuota, decErr := DecryptAGM(masterKey, quotaEnc)
 			if decErr == nil && decQuota != "" {
 				var qObj struct {
-					SubscriptionTier      string `json:"subscription_tier"`
-					SubscriptionTierCamel string `json:"subscriptionTier"`
-					UserTier              string `json:"user_tier"`
-					UserTierCamel         string `json:"userTier"`
-					PlanTier              string `json:"plan_tier"`
-					PlanTierCamel         string `json:"planTier"`
-					IsTrial               bool   `json:"is_trial"`
-					IsTrialCamel          bool   `json:"isTrial"`
-					TrialStatus           string `json:"trial_status"`
-					TrialStatusCamel      string `json:"trialStatus"`
-					WarningMessage        string `json:"warning_message"`
-					WarningMessageCamel   string `json:"warningMessage"`
-					Notice                string `json:"notice"`
+					SubscriptionTier      string                 `json:"subscription_tier"`
+					SubscriptionTierCamel string                 `json:"subscriptionTier"`
+					UserTier              string                 `json:"user_tier"`
+					UserTierCamel         string                 `json:"userTier"`
+					PlanTier              string                 `json:"plan_tier"`
+					PlanTierCamel         string                 `json:"planTier"`
+					IsTrial               bool                   `json:"is_trial"`
+					IsTrialCamel          bool                   `json:"isTrial"`
+					TrialStatus           string                 `json:"trial_status"`
+					TrialStatusCamel      string                 `json:"trialStatus"`
+					WarningMessage        string                 `json:"warning_message"`
+					WarningMessageCamel   string                 `json:"warningMessage"`
+					Notice                string                 `json:"notice"`
 					Models                map[string]interface{} `json:"models"`
 					QuotaGroups           []struct {
 						DisplayName string `json:"display_name"`
@@ -517,5 +517,7 @@ func normalizeCloudTier(raw string) string {
 	if strings.Contains(low, "pro") || strings.Contains(low, "standard") || strings.Contains(low, "code assist") || strings.Contains(low, "ai premium") || strings.Contains(low, "g1_ai") || strings.Contains(low, "team") {
 		return "Pro"
 	}
-	return t
+	// An unknown tier means the plan could not be determined: report Free instead
+	// of echoing a product name back as if it were a plan.
+	return "Free"
 }

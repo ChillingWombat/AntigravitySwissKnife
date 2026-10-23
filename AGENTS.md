@@ -7,8 +7,13 @@
 
 ## Global Engineering & Design Invariants
 
-### 1. Zero Artificial Previews & Real Functional Implementation
+### 1. Zero Artificial Previews, Potemkin Facades & Real Functional Implementation
 - **Strict Prohibition**: Never create artificial previews, mocked visual gadgets, or simulated dummy data pretending to have completed work.
+- **Strict Prohibition of UI/DOM Facades**: Manipulating DOM elements, button labels, or dropdowns without an active, verified data pipeline to the host application's runtime/IPC/network layer is an **INTEGRITY VIOLATION**.
+- **Prohibition of Synthetic Flag Overrides**: Never hardcode boolean readiness flags (e.g., `InferenceSupported = true`, `IsValid = true`, `Status = "connected"`) to force UI elements to display or tests to pass when the underlying feature is missing.
+- **Full Call-Chain Requirement**: A feature is NOT implemented until the complete call chain is wired:
+  `UI Trigger -> Client State -> IPC/Protocol Bridge -> Backend Service -> Target Provider -> Verifiable Response Loop`.
+- **Evidence-Based Proof of Work**: Live execution evidence is mandatory (verifiable network I/O, non-zero file bytes, real process stdout). Canned string returns (e.g. "Screen captured via default display subsystem", "Bot token format validated") are strictly prohibited.
 - **Genuine Functionality**: Every feature must be backed by real APIs, real state, or actual daemon services.
 - **Gadget Rule**: Do not add icons or tags to gadgets unless explicitly requested by David.
 

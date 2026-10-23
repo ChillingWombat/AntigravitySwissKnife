@@ -12,7 +12,6 @@ const makeModel = (id: string, displayName: string) => ({
   provider_type: 'openai',
   base_url: 'https://opencode.ai/zen/go',
   api_key: '[REDACTED]',
-  project_mappings: ['*'],
   quota_type: 'na',
   prepaid_balance: 0,
   total_budget: 0,
@@ -26,7 +25,6 @@ const makeConfig = (...models: ReturnType<typeof makeModel>[]) => ({
   version: '1.0.0',
   inference_supported: true,
   models,
-  project_binds: {},
 })
 
 const jsonResponse = (payload: unknown) =>

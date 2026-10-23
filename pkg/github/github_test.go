@@ -2,6 +2,7 @@ package github
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -227,4 +228,70 @@ func TestServiceCachingAndFallback(t *testing.T) {
 	}
 }
 
+// A project without a GitHub remote must report itself repo-less, even after
+// another project's repository has been detected in the same service instance.
+func TestDetectRepositoryStrict_NoRemoteDoesNotBorrowAnotherRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	svc := NewService(nil, nil)
 
+	repoProject := t.TempDir()
+	initGitRepo(t, repoProject, "git@github.com:ChillingWombat/AntigravitySwissKnife.git")
+	repo, err := svc.DetectRepositoryStrict(repoProject)
+	if err != nil {
+		t.Fatalf("DetectRepositoryStrict on a repo project failed: %v", err)
+	}
+	if repo.FullName != "ChillingWombat/AntigravitySwissKnife" {
+		t.Fatalf("unexpected repo: %+v", repo)
+	}
+
+	// Arm the non-strict last-good fallback from a second repo project, then
+	// check what the plain project gets from each path.
+	otherProject := t.TempDir()
+	initGitRepo(t, otherProject, "https://github.com/ChillingWombat/somewhere.git")
+	if _, err := svc.DetectRepository(otherProject); err != nil {
+		t.Fatalf("DetectRepository failed: %v", err)
+	}
+
+	plainProject := t.TempDir()
+	initGitRepo(t, plainProject, "")
+	if strict, err := svc.DetectRepositoryStrict(plainProject); err == nil {
+		t.Fatalf("expected an error for a project without a GitHub remote, got %+v", strict)
+	}
+	loose, err := svc.DetectRepository(plainProject)
+	if err != nil || loose == nil {
+		t.Fatalf("the non-strict fallback is expected to borrow a repo here, got %v / %v", loose, err)
+	}
+	if loose.WorkspacePath == ResolveProjectPath(plainProject) {
+		t.Fatalf("the non-strict fallback was supposed to come from another project, got %+v", loose)
+	}
+}
+
+func TestDetectRepositoryStrict_RejectsNonGitHubRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	initGitRepo(t, dir, "https://gitlab.com/someone/somewhere.git")
+
+	if repo, err := NewService(nil, nil).DetectRepositoryStrict(dir); err == nil {
+		t.Fatalf("expected an error for a non-GitHub remote, got %+v", repo)
+	}
+}
+
+func initGitRepo(t *testing.T, dir string, remote string) {
+	t.Helper()
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "test@example.com")
+	run("config", "user.name", "Test")
+	if remote != "" {
+		run("remote", "add", "origin", remote)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -20,6 +21,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,36 +53,38 @@ var distFS embed.FS
 
 // Server serves the minimalist light theme web UI and REST API.
 type Server struct {
-	client             *ipc.Client
-	guiStore           *gui.Store
-	customModelsStore  *custommodels.Store
-	customModelsTester *custommodels.Tester
-	systemDetector     *system.Detector
-	appReleaseManager  *system.AppReleaseManager
-	enhancementsStore  *enhancements.Store
-	templatesStore     *templates.Store
-	oauthMgr           *keyring.GoogleOAuthManager
-	githubService      *github.Service
-	vaultManager       *vault.Manager
-	revivalEngine      *revival.Engine
-	bridgeService      *bridge.Service
-	httpServer         *http.Server
-	addr               string
-	memoMu             sync.RWMutex
-	globalMemosPath    string
-	antigravityDataDir string
-	catalogFetcher     func(force bool) []custommodels.CatalogModelInput
-	knownWorkspaces    map[string]struct{}
-	quotaPollMu        sync.Mutex
-	quotaPolling       bool
-	testIDEsMu         sync.Mutex
-	testIDEs           []int
-	lazyMu             sync.Mutex
-	authMu             sync.RWMutex
-	sessionTokens      map[string]time.Time
-	daemonSessionToken string
-	desktopSettingsMu  sync.Mutex
-	isSwitching        atomic.Bool
+	client              *ipc.Client
+	guiStore            *gui.Store
+	customModelsStore   *custommodels.Store
+	customModelsGateway *custommodels.Gateway
+	cloudCodeProxy      *custommodels.Proxy
+	customModelsTester  *custommodels.Tester
+	systemDetector      *system.Detector
+	appReleaseManager   *system.AppReleaseManager
+	enhancementsStore   *enhancements.Store
+	templatesStore      *templates.Store
+	oauthMgr            *keyring.GoogleOAuthManager
+	githubService       *github.Service
+	vaultManager        *vault.Manager
+	revivalEngine       *revival.Engine
+	bridgeService       *bridge.Service
+	httpServer          *http.Server
+	addr                string
+	memoMu              sync.RWMutex
+	globalMemosPath     string
+	antigravityDataDir  string
+	catalogFetcher      func(force bool) []custommodels.CatalogModelInput
+	knownWorkspaces     map[string]struct{}
+	quotaPollMu         sync.Mutex
+	quotaPolling        bool
+	testIDEsMu          sync.Mutex
+	testIDEs            []int
+	lazyMu              sync.Mutex
+	authMu              sync.RWMutex
+	sessionTokens       map[string]time.Time
+	daemonSessionToken  string
+	desktopSettingsMu   sync.Mutex
+	isSwitching         atomic.Bool
 }
 
 // NewServer initializes the web UI server.
@@ -202,6 +206,34 @@ func (s *Server) getVaultManager() *vault.Manager {
 		s.vaultManager = vault.NewManager("", "")
 	}
 	return s.vaultManager
+}
+
+// getCustomModelsGateway returns the shared LLM gateway for custom models.
+// getCloudCodeProxy returns the shared Cloud Code pass-through proxy.
+func (s *Server) getCloudCodeProxy() *custommodels.Proxy {
+	store := s.getCustomModelsStore()
+	if store == nil {
+		return nil
+	}
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if s.cloudCodeProxy == nil {
+		s.cloudCodeProxy = custommodels.NewProxy(store)
+	}
+	return s.cloudCodeProxy
+}
+
+func (s *Server) getCustomModelsGateway() *custommodels.Gateway {
+	store := s.getCustomModelsStore()
+	if store == nil {
+		return nil
+	}
+	s.lazyMu.Lock()
+	defer s.lazyMu.Unlock()
+	if s.customModelsGateway == nil {
+		s.customModelsGateway = custommodels.NewGateway(store)
+	}
+	return s.customModelsGateway
 }
 
 func (s *Server) getCustomModelsStore() *custommodels.Store {
@@ -421,9 +453,22 @@ func (s *Server) setupRoutes() *http.ServeMux {
 
 	// Custom models provider
 	mux.HandleFunc("/api/custom_models", s.handleCustomModels)
+	// LLM gateway: serves custom models to Antigravity surfaces that accept a
+	// bring-your-own-model gateway URL (the CLI's AGY_LLM_GATEWAY_URL).
+	if gateway := s.getCustomModelsGateway(); gateway != nil {
+		// Gemini-shaped surface for the CLI, OpenAI-shaped surface for the app's
+		// agent cascade (it posts to /v1/chat/completions).
+		mux.Handle("/v1beta/", gateway.Handler())
+		mux.Handle("/v1/", gateway.Handler())
+	}
+	// The Cloud Code proxy is dispatched ahead of the mux (see cloudCodeDispatch):
+	// ServeMux patterns cannot express "/v1internal:fetchAvailableModels".
+	mux.HandleFunc("/api/custom_models/active", s.handleCustomModelActive)
+	mux.HandleFunc("/api/custom_models/app_proxy", s.handleCustomModelAppProxy)
+	mux.HandleFunc("/api/custom_models/integration", s.handleCustomModelIntegration)
+	mux.HandleFunc("/api/custom_models/launch", s.handleCustomModelLaunch)
 	mux.HandleFunc("/api/custom_models/presets", s.handleCustomModelPresets)
 	mux.HandleFunc("/api/custom_models/test", s.handleCustomModelTest)
-	mux.HandleFunc("/api/custom_models/bind", s.handleCustomModelBind)
 	mux.HandleFunc("/api/custom_models/fetch_models", s.handleCustomModelFetchModels)
 	mux.HandleFunc("/api/custom_models/thinking_level", s.handleCustomModelThinkingLevel)
 	mux.HandleFunc("/api/custom_models/fetch_quota", s.handleCustomModelFetchQuota)
@@ -502,6 +547,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/bridge/tunnel/stop", s.handleBridgeTunnelStop)
 	mux.HandleFunc("/api/bridge/token/rotate", s.handleBridgeTokenRotate)
 	mux.HandleFunc("/api/bridge/mode", s.handleBridgeMode)
+	mux.HandleFunc("/api/bridge/agent", s.handleBridgeAgent)
+	mux.HandleFunc("/api/bridge/http-allowlist", s.handleBridgeHTTPAllowlist)
 	mux.HandleFunc("/api/bridge/remote/status", s.handleBridgeRemoteStatus)
 	mux.HandleFunc("/api/bridge/remote/config", s.handleBridgeRemoteConfig)
 	mux.HandleFunc("/api/bridge/remote/tunnel/start", s.handleBridgeRemoteTunnelStart)
@@ -572,9 +619,11 @@ func (s *Server) Start() error {
 	}
 
 	s.httpServer = &http.Server{
-		Handler:      s.corsMiddleware(s.authMiddleware(maxBytesMiddleware(mux, 10*1024*1024))),
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		Handler:     s.cloudCodeDispatch(s.corsMiddleware(s.authMiddleware(maxBytesMiddleware(mux, 10*1024*1024)))),
+		ReadTimeout: 30 * time.Second,
+		// Model turns stream for minutes; WriteTimeout is an absolute deadline in
+		// net/http, so any non-zero value severs a long SSE response mid-flight.
+		WriteTimeout: 0,
 		IdleTimeout:  60 * time.Second,
 	}
 
@@ -2949,6 +2998,21 @@ func (s *Server) handleAppReleaseUpgrade(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, res)
 }
 
+func (s *Server) isGeminiQuotaExhausted() bool {
+	store, err := keyring.NewStore("")
+	if err != nil || store == nil {
+		return false
+	}
+	accounts := store.ListAccounts()
+	if len(accounts) == 0 {
+		return false
+	}
+	active := store.ActiveAccount()
+	states := quota.BuildAccountQuotaStatesFromMap(accounts, nil)
+	summary := quota.ComputeFleetSummary(states, active)
+	return len(accounts) > 0 && summary.Fleet5hGeminiAvailable <= 0 && summary.FleetWeeklyGeminiAvailable <= 0
+}
+
 func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 	if s.getCustomModelsStore() == nil {
 		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
@@ -2960,9 +3024,13 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 		s.reconcileCustomModelBalances(r.Context())
 		cfg := s.customModelsStore.GetConfigRedacted()
 		cfg.InferenceSupported = true
-		if coreCfg, err := core.LoadConfig(); err == nil && coreCfg.DefaultCustomModel != "" {
-			for i := range cfg.Models {
-				cfg.Models[i].IsDefault = (cfg.Models[i].ID == coreCfg.DefaultCustomModel || cfg.Models[i].Name == coreCfg.DefaultCustomModel)
+		cfg.GeminiQuotaExhausted = s.isGeminiQuotaExhausted()
+		if coreCfg, err := core.LoadConfig(); err == nil {
+			cfg.DefaultCustomModel = coreCfg.DefaultCustomModel
+			if coreCfg.DefaultCustomModel != "" {
+				for i := range cfg.Models {
+					cfg.Models[i].IsDefault = (cfg.Models[i].ID == coreCfg.DefaultCustomModel || cfg.Models[i].Name == coreCfg.DefaultCustomModel)
+				}
 			}
 		}
 		writeJSON(w, cfg)
@@ -3158,17 +3226,131 @@ func (s *Server) handleCustomModelTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, res)
 }
 
-func (s *Server) handleCustomModelBind(w http.ResponseWriter, r *http.Request) {
+// cloudCodeDispatch sends every /v1internal* call to the Cloud Code proxy before
+// the mux sees it, because Go's ServeMux cannot express the "/v1internal:<method>"
+// form the language server uses.
+func (s *Server) cloudCodeDispatch(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1internal") {
+			if proxy := s.getCloudCodeProxy(); proxy != nil {
+				proxy.Handler().ServeHTTP(w, r)
+				return
+			}
+		}
+		// Surface trace: what the Antigravity language server actually calls when it
+		// runs a turn. Opt-in, because it logs every non-GUI request.
+		if os.Getenv("SWISS_SURFACE_TRACE") == "1" && !strings.HasPrefix(r.URL.Path, "/api") && !strings.HasPrefix(r.URL.Path, "/assets") {
+			log.Printf("[surface-request] %s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
+			if strings.HasPrefix(r.URL.Path, "/v1/chat/completions") && r.Body != nil {
+				logSurfacePayload(r)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// logSurfacePayload records the shape of an app model request: header names, the
+// top-level body keys, and enough about the message history to tell whether the
+// app trims it between turns. Values and content are never logged.
+func logSurfacePayload(r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
+	if err != nil {
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	names := make([]string, 0, len(r.Header))
+	for name := range r.Header {
+		names = append(names, strings.ToLower(name))
+	}
+	sort.Strings(names)
+
+	var payload map[string]interface{}
+	_ = json.Unmarshal(body, &payload)
+	keys := make([]string, 0, len(payload))
+	for key := range payload {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	summary := ""
+	if messages, ok := payload["messages"].([]interface{}); ok {
+		first := ""
+		if len(messages) > 0 {
+			if entry, ok := messages[0].(map[string]interface{}); ok {
+				if content, ok := entry["content"].(string); ok && len(content) > 24 {
+					first = content[:24]
+				} else if content, ok := entry["content"].(string); ok {
+					first = content
+				}
+			}
+		}
+		summary = fmt.Sprintf("messages=%d first_role=%v first_len=%d first_prefix=%q", len(messages), roleOf(messages), firstLen(messages), first)
+	}
+	log.Printf("[surface-payload] headers=%v keys=%v %s", names, keys, summary)
+}
+
+func roleOf(messages []interface{}) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	if entry, ok := messages[0].(map[string]interface{}); ok {
+		if role, ok := entry["role"].(string); ok {
+			return role
+		}
+	}
+	return ""
+}
+
+func firstLen(messages []interface{}) int {
+	if len(messages) == 0 {
+		return 0
+	}
+	if entry, ok := messages[0].(map[string]interface{}); ok {
+		if content, ok := entry["content"].(string); ok {
+			return len(content)
+		}
+	}
+	return 0
+}
+
+// loopbackAddr turns the listen address into a dialable loopback host:port.
+func loopbackAddr(addr string) string {
+	host, port, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return "127.0.0.1:8765"
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
+}
+
+// gatewayModelIDs lists the enabled custom model ids the app should surface.
+func gatewayModelIDs(store *custommodels.Store) []string {
+	models := store.ListModels()
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		if model.Enabled {
+			ids = append(ids, model.ID)
+		}
+	}
+	return ids
+}
+
+// handleCustomModelLaunch starts a surface with the model source its settings
+// request: native launches plainly, custom launches an isolated profile pointed at
+// the model gateway.
+func (s *Server) handleCustomModelLaunch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var p struct {
-		Project string `json:"project"`
-		ModelID string `json:"model_id"`
+	var payload struct {
+		App string `json:"app"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Project == "" {
-		http.Error(w, "invalid request body, missing project", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	store := s.getCustomModelsStore()
@@ -3176,11 +3358,135 @@ func (s *Server) handleCustomModelBind(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
 		return
 	}
-	if err := store.BindProject(p.Project, p.ModelID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	settings := store.IntegrationSettings()
+	profile, ok := settings.Apps[payload.App]
+	if !ok {
+		http.Error(w, "unknown app: use antigravity or vscode", http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, map[string]interface{}{"success": true, "project": p.Project, "model_id": p.ModelID})
+	endpoint := "http://" + loopbackAddr(s.addr)
+
+	switch payload.App {
+	case "antigravity":
+		pid, err := process.LaunchAntigravityProfile(profile.Source, endpoint, store.GatewayToken(), gatewayModelIDs(store), process.NewShield(0))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, map[string]interface{}{"success": true, "app": "antigravity", "source": profile.Source, "pid": pid})
+	case "vscode":
+		settingsPath := ""
+		if profile.Source == "custom" {
+			// The isolated instance reads its own settings tree.
+			settingsPath = process.VSCodeSettingsPathFor(process.IsolatedProfileDir("vscode"))
+		}
+		path, err := process.ApplyVSCodeModelSource(profile.Source, endpoint, settingsPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		launchErr := ""
+		if err := process.LaunchVSCode(profile.Source, endpoint, store.GatewayToken(), gatewayModelIDs(store)); err != nil {
+			launchErr = err.Error()
+		}
+		writeJSON(w, map[string]interface{}{
+			"success":     true,
+			"app":         "vscode",
+			"source":      profile.Source,
+			"settings":    path,
+			"launch_note": launchErr,
+		})
+	default:
+		http.Error(w, "unknown app", http.StatusBadRequest)
+	}
+}
+
+// handleCustomModelIntegration reads and writes the Model Source settings.
+func (s *Server) handleCustomModelIntegration(w http.ResponseWriter, r *http.Request) {
+	store := s.getCustomModelsStore()
+	if store == nil {
+		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]interface{}{
+			"success":     true,
+			"integration": store.IntegrationSettings(),
+			"endpoint":    "http://" + loopbackAddr(s.addr) + "/v1",
+			"gemini_base": "http://" + loopbackAddr(s.addr) + "/v1beta",
+			"pin_set":     store.IntegrationSettings().Proxy.PIN != "",
+		})
+	case http.MethodPost:
+		var payload custommodels.IntegrationSettings
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if err := store.SetIntegrationSettings(payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]interface{}{"success": true, "integration": store.IntegrationSettings()})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleCustomModelAppProxy launches (or restarts) the Antigravity app with
+// CLOUD_CODE_URL pointed at this daemon, which is what makes the app's own
+// generation calls reach the proxy.
+func (s *Server) handleCustomModelAppProxy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var payload struct {
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	endpoint := "http://" + loopbackAddr(s.addr)
+	restart := strings.EqualFold(payload.Action, "restart")
+	pid, err := process.LaunchAntigravityWithCloudCodeProxy(endpoint, restart, process.NewShield(0))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"success":        true,
+		"pid":            pid,
+		"cloud_code_url": endpoint,
+		"restarted":      restart,
+	})
+}
+
+// handleCustomModelActive records which custom model the app should use. Empty
+// model_id hands the session back to the native model.
+func (s *Server) handleCustomModelActive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var payload struct {
+		ModelID string `json:"model_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	store := s.getCustomModelsStore()
+	if store == nil {
+		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
+		return
+	}
+	if err := store.SetActiveModel(payload.ModelID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"success": true, "active_model_id": store.GetConfig().ActiveModelID})
 }
 
 func (s *Server) handleCustomModelFetchModels(w http.ResponseWriter, r *http.Request) {
@@ -6488,6 +6794,78 @@ func (s *Server) handleBridgeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, s.bridgeService.GetStatus())
+}
+
+// handleBridgeHTTPAllowlist lets the desktop UI inspect and edit the outbound
+// HTTP allowlist and resolve the approvals agents requested.
+// handleBridgeAgent selects which Antigravity surface the bridge drives.
+func (s *Server) handleBridgeAgent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	bridgeSvc := s.getBridgeService()
+	var payload struct {
+		Agent string `json:"agent"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	resolved, err := bridgeSvc.SetAgentBackend(payload.Agent)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]interface{}{"success": true, "agent_backend": resolved, "status": bridgeSvc.GetStatus()})
+}
+
+func (s *Server) handleBridgeHTTPAllowlist(w http.ResponseWriter, r *http.Request) {
+	bridgeSvc := s.getBridgeService()
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, map[string]interface{}{
+			"success":   true,
+			"allowlist": bridgeSvc.AllowlistHosts(),
+			"pending":   bridgeSvc.PendingHTTPApprovals(),
+		})
+	case http.MethodPost:
+		var payload struct {
+			Action string `json:"action"`
+			Host   string `json:"host"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		switch strings.ToLower(strings.TrimSpace(payload.Action)) {
+		case "allow":
+			if _, err := bridgeSvc.AllowHTTPHost(payload.Host); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		case "revoke":
+			if err := bridgeSvc.RevokeHTTPHost(payload.Host); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		case "deny":
+			if err := bridgeSvc.DenyHTTPHost(payload.Host); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		default:
+			http.Error(w, "unsupported action: use allow, revoke or deny", http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]interface{}{
+			"success":   true,
+			"allowlist": bridgeSvc.AllowlistHosts(),
+			"pending":   bridgeSvc.PendingHTTPApprovals(),
+		})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleBridgeDispatch(w http.ResponseWriter, r *http.Request) {
