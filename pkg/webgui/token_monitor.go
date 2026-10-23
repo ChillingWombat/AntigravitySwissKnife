@@ -2229,6 +2229,29 @@ ORDER BY cs.last_modified_time DESC LIMIT 1`
 
 // computeModelLifetimeCosts computes total USD cost incurred by each model across all transcripts.
 func (s *Server) computeModelLifetimeCosts(ctx context.Context) map[string]float64 {
+	s.lifetimeCostsMu.RLock()
+	if s.lifetimeCostsCache != nil && time.Now().Before(s.lifetimeCostsExp) {
+		cached := make(map[string]float64, len(s.lifetimeCostsCache))
+		for k, v := range s.lifetimeCostsCache {
+			cached[k] = v
+		}
+		s.lifetimeCostsMu.RUnlock()
+		return cached
+	}
+	s.lifetimeCostsMu.RUnlock()
+
+	s.lifetimeCostsMu.Lock()
+	defer s.lifetimeCostsMu.Unlock()
+
+	// Double-check under write lock
+	if s.lifetimeCostsCache != nil && time.Now().Before(s.lifetimeCostsExp) {
+		cached := make(map[string]float64, len(s.lifetimeCostsCache))
+		for k, v := range s.lifetimeCostsCache {
+			cached[k] = v
+		}
+		return cached
+	}
+
 	costs := make(map[string]float64)
 	store := s.getCustomModelsStore()
 	if store == nil {
@@ -2310,6 +2333,8 @@ func (s *Server) computeModelLifetimeCosts(ctx context.Context) map[string]float
 		}
 	}
 
+	s.lifetimeCostsCache = costs
+	s.lifetimeCostsExp = time.Now().Add(60 * time.Second)
 	return costs
 }
 

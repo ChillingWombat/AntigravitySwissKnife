@@ -83,6 +83,9 @@ type Server struct {
 	daemonSessionToken  string
 	desktopSettingsMu   sync.Mutex
 	isSwitching         atomic.Bool
+	lifetimeCostsMu     sync.RWMutex
+	lifetimeCostsCache  map[string]float64
+	lifetimeCostsExp    time.Time
 }
 
 // NewServer initializes the web UI server.
@@ -355,13 +358,37 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		daemonRunning := false
+		if s.client != nil {
+			var status map[string]interface{}
+			if err := s.client.Call("swiss.getStatus", nil, &status); err == nil {
+				daemonRunning = true
+			}
+		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","version":"` + core.AppVersion + `"}`))
+		resp := map[string]interface{}{
+			"status":         "ok",
+			"version":        core.AppVersion,
+			"daemon_running": daemonRunning,
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		daemonRunning := false
+		if s.client != nil {
+			var status map[string]interface{}
+			if err := s.client.Call("swiss.getStatus", nil, &status); err == nil {
+				daemonRunning = true
+			}
+		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","version":"` + core.AppVersion + `"}`))
+		resp := map[string]interface{}{
+			"status":         "ok",
+			"version":        core.AppVersion,
+			"daemon_running": daemonRunning,
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/accounts", s.handleAccounts)
