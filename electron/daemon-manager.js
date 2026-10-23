@@ -456,13 +456,25 @@ class DaemonManager {
       });
 
       try {
-        child.kill('SIGTERM');
+        if (process.platform !== 'win32') {
+          try {
+            process.kill(-pid, 'SIGTERM');
+          } catch (_) {
+            process.kill(pid, 'SIGTERM');
+          }
+        } else {
+          child.kill('SIGTERM');
+        }
       } catch (err) {
         clearTimeout(killTimer);
         console.warn(`[DaemonManager] SIGTERM error: ${err.message}`);
         finish();
       }
     });
+
+    if (process.platform === 'linux') {
+      this.reapOrphanedProcesses();
+    }
 
     // Clean up socket file defensively
     this.cleanupSocket();
