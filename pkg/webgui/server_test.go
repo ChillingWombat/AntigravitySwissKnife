@@ -3485,7 +3485,6 @@ func TestCustomModels_DefaultGateOnFailedLastTest(t *testing.T) {
 	resp4.Body.Close()
 }
 
-
 func TestCustomModels_KeyEndpointAndDynamicBalanceReconciliation(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)

@@ -96,9 +96,6 @@ type Preset struct {
 	BinaryLinux   string
 	BinaryDarwin  string
 	BinaryWindows string
-	// SimLatencyMS is the historical latency reported when the process is
-	// running but the endpoint does not answer.
-	SimLatencyMS float64
 	// StatusWhenRunning is the status reported for a running process whose
 	// endpoint does not answer.
 	StatusWhenRunning string
@@ -121,7 +118,6 @@ func Presets() []Preset {
 			BinaryLinux:       "/opt/Antigravity/antigravity",
 			BinaryDarwin:      "/Applications/Antigravity.app/Contents/MacOS/Antigravity",
 			BinaryWindows:     "%LOCALAPPDATA%/Programs/Antigravity/Antigravity.exe",
-			SimLatencyMS:      0.8,
 			StatusWhenRunning: "active_hosting",
 		},
 		{
@@ -133,7 +129,6 @@ func Presets() []Preset {
 			TCPAddr:           "127.0.0.1:35779",
 			BinaryLinux:       "~/.local/bin/agy",
 			BinaryWindows:     "~/.local/bin/agy.exe",
-			SimLatencyMS:      1.4,
 			StatusWhenRunning: "connected",
 		},
 		{
@@ -147,7 +142,6 @@ func Presets() []Preset {
 			SocketName:        "devin-acp.sock",
 			MacAppSupportDir:  "Devin",
 			BinaryLinux:       "/usr/bin/devin-desktop",
-			SimLatencyMS:      2.2,
 			StatusWhenRunning: "connected",
 		},
 		{
@@ -159,7 +153,6 @@ func Presets() []Preset {
 			TCPAddr:           "127.0.0.1:4096",
 			BinaryLinux:       "~/.local/bin/opencode",
 			BinaryWindows:     "~/.local/bin/opencode.exe",
-			SimLatencyMS:      1.8,
 			StatusWhenRunning: "connected",
 		},
 		{
@@ -171,7 +164,6 @@ func Presets() []Preset {
 			TCPAddr:           "127.0.0.1:43880",
 			BinaryLinux:       "~/.local/bin/dsh",
 			BinaryWindows:     "~/.local/bin/dsh.exe",
-			SimLatencyMS:      2.5,
 			StatusWhenRunning: "connected",
 		},
 		{
@@ -183,7 +175,6 @@ func Presets() []Preset {
 			TCPAddr:           "127.0.0.1:41888",
 			BinaryLinux:       "~/.local/bin/pi",
 			BinaryWindows:     "~/.local/bin/pi.exe",
-			SimLatencyMS:      3.1,
 			StatusWhenRunning: "connected",
 		},
 		{
@@ -196,7 +187,6 @@ func Presets() []Preset {
 			// untouched because no cross-platform location is known.
 			TCPAddr:           "127.0.0.1:48080",
 			BinaryLinux:       "~/.config/nvm/versions/node/v24.16.0/bin/codex",
-			SimLatencyMS:      1.9,
 			StatusWhenRunning: "connected",
 		},
 		{
@@ -208,7 +198,6 @@ func Presets() []Preset {
 			TCPAddr:           "127.0.0.1:45124",
 			BinaryLinux:       "~/.local/bin/claude",
 			BinaryWindows:     "~/.local/bin/claude.exe",
-			SimLatencyMS:      2.1,
 			StatusWhenRunning: "connected",
 		},
 		{
@@ -222,7 +211,6 @@ func Presets() []Preset {
 			BinaryLinux:       "/opt/Cursor/cursor",
 			BinaryDarwin:      "/Applications/Cursor.app/Contents/MacOS/Cursor",
 			BinaryWindows:     "%LOCALAPPDATA%/Programs/cursor/Cursor.exe",
-			SimLatencyMS:      4.8,
 			StatusWhenRunning: "connected",
 		},
 	}
@@ -333,7 +321,6 @@ type Resolved struct {
 	Tools             []string
 	Custom            bool
 	OSDefault         bool
-	SimLatencyMS      float64
 	StatusWhenRunning string
 }
 
@@ -371,7 +358,6 @@ func Merge(overrides []core.ACPAgentConfig, env Env) []Resolved {
 			BinaryPath:        firstNonEmpty(o.BinaryPath, p.DefaultBinaryPath(env)),
 			Version:           firstNonEmpty(o.Version, p.Version),
 			Tools:             append([]string(nil), p.Tools...),
-			SimLatencyMS:      p.SimLatencyMS,
 			StatusWhenRunning: p.StatusWhenRunning,
 		}
 		if len(o.Tools) > 0 {
@@ -409,7 +395,6 @@ func Merge(overrides []core.ACPAgentConfig, env Env) []Resolved {
 			// null; the frontend reads .length unconditionally.
 			Tools:             append([]string{}, o.Tools...),
 			Custom:            true,
-			SimLatencyMS:      0,
 			StatusWhenRunning: "connected",
 		})
 	}

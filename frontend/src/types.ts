@@ -978,7 +978,7 @@ export interface AcpAgentInstance {
   port_socket: string
   acp_version: string
   status: 'active_hosting' | 'listening' | 'connected' | 'idle' | 'unreachable'
-  ping_latency_ms: number
+  ping_latency_ms: number | null
   supported_tools: string[]
   last_handshake: string
   /** True when the agent was added by the user rather than being a built-in preset. */
