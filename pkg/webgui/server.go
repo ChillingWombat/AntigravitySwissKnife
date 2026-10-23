@@ -558,6 +558,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/bridge/channels/config", s.handleBridgeChannelsConfig)
 	mux.HandleFunc("/api/bridge/channels/test", s.handleBridgeChannelsTest)
 	mux.HandleFunc("/api/bridge/channels/webhook", s.handleBridgeChannelsWebhook)
+	mux.HandleFunc("/api/bridge/channels/telegram/webhook", s.handleBridgeTelegramWebhook)
 	mux.HandleFunc("/remote", s.handleBridgeRemoteConsole)
 	mux.HandleFunc("/remote/", s.handleBridgeRemoteConsole)
 
@@ -7453,6 +7454,55 @@ func (s *Server) relayWhatsApp(cfg bridge.ChannelsConfig, message bridge.Inbound
 		return
 	}
 	service.RecordChannelActivity("whatsapp")
+}
+
+// handleBridgeTelegramWebhook receives one Telegram update, relays the text to the
+// configured agent and replies in the same chat.
+func (s *Server) handleBridgeTelegramWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	service := s.getBridgeService()
+	cfg := service.GetChannelsConfig()
+	if !cfg.Telegram.Enabled {
+		http.Error(w, "telegram bridge is disabled", http.StatusForbidden)
+		return
+	}
+	// The token in the URL is the shared secret Telegram presents; it must match the
+	// bot token, so a stranger cannot post prompts into the agent.
+	if provided := strings.TrimSpace(r.URL.Query().Get("token")); provided == "" || provided != strings.TrimSpace(cfg.Telegram.BotToken) {
+		http.Error(w, "invalid token", http.StatusForbidden)
+		return
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	inbound, err := bridge.ParseTelegramInbound(body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	for _, message := range inbound {
+		if !bridge.MarkMessageSeen(message.ID) {
+			continue
+		}
+		go s.relayTelegram(cfg, message)
+	}
+	writeJSON(w, map[string]interface{}{"accepted": len(inbound)})
+}
+
+// relayTelegram answers one message and posts the reply back to its chat.
+func (s *Server) relayTelegram(cfg bridge.ChannelsConfig, message bridge.InboundMessage) {
+	service := s.getBridgeService()
+	reply, err := service.AnswerChannelMessage(message.Text, cfg.DefaultProject)
+	if err != nil {
+		log.Printf("[channels] telegram relay failed for %s: %v", message.ID, err)
+		return
+	}
+	if err := bridge.SendTelegramReply(cfg.Telegram.BotToken, message.From, reply); err != nil {
+		log.Printf("[channels] telegram reply failed for %s: %v", message.ID, err)
+		return
+	}
+	service.RecordChannelActivity("telegram")
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

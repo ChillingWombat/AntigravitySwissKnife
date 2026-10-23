@@ -51,3 +51,40 @@ func TestMarkMessageSeenIsIdempotent(t *testing.T) {
 		t.Error("a message without an id cannot be deduplicated and should pass")
 	}
 }
+
+const telegramTextPayload = `{"update_id":42,"message":{"message_id":7,"text":"  ping  ","chat":{"id":-100123},"from":{"id":9}}}`
+
+func TestParseTelegramInboundExtractsText(t *testing.T) {
+	messages, err := ParseTelegramInbound([]byte(telegramTextPayload))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("expected one message, got %d", len(messages))
+	}
+	if messages[0].Text != "ping" || messages[0].From != "-100123" {
+		t.Errorf("unexpected message: %+v", messages[0])
+	}
+	if messages[0].ID != "tg--100123-7" {
+		t.Errorf("unexpected idempotency key: %q", messages[0].ID)
+	}
+}
+
+func TestParseTelegramInboundIgnoresNonMessages(t *testing.T) {
+	messages, err := ParseTelegramInbound([]byte(`{"update_id":43,"edited_message":{"message_id":7,"text":"x","chat":{"id":1}}}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Errorf("expected no messages, got %d", len(messages))
+	}
+}
+
+// The three backend names must normalise, including ACP and its aliases.
+func TestNormalizeAgentBackendAcceptsACP(t *testing.T) {
+	for _, raw := range []string{"acp", "ACP", "agy_acp", "antigravity-acp", "antigravity_acp"} {
+		if got := normalizeAgentBackend(raw); got != AgentACP {
+			t.Errorf("normalizeAgentBackend(%q) = %q, want acp", raw, got)
+		}
+	}
+}
