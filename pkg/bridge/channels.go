@@ -480,4 +480,3 @@ func (cm *ChannelsManager) TestChannel(channel string) (string, error) {
 		return "", fmt.Errorf("unknown channel %q", channel)
 	}
 }
-

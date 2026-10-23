@@ -152,6 +152,3 @@ func TestGitHubHandlers(t *testing.T) {
 		t.Errorf("expected failure for invalid target column, got success")
 	}
 }
-
-
-
