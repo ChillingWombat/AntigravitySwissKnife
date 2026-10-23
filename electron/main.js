@@ -224,6 +224,8 @@ let mainWindow = null;
 let tray = null;
 let isQuitting = false;
 let isStoppingDaemon = false;
+let isTearingDown = false;
+let teardownCompleted = false;
 
 // Sidecar Daemon Manager instance
 const daemonManager = new DaemonManager({
@@ -558,9 +560,7 @@ async function updateTrayMenu() {
         mainWindow.webContents.send('desktop:navigate', 2);
       }
     },
-    onQuit: async () => {
-      isQuitting = true;
-      await teardownDaemonForAppExit();
+    onQuit: () => {
       app.quit();
     },
   });
@@ -675,30 +675,21 @@ async function createWindow() {
   }
 
   // Intercept window close ('X'): default is to minimize to system tray unless close_to_tray is disabled
-  mainWindow.on('close', async (event) => {
-    if (!isQuitting) {
-      const closeToTray = getCloseToTraySetting();
-      const hasTray = Boolean(tray && (typeof tray.isDestroyed !== 'function' || !tray.isDestroyed()));
-      if (closeToTray && hasTray) {
-        event.preventDefault();
-        mainWindow.hide();
-        if (tray && process.platform === 'win32') {
-          tray.displayBalloon({
-            title: 'Antigravity Swiss Knife',
-            content: 'Application minimized to system tray.',
-          });
-        }
-      } else {
-        event.preventDefault();
-        isQuitting = true;
-        try {
-          await teardownDaemonForAppExit();
-        } catch (err) {
-          console.error('[App] Error tearing down daemon on window close:', err);
-        } finally {
-          app.quit();
-        }
+  mainWindow.on('close', (event) => {
+    if (teardownCompleted) return;
+    const closeToTray = getCloseToTraySetting();
+    const hasTray = Boolean(tray && (typeof tray.isDestroyed !== 'function' || !tray.isDestroyed()));
+    if (closeToTray && hasTray && !isTearingDown) {
+      event.preventDefault();
+      mainWindow.hide();
+      if (tray && process.platform === 'win32') {
+        tray.displayBalloon({
+          title: 'Antigravity Swiss Knife',
+          content: 'Application minimized to system tray.',
+        });
       }
+    } else {
+      app.quit();
     }
   });
 
@@ -1204,31 +1195,27 @@ if (app && typeof app.whenReady === 'function') {
 // Full application quit hook
 if (app && typeof app.on === 'function') {
   app.on('before-quit', async (event) => {
-    if (!isQuitting) {
-      event.preventDefault();
-      isQuitting = true;
-      if (!isStoppingDaemon) {
-        isStoppingDaemon = true;
-        try {
-          await teardownDaemonForAppExit();
-        } catch (err) {
-          console.error('[App] Error during daemon stop on before-quit:', err);
-        } finally {
-          app.quit();
-        }
-      }
+    if (teardownCompleted) {
+      return;
+    }
+    event.preventDefault();
+    if (isTearingDown) {
+      return;
+    }
+    isTearingDown = true;
+    try {
+      await teardownDaemonForAppExit();
+    } catch (err) {
+      console.error('[App] Error during daemon stop on before-quit:', err);
+    } finally {
+      teardownCompleted = true;
+      app.quit();
     }
   });
 
-  app.on('window-all-closed', async () => {
+  app.on('window-all-closed', () => {
     const closeToTray = getCloseToTraySetting();
-    if (!closeToTray || isQuitting) {
-      if (!isStoppingDaemon) {
-        isStoppingDaemon = true;
-        try {
-          await teardownDaemonForAppExit();
-        } catch (err) {}
-      }
+    if (!closeToTray) {
       app.quit();
     }
   });
