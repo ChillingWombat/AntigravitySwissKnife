@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -118,5 +119,144 @@ func TestReconcile_GmailDotVariant_NoDuplicateImport(t *testing.T) {
 	}
 	if dup, _ := store.GetAccount("gersioolbap238@gmail.com"); dup != nil {
 		t.Errorf("dotless variant must not be auto-imported")
+	}
+}
+
+func TestStoreLoad_DeduplicatesCasingVariants(t *testing.T) {
+	tmpDir := t.TempDir()
+	accPath := filepath.Join(tmpDir, "accounts.json")
+
+	// Raw JSON map with two identical accounts differing only by casing
+	rawJSON := `{
+  "accounts": {
+    "ChillingWombat@gmail.com": {
+      "email": "ChillingWombat@gmail.com",
+      "label": "chillingwombat@gmail.com",
+      "plan_tier": "Pro - Trial",
+      "status": "STANDBY",
+      "priority": "Mid",
+      "password": "secret_password",
+      "credential": {
+        "access_token": "ya29.test1",
+        "refresh_token": "1//test_ref1"
+      }
+    },
+    "chillingwombat@gmail.com": {
+      "email": "chillingwombat@gmail.com",
+      "label": "chillingwombat@gmail.com",
+      "plan_tier": "Pro - Trial",
+      "status": "ACTIVE",
+      "priority": "Mid",
+      "credential": {
+        "access_token": "ya29.test2",
+        "refresh_token": "1//test_ref2"
+      }
+    }
+  },
+  "active_account": "chillingwombat@gmail.com",
+  "version": 1
+}`
+	if err := os.WriteFile(accPath, []byte(rawJSON), 0600); err != nil {
+		t.Fatalf("failed to write raw accounts.json: %v", err)
+	}
+
+	store, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	accounts := store.ListAccounts()
+	if len(accounts) != 1 {
+		emails := make([]string, 0, len(accounts))
+		for _, a := range accounts {
+			emails = append(emails, a.Email)
+		}
+		t.Fatalf("expected exactly 1 account after deduplication, got %d: %v", len(accounts), emails)
+	}
+
+	acc := accounts[0]
+	if !acc.IsActive {
+		t.Errorf("expected merged account to be active")
+	}
+	if acc.Password != "secret_password" {
+		t.Errorf("expected merged account to retain password")
+	}
+
+	// Verify store.ActiveAccount matches canonical email
+	if !strings.EqualFold(store.ActiveAccount(), "chillingwombat@gmail.com") {
+		t.Errorf("expected active account to match chillingwombat@gmail.com, got %q", store.ActiveAccount())
+	}
+}
+
+func TestAddOrUpdateAccount_CasingVariantUpdatesExisting(t *testing.T) {
+	tmpDir := t.TempDir()
+	accPath := filepath.Join(tmpDir, "accounts.json")
+	store, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	err = store.AddOrUpdateAccount(&Account{
+		Email:        "UpperUser@example.com",
+		Label:        "Original Label",
+		PlanTier:     "Free",
+		Status:       "STANDBY",
+		RefreshToken: "1//orig_ref",
+	})
+	if err != nil {
+		t.Fatalf("AddOrUpdateAccount error: %v", err)
+	}
+
+	// Add casing variant: should update existing without creating duplicate
+	err = store.AddOrUpdateAccount(&Account{
+		Email:        "upperuser@example.com",
+		Label:        "Updated Label",
+		PlanTier:     "Pro",
+		Status:       "ACTIVE",
+		RefreshToken: "1//new_ref",
+	})
+	if err != nil {
+		t.Fatalf("second AddOrUpdateAccount error: %v", err)
+	}
+
+	accounts := store.ListAccounts()
+	if len(accounts) != 1 {
+		t.Fatalf("expected exactly 1 account, got %d", len(accounts))
+	}
+	if accounts[0].PlanTier != "Pro" {
+		t.Errorf("expected updated plan tier Pro, got %q", accounts[0].PlanTier)
+	}
+}
+
+func TestUpdateAccountFull_CasingVariantUpdatesExisting(t *testing.T) {
+	tmpDir := t.TempDir()
+	accPath := filepath.Join(tmpDir, "accounts.json")
+	store, err := NewStore(accPath)
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	err = store.AddOrUpdateAccount(&Account{
+		Email:        "MixedCase@example.com",
+		Label:        "Original Label",
+		PlanTier:     "Free",
+		Status:       "STANDBY",
+		RefreshToken: "1//orig_ref",
+	})
+	if err != nil {
+		t.Fatalf("AddOrUpdateAccount error: %v", err)
+	}
+
+	err = store.UpdateAccountFull("mixedcase@example.com", "New Label", "Pro", "ACTIVE", "High", "", "", "", "1//new_ref", 0, false, false, true)
+	if err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+
+	accounts := store.ListAccounts()
+	if len(accounts) != 1 {
+		t.Fatalf("expected exactly 1 account, got %d", len(accounts))
+	}
+	if accounts[0].Label != "New Label" {
+		t.Errorf("expected updated label, got %q", accounts[0].Label)
 	}
 }
