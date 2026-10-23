@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/ChillingWombat/AntigravitySwissKnife/antigravity-acp/surface"
 )
@@ -21,13 +22,16 @@ type Binary string
 // Surface runs agy turns as subprocesses, one conversation per session id.
 type Surface struct {
 	Bin string
+
+	mu       sync.Mutex
+	sessions map[string]surface.SessionOptions
 }
 
 func New(bin string) *Surface {
 	if bin == "" {
 		bin = "agy"
 	}
-	return &Surface{Bin: bin}
+	return &Surface{Bin: bin, sessions: map[string]surface.SessionOptions{}}
 }
 
 func (s *Surface) Name() string { return "cli" }
@@ -39,17 +43,21 @@ func (s *Surface) Start(ctx context.Context, opts surface.SessionOptions) (strin
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	return "cli-" + hex.EncodeToString(buf), nil
+	id := "cli-" + hex.EncodeToString(buf)
+	s.mu.Lock()
+	s.sessions[id] = opts
+	s.mu.Unlock()
+	return id, nil
 }
 
 type streamEvent struct {
-	Event       string `json:"event"`
-	StepUpdate  *struct {
-		ConversationID string  `json:"conversation_id"`
-		StepIndex      int     `json:"step_index"`
-		State          string  `json:"state"`
-		StepType       string  `json:"step_type"`
-		TextDelta      string  `json:"text_delta"`
+	Event      string `json:"event"`
+	StepUpdate *struct {
+		ConversationID string `json:"conversation_id"`
+		StepIndex      int    `json:"step_index"`
+		State          string `json:"state"`
+		StepType       string `json:"step_type"`
+		TextDelta      string `json:"text_delta"`
 	} `json:"step_update"`
 	Init *struct {
 		ConversationID string `json:"conversation_id"`
@@ -63,7 +71,16 @@ type streamEvent struct {
 
 // Send runs one turn and streams text deltas as they arrive.
 func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(surface.Event) error) (surface.StopReason, error) {
-	args := []string{"--output-format", "stream-json", "-p", prompt}
+	args := []string{"--output-format", "stream-json"}
+	// Execution mode decides whether the agent may modify files. Without an
+	// explicit choice agy blocks on its own permission prompt, which the stream
+	// cannot answer.
+	mode := s.modeFor(sessionID)
+	args = append(args, "--mode", mode)
+	if mode != "plan" {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	args = append(args, "-p", prompt)
 	if conv := conversationFromSession(sessionID); conv != "" {
 		args = append(args, "--conversation", conv)
 	}
@@ -109,6 +126,18 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 		return surface.StopReason(""), fmt.Errorf("agy turn failed: %w", err)
 	}
 	return surface.StopEndTurn, nil
+}
+
+// modeFor returns the execution mode requested for a session. Edits are the
+// default because the point of the adapter is a working agent; plan mode is the
+// explicit opt-out.
+func (s *Surface) modeFor(sessionID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if mode := s.sessions[sessionID].Mode; mode != "" {
+		return mode
+	}
+	return "accept-edits"
 }
 
 func (s *Surface) Cancel(ctx context.Context, sessionID string) error { return nil }
