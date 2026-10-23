@@ -359,34 +359,56 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		daemonRunning := false
+		daemonPID := 0
 		if s.client != nil {
 			var status map[string]interface{}
 			if err := s.client.Call("swiss.getStatus", nil, &status); err == nil {
 				daemonRunning = true
+				if p, ok := status["daemon_pid"].(float64); ok {
+					daemonPID = int(p)
+				} else if p, ok := status["pid"].(float64); ok {
+					daemonPID = int(p)
+				}
 			}
+		}
+		if daemonPID == 0 {
+			daemonPID = os.Getpid()
 		}
 		w.WriteHeader(http.StatusOK)
 		resp := map[string]interface{}{
 			"status":         "ok",
 			"version":        core.AppVersion,
 			"daemon_running": daemonRunning,
+			"daemon_pid":     daemonPID,
+			"pid":            daemonPID,
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		daemonRunning := false
+		daemonPID := 0
 		if s.client != nil {
 			var status map[string]interface{}
 			if err := s.client.Call("swiss.getStatus", nil, &status); err == nil {
 				daemonRunning = true
+				if p, ok := status["daemon_pid"].(float64); ok {
+					daemonPID = int(p)
+				} else if p, ok := status["pid"].(float64); ok {
+					daemonPID = int(p)
+				}
 			}
+		}
+		if daemonPID == 0 {
+			daemonPID = os.Getpid()
 		}
 		w.WriteHeader(http.StatusOK)
 		resp := map[string]interface{}{
 			"status":         "ok",
 			"version":        core.AppVersion,
 			"daemon_running": daemonRunning,
+			"daemon_pid":     daemonPID,
+			"pid":            daemonPID,
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	})
@@ -795,7 +817,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	var status map[string]interface{}
 	if err := s.client.Call("swiss.getStatus", nil, &status); err != nil {
-		// Standalone mode fallback
+		// Direct store fallback when daemon is inactive
 		store, _ := keyring.NewStore("")
 		active := ""
 		total := 0
