@@ -323,38 +323,11 @@ func Discover(logPath string) (baseURL, csrf string, err error) {
 	return "http://" + strings.TrimSuffix(address, "/"), token, nil
 }
 
-// csrfFromProc finds the running language server and pulls --csrf_token from its argv.
-func csrfFromProc() (string, error) {
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return "", err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name()[0] < '0' || entry.Name()[0] > '9' {
-			continue
-		}
-		raw, readErr := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
-		if readErr != nil || !bytes.Contains(raw, []byte("language_server")) {
-			continue
-		}
-		args := strings.Split(string(raw), "\x00")
-		for i, arg := range args {
-			if arg == "--csrf_token" && i+1 < len(args) {
-				return args[i+1], nil
-			}
-			if strings.HasPrefix(arg, "--csrf_token=") {
-				return strings.TrimPrefix(arg, "--csrf_token="), nil
-			}
-		}
-	}
-	return "", fmt.Errorf("no running language server carries a csrf token")
-}
-
 // DefaultLogPath is where the desktop app writes the language server log.
 func DefaultLogPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "Antigravity", "logs", "language_server.log")
+	return filepath.Join(home, logDirFromHome(), "logs", "language_server.log")
 }
