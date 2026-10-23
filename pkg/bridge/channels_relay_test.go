@@ -80,11 +80,17 @@ func TestParseTelegramInboundIgnoresNonMessages(t *testing.T) {
 	}
 }
 
-// The three backend names must normalise, including ACP and its aliases.
-func TestNormalizeAgentBackendAcceptsACP(t *testing.T) {
-	for _, raw := range []string{"acp", "ACP", "agy_acp", "antigravity-acp", "antigravity_acp"} {
-		if got := normalizeAgentBackend(raw); got != AgentACP {
-			t.Errorf("normalizeAgentBackend(%q) = %q, want acp", raw, got)
+// Only the surfaces that share the user's context are accepted as backends. The
+// standalone ACP agent keeps its own store, so it is not offered.
+func TestNormalizeAgentBackendRejectsACP(t *testing.T) {
+	for _, raw := range []string{"acp", "agy_acp", "antigravity-acp"} {
+		if got := normalizeAgentBackend(raw); got != "" {
+			t.Errorf("normalizeAgentBackend(%q) = %q, want rejected", raw, got)
+		}
+	}
+	for _, raw := range []string{"cli", "agy", "app", "gui"} {
+		if got := normalizeAgentBackend(raw); got == "" {
+			t.Errorf("normalizeAgentBackend(%q) was rejected", raw)
 		}
 	}
 }

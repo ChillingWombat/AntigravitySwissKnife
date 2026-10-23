@@ -49,7 +49,7 @@ type ChannelsConfig struct {
 	Telegram TelegramConfig `json:"telegram"`
 	Discord  DiscordConfig  `json:"discord"`
 	// AgentBackend decides which Antigravity surface answers an inbound message:
-	// cli (default), app, or acp. Empty means the bridge-wide setting applies.
+	// cli (default) or app. Empty means the bridge-wide setting applies.
 	AgentBackend string `json:"agent_backend,omitempty"`
 	// DefaultProject is the workspace every inbound message lands in, so the three
 	// channels share one context instead of three unrelated ones.
@@ -196,7 +196,7 @@ func (cm *ChannelsManager) UpdateConfig(c ChannelsConfig) error {
 	}
 
 	switch normalizeAgentBackend(c.AgentBackend) {
-	case AgentCLI, AgentApp, AgentACP:
+	case AgentCLI, AgentApp:
 		c.AgentBackend = normalizeAgentBackend(c.AgentBackend)
 	case AgentAuto:
 		c.AgentBackend = AgentAuto

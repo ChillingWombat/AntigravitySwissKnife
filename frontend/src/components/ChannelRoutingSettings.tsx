@@ -13,7 +13,6 @@ const BACKENDS: { key: string; label: string; hint: string }[] = [
   { key: '', label: 'Bridge default', hint: 'Use the agent chosen for the Gemini bridge' },
   { key: 'cli', label: 'Antigravity CLI', hint: 'Short-lived process, own conversation store' },
   { key: 'app', label: 'Antigravity 2.0', hint: 'Shares context with the desktop app and VS Code' },
-  { key: 'acp', label: 'Antigravity ACP', hint: 'Separate conversation store' },
 ]
 
 interface Props {

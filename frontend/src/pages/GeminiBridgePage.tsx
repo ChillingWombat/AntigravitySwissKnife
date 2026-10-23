@@ -870,7 +870,6 @@ export const GeminiBridgePage: React.FC = () => {
             { key: 'auto', label: 'Automatic', hint: 'CLI when installed, otherwise the app' },
             { key: 'app', label: 'Antigravity 2.0 app', hint: status?.surfaces?.desktop_app_connected ? 'Connected' : 'App not detected' },
             { key: 'cli', label: 'Antigravity CLI', hint: status?.surfaces?.agy_cli_installed ? 'Installed' : 'Not installed' },
-            { key: 'acp', label: 'Antigravity ACP', hint: 'Separate conversation store' },
           ] as const).map((option) => {
             const active = (status?.agent_backend || 'auto') === option.key
             return (
