@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Plus,
   Pencil,
+  Search,
   Trash2,
 } from 'lucide-react'
 import type {
