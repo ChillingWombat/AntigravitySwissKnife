@@ -66,17 +66,26 @@ export const WhatsAppBridgePage: React.FC = () => {
   }, [])
 
   const handleToggleEnable = async () => {
-    const nextEnabled = !config.whatsapp.enabled
+    const previousEnabled = Boolean(config.whatsapp.enabled)
+    const nextEnabled = !previousEnabled
     const newConfig = {
       ...config,
       whatsapp: { ...config.whatsapp, enabled: nextEnabled },
     }
+    setTestResult(null)
     setConfig(newConfig)
     try {
       await api.updateChannelsConfig(newConfig)
       await fetchStatusAndConfig()
-    } catch (err) {
-      console.error('Failed to toggle WhatsApp bridge:', err)
+    } catch (err: any) {
+      setConfig((prev: any) => ({
+        ...prev,
+        whatsapp: { ...prev.whatsapp, enabled: previousEnabled },
+      }))
+      setTestResult({
+        success: false,
+        error: `Failed to toggle WhatsApp bridge: ${err?.message || 'Unknown error'}`,
+      })
     }
   }
 

@@ -1377,6 +1377,7 @@ export const CustomModelsPage: React.FC = () => {
             style={{
               display: 'flex',
               alignItems: 'center',
+              flexWrap: 'wrap',
               backgroundColor: 'var(--tonal)',
               borderRadius: '8px',
               padding: '3px',
@@ -1399,7 +1400,7 @@ export const CustomModelsPage: React.FC = () => {
                     fontSize: '12px',
                     fontWeight: isActive ? 600 : 500,
                     color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                    backgroundColor: isActive ? '#ffffff' : 'transparent',
+                    backgroundColor: isActive ? 'var(--surface, #ffffff)' : 'transparent',
                     boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                     border: 'none',
                     cursor: 'pointer',
@@ -1924,7 +1925,7 @@ export const CustomModelsPage: React.FC = () => {
               overflowY: 'auto',
               padding: '24px',
               boxShadow: 'var(--shadow-md)',
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface, #ffffff)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -2032,7 +2033,7 @@ export const CustomModelsPage: React.FC = () => {
                           top: 'calc(100% + 4px)',
                           left: 0,
                           right: 0,
-                          backgroundColor: '#ffffff',
+                          backgroundColor: 'var(--surface, #ffffff)',
                           border: '1px solid var(--border)',
                           borderRadius: '8px',
                           boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
@@ -2203,7 +2204,7 @@ export const CustomModelsPage: React.FC = () => {
                             top: 'calc(100% + 4px)',
                             left: 0,
                             right: 0,
-                            backgroundColor: '#ffffff',
+                            backgroundColor: 'var(--surface, #ffffff)',
                             border: '1px solid var(--border)',
                             borderRadius: '8px',
                             boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
@@ -2380,7 +2381,7 @@ export const CustomModelsPage: React.FC = () => {
                 style={{
                   border: '1px solid var(--border)',
                   borderRadius: '8px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface, #ffffff)',
                   overflow: 'hidden',
                   marginTop: '4px',
                 }}
@@ -2450,7 +2451,7 @@ export const CustomModelsPage: React.FC = () => {
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '5px',
-                      backgroundColor: '#ffffff',
+                      backgroundColor: 'var(--surface, #ffffff)',
                       border: '1px solid var(--border)',
                       cursor: isFetchingQuotaPrice ? 'not-allowed' : 'pointer',
                       whiteSpace: 'nowrap',
@@ -2498,7 +2499,7 @@ export const CustomModelsPage: React.FC = () => {
                               fontSize: '11.5px',
                               fontWeight: quotaType === m.id ? 600 : 500,
                               color: quotaType === m.id ? 'var(--primary)' : 'var(--text-muted)',
-                              backgroundColor: quotaType === m.id ? '#e8f0fe' : '#ffffff',
+                              backgroundColor: quotaType === m.id ? '#e8f0fe' : 'var(--surface, #ffffff)',
                               border: quotaType === m.id ? '1px solid var(--primary)' : '1px solid var(--border)',
                               cursor: !quotaManualOverride ? 'not-allowed' : 'pointer',
                               opacity: !quotaManualOverride ? 0.6 : 1,
@@ -2867,7 +2868,7 @@ export const CustomModelsPage: React.FC = () => {
                                 : budgetCapType === c.id
                                 ? 'var(--primary)'
                                 : 'var(--text)',
-                              backgroundColor: budgetCapType === c.id ? '#e8f0fe' : '#ffffff',
+                              backgroundColor: budgetCapType === c.id ? '#e8f0fe' : 'var(--surface, #ffffff)',
                               border: budgetCapType === c.id ? '1px solid var(--primary)' : '1px solid var(--border)',
                               cursor: c.available ? 'pointer' : 'not-allowed',
                               opacity: c.available ? 1 : 0.45,
@@ -2985,7 +2986,7 @@ export const CustomModelsPage: React.FC = () => {
               maxWidth: '92vw',
               padding: '24px',
               boxShadow: 'var(--shadow-md)',
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface, #ffffff)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -3044,7 +3045,7 @@ export const CustomModelsPage: React.FC = () => {
               overflowY: 'auto',
               padding: '24px',
               boxShadow: 'var(--shadow-md)',
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface, #ffffff)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -3290,7 +3291,7 @@ export const CustomModelsPage: React.FC = () => {
                             fontSize: '11px',
                             fontWeight: gcpBudgetCapType === c.id ? 600 : 500,
                             color: gcpBudgetCapType === c.id ? 'var(--primary)' : 'var(--text)',
-                            backgroundColor: gcpBudgetCapType === c.id ? '#e8f0fe' : '#ffffff',
+                            backgroundColor: gcpBudgetCapType === c.id ? '#e8f0fe' : 'var(--surface, #ffffff)',
                             border: gcpBudgetCapType === c.id ? '1px solid var(--primary)' : '1px solid var(--border)',
                             cursor: 'pointer',
                             whiteSpace: 'nowrap',
