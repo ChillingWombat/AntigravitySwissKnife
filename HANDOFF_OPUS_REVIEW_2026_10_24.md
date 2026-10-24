@@ -183,4 +183,13 @@ Files: `frontend/src/App.tsx`, `frontend/src/api.ts`.
 
 - Updated `.github/workflows/race.yml` and `.github/workflows/release.yml` from Go `1.24.x` / `1.23.x` to `1.26.x`, matching `go.mod`.
 - Scoped `contents: write` to `publish-release` only. Removed silent failure suppression (`|| true` and `if-no-files-found: warn`) from `release.yml`.
+
+## 7. Remaining / Open Items
+
+No Wave 2 implementation items remain open.
+
+- `pkg/core/config.go` cleanup is complete at `0c32139`; the staged commit contains only the intended one-line unmarshal error change.
+- `.github/workflows/race.yml` and `.github/workflows/release.yml` use Go `1.26.x`. Release security, artifact, and checksum gates fail closed (`#322`, PR `#327`).
+- All Wave 2 hardening tickets (`#315`-`#322`, PRs `#323`-`#330`) passed independent review on `google-vertex/gemini-4-argon` (`high`) with `VERDICT: ACCEPT` and are merged.
+- Consolidated verification passed: `npm run build` regenerated `pkg/webgui/dist` and compiled `swiss` and `antigravity-acp`; `go vet ./...`; `tsc -b --noEmit`; `oxlint` with 0 purity warnings; Frontend tests (`746/746 pass`); Electron tests (`59/59 pass`); `go test ./...`.
 - Removed remaining tutorial microcopy from `AppEnhancementsPage`, `ExtensionsPage`, `ACPAgentMeshPage`, `RemoteControlPage`, and `WhatsAppBridgePage`.

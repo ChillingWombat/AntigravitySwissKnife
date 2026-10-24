@@ -13,6 +13,15 @@
 - **Linux / 真机验证**：out-of-tree 安装在 `~/.local/share/antigravity-swiss-knife/app`，入口 `~/.local/bin/antigravity-swiss-knife`；daemon 在 `127.0.0.1:8765` 正常；账户详情的 OAuth Refresh Token 显隐已实测显示真实值，不再把 `[REDACTED]` 当作 token。
 - **验证过的运行命令（Linux）**：`~/.local/bin/antigravity-swiss-knife`、`curl -fsS http://127.0.0.1:8765/healthz`。
 
+### Remaining / Open Items
+
+No Wave 2 implementation items remain open.
+
+- `pkg/core/config.go` cleanup is complete at `0c32139`; the staged commit contains only the intended one-line unmarshal error change.
+- `.github/workflows/race.yml` and `.github/workflows/release.yml` use Go `1.26.x`. Release security, artifact, and checksum gates fail closed (`#322`, PR `#327`).
+- All Wave 2 hardening tickets (`#315`-`#322`, PRs `#323`-`#330`) passed independent review on `google-vertex/gemini-4-argon` (`high`) with `VERDICT: ACCEPT` and are merged.
+- Consolidated verification passed: `npm run build` regenerated `pkg/webgui/dist` and compiled `swiss` and `antigravity-acp`; `go vet ./...`; `tsc -b --noEmit`; `oxlint` with 0 purity warnings; Frontend tests (`746/746 pass`); Electron tests (`59/59 pass`); `go test ./...`.
+
 ## 2. 构建与运行（Windows 开发机）
 
 ```bash
