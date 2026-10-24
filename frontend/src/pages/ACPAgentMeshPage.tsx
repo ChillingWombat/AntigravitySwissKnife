@@ -833,7 +833,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                 fontSize: '13px',
               }}
             >
-              No ACP handshakes or delegations recorded yet. Click &quot;Ping All ACP Nodes&quot; above to initiate a protocol health check across all detected agent processes.
+              No ACP handshakes or delegations.
             </div>
           ) : (
             handshakeLogs.map((log) => (

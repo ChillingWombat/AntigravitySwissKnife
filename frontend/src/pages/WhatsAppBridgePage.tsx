@@ -236,9 +236,6 @@ export const WhatsAppBridgePage: React.FC = () => {
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
                 Integration Mode
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Select transport architecture for inbound and outbound messages.
-              </div>
               <select
                 value={config.whatsapp.mode}
                 onChange={(e) =>

@@ -739,9 +739,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
                   Left Panel Extensions Access Mode
                 </h3>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
-                Choose whether extensions appear as individual dedicated buttons on the IDE's left activity bar or are grouped under a single unified Swiss Knife extensions launcher button.
-              </p>
             </div>
 
             <div style={{ display: 'flex', gap: '6px', backgroundColor: 'var(--tonal)', padding: '3px', borderRadius: '8px', flexShrink: 0 }}>
