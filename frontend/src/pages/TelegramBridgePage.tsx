@@ -65,17 +65,26 @@ export const TelegramBridgePage: React.FC = () => {
   }, [])
 
   const handleToggleEnable = async () => {
-    const nextEnabled = !config.telegram.enabled
+    const previousEnabled = Boolean(config.telegram.enabled)
+    const nextEnabled = !previousEnabled
     const newConfig = {
       ...config,
       telegram: { ...config.telegram, enabled: nextEnabled },
     }
+    setTestResult(null)
     setConfig(newConfig)
     try {
       await api.updateChannelsConfig(newConfig)
       await fetchStatusAndConfig()
-    } catch (err) {
-      console.error('Failed to toggle Telegram bridge:', err)
+    } catch (err: any) {
+      setConfig((prev: any) => ({
+        ...prev,
+        telegram: { ...prev.telegram, enabled: previousEnabled },
+      }))
+      setTestResult({
+        success: false,
+        error: `Failed to toggle Telegram bridge: ${err?.message || 'Unknown error'}`,
+      })
     }
   }
 

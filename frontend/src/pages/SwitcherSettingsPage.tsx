@@ -486,18 +486,16 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       return
     }
     if (serialized === lastSentPayloadRef.current) return
-    const timer = setTimeout(() => {
-      // Mark as sent synchronously so a value reverted while this save is in
-      // flight is detected as a change and persisted by the next debounce.
-      lastSentPayloadRef.current = serialized
-      api.saveRules(payload)
-        .then(() => {
-          setFeedback(null)
-          onSavedRef.current()
-        })
-        .catch((err: any) => {
-          setFeedback(`Save error: ${err.message}`)
-        })
+    const timer = setTimeout(async () => {
+      try {
+        await api.saveRules(payload)
+        lastSentPayloadRef.current = serialized
+        setFeedback(null)
+        onSavedRef.current()
+      } catch (err: any) {
+        lastSentPayloadRef.current = ''
+        setFeedback(`Save error: ${err.message}`)
+      }
     }, 600)
     return () => clearTimeout(timer)
   }, [
@@ -522,6 +520,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     isSingleAppOrLess,
     subagentCustomModelsEnabled,
     subagentStrategy,
+    sessionResumePrompt,
   ])
 
   const commitThresholdPercent = (

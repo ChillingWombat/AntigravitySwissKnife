@@ -70,17 +70,26 @@ export const DiscordBridgePage: React.FC = () => {
   }, [])
 
   const handleToggleEnable = async () => {
-    const nextEnabled = !config.discord.enabled
+    const previousEnabled = Boolean(config.discord.enabled)
+    const nextEnabled = !previousEnabled
     const newConfig = {
       ...config,
       discord: { ...config.discord, enabled: nextEnabled },
     }
+    setTestResult(null)
     setConfig(newConfig)
     try {
       await api.updateChannelsConfig(newConfig)
       await fetchStatusAndConfig()
-    } catch (err) {
-      console.error('Failed to toggle Discord bridge:', err)
+    } catch (err: any) {
+      setConfig((prev: any) => ({
+        ...prev,
+        discord: { ...prev.discord, enabled: previousEnabled },
+      }))
+      setTestResult({
+        success: false,
+        error: `Failed to toggle Discord bridge: ${err?.message || 'Unknown error'}`,
+      })
     }
   }
 

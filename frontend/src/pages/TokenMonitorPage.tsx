@@ -461,7 +461,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     fontSize: '12px',
                     fontWeight: unitMode === 'usd' ? 600 : 500,
                     color: unitMode === 'usd' ? 'var(--primary)' : 'var(--text-muted)',
-                    backgroundColor: unitMode === 'usd' ? '#ffffff' : 'transparent',
+                    backgroundColor: unitMode === 'usd' ? 'var(--surface, #ffffff)' : 'transparent',
                     boxShadow: unitMode === 'usd' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                     border: 'none',
                     cursor: 'pointer',
@@ -481,7 +481,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     fontSize: '12px',
                     fontWeight: unitMode === 'tokens' ? 600 : 500,
                     color: unitMode === 'tokens' ? 'var(--primary)' : 'var(--text-muted)',
-                    backgroundColor: unitMode === 'tokens' ? '#ffffff' : 'transparent',
+                    backgroundColor: unitMode === 'tokens' ? 'var(--surface, #ffffff)' : 'transparent',
                     boxShadow: unitMode === 'tokens' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                     border: 'none',
                     cursor: 'pointer',
@@ -501,7 +501,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     fontSize: '12px',
                     fontWeight: unitMode === 'requests' ? 600 : 500,
                     color: unitMode === 'requests' ? 'var(--primary)' : 'var(--text-muted)',
-                    backgroundColor: unitMode === 'requests' ? '#ffffff' : 'transparent',
+                    backgroundColor: unitMode === 'requests' ? 'var(--surface, #ffffff)' : 'transparent',
                     boxShadow: unitMode === 'requests' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                     border: 'none',
                     cursor: 'pointer',
@@ -535,7 +535,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       fontSize: '12px',
                       fontWeight: timeRange === t ? 600 : 500,
                       color: timeRange === t ? 'var(--primary)' : 'var(--text-muted)',
-                      backgroundColor: timeRange === t ? '#ffffff' : 'transparent',
+                      backgroundColor: timeRange === t ? 'var(--surface, #ffffff)' : 'transparent',
                       boxShadow: timeRange === t ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                       border: 'none',
                       cursor: 'pointer',
@@ -562,7 +562,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                 disabled={isFetchingPrices}
                 className="btn-pill-tonal"
                 style={{
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface, #ffffff)',
                   border: '1px solid var(--border)',
                   borderRadius: '6px',
                   padding: '6px 14px',
@@ -593,7 +593,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         {/* Total Cost / Tokens */}
         <div
           style={{
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--surface, #ffffff)',
             border: '1px solid var(--border)',
             borderRadius: '8px',
             padding: '12px 14px',
@@ -626,7 +626,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               : `Total Input Token: ${(summary.input_tokens || 0).toLocaleString()}\nTotal Output Token: ${(summary.output_tokens || 0).toLocaleString()}`
           }
           style={{
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--surface, #ffffff)',
             border: '1px solid var(--border)',
             borderRadius: '8px',
             padding: '12px 14px',
@@ -685,7 +685,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         {/* Prompt Input vs Cached Tokens */}
         <div
           style={{
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--surface, #ffffff)',
             border: '1px solid var(--border)',
             borderRadius: '8px',
             padding: '12px 14px',
@@ -707,7 +707,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         {/* Generation Speed */}
         <div
           style={{
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--surface, #ffffff)',
             border: '1px solid var(--border)',
             borderRadius: '8px',
             padding: '12px 14px',
@@ -730,7 +730,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         {/* Total Prompts & Requests */}
         <div
           style={{
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--surface, #ffffff)',
             border: '1px solid var(--border)',
             borderRadius: '8px',
             padding: '12px 14px',
@@ -782,7 +782,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         return (
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface, #ffffff)',
               border: '1px solid var(--border)',
               borderRadius: '10px',
               padding: '20px',
@@ -811,7 +811,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       fontSize: '12px',
                       fontWeight: trendGroup === g ? 600 : 500,
                       color: trendGroup === g ? 'var(--primary)' : 'var(--text-muted)',
-                      backgroundColor: trendGroup === g ? '#ffffff' : 'transparent',
+                      backgroundColor: trendGroup === g ? 'var(--surface, #ffffff)' : 'transparent',
                       boxShadow: trendGroup === g ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                       border: 'none',
                       cursor: 'pointer',
@@ -831,7 +831,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   borderRadius: '8px',
                   border: '1px solid var(--border)',
                   fontSize: '12px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface, #ffffff)',
                   color: 'var(--text)',
                   cursor: 'pointer',
                 }}
@@ -1032,7 +1032,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         {/* Model Breakdown */}
         <div
           style={{
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--surface, #ffffff)',
             border: '1px solid var(--border)',
             borderRadius: '10px',
             padding: '20px',
@@ -1126,7 +1126,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         {/* Project Breakdown */}
         <div
           style={{
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--surface, #ffffff)',
             border: '1px solid var(--border)',
             borderRadius: '10px',
             padding: '20px',
@@ -1211,7 +1211,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           {/* 5. Live Token Price & Override Management */}
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface, #ffffff)',
               border: '1px solid var(--border)',
               borderRadius: '10px',
               padding: '20px',
@@ -1238,7 +1238,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               disabled={isFetchingPrices}
               className="btn-pill-tonal"
               style={{
-                backgroundColor: '#ffffff',
+                backgroundColor: 'var(--surface, #ffffff)',
                 border: '1px solid var(--border)',
                 borderRadius: '6px',
                 padding: '6px 14px',
@@ -1445,7 +1445,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         >
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface, #ffffff)',
               borderRadius: '10px',
               padding: '24px',
               width: '420px',
@@ -1638,7 +1638,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           {/* In-Chat Telemetry Display Settings Gadget */}
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface, #ffffff)',
               border: '1px solid var(--border)',
               borderRadius: '8px',
               padding: '20px',
@@ -1659,7 +1659,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                 padding: '14px 16px',
                 border: '1px solid var(--border)',
                 borderRadius: '6px',
-                backgroundColor: '#ffffff',
+                backgroundColor: 'var(--surface, #ffffff)',
                 marginBottom: '16px',
               }}
             >
@@ -1690,7 +1690,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       fontSize: '12px',
                       fontWeight: chatTelemetryScope === 'aggregated' ? 600 : 500,
                       color: chatTelemetryScope === 'aggregated' ? 'var(--primary)' : 'var(--text-muted)',
-                      backgroundColor: chatTelemetryScope === 'aggregated' ? '#ffffff' : 'transparent',
+                      backgroundColor: chatTelemetryScope === 'aggregated' ? 'var(--surface, #ffffff)' : 'transparent',
                       boxShadow: chatTelemetryScope === 'aggregated' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                       border: 'none',
                       cursor: 'pointer',
@@ -1708,7 +1708,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       fontSize: '12px',
                       fontWeight: chatTelemetryScope === 'main_only' ? 600 : 500,
                       color: chatTelemetryScope === 'main_only' ? 'var(--primary)' : 'var(--text-muted)',
-                      backgroundColor: chatTelemetryScope === 'main_only' ? '#ffffff' : 'transparent',
+                      backgroundColor: chatTelemetryScope === 'main_only' ? 'var(--surface, #ffffff)' : 'transparent',
                       boxShadow: chatTelemetryScope === 'main_only' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                       border: 'none',
                       cursor: 'pointer',
@@ -1738,7 +1738,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   padding: '12px 14px',
                   border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface, #ffffff)',
                 }}
               >
                 <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
@@ -1759,7 +1759,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   padding: '12px 14px',
                   border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface, #ffffff)',
                 }}
               >
                 <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
@@ -1780,7 +1780,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   padding: '12px 14px',
                   border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface, #ffffff)',
                 }}
               >
                 <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
@@ -1801,7 +1801,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   padding: '12px 14px',
                   border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface, #ffffff)',
                 }}
               >
                 <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
@@ -1819,7 +1819,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           {/* 6. Live Telemetry Stream Log */}
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface, #ffffff)',
               border: '1px solid var(--border)',
               borderRadius: '8px',
               padding: '20px',
@@ -1844,7 +1844,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       padding: '5px 12px',
                       fontSize: '12px',
                       fontWeight: logFilter === 'all' ? 700 : 500,
-                      backgroundColor: logFilter === 'all' ? 'var(--primary)' : '#ffffff',
+                      backgroundColor: logFilter === 'all' ? 'var(--primary)' : 'var(--surface, #ffffff)',
                       color: logFilter === 'all' ? '#ffffff' : 'var(--text-muted)',
                       border: 'none',
                       cursor: 'pointer',
@@ -1860,7 +1860,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       padding: '5px 12px',
                       fontSize: '12px',
                       fontWeight: logFilter === 'main' ? 700 : 500,
-                      backgroundColor: logFilter === 'main' ? 'var(--primary)' : '#ffffff',
+                      backgroundColor: logFilter === 'main' ? 'var(--primary)' : 'var(--surface, #ffffff)',
                       color: logFilter === 'main' ? '#ffffff' : 'var(--text-muted)',
                       border: 'none',
                       borderLeft: '1px solid var(--border)',
@@ -1877,7 +1877,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       padding: '5px 12px',
                       fontSize: '12px',
                       fontWeight: logFilter === 'subagents' ? 700 : 500,
-                      backgroundColor: logFilter === 'subagents' ? 'var(--primary)' : '#ffffff',
+                      backgroundColor: logFilter === 'subagents' ? 'var(--primary)' : 'var(--surface, #ffffff)',
                       color: logFilter === 'subagents' ? '#ffffff' : 'var(--text-muted)',
                       border: 'none',
                       borderLeft: '1px solid var(--border)',
@@ -1910,7 +1910,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     document.body.removeChild(link)
                   }}
                   style={{
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--surface, #ffffff)',
                     border: '1px solid var(--border)',
                     borderRadius: '6px',
                     padding: '6px 14px',
