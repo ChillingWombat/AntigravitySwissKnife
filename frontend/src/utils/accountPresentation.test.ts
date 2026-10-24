@@ -11,6 +11,8 @@ import {
   commitLatest,
   copyWithStatus,
   createRequestGate,
+  shouldHydrateAccountCredentials,
+  resolveHydratedAccountCredentials,
 } from './accountPresentation.ts'
 
 const originalBrowserGlobals = {
@@ -40,6 +42,89 @@ afterEach(() => {
 })
 
 describe('accountPresentation utility', () => {
+  describe('credential hydration', () => {
+    it('hydrates a fleet-stripped MFA secret', () => {
+      const account = {
+        email: 'fleet@example.com',
+        has_totp: true,
+        totp_secret: '',
+      }
+
+      assert.strictEqual(shouldHydrateAccountCredentials(account, false), true)
+      const resolved = resolveHydratedAccountCredentials(
+        account,
+        { totp_secret: 'JBSWY3DPEHPK3PXP' },
+        { password: '', totpSecret: '', accessToken: '', refreshToken: '' }
+      )
+
+      assert.strictEqual(resolved.totpSecret, 'JBSWY3DPEHPK3PXP')
+    })
+
+    it('hydrates a single redacted access token', () => {
+      const account = {
+        email: 'redacted@example.com',
+        access_token: '[REDACTED]',
+        refresh_token: 'stored-refresh-token',
+      }
+
+      assert.strictEqual(shouldHydrateAccountCredentials(account, false), true)
+      const resolved = resolveHydratedAccountCredentials(
+        account,
+        { access_token: 'fresh-access-token' },
+        { password: '', totpSecret: '', accessToken: '', refreshToken: 'stored-refresh-token' }
+      )
+
+      assert.strictEqual(resolved.accessToken, 'fresh-access-token')
+    })
+
+    it('uses usable fallback credentials when primary values are redacted', () => {
+      const account = {
+        email: 'fallback@example.com',
+        totp_secret: '[REDACTED]',
+        access_token: '[REDACTED]',
+      }
+
+      const resolved = resolveHydratedAccountCredentials(
+        account,
+        {
+          totp_secret: '[REDACTED]',
+          mfa: 'FALLBACK-MFA-SECRET',
+          access_token: '[REDACTED]',
+          credential: { access_token: 'FALLBACK-ACCESS-TOKEN' },
+        },
+        { password: '', totpSecret: '', accessToken: '', refreshToken: '' }
+      )
+
+      assert.strictEqual(resolved.totpSecret, 'FALLBACK-MFA-SECRET')
+      assert.strictEqual(resolved.accessToken, 'FALLBACK-ACCESS-TOKEN')
+    })
+
+    it('preserves MFA and access token edits made before hydration resolves', () => {
+      const account = {
+        email: 'edited@example.com',
+        totp_secret: '[REDACTED]',
+        access_token: '[REDACTED]',
+      }
+      const current = {
+        password: '',
+        totpSecret: 'USER-MFA-SECRET',
+        accessToken: 'USER-ACCESS-TOKEN',
+        refreshToken: '',
+      }
+
+      const resolved = resolveHydratedAccountCredentials(
+        account,
+        {
+          totp_secret: 'EXPORTED-MFA-SECRET',
+          access_token: 'EXPORTED-ACCESS-TOKEN',
+        },
+        current
+      )
+
+      assert.deepStrictEqual(resolved, current)
+    })
+  })
+
   describe('copyTextWithFallback', () => {
     it('uses window.electronAPI.copyToClipboard when present', async () => {
       let copiedText = ''
@@ -551,7 +636,7 @@ describe('accountPresentation utility', () => {
       assert.strictEqual(fallback.verificationUrl, null)
     })
 
-    it('fetches unredacted credentials only when redacted and does not rerun after hydration', async () => {
+    it('fetches credentials for redacted or fleet-stripped state and does not rerun after hydration', async () => {
       const fs = await import('node:fs')
       const path = await import('node:path')
       const modalSrc = fs.readFileSync(
@@ -559,19 +644,18 @@ describe('accountPresentation utility', () => {
         'utf8'
       )
       const exportEffect = modalSrc.match(
-        /useEffect\(\(\) => \{\s*const hasRedactedCredentials[\s\S]*?\n  \}, \[([^\]]+)\]\)/
+        /useEffect\(\(\) => \{[\s\S]*?shouldHydrateAccountCredentials\(account, isNewAccount\)[\s\S]*?resolveHydratedAccountCredentials\(account, found, \{[\s\S]*?\n  \}, \[([^\]]+)\]\)/
       )
 
       assert.ok(modalSrc.includes('api.exportAccounts(account.email)'), 'should call api.exportAccounts with account email')
       assert.ok(exportEffect, 'should have a dedicated credential export effect')
-      assert.ok(modalSrc.includes("'[REDACTED]'"), 'should define the redacted credential sentinel')
       assert.ok(
-        modalSrc.includes('[account.refresh_token, account.password, account.totp_secret]'),
-        'should inspect only the credentials displayed in the modal'
+        modalSrc.includes('shouldHydrateAccountCredentials(account, isNewAccount)'),
+        'should gate credential export with the shared hydration check'
       )
       assert.ok(
-        modalSrc.includes('if (!hasRedactedCredentials) return'),
-        'should skip the export when no displayed credential is redacted'
+        modalSrc.includes('resolveHydratedAccountCredentials(account, found, {'),
+        'should hydrate exported credentials through the shared resolver'
       )
       assert.ok(
         exportEffect && !exportEffect[1].includes('refreshToken'),
@@ -594,9 +678,53 @@ describe('accountPresentation utility', () => {
         'should protect a user-edited MFA secret from async hydration'
       )
       assert.ok(
+        modalSrc.includes(
+          'resolveMfaSecretForSave(account, totpSecret, credentialTouchedRef.current.totpSecret)'
+        ),
+        'should resolve MFA changes through the shared save resolver'
+      )
+      assert.ok(
         !modalSrc.includes('||\n          exported[0]') && !modalSrc.includes('|| exported[0]'),
         'should never fall back to another account credential'
       )
     })
+  })
+})
+import {
+  REDACTED_CREDENTIAL as REDACTED_CREDENTIAL_FOR_SAVE,
+  resolveMfaSecretForSave,
+} from './accountPresentation'
+describe('resolveMfaSecretForSave', () => {
+  it('preserves an untouched stored MFA secret and clears a touched empty value', () => {
+    const account = { has_totp: true, totp_secret: REDACTED_CREDENTIAL_FOR_SAVE }
+
+    assert.strictEqual(
+      resolveMfaSecretForSave(account, '', false),
+      REDACTED_CREDENTIAL_FOR_SAVE
+    )
+    assert.strictEqual(resolveMfaSecretForSave(account, '', true), '[CLEAR]')
+  })
+
+  it('normalizes a non-empty MFA secret before saving', () => {
+    assert.strictEqual(
+      resolveMfaSecretForSave({ has_totp: false }, '  abC123  ', false),
+      'ABC123'
+    )
+  })
+
+  it('uses resolveMfaSecretForSave without a hydration gate', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const modalSrc = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../components/AccountDetailModal.tsx'),
+      'utf8'
+    )
+
+    assert.ok(
+      modalSrc.includes(
+        'resolveMfaSecretForSave(account, totpSecret, credentialTouchedRef.current.totpSecret)'
+      )
+    )
+    assert.ok(!modalSrc.includes('hydrationCompleted'))
   })
 })

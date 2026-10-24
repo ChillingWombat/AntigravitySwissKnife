@@ -7,6 +7,108 @@ export interface AccountTableDisplay {
   secondaryText: string | null
 }
 
+export interface CredentialAccount {
+  email?: string
+  password?: string
+  totp_secret?: string
+  access_token?: string
+  refresh_token?: string
+  mfa?: string
+  credential?: {
+    access_token?: string
+    refresh_token?: string
+  }
+}
+
+export interface AccountCredentialValues {
+  password: string
+  totpSecret: string
+  accessToken: string
+  refreshToken: string
+}
+
+export const REDACTED_CREDENTIAL = '[REDACTED]'
+
+function isUsableCredential(value?: string): value is string {
+  return typeof value === 'string' && value.trim() !== '' && value.trim() !== REDACTED_CREDENTIAL
+}
+
+function firstUsableCredential(...values: Array<string | undefined>): string | undefined {
+  return values.find(isUsableCredential)
+}
+
+export function resolveMfaSecretForSave(
+  account: { totp_secret?: string; has_totp?: boolean },
+  totpSecret: string,
+  mfaTouched: boolean
+): string {
+  const normalized = normalizeMfaSecret(totpSecret).toUpperCase()
+  if (normalized) return normalized
+  if (Boolean(account.has_totp || account.totp_secret)) {
+    return mfaTouched ? '[CLEAR]' : REDACTED_CREDENTIAL
+  }
+  return ''
+}
+
+export function shouldHydrateAccountCredentials(
+  account: CredentialAccount,
+  isNewAccount: boolean
+): boolean {
+  if (isNewAccount || !account.email) return false
+
+  return [
+    account.password,
+    account.totp_secret,
+    account.access_token,
+    account.refresh_token,
+  ].some((value) => !isUsableCredential(value))
+}
+
+export function resolveHydratedAccountCredentials(
+  account: CredentialAccount,
+  match: CredentialAccount,
+  current: AccountCredentialValues
+): AccountCredentialValues {
+  const resolveField = (
+    initialValue: string | undefined,
+    currentValue: string,
+    matchValue: string | undefined
+  ): string => {
+    const isUnedited =
+      currentValue === '' ||
+      currentValue === REDACTED_CREDENTIAL ||
+      currentValue === (initialValue || '')
+
+    if (!isUsableCredential(initialValue) && isUnedited && isUsableCredential(matchValue)) {
+      return matchValue
+    }
+    return currentValue
+  }
+
+  return {
+    password: resolveField(
+      account.password,
+      current.password,
+      match.password
+    ),
+    totpSecret: resolveField(
+      account.totp_secret,
+      current.totpSecret,
+      firstUsableCredential(match.totp_secret, match.mfa)
+    ),
+    accessToken: resolveField(
+      account.access_token,
+      current.accessToken,
+      firstUsableCredential(match.access_token, match.credential?.access_token)
+    ),
+    refreshToken: resolveField(
+      account.refresh_token,
+      current.refreshToken,
+      firstUsableCredential(match.refresh_token, match.credential?.refresh_token)
+    ),
+  }
+}
+
 /**
  * Determines what is displayed in the account table row.
  * If account id (email) equals the alias (label), only the alias is shown and the id is hidden.

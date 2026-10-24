@@ -980,11 +980,25 @@ func (s *Store) AddOrUpdateAccount(acc *Account) error {
 	// Masked payloads carry placeholders instead of secrets; keep the values
 	// that are already stored rather than overwriting them with the sentinels.
 	if existing := s.accounts[acc.Email]; existing != nil {
-		if isRedactionPlaceholder(acc.Password) {
+		switch strings.TrimSpace(acc.Password) {
+		case "[CLEAR]", "CLEAR":
+			acc.Password = ""
+		case "":
 			acc.Password = existing.Password
+		default:
+			if isRedactionPlaceholder(acc.Password) {
+				acc.Password = existing.Password
+			}
 		}
-		if isRedactionPlaceholder(acc.TOTPSecret) {
+		switch strings.TrimSpace(acc.TOTPSecret) {
+		case "[CLEAR]", "CLEAR":
+			acc.TOTPSecret = ""
+		case "":
 			acc.TOTPSecret = existing.TOTPSecret
+		default:
+			if isRedactionPlaceholder(acc.TOTPSecret) {
+				acc.TOTPSecret = existing.TOTPSecret
+			}
 		}
 		if isRedactionPlaceholder(acc.AccessToken) || acc.AccessToken == "" {
 			acc.AccessToken = existing.AccessToken
@@ -1004,6 +1018,12 @@ func (s *Store) AddOrUpdateAccount(acc *Account) error {
 			}
 		}
 	} else {
+		if isRedactionPlaceholder(acc.Password) {
+			acc.Password = ""
+		}
+		if isRedactionPlaceholder(acc.TOTPSecret) {
+			acc.TOTPSecret = ""
+		}
 		if isRedactionPlaceholder(acc.AccessToken) {
 			acc.AccessToken = ""
 		}
@@ -1014,6 +1034,7 @@ func (s *Store) AddOrUpdateAccount(acc *Account) error {
 			acc.IDToken = ""
 		}
 	}
+	acc.HasTOTP = (acc.TOTPSecret != "")
 	if s.activeEmail == "" {
 		s.activeEmail = acc.Email
 		acc.IsActive = true
@@ -1267,7 +1288,10 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 		}
 	}
 	acc.Notes = notes
-	if password != "" && !isRedactionPlaceholder(password) {
+	cleanPassword := strings.TrimSpace(password)
+	if cleanPassword == "[CLEAR]" || cleanPassword == "CLEAR" {
+		acc.Password = ""
+	} else if cleanPassword != "" && !isRedactionPlaceholder(cleanPassword) {
 		acc.Password = password
 	}
 	cleanTOTP := strings.TrimSpace(totpSecret)

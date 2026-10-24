@@ -34,6 +34,15 @@ import antigravityLogo from '../assets/antigravity_logo.png'
 
 import { sortAccounts, rankStandbyAccounts, type SortMode } from '../utils/accountSorting'
 
+function withMfaState(account: AccountState): AccountState {
+  const hasTotp = Boolean((account as any).has_totp || account.totp_secret)
+  return {
+    ...account,
+    has_totp: hasTotp,
+    has_mfa: Boolean(account.has_mfa || hasTotp),
+  } as AccountState
+}
+
 export { sortAccounts, type SortMode }
 
 
@@ -244,11 +253,13 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
   const accounts: AccountState[] = React.useMemo(() => {
     if (fleet?.accounts && fleet.accounts.length > 0) {
-      return fleet.accounts
+      return fleet.accounts.map(withMfaState)
     }
     if (directAccounts && directAccounts.length > 0) {
       const active = activeAccountEmail || fleet?.active_account || ''
-      return directAccounts.map((a) => toAccountState(a, active, rules?.allow_non_gemini_native_models))
+      return directAccounts.map((a) =>
+        withMfaState(toAccountState(a, active, rules?.allow_non_gemini_native_models))
+      )
     }
     return []
   }, [fleet?.accounts, directAccounts, activeAccountEmail, fleet?.active_account, rules?.allow_non_gemini_native_models])

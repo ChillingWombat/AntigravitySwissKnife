@@ -72,6 +72,55 @@ func TestKeyringStoreCRUDAndRotation(t *testing.T) {
 	}
 }
 
+func TestAddOrUpdateAccountPreservesEmptyPasswordAndTOTP(t *testing.T) {
+	store, err := NewStore(filepath.Join(t.TempDir(), "accounts.json"))
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	const (
+		email    = "preserve-secrets@example.com"
+		password = "existing-password"
+		totp     = "JBSWY3DPEHPK3PXP"
+	)
+	if err := store.AddOrUpdateAccount(&Account{
+		Email:      email,
+		Password:   password,
+		TOTPSecret: totp,
+	}); err != nil {
+		t.Fatalf("seed account error: %v", err)
+	}
+	if err := store.AddOrUpdateAccount(&Account{Email: email}); err != nil {
+		t.Fatalf("empty update error: %v", err)
+	}
+
+	got, err := store.GetAccount(email)
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if got.Password != password {
+		t.Errorf("expected empty password update to preserve stored password")
+	}
+	if got.TOTPSecret != totp {
+		t.Errorf("expected empty TOTP update to preserve stored TOTP secret")
+	}
+	if !got.HasTOTP {
+		t.Errorf("expected preserved TOTP secret to keep HasTOTP true")
+	}
+	if err := store.UpdateAccountFull(
+		email, "", "FREE", "STANDBY", "", "", "  spaced-pass  ", "", "", 0, false, false, false,
+	); err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+	got, err = store.GetAccount(email)
+	if err != nil {
+		t.Fatalf("GetAccount after whitespace update error: %v", err)
+	}
+	if got.Password != "  spaced-pass  " {
+		t.Fatalf("expected password whitespace to be preserved, got %q", got.Password)
+	}
+}
+
 func TestListAccounts_DeterministicSortedOrder(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "swiss_test_sort_*")
 	if err != nil {
