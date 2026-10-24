@@ -27,7 +27,7 @@ export interface AccountCredentialValues {
   refreshToken: string
 }
 
-const REDACTED_CREDENTIAL = '[REDACTED]'
+export const REDACTED_CREDENTIAL = '[REDACTED]'
 
 function isUsableCredential(value?: string): value is string {
   return typeof value === 'string' && value.trim() !== '' && value.trim() !== REDACTED_CREDENTIAL
@@ -35,6 +35,19 @@ function isUsableCredential(value?: string): value is string {
 
 function firstUsableCredential(...values: Array<string | undefined>): string | undefined {
   return values.find(isUsableCredential)
+}
+
+export function resolveMfaSecretForSave(
+  account: { totp_secret?: string; has_totp?: boolean },
+  totpSecret: string,
+  mfaTouched: boolean
+): string {
+  const normalized = normalizeMfaSecret(totpSecret).toUpperCase()
+  if (normalized) return normalized
+  if (Boolean(account.has_totp || account.totp_secret)) {
+    return mfaTouched ? '[CLEAR]' : REDACTED_CREDENTIAL
+  }
+  return ''
 }
 
 export function shouldHydrateAccountCredentials(

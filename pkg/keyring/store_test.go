@@ -107,6 +107,18 @@ func TestAddOrUpdateAccountPreservesEmptyPasswordAndTOTP(t *testing.T) {
 	if !got.HasTOTP {
 		t.Errorf("expected preserved TOTP secret to keep HasTOTP true")
 	}
+	if err := store.UpdateAccountFull(
+		email, "", "FREE", "STANDBY", "", "", "  spaced-pass  ", "", "", 0, false, false, false,
+	); err != nil {
+		t.Fatalf("UpdateAccountFull error: %v", err)
+	}
+	got, err = store.GetAccount(email)
+	if err != nil {
+		t.Fatalf("GetAccount after whitespace update error: %v", err)
+	}
+	if got.Password != "  spaced-pass  " {
+		t.Fatalf("expected password whitespace to be preserved, got %q", got.Password)
+	}
 }
 
 func TestListAccounts_DeterministicSortedOrder(t *testing.T) {

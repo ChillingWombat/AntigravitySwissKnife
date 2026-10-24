@@ -11,7 +11,6 @@ import { waitForGoogleOAuthURL } from '../utils/googleOAuth'
 import {
   getAccountHeaderDisplay,
   resolveDefaultAlias,
-  normalizeMfaSecret,
   parseAccountErrorAlert,
   ACCOUNT_SETUP_TEXTS,
   createRequestGate,
@@ -711,25 +710,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     }
   }
 
-  const resolveTotpSecretForUpdate = (): string => {
-    const normalized = normalizeMfaSecret(totpSecret).toUpperCase()
-    const hadStoredTotp = Boolean(
-      account.has_mfa || (account as any).has_totp || account.totp_secret
-    )
-    if (!normalized && hadStoredTotp) {
-      const secretAlreadyAvailable = Boolean(
-        account.totp_secret && account.totp_secret !== REDACTED_CREDENTIAL
-      )
-      const hydrationCompleted =
-        secretAlreadyAvailable ||
-        credentialHydrationRef.current.completedFor === account.email.trim().toLowerCase()
-      if (credentialTouchedRef.current.totpSecret && hydrationCompleted) {
-        return '[CLEAR]'
-      }
-      return REDACTED_CREDENTIAL
-    }
-    return normalized
-  }
+  const resolveTotpSecretForUpdate = (): string =>
+    resolveMfaSecretForSave(account, totpSecret, credentialTouchedRef.current.totpSecret)
 
   const handleSave = async () => {
     setIsSaving(true)
@@ -1852,3 +1834,4 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     </div>
   )
 }
+import { resolveMfaSecretForSave } from '../utils/accountPresentation'

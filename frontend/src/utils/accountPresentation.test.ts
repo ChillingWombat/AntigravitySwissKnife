@@ -678,15 +678,53 @@ describe('accountPresentation utility', () => {
         'should protect a user-edited MFA secret from async hydration'
       )
       assert.ok(
-        modalSrc.includes('return REDACTED_CREDENTIAL') &&
-          modalSrc.includes("return '[CLEAR]'") &&
-          modalSrc.includes('credentialHydrationRef.current.completedFor'),
-        'should preserve MFA until hydration finishes and clear only after an explicit hydrated edit'
+        modalSrc.includes(
+          'resolveMfaSecretForSave(account, totpSecret, credentialTouchedRef.current.totpSecret)'
+        ),
+        'should resolve MFA changes through the shared save resolver'
       )
       assert.ok(
         !modalSrc.includes('||\n          exported[0]') && !modalSrc.includes('|| exported[0]'),
         'should never fall back to another account credential'
       )
     })
+  })
+})
+import {
+  REDACTED_CREDENTIAL as REDACTED_CREDENTIAL_FOR_SAVE,
+  resolveMfaSecretForSave,
+} from './accountPresentation'
+describe('resolveMfaSecretForSave', () => {
+  it('preserves an untouched stored MFA secret and clears a touched empty value', () => {
+    const account = { has_totp: true, totp_secret: REDACTED_CREDENTIAL_FOR_SAVE }
+
+    assert.strictEqual(
+      resolveMfaSecretForSave(account, '', false),
+      REDACTED_CREDENTIAL_FOR_SAVE
+    )
+    assert.strictEqual(resolveMfaSecretForSave(account, '', true), '[CLEAR]')
+  })
+
+  it('normalizes a non-empty MFA secret before saving', () => {
+    assert.strictEqual(
+      resolveMfaSecretForSave({ has_totp: false }, '  abC123  ', false),
+      'ABC123'
+    )
+  })
+
+  it('uses resolveMfaSecretForSave without a hydration gate', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const modalSrc = fs.readFileSync(
+      path.resolve(import.meta.dirname, '../components/AccountDetailModal.tsx'),
+      'utf8'
+    )
+
+    assert.ok(
+      modalSrc.includes(
+        'resolveMfaSecretForSave(account, totpSecret, credentialTouchedRef.current.totpSecret)'
+      )
+    )
+    assert.ok(!modalSrc.includes('hydrationCompleted'))
   })
 })
