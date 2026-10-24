@@ -514,7 +514,7 @@ export const App: React.FC = () => {
                 <ArchivedProjectsPage />
               </ErrorBoundary>
             )}
-            {Boolean(status?.daemon_running) && currentTool === 7 && (
+            {currentTool === 7 && (
               <ErrorBoundary>
                 <ExtensionsPage
                   activeTab={extensionsTab}
