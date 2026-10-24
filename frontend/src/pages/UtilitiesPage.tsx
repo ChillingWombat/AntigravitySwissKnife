@@ -15,20 +15,22 @@ import type {
 } from '../types'
 import { api } from '../api'
 import { BrainCachePage } from './BrainCachePage'
-import { ACPAgentMeshPage } from './ACPAgentMeshPage'
+import { ArchivedProjectsPage } from './ArchivedProjectsPage'
+
+type UtilitiesTab = 'cache' | 'archives' | 'import'
 
 interface UtilitiesPageProps {
-  initialTab?: number
-  activeTab?: number
-  onTabChange?: (tab: number) => void
+  initialTab?: UtilitiesTab
+  activeTab?: UtilitiesTab
+  onTabChange?: (tab: UtilitiesTab) => void
 }
 
 export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
-  initialTab = 0,
+  initialTab = 'cache',
   activeTab: controlledActiveTab,
   onTabChange: _onTabChange,
 }) => {
-  const [internalActiveTab] = useState<number>(initialTab)
+  const [internalActiveTab] = useState<UtilitiesTab>(initialTab)
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab
 
   // --- 1. Chat Import State ---
@@ -118,21 +120,21 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
       {/* ============================================================ */}
       {/* TAB 0: STORAGE MANAGER (BRAIN CACHE OPTIMIZER) */}
       {/* ============================================================ */}
-      {activeTab === 0 && (
+      {activeTab === 'cache' && (
         <BrainCachePage />
       )}
 
       {/* ============================================================ */}
-      {/* TAB 1: ACP (AGENT CLIENT PROTOCOL) AGENT MESH */}
+      {/* TAB 1: ARCHIVED PROJECTS */}
       {/* ============================================================ */}
-      {activeTab === 1 && (
-        <ACPAgentMeshPage />
+      {activeTab === 'archives' && (
+        <ArchivedProjectsPage />
       )}
 
       {/* ============================================================ */}
       {/* TAB 2: AGENT CHAT & PROJECT IMPORTER */}
       {/* ============================================================ */}
-      {activeTab === 2 && (
+      {activeTab === 'import' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {importFeedback && (
             <div

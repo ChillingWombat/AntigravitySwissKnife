@@ -6,6 +6,7 @@
 export const ACP_NODE_IDS = [
   'agent-antigravity',
   'agent-antigravity-cli',
+  'agent-antigravity-vscode',
   'agent-devin',
   'agent-opencode',
   'agent-deepseek-harness',
@@ -20,6 +21,7 @@ export type AcpNodeId = typeof ACP_NODE_IDS[number]
 export const ACP_NODE_ICONS: Record<AcpNodeId, string> = {
   'agent-antigravity': 'Monitor',
   'agent-antigravity-cli': 'Terminal',
+  'agent-antigravity-vscode': 'Code2',
   'agent-devin': 'Workflow',
   'agent-opencode': 'Code2',
   'agent-deepseek-harness': 'Cpu',
@@ -32,6 +34,7 @@ export const ACP_NODE_ICONS: Record<AcpNodeId, string> = {
 export const ACP_PRODUCT_NAMES: Record<AcpNodeId, string> = {
   'agent-antigravity': 'Antigravity 2.0',
   'agent-antigravity-cli': 'Antigravity CLI',
+  'agent-antigravity-vscode': 'Antigravity VS Code Extension',
   'agent-devin': 'Devin',
   'agent-opencode': 'OpenCode',
   'agent-deepseek-harness': 'DeepSeek Harness',

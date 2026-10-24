@@ -275,7 +275,7 @@ describe('Adversarial Stress: NavRail Exhaustive Tab Dispatch & Layout Invariant
       { id: '#btnNavBridge', toolIdx: 10 },
       { id: '#btnNavTokenMonitor', toolIdx: 8 },
       { id: '#btnNavUtilities', toolIdx: 9 },
-      { id: '#btnNavArchivedProjects', toolIdx: 6 },
+      { id: '#btnNavACPAgentMesh', toolIdx: 11 },
       { id: '#btnNavSystemSettings', toolIdx: 2 },
     ]
 

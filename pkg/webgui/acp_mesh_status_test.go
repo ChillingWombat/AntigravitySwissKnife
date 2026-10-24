@@ -95,17 +95,19 @@ func TestAntigravityACPBinFallbackInCWD(t *testing.T) {
 	}
 	t.Chdir(dir)
 
-	node := buildACPNode(acpmesh.Resolved{
-		ID:         acpmesh.PresetAntigravityACP,
-		Name:       "Antigravity ACP Adapter",
-		BinaryPath: filepath.Join(dir, "missing", "antigravity-acp"),
-	}, false, 0, false)
+	for _, id := range []string{acpmesh.PresetAntigravityACP, acpmesh.PresetAntigravityVSCode} {
+		node := buildACPNode(acpmesh.Resolved{
+			ID:         id,
+			Name:       "Bundled Antigravity ACP",
+			BinaryPath: filepath.Join(dir, "missing", "antigravity-acp"),
+		}, false, 0, false)
 
-	if node["status"] != "installed_idle" {
-		t.Fatalf("status = %v, want installed_idle from CWD fallback", node["status"])
-	}
-	if node["binary_path"] != bin {
-		t.Fatalf("binary_path = %v, want %s", node["binary_path"], bin)
+		if node["status"] != "installed_idle" {
+			t.Fatalf("%s status = %v, want installed_idle from CWD fallback", id, node["status"])
+		}
+		if node["binary_path"] != bin {
+			t.Fatalf("%s binary_path = %v, want %s", id, node["binary_path"], bin)
+		}
 	}
 }
 

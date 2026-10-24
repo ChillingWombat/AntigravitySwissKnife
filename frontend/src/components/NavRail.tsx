@@ -7,7 +7,6 @@ import {
   Circle,
   Cpu,
   Zap,
-  Archive,
   Boxes,
   Coins,
   Wrench,
@@ -16,7 +15,7 @@ import {
 import type { SystemStatus } from '../types'
 
 interface NavRailProps {
-  currentTool: number // 0: Switcher, 2: System Settings, 3: Custom Models, 4: Enhancements, 6: Archived Projects, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect
+  currentTool: number // 0: Switcher, 2: System Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: ACP Agent Mesh
   onSelectTool: (idx: number) => void
   status: SystemStatus | null
 }
@@ -114,6 +113,7 @@ export const NavRail: React.FC<NavRailProps> = ({
       {/* Primary Navigation Items */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
         <button
+          id="btnNavAccountSwitcher"
           onClick={() => onSelectTool(0)}
           style={{
             width: '100%',
@@ -157,25 +157,71 @@ export const NavRail: React.FC<NavRailProps> = ({
         </button>
 
         <button
-          id="btnNavEnhancements"
-          onClick={() => onSelectTool(4)}
+          id="btnNavTokenMonitor"
+          onClick={() => onSelectTool(8)}
           style={{
             width: '100%',
             textAlign: 'left',
             padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
-            fontWeight: currentTool === 4 ? 600 : 500,
-            color: currentTool === 4 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 4 ? 'var(--primary-container)' : 'transparent',
+            fontWeight: currentTool === 8 ? 600 : 500,
+            color: currentTool === 8 ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 8 ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             whiteSpace: 'nowrap',
           }}
         >
-          <Zap size={18} color={currentTool === 4 ? 'var(--primary)' : 'var(--text-muted)'} />
-          UI Enhancements
+          <Coins size={18} color={currentTool === 8 ? 'var(--primary)' : 'var(--text-muted)'} />
+          Token Monitor
+        </button>
+
+        <button
+          id="btnNavBridge"
+          data-testid="btnNavRemoteConnect"
+          onClick={() => onSelectTool(10)}
+          style={{
+            width: '100%',
+            textAlign: 'left',
+            padding: '9px 12px',
+            borderRadius: '20px',
+            fontSize: '13px',
+            fontWeight: currentTool === 10 ? 600 : 500,
+            color: currentTool === 10 ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 10 ? 'var(--primary-container)' : 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Network size={18} color={currentTool === 10 ? 'var(--primary)' : 'var(--text-muted)'} />
+          Remote Connect
+        </button>
+
+        <button
+          id="btnNavACPAgentMesh"
+          data-testid="btnNavACPAgentMesh"
+          onClick={() => onSelectTool(11)}
+          style={{
+            width: '100%',
+            textAlign: 'left',
+            padding: '9px 12px',
+            borderRadius: '20px',
+            fontSize: '13px',
+            fontWeight: currentTool === 11 ? 600 : 500,
+            color: currentTool === 11 ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 11 ? 'var(--primary-container)' : 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Network size={18} color={currentTool === 11 ? 'var(--primary)' : 'var(--text-muted)'} />
+          ACP Agent Mesh
         </button>
 
         {Boolean(status?.daemon_running) && (
@@ -202,50 +248,26 @@ export const NavRail: React.FC<NavRailProps> = ({
             Extensions
           </button>
         )}
-
         <button
-          id="btnNavBridge"
-          data-testid="btnNavRemoteConnect"
-          onClick={() => onSelectTool(10)}
+          id="btnNavEnhancements"
+          onClick={() => onSelectTool(4)}
           style={{
             width: '100%',
             textAlign: 'left',
             padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
-            fontWeight: currentTool === 10 ? 600 : 500,
-            color: currentTool === 10 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 10 ? 'var(--primary-container)' : 'transparent',
+            fontWeight: currentTool === 4 ? 600 : 500,
+            color: currentTool === 4 ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 4 ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             whiteSpace: 'nowrap',
           }}
         >
-          <Network size={18} color={currentTool === 10 ? 'var(--primary)' : 'var(--text-muted)'} />
-          Remote Connect
-        </button>
-
-        <button
-          id="btnNavTokenMonitor"
-          onClick={() => onSelectTool(8)}
-          style={{
-            width: '100%',
-            textAlign: 'left',
-            padding: '9px 12px',
-            borderRadius: '20px',
-            fontSize: '13px',
-            fontWeight: currentTool === 8 ? 600 : 500,
-            color: currentTool === 8 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 8 ? 'var(--primary-container)' : 'transparent',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <Coins size={18} color={currentTool === 8 ? 'var(--primary)' : 'var(--text-muted)'} />
-          Token Monitor
+          <Zap size={18} color={currentTool === 4 ? 'var(--primary)' : 'var(--text-muted)'} />
+          UI Enhancements
         </button>
 
         <button
@@ -268,28 +290,6 @@ export const NavRail: React.FC<NavRailProps> = ({
         >
           <Wrench size={18} color={currentTool === 9 ? 'var(--primary)' : 'var(--text-muted)'} />
           Utilities
-        </button>
-
-        <button
-          id="btnNavArchivedProjects"
-          onClick={() => onSelectTool(6)}
-          style={{
-            width: '100%',
-            textAlign: 'left',
-            padding: '9px 12px',
-            borderRadius: '20px',
-            fontSize: '13px',
-            fontWeight: currentTool === 6 ? 600 : 500,
-            color: currentTool === 6 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 6 ? 'var(--primary-container)' : 'transparent',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <Archive size={18} color={currentTool === 6 ? 'var(--primary)' : 'var(--text-muted)'} />
-          Archived Projects
         </button>
       </div>
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { ArrowRightLeft, FolderArchive, HardDrive } from 'lucide-react'
 import { NavRail } from './components/NavRail'
 import { TopRibbon } from './components/TopRibbon'
 import { QuotaDashboardPage } from './pages/QuotaDashboardPage'
@@ -7,11 +8,11 @@ import { SwitcherSettingsPage } from './pages/SwitcherSettingsPage'
 import { SystemSettingsPage } from './pages/SystemSettingsPage'
 import { CustomModelsPage } from './pages/CustomModelsPage'
 import { AppEnhancementsPage } from './pages/AppEnhancementsPage'
-import { ArchivedProjectsPage } from './pages/ArchivedProjectsPage'
 import { ExtensionsPage } from './pages/ExtensionsPage'
 import { TokenMonitorPage } from './pages/TokenMonitorPage'
 import { UtilitiesPage } from './pages/UtilitiesPage'
 import { BridgePage } from './pages/BridgePage'
+import { ACPAgentMeshPage } from './pages/ACPAgentMeshPage'
 import { AppLockScreen } from './components/AppLockScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import type { AccountState, FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
@@ -19,13 +20,13 @@ import { toAccountState } from './types'
 import { api, setSessionToken, getSessionToken } from './api'
 
 export const App: React.FC = () => {
-  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 6: Archived, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect
+  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: ACP Agent Mesh
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: FP, 2: Rules
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Auxiliary Panel
   const [extensionsTab, setExtensionsTab] = useState<number>(0) // 0: Built-in, 1: Community
   const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; color: string; order: number; is_archived: boolean }>>([])
-  const [utilitiesTab, setUtilitiesTab] = useState<number>(0) // 0: Storage Manager, 1: ACP Agent Mesh, 2: Chat & Project Importer
+  const [utilitiesTab, setUtilitiesTab] = useState<'cache' | 'archives' | 'import'>('cache')
   const [bridgeTab, setBridgeTab] = useState<number>(0) // 0: Remote, 1: Gemini, 2: WhatsApp, 3: Telegram, 4: Discord
   const [tokenMonitorTab, setTokenMonitorTab] = useState<number>(0) // 0: Overview, 1: Telemetry & Logs, 2: Token Price
   const [status, setStatus] = useState<SystemStatus | null>(null)
@@ -124,6 +125,8 @@ export const App: React.FC = () => {
             utilities: 9,
             bridge: 10,
             remote: 10,
+            acpmesh: 11,
+            'acp-mesh': 11,
           }
           const lower = target.toLowerCase()
           if (namedRouteMap[lower] !== undefined) {
@@ -134,8 +137,11 @@ export const App: React.FC = () => {
             return
           }
         }
-        if (typeof target === 'number' && !isNaN(target) && target >= 0 && target <= 10) {
-          if (target === 1 || target === 5) {
+        if (typeof target === 'number' && !isNaN(target) && target >= 0 && target <= 11) {
+          if (target === 1 || target === 6) {
+            setUtilitiesTab('archives')
+            setCurrentTool(9)
+          } else if (target === 5) {
             setCurrentTool(0)
           } else {
             setCurrentTool(target)
@@ -161,7 +167,10 @@ export const App: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    if (currentTool === 1 || currentTool === 5) {
+    if (currentTool === 1 || currentTool === 6) {
+      setUtilitiesTab('archives')
+      setCurrentTool(9)
+    } else if (currentTool === 5) {
       setCurrentTool(0)
     }
   }, [currentTool])
@@ -219,6 +228,11 @@ export const App: React.FC = () => {
             }}
           >
             <div id="top-bar-left" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {currentTool === 11 && (
+                <span style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                  ACP Agent Mesh
+                </span>
+              )}
               {currentTool === 4 && (
                 /* UI Enhancement Segmented Tabs */
                 <div
@@ -344,12 +358,16 @@ export const App: React.FC = () => {
                     gap: '2px',
                   }}
                 >
-                  {['Storage Manager', 'ACP Agent Mesh', 'Chat & Project Importer'].map((tab, idx) => {
-                    const isActive = utilitiesTab === idx
+                  {[
+                    { id: 'cache' as const, label: 'Storage Manager', Icon: HardDrive },
+                    { id: 'archives' as const, label: 'Archived Projects', Icon: FolderArchive },
+                    { id: 'import' as const, label: 'Chat & Project Importer', Icon: ArrowRightLeft },
+                  ].map(({ id, label, Icon }) => {
+                    const isActive = utilitiesTab === id
                     return (
                       <button
-                        key={tab}
-                        onClick={() => setUtilitiesTab(idx)}
+                        key={id}
+                        onClick={() => setUtilitiesTab(id)}
                         style={{
                           borderRadius: '6px',
                           padding: '6px 16px',
@@ -364,7 +382,10 @@ export const App: React.FC = () => {
                           transition: 'all 0.15s ease',
                         }}
                       >
-                        {tab}
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Icon size={13} />
+                          {label}
+                        </span>
                       </button>
                     )
                   })}
@@ -449,7 +470,20 @@ export const App: React.FC = () => {
 
             </div>
 
-            <div id="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }} />
+            <div id="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {currentTool === 3 && (
+                <div
+                  id="custom-models-top-bar-portal"
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
+                />
+              )}
+              {currentTool === 11 && (
+                <div
+                  id="acp-mesh-top-bar-portal"
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
+                />
+              )}
+            </div>
           </header>
         ) : null}
 
@@ -509,11 +543,6 @@ export const App: React.FC = () => {
                 <AppEnhancementsPage activeCategoryTab={enhancementTab} />
               </ErrorBoundary>
             )}
-            {currentTool === 6 && (
-              <ErrorBoundary>
-                <ArchivedProjectsPage />
-              </ErrorBoundary>
-            )}
             {currentTool === 7 && (
               <ErrorBoundary>
                 <ExtensionsPage
@@ -545,6 +574,11 @@ export const App: React.FC = () => {
                   activeTab={bridgeTab}
                   onTabChange={setBridgeTab}
                 />
+              </ErrorBoundary>
+            )}
+            {currentTool === 11 && (
+              <ErrorBoundary>
+                <ACPAgentMeshPage />
               </ErrorBoundary>
             )}
           </ErrorBoundary>

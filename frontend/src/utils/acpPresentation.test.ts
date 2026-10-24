@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   ACP_NODE_IDS,
   ACP_NODE_ICONS,
+  ACP_PRODUCT_NAMES,
   ACP_CARD_LAYOUT_TOKENS,
   isAcpGridAligned,
   hasDecorativeEmojis,
@@ -11,11 +12,12 @@ import {
 } from './acpPresentation.ts'
 
 describe('ACP Presentation & Layout Specifications (Milestone 7)', () => {
-  it('contains all 9 canonical ACP mesh node IDs', () => {
-    assert.equal(ACP_NODE_IDS.length, 9)
+  it('contains all 10 canonical ACP mesh node IDs', () => {
+    assert.equal(ACP_NODE_IDS.length, 10)
     const expected = [
       'agent-antigravity',
       'agent-antigravity-cli',
+      'agent-antigravity-vscode',
       'agent-devin',
       'agent-opencode',
       'agent-deepseek-harness',
@@ -29,7 +31,7 @@ describe('ACP Presentation & Layout Specifications (Milestone 7)', () => {
     }
   })
 
-  it('verifies that all 9 node IDs map to valid Lucide icons', () => {
+  it('verifies that all 10 node IDs map to valid Lucide icons', () => {
     const validLucideIcons = new Set([
       'Monitor',
       'Terminal',
@@ -53,6 +55,7 @@ describe('ACP Presentation & Layout Specifications (Milestone 7)', () => {
     // Specific mapping verification
     assert.equal(getAgentNodeIconName('agent-antigravity'), 'Monitor')
     assert.equal(getAgentNodeIconName('agent-antigravity-cli'), 'Terminal')
+    assert.equal(getAgentNodeIconName('agent-antigravity-vscode'), 'Code2')
     assert.equal(getAgentNodeIconName('agent-devin'), 'Workflow')
     assert.equal(getAgentNodeIconName('agent-opencode'), 'Code2')
     assert.equal(getAgentNodeIconName('agent-deepseek-harness'), 'Cpu')
@@ -60,6 +63,7 @@ describe('ACP Presentation & Layout Specifications (Milestone 7)', () => {
     assert.equal(getAgentNodeIconName('agent-codex'), 'TerminalSquare')
     assert.equal(getAgentNodeIconName('agent-claude-code'), 'Bot')
     assert.equal(getAgentNodeIconName('agent-cursor'), 'Edit3')
+    assert.equal(ACP_PRODUCT_NAMES['agent-antigravity-vscode'], 'Antigravity VS Code Extension')
   })
 
   it('enforces 4px grid geometry on card layout tokens (David-Design)', () => {
