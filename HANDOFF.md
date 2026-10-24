@@ -1,6 +1,6 @@
 # HANDOFF — Antigravity Swiss Knife
 
-> 面向后续 agent 的项目交接文档。最后更新：2026-10-20 03:03（Melbourne）。
+> 面向后续 agent 的项目交接文档。最后更新：2026-10-24（Melbourne）。
 > 与 `.workbuddy/memory/` 日志互补：那里记流水，这里记可复用的结构与坑。
 
 ## 1. 项目概览
@@ -8,6 +8,7 @@
 - **是什么**：Google Antigravity IDE 的多账号 / 配额管理工具（Go 后端 + React 前端 + Electron 桌面壳 + Web GUI）。
 - **主检出**：`/mnt/Data/Projects/Antigravity Swiss Knife`（git 主工作树，main 分支）。
 - **并行 worktree**：近期 Linux subagent worktree 为 `/tmp/swiss-wt/{181,182,185}`；git 元数据仍有一批指向 `D:/Projects/swiss-wt/*` 的 prunable 记录，可 `git worktree prune`。
+- **2026-10-24 review baseline**: `feature/opus-review-hardening @ 0c32139` preserves the 58-file dirty tree under Spec `#314` and Ticket `#315`. Second-wave fixes `#316`-`#322` are in Sections 9.1-9.2.
 - **状态（截至更新时）**：main 为 `cb34bfe`；黑屏修复链 PR #170/#172/#174 及本轮 PR #176/#179/#180/#183/#184 已合并，issue #175/#177/#178/#181/#182 已关闭；#185 是本次 handoff 刷新。服务 bundle 为 `index-DYiS4sTJ.js`。
 - **Linux / 真机验证**：out-of-tree 安装在 `~/.local/share/antigravity-swiss-knife/app`，入口 `~/.local/bin/antigravity-swiss-knife`；daemon 在 `127.0.0.1:8765` 正常；账户详情的 OAuth Refresh Token 显隐已实测显示真实值，不再把 `[REDACTED]` 当作 token。
 - **验证过的运行命令（Linux）**：`~/.local/bin/antigravity-swiss-knife`、`curl -fsS http://127.0.0.1:8765/healthz`。
@@ -285,3 +286,65 @@ live CDP fiber → jetski token → `app_storage.json`。vault 的 `active_accou
   1. 确认 5 个 subagent 的 `DeepCoderImprovementWorker` 复核轮全部返回并更新本节。
   2. 还原 `pkg/core/config.go` 的 CRLF 行尾噪音，对齐 `.github/workflows/{race,release}.yml` 的 `go-version-file: 'go.mod'`。
   3. 跑全量构建与测试（`npm run build && npm test`），按 `AGENTS.md` §6 重启运行中的 `swiss` daemon / 桌面实例，并按 `AGENTS.md` §3 走分支 + PR 同步至 `origin/main`。
+
+### 9.1 Stage 0 & Baseline Preservation (Completed)
+
+- Preserved the 58-file dirty working tree baseline on `feature/opus-review-hardening` at `0c32139`, under Spec `#314` and Ticket `#315`.
+- Removed the `pkg/core/config.go` CRLF and whitespace diff churn. The fail-closed unmarshal error at `pkg/core/config.go:203` is now the only change: `1 insertion(+), 1 deletion(-)`.
+- `P4` was a numbering gap between `P3` and `P5` in the earlier findings table. No finding, worker assignment, or fix was omitted.
+
+### 9.2 Second-Wave Deep Review Findings & Fixes (Tickets #316-#322)
+
+#### 9.2.1 S10 / P7 - Bridge Auth and OAuth Token Separation (`#316`)
+
+Files: `pkg/bridge/auth.go`, `pkg/bridge/oauth.go`.
+
+- Moved `VerifyCandidatePIN` (`core.LoadConfig()` and PBKDF2) outside `am.mu`, then ordered the constant-time token comparison before PBKDF2.
+- `VerifyCandidatePIN` now returns `false` when `useAppPassword=true` and `core.LoadConfig()` fails. A corrupt config no longer falls back to the 6-digit PIN.
+- Canonicalized proxy and remote IPs with `net.ParseIP`. Added expiry sweeps and a 1024-IP cap to `failedAttempts` and `lockedUntil`.
+- Added `VerifyInteractivePIN` for `/oauth/authorize`. Raw bearer tokens (`am.token`) are rejected in URL query and form PIN fields. `/oauth/token` still accepts `am.token` for `refresh_token` and `client_credentials`.
+
+#### 9.2.2 S11 / P8 - WebGUI Authentication Hot Path (`#317`)
+
+Files: `pkg/webgui/auth_middleware.go`, `pkg/webgui/server.go`.
+
+- Added stat-validated (`modTime` and `size`) in-memory caching to `GetLocalSessionToken()`. A renderer with a stale 64-hex token no longer causes a disk read on every poll.
+- Added a 5-attempts/sec per-IP rate limit before the legacy non-hex Bearer password fallback. This stops PBKDF2 CPU amplification.
+- Changed `createSessionToken()` to return `(string, error)`. A `crypto/rand.Read` failure now returns HTTP 500 on unlock paths instead of minting an all-zero token.
+- CORS middleware now preserves existing `Vary` headers and does not duplicate `Origin`.
+
+#### 9.2.3 C1 / P9 - ACPMesh Timeout and Quota Diagnostics (`#318`)
+
+Files: `pkg/acpmesh/handshake.go`, `pkg/quota/client.go`.
+
+- `PollAccountLiveQuota` now preserves post-refresh `FetchProjectAndTier` errors in diagnostics instead of discarding them with `_`.
+- Bounded overall `probePiHandshake` execution with a 12s default ceiling.
+- Deduplicated `resolvePiACPExecutable()`.
+- Broadened `isUnsupportedPiRPCFlagError` to cover 6 CLI flag rejection forms.
+
+#### 9.2.4 S12 - Electron Subframe and Connecting Fallback IPC (`#319`)
+
+Files: `electron/main.js`, `electron/navigation-security.test.js`.
+
+- `isTrustedSender` now verifies `mainFrame` identity and routing, so subframes cannot call privileged IPC handlers.
+- Replaced blanket `data:text/html` trust with an exact match against the generated connecting fallback URL.
+
+#### 9.2.5 C2 / P10 - Frontend Polling and AbortSignal Lifecycle (`#320`)
+
+Files: `frontend/src/App.tsx`, `frontend/src/api.ts`.
+
+- Added the `isPollingRef` single-flight guard and hidden-tab pause/resume to the 10s status and account polling loop. A poll longer than 10s is no longer repeatedly self-aborted by GET deduplication in `api.ts`.
+- Removed caller `AbortSignal` listeners in `apiFetch` `finally` blocks. Long-lived signals no longer accumulate listeners.
+
+#### 9.2.6 C3 - Frontend Async Races and Render Purity (`#321`)
+
+- Guarded `AccountDetailModal` live-quota fetches and 1s async TOTP generation against stale account or secret switches and unmounts. Restored the strict `getAccountHeaderDisplay` assertion in `accountPresentation.test.ts`.
+- Coordinated `SystemSettingsPage` `runtimeMode` initialization and awaited `navigator.clipboard.writeText` before showing the copied state.
+- Fixed `exhaustive-deps` and render-time `Date.now()` purity warnings in `GitHubWorkspacePage.tsx` and `CustomModelsPage.tsx`.
+- Added capture-phase `scroll` repositioning to `useContextMenuPlacement.ts`.
+
+#### 9.2.7 CI1 / UI1 - CI Gates and UI Copy (`#322`)
+
+- Updated `.github/workflows/race.yml` and `.github/workflows/release.yml` from Go `1.24.x` / `1.23.x` to `1.26.x`, matching `go.mod`.
+- Scoped `contents: write` to `publish-release` only. Removed silent failure suppression (`|| true` and `if-no-files-found: warn`) from `release.yml`.
+- Removed remaining tutorial microcopy from `AppEnhancementsPage`, `ExtensionsPage`, `ACPAgentMeshPage`, `RemoteControlPage`, and `WhatsAppBridgePage`.

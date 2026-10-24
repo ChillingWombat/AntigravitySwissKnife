@@ -122,3 +122,65 @@ npm run build
 
 # 5. Relaunch active daemon / desktop app if running (NEVER kill Google Antigravity IDE) & sync PR to origin (AGENTS.md §3 & §6).
 ```
+
+## 5. Stage 0 & Baseline Preservation (Completed)
+
+- Preserved the 58-file dirty working tree baseline on `feature/opus-review-hardening` at `0c32139`, under Spec `#314` and Ticket `#315`.
+- Removed the `pkg/core/config.go` CRLF and whitespace diff churn. The fail-closed unmarshal error at `pkg/core/config.go:203` is now the only change: `1 insertion(+), 1 deletion(-)`.
+- `P4` was a numbering gap between `P3` and `P5` in the earlier findings table. No finding, worker assignment, or fix was omitted.
+
+## 6. Second-Wave Deep Review Findings & Fixes (Tickets #316-#322)
+
+### 6.1 S10 / P7 - Bridge Auth and OAuth Token Separation (`#316`)
+
+Files: `pkg/bridge/auth.go`, `pkg/bridge/oauth.go`.
+
+- Moved `VerifyCandidatePIN` (`core.LoadConfig()` and PBKDF2) outside `am.mu`, then ordered the constant-time token comparison before PBKDF2.
+- `VerifyCandidatePIN` now returns `false` when `useAppPassword=true` and `core.LoadConfig()` fails. A corrupt config no longer falls back to the 6-digit PIN.
+- Canonicalized proxy and remote IPs with `net.ParseIP`. Added expiry sweeps and a 1024-IP cap to `failedAttempts` and `lockedUntil`.
+- Added `VerifyInteractivePIN` for `/oauth/authorize`. Raw bearer tokens (`am.token`) are rejected in URL query and form PIN fields. `/oauth/token` still accepts `am.token` for `refresh_token` and `client_credentials`.
+
+### 6.2 S11 / P8 - WebGUI Authentication Hot Path (`#317`)
+
+Files: `pkg/webgui/auth_middleware.go`, `pkg/webgui/server.go`.
+
+- Added stat-validated (`modTime` and `size`) in-memory caching to `GetLocalSessionToken()`. A renderer with a stale 64-hex token no longer causes a disk read on every poll.
+- Added a 5-attempts/sec per-IP rate limit before the legacy non-hex Bearer password fallback. This stops PBKDF2 CPU amplification.
+- Changed `createSessionToken()` to return `(string, error)`. A `crypto/rand.Read` failure now returns HTTP 500 on unlock paths instead of minting an all-zero token.
+- CORS middleware now preserves existing `Vary` headers and does not duplicate `Origin`.
+
+### 6.3 C1 / P9 - ACPMesh Timeout and Quota Diagnostics (`#318`)
+
+Files: `pkg/acpmesh/handshake.go`, `pkg/quota/client.go`.
+
+- `PollAccountLiveQuota` now preserves post-refresh `FetchProjectAndTier` errors in diagnostics instead of discarding them with `_`.
+- Bounded overall `probePiHandshake` execution with a 12s default ceiling.
+- Deduplicated `resolvePiACPExecutable()`.
+- Broadened `isUnsupportedPiRPCFlagError` to cover 6 CLI flag rejection forms.
+
+### 6.4 S12 - Electron Subframe and Connecting Fallback IPC (`#319`)
+
+Files: `electron/main.js`, `electron/navigation-security.test.js`.
+
+- `isTrustedSender` now verifies `mainFrame` identity and routing, so subframes cannot call privileged IPC handlers.
+- Replaced blanket `data:text/html` trust with an exact match against the generated connecting fallback URL.
+
+### 6.5 C2 / P10 - Frontend Polling and AbortSignal Lifecycle (`#320`)
+
+Files: `frontend/src/App.tsx`, `frontend/src/api.ts`.
+
+- Added the `isPollingRef` single-flight guard and hidden-tab pause/resume to the 10s status and account polling loop. A poll longer than 10s is no longer repeatedly self-aborted by GET deduplication in `api.ts`.
+- Removed caller `AbortSignal` listeners in `apiFetch` `finally` blocks. Long-lived signals no longer accumulate listeners.
+
+### 6.6 C3 - Frontend Async Races and Render Purity (`#321`)
+
+- Guarded `AccountDetailModal` live-quota fetches and 1s async TOTP generation against stale account or secret switches and unmounts. Restored the strict `getAccountHeaderDisplay` assertion in `accountPresentation.test.ts`.
+- Coordinated `SystemSettingsPage` `runtimeMode` initialization and awaited `navigator.clipboard.writeText` before showing the copied state.
+- Fixed `exhaustive-deps` and render-time `Date.now()` purity warnings in `GitHubWorkspacePage.tsx` and `CustomModelsPage.tsx`.
+- Added capture-phase `scroll` repositioning to `useContextMenuPlacement.ts`.
+
+### 6.7 CI1 / UI1 - CI Gates and UI Copy (`#322`)
+
+- Updated `.github/workflows/race.yml` and `.github/workflows/release.yml` from Go `1.24.x` / `1.23.x` to `1.26.x`, matching `go.mod`.
+- Scoped `contents: write` to `publish-release` only. Removed silent failure suppression (`|| true` and `if-no-files-found: warn`) from `release.yml`.
+- Removed remaining tutorial microcopy from `AppEnhancementsPage`, `ExtensionsPage`, `ACPAgentMeshPage`, `RemoteControlPage`, and `WhatsAppBridgePage`.
