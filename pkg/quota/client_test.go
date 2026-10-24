@@ -2,6 +2,7 @@ package quota
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -730,6 +731,62 @@ func tierTestQuotaPayloadWithClaude(extra map[string]interface{}) map[string]int
 		},
 	})
 	return payload
+}
+
+func TestPollAccountLiveQuotaPreservesPostRefreshTierError(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+
+	origFetch := quotaPollFetchProjectAndTier
+	origRefresh := quotaPollRefreshGoogleToken
+	t.Cleanup(func() {
+		quotaPollFetchProjectAndTier = origFetch
+		quotaPollRefreshGoogleToken = origRefresh
+	})
+
+	tests := []struct {
+		name               string
+		postRefreshContext *ProjectContextResult
+	}{
+		{name: "nil project context"},
+		{
+			name:               "partial project context",
+			postRefreshContext: &ProjectContextResult{ProjectID: "projects/partial"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newTierTestServer(t, tierTestPayloads{})
+			srv.Close()
+
+			fetchCalls := 0
+			quotaPollFetchProjectAndTier = func(string) (*ProjectContextResult, error) {
+				fetchCalls++
+				if fetchCalls == 1 {
+					return nil, errors.New("initial tier failure")
+				}
+				return tc.postRefreshContext, errors.New("post-refresh tier failure")
+			}
+			quotaPollRefreshGoogleToken = func(string, string, string) (string, string, error) {
+				return "fresh-access-token", "fresh-refresh-token", nil
+			}
+
+			summary, err := PollAccountLiveQuota(&keyring.Account{
+				Email:        "refresh@example.com",
+				AccessToken:  "expired-token",
+				RefreshToken: "refresh-token",
+			})
+			if fetchCalls != 2 {
+				t.Fatalf("FetchProjectAndTier calls = %d, want 2", fetchCalls)
+			}
+			if err == nil || !strings.Contains(err.Error(), "post-refresh tier failure") {
+				t.Fatalf("expected post-refresh tier error, got %v", err)
+			}
+			if summary == nil || !strings.Contains(summary.ErrorMessage, "post-refresh tier failure") {
+				t.Fatalf("expected diagnostic summary with post-refresh tier error, got %+v", summary)
+			}
+		})
+	}
 }
 
 func TestPollAccountLiveQuota_UsesExplicitTrialEvidence(t *testing.T) {

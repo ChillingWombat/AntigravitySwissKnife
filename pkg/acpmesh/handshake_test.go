@@ -379,6 +379,72 @@ func TestCompareVersions(t *testing.T) {
 	}
 }
 
+func TestIsUnsupportedPiRPCFlagError(t *testing.T) {
+	tests := []struct {
+		message string
+		want    bool
+	}{
+		{"unknown option: --no-mcp", true},
+		{"unknown flag --no-skills", true},
+		{"unrecognized option '--mode'", true},
+		{"unknown argument: --offline", true},
+		{"invalid option --no-themes", true},
+		{"flag provided but not defined: -mode", true},
+		{"Pi get_state timed out", false},
+	}
+	for _, tc := range tests {
+		if got := isUnsupportedPiRPCFlagError(tc.message); got != tc.want {
+			t.Errorf("isUnsupportedPiRPCFlagError(%q) = %v, want %v", tc.message, got, tc.want)
+		}
+	}
+}
+
+func TestBoundPiHandshakeContextAddsDeadline(t *testing.T) {
+	ctx, cancel := boundPiHandshakeContext(context.Background())
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected an overall Pi handshake deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 || remaining > piHandshakeTimeout {
+		t.Fatalf("Pi handshake deadline remaining = %v, want (0, %v]", remaining, piHandshakeTimeout)
+	}
+}
+
+func TestBoundPiHandshakeContextCapsLongParentDeadline(t *testing.T) {
+	parent, parentCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer parentCancel()
+	ctx, cancel := boundPiHandshakeContext(parent)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected an overall Pi handshake deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining > piHandshakeTimeout {
+		t.Fatalf("Pi handshake deadline remaining = %v, want <= %v", remaining, piHandshakeTimeout)
+	}
+}
+
+func TestProbePiHandshakeHonorsParentDeadline(t *testing.T) {
+	hangingPi := writeACPTestScriptNamed(t, "pi", `while :; do sleep 1; done`)
+	agent := Resolved{ID: PresetPi, Name: "Pi", BinaryPath: hangingPi}
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	result := probePiHandshake(ctx, agent, hangingPi)
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("bounded Pi handshake took %v", elapsed)
+	}
+	if result.Error == "" {
+		t.Fatalf("expected timeout failure, got %+v", result)
+	}
+}
+
 func TestProbePiHandshakeFallbackDiagnostics(t *testing.T) {
 	// Mock a failing pi executable that exits immediately
 	failingPi := writeACPTestScript(t, `exit 1`)

@@ -17,12 +17,13 @@ import (
 )
 
 const (
-	handshakeTimeout  = 8 * time.Second
-	promptTimeout     = 2 * time.Minute
-	TransportStdioACP = "stdio-acp"
-	TransportPiRPC    = "pi-rpc"
-	acpProtocol       = "acp-v1"
-	piRPCProtocol     = "pi-rpc-v1"
+	handshakeTimeout   = 8 * time.Second
+	piHandshakeTimeout = 12 * time.Second
+	promptTimeout      = 2 * time.Minute
+	TransportStdioACP  = "stdio-acp"
+	TransportPiRPC     = "pi-rpc"
+	acpProtocol        = "acp-v1"
+	piRPCProtocol      = "pi-rpc-v1"
 
 	acpInitializeRequest = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"antigravity-swiss-knife","version":"0.2.0"}}}` + "\n"
 )
@@ -38,6 +39,13 @@ func probeContext(ctx context.Context) (context.Context, context.CancelFunc) {
 		}
 	}
 	return context.WithTimeout(ctx, timeout)
+}
+
+func boundPiHandshakeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, piHandshakeTimeout)
 }
 
 var piRPCTools = []string{"read", "bash", "edit", "write", "grep", "find", "ls"}
@@ -158,13 +166,17 @@ func ProbeAgentHandshake(ctx context.Context, agent Resolved, expandedBin string
 }
 
 func probePiHandshake(ctx context.Context, agent Resolved, expandedBin string) HandshakeResult {
+	ctx, cancel := boundPiHandshakeContext(ctx)
+	defer cancel()
+
 	var piErr error
+	acpTarget := expandedBin
+	if !isPiACPName(acpTarget) && isPiACPName(agent.BinaryPath) {
+		acpTarget = agent.BinaryPath
+	}
+	acpBin := resolvePiACPExecutable(acpTarget)
 	if isPiACPName(expandedBin) || isPiACPName(agent.BinaryPath) {
-		targetACP := expandedBin
-		if !isPiACPName(targetACP) {
-			targetACP = agent.BinaryPath
-		}
-		if acpBin := resolvePiACPExecutable(targetACP); acpBin != "" {
+		if acpBin != "" {
 			result := probeACPBin(ctx, agent, acpBin, nil, TransportStdioACP)
 			if result.Verified {
 				return result
@@ -182,7 +194,7 @@ func probePiHandshake(ctx context.Context, agent Resolved, expandedBin string) H
 		piErr = errors.New(result.Error)
 	}
 
-	if acpBin := resolvePiACPExecutable(expandedBin); acpBin != "" {
+	if acpBin != "" {
 		result := probeACPBin(ctx, agent, acpBin, nil, TransportStdioACP)
 		if result.Verified {
 			if piErr != nil {
@@ -307,12 +319,28 @@ func probePiRPC(ctx context.Context, agent Resolved, bin string) HandshakeResult
 	if res.Verified {
 		return res
 	}
-	errLower := strings.ToLower(res.Error)
-	if strings.Contains(errLower, "unknown option") || strings.Contains(errLower, "unknown flag") {
+	if isUnsupportedPiRPCFlagError(res.Error) {
 		basicArgs := []string{"--offline", "--no-session", "--no-themes", "--mode", "rpc"}
 		return probePiRPCOnce(ctx, agent, bin, basicArgs)
 	}
 	return res
+}
+
+func isUnsupportedPiRPCFlagError(errText string) bool {
+	errLower := strings.ToLower(errText)
+	for _, marker := range []string{
+		"unknown option",
+		"unknown flag",
+		"unrecognized option",
+		"unknown argument",
+		"invalid option",
+		"flag provided but not defined",
+	} {
+		if strings.Contains(errLower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func probePiRPCOnce(ctx context.Context, agent Resolved, bin string, args []string) HandshakeResult {
