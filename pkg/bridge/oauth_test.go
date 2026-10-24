@@ -874,3 +874,43 @@ func TestOAuth_AuthorizationCodeValidation(t *testing.T) {
 		t.Fatalf("expected 200 with Basic Auth client_id fallback, got %d: %s", wBasic.Code, wBasic.Body.String())
 	}
 }
+
+func TestOAuthAuthorize_RejectsRawTokenButRefreshAccepts(t *testing.T) {
+	svc := setupTestBridgeService(t)
+	rawToken := svc.GetRawAuthToken()
+
+	params := url.Values{
+		"client_id":    {"antigravity-gemini-bridge"},
+		"redirect_uri": {"http://localhost/callback"},
+		"pin":          {rawToken},
+	}
+	getReq := httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+params.Encode(), nil)
+	getReq.RemoteAddr = "198.51.100.77:4321"
+	getW := httptest.NewRecorder()
+	svc.ServeOAuthAuthorize(getW, getReq)
+	if getW.Code == http.StatusFound || getW.Header().Get("Location") != "" {
+		t.Fatal("expected raw token in authorize query to be rejected")
+	}
+
+	postReq := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(params.Encode()))
+	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	postReq.RemoteAddr = "198.51.100.77:4321"
+	postW := httptest.NewRecorder()
+	svc.ServeOAuthAuthorize(postW, postReq)
+	if postW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected raw token in authorize form to return 401, got %d", postW.Code)
+	}
+
+	refreshForm := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {rawToken},
+	}
+	refreshReq := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(refreshForm.Encode()))
+	refreshReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	refreshReq.RemoteAddr = "198.51.100.77:4321"
+	refreshW := httptest.NewRecorder()
+	svc.ServeOAuthToken(refreshW, refreshReq)
+	if refreshW.Code != http.StatusOK {
+		t.Fatalf("expected refresh_token to accept raw token, got %d: %s", refreshW.Code, refreshW.Body.String())
+	}
+}

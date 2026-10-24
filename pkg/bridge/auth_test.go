@@ -3,8 +3,10 @@ package bridge
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
@@ -217,9 +219,9 @@ func TestGetClientIP_LoopbackAndSpoofedXFF(t *testing.T) {
 	// 2. Loopback peer with "spoofed, real" XFF: must yield rightmost "real" entry
 	reqLoopXFF := httptest.NewRequest(http.MethodGet, "/", nil)
 	reqLoopXFF.RemoteAddr = "127.0.0.1:45678"
-	reqLoopXFF.Header.Set("X-Forwarded-For", "spoofed, real")
-	if ip := getClientIP(reqLoopXFF); ip != "real" {
-		t.Fatalf("expected loopback peer with 'spoofed, real' XFF to yield 'real', got %q", ip)
+	reqLoopXFF.Header.Set("X-Forwarded-For", "not-an-ip, also-invalid")
+	if ip := getClientIP(reqLoopXFF); ip != "127.0.0.1" {
+		t.Fatalf("expected malformed XFF to fall back to canonical remote IP, got %q", ip)
 	}
 
 	// 3. Loopback peer with trailing comma / spaces in XFF
@@ -246,5 +248,54 @@ func TestGetClientIP_LoopbackAndSpoofedXFF(t *testing.T) {
 	reqLoopXRI.Header.Set("X-Real-IP", "198.51.100.99")
 	if ip := getClientIP(reqLoopXRI); ip != "198.51.100.99" {
 		t.Fatalf("expected X-Real-IP '198.51.100.99', got %q", ip)
+	}
+}
+
+func TestVerifyCandidatePIN_CorruptConfigFailsClosed(t *testing.T) {
+	configDir := filepath.Join(os.TempDir(), "antigravity-swiss-test-config")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatalf("create config dir: %v", err)
+	}
+	configPath := filepath.Join(configDir, "config.json")
+	original, readErr := os.ReadFile(configPath)
+	t.Cleanup(func() {
+		if readErr == nil {
+			_ = os.WriteFile(configPath, original, 0o600)
+			return
+		}
+		_ = os.Remove(configPath)
+	})
+	if err := os.WriteFile(configPath, []byte("{not-json"), 0o600); err != nil {
+		t.Fatalf("write corrupt config: %v", err)
+	}
+	if _, err := core.LoadConfig(); err == nil {
+		t.Fatal("expected corrupt config load to fail")
+	}
+	if VerifyCandidatePIN("K7m9P2xQ", "K7m9P2xQ", true) {
+		t.Fatal("expected corrupt config to fail closed instead of accepting the pairing PIN")
+	}
+}
+
+func TestAuthManager_SweepsExpiredLockoutEntries(t *testing.T) {
+	am := NewAuthManager("test-token", "654321", nil)
+	clientIP := "203.0.113.10"
+	expired := time.Now().Add(-time.Hour)
+	am.mu.Lock()
+	am.lockedUntil[clientIP] = expired
+	am.failedAttempts[clientIP] = []time.Time{expired}
+	am.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp?pin=654321", nil)
+	req.RemoteAddr = clientIP + ":12345"
+	if ok, locked := am.VerifyPIN(req, "654321"); !ok || locked {
+		t.Fatalf("expected valid PIN after stale entries are swept, got ok=%v locked=%v", ok, locked)
+	}
+
+	am.mu.RLock()
+	_, hasLock := am.lockedUntil[clientIP]
+	_, hasFailure := am.failedAttempts[clientIP]
+	am.mu.RUnlock()
+	if hasLock || hasFailure {
+		t.Fatalf("expected expired lockout state to be swept, hasLock=%v hasFailure=%v", hasLock, hasFailure)
 	}
 }
