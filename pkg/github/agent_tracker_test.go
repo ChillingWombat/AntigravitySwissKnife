@@ -224,9 +224,14 @@ func TestResolveProjectPath(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	parentDir := t.TempDir()
-	projA := filepath.Join(parentDir, "ProjectAlpha")
-	projB := filepath.Join(parentDir, "ProjectBeta")
+	tmpDir := t.TempDir()
+	if runtime.GOOS == "darwin" {
+		if eval, err := filepath.EvalSymlinks(tmpDir); err == nil {
+			tmpDir = eval
+		}
+	}
+	projA := filepath.Join(tmpDir, "ProjectAlpha")
+	projB := filepath.Join(tmpDir, "ProjectBeta")
 	if err := os.MkdirAll(projA, 0755); err != nil {
 		t.Fatal(err)
 	}

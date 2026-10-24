@@ -5099,9 +5099,6 @@ func tempPathRoots() []string {
 	if resolved, err := filepath.EvalSymlinks(os.TempDir()); err == nil {
 		roots = append(roots, resolved)
 	}
-	if runtime.GOOS == "darwin" {
-		roots = append(roots, "/var/folders", "/private/var/folders")
-	}
 	return roots
 }
 
