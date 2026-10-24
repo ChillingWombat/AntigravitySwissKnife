@@ -156,26 +156,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
         })
         .catch((err: any) => console.warn('Could not read close to tray setting:', err))
     }
-    if (electronAPI?.getRuntimeModeSetting) {
-      electronAPI
-        .getRuntimeModeSetting()
-        .then((res: any) => {
-          if (res && (res.runtimeMode === 'daemon' || res.runtimeMode === 'app')) {
-            setRuntimeMode(res.runtimeMode)
-            localStorage.setItem('antigravity_runtime_mode', res.runtimeMode)
-          }
-        })
-        .catch((err: any) => console.warn('Could not read runtime mode setting from electron:', err))
-    }
-    api
-      .getRuntimeMode()
-      .then((res) => {
-        if (res && (res.runtime_mode === 'daemon' || res.runtime_mode === 'app')) {
-          setRuntimeMode(res.runtime_mode)
-          localStorage.setItem('antigravity_runtime_mode', res.runtime_mode)
-        }
-      })
-      .catch(() => {})
     api
       .getDesktopPersistenceStatus()
       .then((res) => {
@@ -556,17 +536,62 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
     }
   }
 
-  const copyPath = (key: string, val: string) => {
-    navigator.clipboard.writeText(val)
-    setCopiedKey(key)
-    setTimeout(() => setCopiedKey(null), 1500)
+  useEffect(() => {
+    let cancelled = false
+
+    const loadRuntimeMode = async () => {
+      const electronAPI = (window as any).electronAPI
+      if (electronAPI?.getRuntimeModeSetting) {
+        try {
+          const res = await electronAPI.getRuntimeModeSetting()
+          if (cancelled) return
+          if (res && (res.runtimeMode === 'daemon' || res.runtimeMode === 'app')) {
+            setRuntimeMode(res.runtimeMode)
+            localStorage.setItem('antigravity_runtime_mode', res.runtimeMode)
+            return
+          }
+        } catch (err: any) {
+          if (!cancelled) {
+            console.warn('Could not read runtime mode setting from electron:', err)
+          }
+        }
+      }
+
+      if (cancelled) return
+      try {
+        const res = await api.getRuntimeMode()
+        if (!cancelled && res && (res.runtime_mode === 'daemon' || res.runtime_mode === 'app')) {
+          setRuntimeMode(res.runtime_mode)
+          localStorage.setItem('antigravity_runtime_mode', res.runtime_mode)
+        }
+      } catch {}
+    }
+
+    void loadRuntimeMode()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const copyPath = async (key: string, val: string) => {
+    try {
+      await navigator.clipboard.writeText(val)
+      setCopiedKey(key)
+      setTimeout(() => setCopiedKey(null), 1500)
+    } catch (err: any) {
+      console.warn('Could not copy path:', err)
+    }
   }
 
-  const copyReportText = () => {
+  const copyReportText = async () => {
     if (diagResult?.sanitized_report) {
-      navigator.clipboard.writeText(diagResult.sanitized_report)
-      setCopiedReport(true)
-      setTimeout(() => setCopiedReport(false), 1500)
+      try {
+        await navigator.clipboard.writeText(diagResult.sanitized_report)
+        setCopiedReport(true)
+        setTimeout(() => setCopiedReport(false), 1500)
+      } catch (err: any) {
+        console.warn('Could not copy diagnostic report:', err)
+      }
     }
   }
 

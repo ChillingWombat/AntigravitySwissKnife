@@ -96,6 +96,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     password: false,
     totpSecret: false,
   })
+  const quotaRequestIdRef = useRef(0)
 
   const [liveQuota5h, setLiveQuota5h] = useState<number | null>(
     account.quota_5h_available ?? account.quota_5h_current ?? null
@@ -149,7 +150,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         Boolean(oauthSuccessMsg))
   )
 
-  const headerDisplay = getAccountHeaderDisplay(isNewAccount, label, email)
+  const displayAccountName = getAccountHeaderDisplay(isNewAccount, label, email)
 
   const lastVerificationUrlFetchedAtRef = useRef<number>(0)
   const [isWaitingForVerification, setIsWaitingForVerification] = useState(false)
@@ -188,13 +189,18 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     }
   }
 
-  const handleRefreshLiveQuota = async (): Promise<any> => {
-    const targetEmail = email.trim() || account.email
-    if (!targetEmail) return null
+  const handleRefreshLiveQuota = async (
+    targetEmail?: string | React.MouseEvent
+  ): Promise<any> => {
+    const normalizedEmail = typeof targetEmail === 'string' ? targetEmail.trim() : ''
+    const effectiveEmail = normalizedEmail || email.trim() || account.email
+    if (!effectiveEmail) return null
+    const requestId = ++quotaRequestIdRef.current
     setIsRefreshingQuota(true)
     setError(null)
     try {
-      const q = await api.refreshAccountQuota(targetEmail)
+      const q = await api.refreshAccountQuota(effectiveEmail)
+      if (requestId !== quotaRequestIdRef.current) return null
       if (q) {
         const hadError = (currentStatus || '').toUpperCase() === 'ERROR'
         const isRecovered =
@@ -216,10 +222,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       }
       return q
     } catch (err: any) {
-      console.warn('Quota refresh warning:', err)
+      if (requestId === quotaRequestIdRef.current) {
+        console.warn('Quota refresh warning:', err)
+      }
       return null
     } finally {
-      setIsRefreshingQuota(false)
+      if (requestId === quotaRequestIdRef.current) {
+        setIsRefreshingQuota(false)
+      }
     }
   }
 
@@ -244,20 +254,28 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   }
 
   useEffect(() => {
+    let cancelled = false
+    const accountEmail = account.email
+    const requestId = ++quotaRequestIdRef.current
     if (!isNewAccount && account.email && (account.refresh_token || account.access_token)) {
       if (account.status?.toUpperCase() === 'ERROR') {
-        handleRefreshLiveQuota()
+        handleRefreshLiveQuota(accountEmail)
       } else if (
         account.reset_horizon_text === 'Not Polled' ||
         liveQuota5h === null ||
         (account.status?.toUpperCase() === 'BANNED' && !account.error_message)
       ) {
-        api.getQuotaSummary(account.email).then((q) => {
-          if (q) {
+        api.getQuotaSummary(accountEmail).then((q) => {
+          if (!cancelled && requestId === quotaRequestIdRef.current && q) {
             applyQuotaSummaryUpdate(q, false)
           }
         }).catch(() => {})
       }
+    }
+
+    return () => {
+      cancelled = true
+      quotaRequestIdRef.current += 1
     }
   }, [account.email])
 
@@ -315,7 +333,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   useEffect(() => {
     if (isNewAccount || (currentStatus || '').toUpperCase() !== 'ERROR') return
     const checkRecovery = () => {
-      if (!isRefreshingQuota) {
+      if (document.visibilityState !== 'hidden' && !isRefreshingQuota) {
         handleRefreshLiveQuota()
       }
     }
@@ -341,7 +359,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [copiedTotp, setCopiedTotp] = useState(false)
 
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval>
+    let cancelled = false
+    let timer: ReturnType<typeof setInterval> | null = null
     const updateCode = async () => {
       const clean = totpSecret?.trim()
       if (!clean) {
@@ -350,6 +369,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         return
       }
       const res = await generateTOTP(clean)
+      if (cancelled) return
       if (res) {
         setDerivedCode(res.code)
         setFormattedCode(res.formattedCode)
@@ -362,7 +382,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
     updateCode()
     timer = setInterval(updateCode, 1000)
-    return () => clearInterval(timer)
+    return () => {
+      cancelled = true
+      if (timer) clearInterval(timer)
+    }
   }, [totpSecret])
 
   const handleCopyTotpCode = () => {
@@ -700,12 +723,12 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 style={{
                   fontSize: '18px',
                   fontWeight: 700,
-                  color: headerDisplay.isPlaceholder ? 'var(--text-muted)' : 'var(--text)',
+                  color: displayAccountName.isPlaceholder ? 'var(--text-muted)' : 'var(--text)',
                 }}
               >
-                {headerDisplay.text}
+                {displayAccountName.text}
               </h2>
-              {headerDisplay.showStatusBadge && (
+              {displayAccountName.showStatusBadge && (
                 <>
                   <span
                     className={`badge-chip ${
