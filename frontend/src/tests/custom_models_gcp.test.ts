@@ -21,7 +21,15 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     assert.strictEqual(emojiRegex.test(iconsContent), false, 'AcpBrandIcons must not contain decorative emojis')
   })
 
-  it('top bar action portal has single icon-only refresh button placed after Add GCP Models', () => {
+  const getModelsToolbar = () => {
+    const toolbarStart = pageContent.indexOf('className="google-card custom-models-toolbar-gadget"')
+    assert.notStrictEqual(toolbarStart, -1, 'Models toolbar gadget must exist')
+    const feedbackStart = pageContent.indexOf('{feedback && (', toolbarStart)
+    assert.notStrictEqual(feedbackStart, -1, 'Models toolbar gadget must precede page feedback')
+    return pageContent.slice(toolbarStart, feedbackStart)
+  }
+
+  it('top bar portal switches tabs while the Models toolbar owns the single refresh button', () => {
     assert.ok(pageContent.includes('handleRefreshAllQuotas'), 'Must call handleRefreshAllQuotas')
     assert.ok(
       pageContent.includes("className={refreshingQuotas ? 'spin' : ''}"),
@@ -31,29 +39,35 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
       pageContent.includes('title="Refresh Quotas"'),
       'Single icon-only refresh button must have title Refresh Quotas'
     )
-    // Verify there is only one refresh button in the top bar actions portal
-    const portalActionsMatch = pageContent.match(/createPortal\(\s*<div[^>]*>([\s\S]*?)<\/div>,\s*portalTarget\s*\)/)
-    assert.ok(portalActionsMatch, 'Top bar actions portal must exist')
-    const portalInner = portalActionsMatch[1]
-    const refreshBtnCount = (portalInner.match(/handleRefreshAllQuotas/g) || []).length
-    assert.strictEqual(refreshBtnCount, 1, 'Top bar actions must contain exactly 1 refresh button')
-    assert.ok(!portalInner.includes('Reload Models'), 'Duplicate Reload Models button must be removed')
+    assert.ok(
+      pageContent.includes('const topBarActions = portalTarget ? createPortal(tabSwitcher, portalTarget) : tabSwitcher'),
+      'Top bar portal must render the Models and Integration Mode tab switcher'
+    )
+    assert.ok(
+      pageContent.includes(
+        "document.getElementById('custom-models-top-bar-portal') || document.getElementById('top-bar-right')"
+      ),
+      'Top bar portal must prefer custom-models-top-bar-portal with top-bar-right fallback'
+    )
+    assert.ok(pageContent.includes('Integration Mode'), 'Top bar switcher must include Integration Mode')
+    const toolbar = getModelsToolbar()
+    const refreshBtnCount = (toolbar.match(/handleRefreshAllQuotas/g) || []).length
+    assert.strictEqual(refreshBtnCount, 1, 'Models toolbar must contain exactly 1 refresh button')
+    assert.ok(!toolbar.includes('Reload Models'), 'Duplicate Reload Models button must be removed')
   })
 
-  it('Add GCP Models button is placed between Add Custom Model and the refresh button', () => {
-    const portalActionsMatch = pageContent.match(/createPortal\(\s*<div[^>]*>([\s\S]*?)<\/div>,\s*portalTarget\s*\)/)
-    assert.ok(portalActionsMatch)
-    const portalInner = portalActionsMatch[1]
-    const idxAddCustom = portalInner.indexOf('Add Custom Model')
-    const idxAddGcp = portalInner.indexOf('Add GCP Models')
-    const idxRefresh = portalInner.indexOf('handleRefreshAllQuotas')
+  it('Models tab toolbar places Add GCP Models between Add Custom Model and refresh', () => {
+    const toolbar = getModelsToolbar()
+    const idxAddCustom = toolbar.indexOf('Add Custom Model')
+    const idxAddGcp = toolbar.indexOf('Add GCP Models')
+    const idxRefresh = toolbar.indexOf('handleRefreshAllQuotas')
 
     assert.ok(idxAddCustom !== -1, 'Add Custom Model button must exist')
     assert.ok(idxAddGcp !== -1, 'Add GCP Models button must exist')
     assert.ok(idxRefresh !== -1, 'Refresh Quotas button must exist')
     assert.ok(idxAddCustom < idxAddGcp, 'Add Custom Model must appear before Add GCP Models')
     assert.ok(idxAddGcp < idxRefresh, 'Add GCP Models must appear before Refresh Quotas button')
-    assert.ok(portalInner.includes('<GoogleCloudLogoIcon size={15} />'), 'Add GCP Models button must use GoogleCloudLogoIcon')
+    assert.ok(toolbar.includes('<GoogleCloudLogoIcon size={15} />'), 'Add GCP Models button must use GoogleCloudLogoIcon')
   })
 
   it('AcpBrandIcons exports GoogleCloudLogoIcon using official GCP logo asset', () => {
