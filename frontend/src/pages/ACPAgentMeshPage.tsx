@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Activity,
   CheckCircle2,
@@ -7,7 +8,6 @@ import {
   Plus,
   Pencil,
   Trash2,
-  Search,
 } from 'lucide-react'
 import type {
   AcpAgentInput,
@@ -50,7 +50,7 @@ type DetectState = {
 }
 
 type ConfirmState = {
-  kind: 'delete' | 'setup' | null
+  kind: 'delete' | null
   agent: AcpAgentInstance | null
 }
 
@@ -171,10 +171,10 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
   const [detect, setDetect] = useState<DetectState>({ agent: null, result: null, loading: false, error: null })
   const [confirm, setConfirm] = useState<ConfirmState>({ kind: null, agent: null })
   const [confirmBusy, setConfirmBusy] = useState(false)
-  const [isSettingUp, setIsSettingUp] = useState(false)
   const [promptTargetId, setPromptTargetId] = useState('agent-pi')
   const [promptInput, setPromptInput] = useState('')
   const [isPrompting, setIsPrompting] = useState(false)
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
 
   const showFeedback = (message: string, isError = false) => {
     setAcpFeedback(message)
@@ -202,6 +202,10 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
 
   useEffect(() => {
     loadAcpMesh()
+  }, [])
+
+  useEffect(() => {
+    setPortalTarget(document.getElementById('acp-mesh-top-bar-portal'))
   }, [])
 
   const handlePingAllAcp = async () => {
@@ -351,59 +355,6 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
     }
   }
 
-  const applyOsDefaultsToAll = async () => {
-    setConfirm({ kind: null, agent: null })
-    setIsSettingUp(true)
-    let configured = 0
-    let alreadyReachable = 0
-    let needsReview = 0
-    let unreachable = 0
-    const presets = agentInstances.filter((a) => !a.custom)
-    for (const agent of presets) {
-      try {
-        const result = await api.detectAcpAgent(agent.id)
-        const reachable = (result.candidates || []).find((c) => c.reachable)
-        if (!reachable) {
-          unreachable += 1
-          continue
-        }
-        if (reachable.endpoint === agent.port_socket) {
-          alreadyReachable += 1
-          continue
-        }
-        // A TCP port opened by a running desktop app may belong to an unrelated
-        // service (devtools, LSP, telemetry). Only pipe/socket candidates are
-        // applied automatically; ambiguous TCP ports stay manual.
-        if (reachable.kind === 'tcp') {
-          needsReview += 1
-          continue
-        }
-        const res = await api.saveAcpAgent({
-          id: agent.id,
-          name: agent.name,
-          type: agent.type,
-          binary_path: agent.binary_path,
-          endpoint: reachable.endpoint,
-          acp_version: agent.acp_version,
-          tools: agent.supported_tools,
-        })
-        applyMesh(res)
-        configured += 1
-      } catch (e) {
-        unreachable += 1
-      }
-    }
-    setIsSettingUp(false)
-    showFeedback(
-      `ACP setup for this OS finished: ${configured} endpoint${
-        configured === 1 ? '' : 's'
-      } configured, ${alreadyReachable} already answering, ${needsReview} TCP port${
-        needsReview === 1 ? '' : 's'
-      } left for manual review, ${unreachable} without a reachable endpoint.`,
-      configured === 0 && alreadyReachable === 0 && needsReview === 0
-    )
-  }
-
   const renderAgentAvatar = (id: string) => {
     return (
       <div
@@ -425,8 +376,21 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
     )
   }
 
+  const addAgentButton = (
+    <button
+      id="btnAcpAddAgent"
+      className="btn-pill-primary"
+      onClick={openCreateEditor}
+      style={{ padding: '6px 14px', fontSize: '12px' }}
+    >
+      <Plus size={13} />
+      <span>Add Agent</span>
+    </button>
+  )
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', ...style }}>
+      {portalTarget && createPortal(addAgentButton, portalTarget)}
       <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {acpFeedback && (
         <div
@@ -447,39 +411,11 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
         </div>
       )}
 
-      {/* Discovered Agent Nodes Section Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-            Discovered Daemons ({agentInstances.length})
-          </h2>
-          <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-            Agent Client Protocol endpoints on local IPC and sockets. Endpoints are conventional defaults
-            until you configure or auto-detect them for this OS.
-          </p>
+      {!portalTarget && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          {addAgentButton}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-          <button
-            id="btnAcpSetupForOS"
-            className="btn-pill-tonal"
-            onClick={() => setConfirm({ kind: 'setup', agent: null })}
-            disabled={isSettingUp || isLoadingMesh}
-            style={{ padding: '6px 14px', fontSize: '12px' }}
-          >
-            <Search size={13} className={isSettingUp ? 'animate-spin' : ''} />
-            <span>{isSettingUp ? 'Setting up...' : 'Set up ACP for this OS'}</span>
-          </button>
-          <button
-            id="btnAcpAddAgent"
-            className="btn-pill-primary"
-            onClick={openCreateEditor}
-            style={{ padding: '6px 14px', fontSize: '12px' }}
-          >
-            <Plus size={13} />
-            <span>Add Agent</span>
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Agent Nodes Grid */}
       <div
@@ -991,17 +927,6 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
         }}
       />
 
-      <AcpConfirmModal
-        open={confirm.kind === 'setup'}
-        title="Set up ACP for this OS"
-        message="Each built-in agent will be probed: its configured endpoint, its OS default, TCP ports owned by a running process, and existing socket files. Reachable named pipes and unix sockets are saved as overrides automatically; ambiguous TCP ports are left for manual review. Nothing is changed for agents with no reachable endpoint."
-        confirmLabel="Run Setup"
-        busy={isSettingUp}
-        onCancel={() => setConfirm({ kind: null, agent: null })}
-        onConfirm={() => {
-          void applyOsDefaultsToAll()
-        }}
-      />
     </div>
   )
 }

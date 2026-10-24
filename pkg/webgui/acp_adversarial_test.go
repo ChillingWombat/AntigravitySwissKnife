@@ -263,11 +263,11 @@ func TestAdversarial_9NodeFleetValidation(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&fullResult)
 	resp.Body.Close()
 
-	if fullResult.MeshNodes != 10 {
-		t.Errorf("expected 10 mesh nodes (9 presets + the ACP adapter), got %d", fullResult.MeshNodes)
+	if fullResult.MeshNodes != 11 {
+		t.Errorf("expected 11 mesh nodes (10 presets + the ACP adapter), got %d", fullResult.MeshNodes)
 	}
-	if len(fullResult.Agents) != 10 {
-		t.Errorf("expected 10 agents in array, got %d", len(fullResult.Agents))
+	if len(fullResult.Agents) != 11 {
+		t.Errorf("expected 11 agents in array, got %d", len(fullResult.Agents))
 	}
 
 	expectedNodes := []struct {
@@ -365,8 +365,8 @@ func TestAdversarial_9NodeFleetValidation(t *testing.T) {
 	if len(ghostResult.Agents) != 0 {
 		t.Errorf("expected 0 agents for unknown ID, got %d", len(ghostResult.Agents))
 	}
-	if ghostResult.MeshNodes != 10 {
-		t.Errorf("expected mesh_nodes count to remain 10, got %d", ghostResult.MeshNodes)
+	if ghostResult.MeshNodes != 11 {
+		t.Errorf("expected mesh_nodes count to remain 11, got %d", ghostResult.MeshNodes)
 	}
 }
 

@@ -137,4 +137,44 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
 
     unmount()
   })
+
+  it('orders primary navigation exactly and keeps Archived Projects out of the rail', async () => {
+    const onlineStatus = {
+      daemon_running: true,
+      daemon_version: '0.2.0',
+      active_account: null,
+      total_accounts: 0,
+    } as unknown as SystemStatus
+    const selectedTools: number[] = []
+    const { querySelector, querySelectorAll, click, unmount } = await mount(
+      React.createElement(NavRail, {
+        currentTool: 0,
+        onSelectTool: (idx: number) => selectedTools.push(idx),
+        status: onlineStatus,
+      })
+    )
+
+    const expected = [
+      'Account Switcher',
+      'Custom Models',
+      'Token Monitor',
+      'Remote Connect',
+      'ACP Agent Mesh',
+      'Extensions',
+      'UI Enhancements',
+      'Utilities',
+    ]
+    const labels = querySelectorAll<HTMLButtonElement>('aside button')
+      .map((button) => button.textContent?.trim() || '')
+      .filter((label) => expected.includes(label))
+    assert.deepEqual(labels, expected)
+    assert.equal(querySelector('#btnNavArchivedProjects'), null)
+
+    const acpButton = querySelector<HTMLButtonElement>('#btnNavACPAgentMesh')
+    assert.ok(acpButton, 'ACP Agent Mesh button must exist')
+    await click(acpButton)
+    assert.equal(selectedTools[selectedTools.length - 1], 11)
+
+    unmount()
+  })
 })
