@@ -506,7 +506,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     }
   }
 
-  const handleToggleDiscoveredEmail = (email: string) => {
+  const toggleSelectDiscovered = (email: string) => {
     const next = new Set(selectedDiscoveredEmails)
     if (next.has(email)) {
       next.delete(email)
@@ -975,7 +975,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
       {/* ============================================================== */}
       {/* 2. BOTTOM SECTION: All Accounts Table (Whole Page Scrolls) */}
       {/* ============================================================== */}
-      <div className="google-card" style={{ padding: '0px', overflow: 'hidden' }}>
+      <div className="google-card" style={{ padding: '0px', overflow: contextMenu ? 'visible' : 'hidden' }}>
         <div
           style={{
             padding: '12px 20px',
@@ -2215,7 +2215,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 return (
                   <div
                     key={item.email}
-                    onClick={() => handleToggleDiscoveredEmail(item.email)}
+                    onClick={() => toggleSelectDiscovered(item.email)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -2232,7 +2232,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        onChange={() => {}}
+                        onChange={() => toggleSelectDiscovered(item.email)}
+                        onClick={(e) => e.stopPropagation()}
                         style={{ accentColor: '#1a73e8', cursor: 'pointer' }}
                       />
                       <div>

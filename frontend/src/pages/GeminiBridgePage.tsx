@@ -187,6 +187,9 @@ export const GeminiBridgePage: React.FC = () => {
         type: tunnelType,
         custom_url: customTunnelURL,
       })
+      if (res && res.success === false) {
+        throw new Error((res as any).error || 'Tunnel operation failed')
+      }
       if (res?.status) {
         setStatus(res.status)
       } else {
@@ -205,6 +208,9 @@ export const GeminiBridgePage: React.FC = () => {
       setTunnelActionLoading(true)
       setActionFeedback(null)
       const res = await api.stopBridgeTunnel()
+      if (res && res.success === false) {
+        throw new Error((res as any).error || 'Tunnel operation failed')
+      }
       if (res?.status) {
         setStatus(res.status)
       } else {
@@ -261,16 +267,25 @@ export const GeminiBridgePage: React.FC = () => {
 
   const handleToggleUseAppPassword = async (useAppPassword: boolean) => {
     if (!status?.app_password_enabled) return
+    const previousUseAppPassword = Boolean(status.use_app_password)
     try {
       setPinModeLoading(true)
       setActionFeedback(null)
-      const res = await (api as any).setBridgeUseAppPassword?.(useAppPassword)
-      if (res?.status) {
-        setStatus(res.status)
-      } else {
-        loadStatus()
+      setStatus((prev) => (prev ? { ...prev, use_app_password: useAppPassword } : prev))
+      const configRes = await api.getRemoteControlConfig()
+      if (!configRes?.config) {
+        throw new Error('Remote control configuration is unavailable')
       }
+      const res = await api.updateRemoteControlConfig({
+        ...configRes.config,
+        use_app_password: useAppPassword,
+      })
+      if (res && res.success === false) {
+        throw new Error((res as any).error || 'Failed to update PIN mode')
+      }
+      await loadStatus()
     } catch (err: any) {
+      setStatus((prev) => (prev ? { ...prev, use_app_password: previousUseAppPassword } : prev))
       setActionFeedback({ text: `Failed to update PIN mode: ${err?.message || 'Unknown error'}`, isError: true })
     } finally {
       setPinModeLoading(false)

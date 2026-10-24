@@ -49,6 +49,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
   const [stateFilter, setStateFilter] = useState<'open' | 'closed'>('open')
   const [agentStatusFilter, setAgentStatusFilter] = useState<'active' | 'killed'>('active')
   const [selectedItem, setSelectedItem] = useState<any | null>(null)
+  const selectionRequestRef = React.useRef(0)
   const [commentText, setCommentText] = useState<string>('')
   const [editTitle, setEditTitle] = useState<string>('')
   const [editBody, setEditBody] = useState<string>('')
@@ -355,10 +356,30 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
     loadData()
   }, [stateFilter, scope, fallbackProject])
 
-  const selectItemForEditing = (item: any) => {
-    setSelectedItem(item)
+  const selectItemForEditing = async (item: any, itemType?: 'issue' | 'pr') => {
+    const requestId = ++selectionRequestRef.current
+    const isPR = Boolean(item.is_pr || itemType === 'pr' || item.type === 'pr' || activeTab === 'prs')
+    setSelectedItem({ ...item, is_pr: isPR })
     setEditTitle(item.title)
     setEditBody(item.body || '')
+    if (!isPR) return
+
+    try {
+      const detail = await api.getGitHubPRDetail(item.number, getEffectiveWorkspacePath())
+      if (requestId !== selectionRequestRef.current) return
+      if (detail.success && detail.pr) {
+        const prDetail = { ...item, ...detail.pr, is_pr: true }
+        setSelectedItem(prDetail)
+        setEditTitle(prDetail.title || '')
+        setEditBody(prDetail.body || '')
+      } else if ((detail as any).error) {
+        showToast((detail as any).error)
+      }
+    } catch (err: any) {
+      if (requestId === selectionRequestRef.current) {
+        showToast('Failed to load PR details: ' + err.message)
+      }
+    }
   }
 
   const handleSaveIssue = async () => {
@@ -1848,10 +1869,16 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                     cursor: 'pointer',
                   }}
                 >
-                  {(selectedItem.state || 'open').toLowerCase() === 'open' ? 'Close Issue' : 'Reopen Issue'}
+                  {selectedItem.is_pr
+                    ? (selectedItem.state || 'open').toLowerCase() === 'open'
+                      ? 'Close PR'
+                      : 'Reopen PR'
+                    : (selectedItem.state || 'open').toLowerCase() === 'open'
+                      ? 'Close Issue'
+                      : 'Reopen Issue'}
                 </button>
                 <button
-                  onClick={() => setSelectedItem(null)}
+                  onClick={() => { selectionRequestRef.current++; setSelectedItem(null); }}
                   style={{
                     padding: '6px 12px',
                     borderRadius: '6px',
@@ -1913,7 +1940,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               <button
-                onClick={() => setSelectedItem(null)}
+                onClick={() => { selectionRequestRef.current++; setSelectedItem(null); }}
                 style={{
                   padding: '8px 16px',
                   borderRadius: '6px',
@@ -2233,7 +2260,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
           </button>
           <button
             onClick={() => {
-              selectItemForEditing(contextMenu.item)
+              selectItemForEditing(contextMenu.item, contextMenu.itemType)
               setViewMode('list')
               setContextMenu(null)
             }}

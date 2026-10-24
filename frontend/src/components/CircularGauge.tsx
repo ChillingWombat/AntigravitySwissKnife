@@ -76,6 +76,7 @@ export const CircularGauge: React.FC<CircularGaugeProps> = ({
             style={{
               fontSize: hasValue ? (size <= 80 ? '15px' : '26px') : (size <= 80 ? '12px' : '20px'),
               fontWeight: 700,
+              fontVariantNumeric: 'tabular-nums',
               color: hasValue ? 'var(--text)' : 'var(--text-muted)',
               letterSpacing: hasValue ? 'normal' : '0.5px',
             }}

@@ -23,6 +23,7 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
   const [installationUuid, setInstallationUuid] = useState<string>('')
   const [feedback, setFeedback] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState<boolean>(false)
+  const [isLoadingProfiles, setIsLoadingProfiles] = useState<boolean>(true)
 
   // Stable sort accounts by email to ensure deterministic table ordering
   const sortedAccounts = useMemo(() => {
@@ -33,6 +34,7 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
 
   // Fetch profiles
   const loadProfiles = async () => {
+    setIsLoadingProfiles(true)
     try {
       const data: any = await api.listFingerprints()
       if (Array.isArray(data)) {
@@ -45,6 +47,8 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
     } catch (err) {
       console.error(err)
       setProfiles([])
+    } finally {
+      setIsLoadingProfiles(false)
     }
   }
 
@@ -131,7 +135,9 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
               Profile Mappings Inventory
             </h2>
             <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Click an account row to view and customize its isolated hardware profile.
+              {isLoadingProfiles
+                ? 'Loading device profiles...'
+                : 'Click an account row to view and customize its isolated hardware profile.'}
             </p>
           </div>
         </div>
@@ -266,7 +272,11 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
                     {prof?.installation_id ? `${prof.installation_id.slice(0, 13)}...` : 'Virtual Default'}
                   </td>
                   <td style={{ padding: '12px 20px', textAlign: 'right' }}>
-                    <span className="badge-chip badge-green">ISOLATED</span>
+                    {prof ? (
+                      <span className="badge-chip badge-green">ISOLATED</span>
+                    ) : (
+                      <span className="badge-chip badge-neutral">{isLoadingProfiles ? 'LOADING' : 'DEFAULT'}</span>
+                    )}
                   </td>
                 </tr>
               )

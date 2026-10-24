@@ -35,13 +35,13 @@ export class ErrorBoundary extends React.Component<Props, State> {
         <div
           style={{
             padding: '32px 24px',
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--surface, #ffffff)',
             borderRadius: '8px',
             border: '1px solid var(--border-danger)',
             maxWidth: '640px',
             margin: '24px auto',
             textAlign: 'center',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            boxShadow: 'var(--shadow-sm)',
           }}
         >
           <div
@@ -49,20 +49,20 @@ export class ErrorBoundary extends React.Component<Props, State> {
               width: '48px',
               height: '48px',
               borderRadius: '24px',
-              backgroundColor: '#fee2e2',
+              backgroundColor: 'var(--red-bg, #fee2e2)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               margin: '0 auto 16px',
-              color: '#dc2626',
+              color: 'var(--red, #dc2626)',
             }}
           >
             <AlertTriangle size={24} />
           </div>
-          <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', margin: '0 0 8px' }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text, #111827)', margin: '0 0 8px' }}>
             {this.props.fallbackTitle || 'Component Error'}
           </h3>
-          <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 16px', wordBreak: 'break-word' }}>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted, #6b7280)', margin: '0 0 16px', wordBreak: 'break-word' }}>
             {this.state.error?.message || 'An unexpected rendering error occurred.'}
           </p>
           <button
@@ -74,11 +74,12 @@ export class ErrorBoundary extends React.Component<Props, State> {
               padding: '8px 16px',
               fontSize: '13px',
               fontWeight: 500,
-              color: '#ffffff',
+              color: 'var(--on-primary, #ffffff)',
               backgroundColor: 'var(--primary, #1a73e8)',
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
             }}
           >
             <RotateCw size={14} />

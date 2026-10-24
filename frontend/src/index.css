@@ -1,6 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap');
-
 :root {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
   --canvas: #f8fafd;
   --surface: #ffffff;
   --border: #e0e2e5;
@@ -35,6 +36,19 @@
   --hover-overlay: rgba(0, 0, 0, 0.04);
   --scrollbar-thumb: #c4c7c5;
   --scrollbar-thumb-hover: #8e918f;
+  --accent: #0b57d0;
+  --accent-foreground: #ffffff;
+  --canvas-subtle: #f1f5f9;
+  --card: #ffffff;
+  --card-bg: #ffffff;
+  --danger: #b3261e;
+  --foreground: #1f1f1f;
+  --hover: rgba(11, 87, 208, 0.06);
+  --primary-light: #e8f0fe;
+  --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.04);
+  --surface-variant: #f1f3f4;
+  --surface-elevated: #ffffff;
+  --code-bg: #f1f5f9;
 
   /* Layout & Grid Tokens (Base 4-pixel grid & Golden Ratio) */
   --grid-unit: 4px;
@@ -84,14 +98,33 @@
   --hover-overlay: rgba(255, 255, 255, 0.08);
   --scrollbar-thumb: #5f6368;
   --scrollbar-thumb-hover: #9aa0a6;
+  --accent: #a8c7fa;
+  --accent-foreground: #062e6f;
+  --canvas-subtle: #18191b;
+  --card: #1e1f20;
+  --card-bg: #1e1f20;
+  --danger: #f28b82;
+  --foreground: #e3e3e3;
+  --hover: rgba(168, 199, 250, 0.10);
+  --primary-light: #1f3a68;
+  --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.45), 0 4px 10px -2px rgba(0, 0, 0, 0.35);
+  --surface-variant: #2b2c2f;
+  --surface-elevated: #282a2c;
+  --code-bg: #161719;
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+code,
+pre,
+.font-mono {
+  font-family: var(--font-mono);
 }
 
 body {
@@ -145,6 +178,28 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--primary);
   border-width: 2px;
   padding: 7px 11px;
+}
+
+::selection {
+  background-color: var(--primary-container);
+  color: var(--on-primary-container);
+}
+
+input,
+textarea {
+  caret-color: var(--primary);
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+table,
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Google Pill Button Styles */
