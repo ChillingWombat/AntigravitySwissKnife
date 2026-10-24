@@ -1616,6 +1616,11 @@ func restoreCachedArgon(breakdown *LiveQuotaBreakdown, cached *QuotaSummary, now
 	}
 }
 
+var (
+	quotaPollFetchProjectAndTier = FetchProjectAndTier
+	quotaPollRefreshGoogleToken  = RefreshGoogleTokenFull
+)
+
 // PollAccountLiveQuota queries Google CloudCode for real quota, tier, and credits, refreshing tokens if needed.
 func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	if acc == nil {
@@ -1633,10 +1638,10 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	tokenRefreshed := false
 
 	// Step 1: Discover Project Context & Membership Tier & Credits from loadCodeAssist
-	pCtx, err := FetchProjectAndTier(accessToken)
+	pCtx, err := quotaPollFetchProjectAndTier(accessToken)
 	if (err != nil || accessToken == "") && acc.RefreshToken != "" {
 		// Attempt token refresh
-		newTok, newRefTok, refErr := RefreshGoogleTokenFull(acc.RefreshToken, "", "")
+		newTok, newRefTok, refErr := quotaPollRefreshGoogleToken(acc.RefreshToken, "", "")
 		if refErr != nil {
 			lastTokenRefreshErr = refErr
 		} else if newTok != "" {
@@ -1649,7 +1654,11 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 				acc.RefreshToken = newRefTok
 			}
 			accountMutationMu.Unlock()
-			pCtx, _ = FetchProjectAndTier(accessToken)
+			var tierErr error
+			pCtx, tierErr = quotaPollFetchProjectAndTier(accessToken)
+			if pCtx == nil && tierErr != nil {
+				lastTokenRefreshErr = tierErr
+			}
 		}
 	}
 
@@ -1677,7 +1686,7 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	breakdown, qErr := FetchLiveQuotaBreakdown(accessToken, project)
 	if qErr != nil && !tokenRefreshed && acc.RefreshToken != "" && accessToken != "" {
 		// Try refreshing token once if quota check failed and token wasn't just refreshed
-		newTok, newRefTok, refErr := RefreshGoogleTokenFull(acc.RefreshToken, "", "")
+		newTok, newRefTok, refErr := quotaPollRefreshGoogleToken(acc.RefreshToken, "", "")
 		if refErr != nil {
 			lastTokenRefreshErr = refErr
 		} else if newTok != "" {
