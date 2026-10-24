@@ -20,21 +20,28 @@ func TestHandleAccountUpdate_PreservesEmptyAndHonorsClear(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
-	const email = "mfa-handler@example.com"
-	const originalSecret = "{{SECRET_handler}}"
+	const (
+		email            = "mfa-handler@example.com"
+		originalPassword = "original-password"
+		originalSecret   = "{{SECRET_handler}}"
+	)
 
 	store, err := keyring.NewStore("")
 	if err != nil {
 		t.Fatalf("create store: %v", err)
 	}
-	if err := store.UpdateAccountFull(email, "MFA Handler", "Pro", "ACTIVE", "High", "", "", originalSecret, "", 0, false, false, false); err != nil {
-		t.Fatalf("seed account: %v", err)
+	seedAccount := func(t *testing.T) {
+		t.Helper()
+		if err := store.UpdateAccountFull(email, "MFA Handler", "Pro", "ACTIVE", "High", "", originalPassword, originalSecret, "", 0, false, false, false); err != nil {
+			t.Fatalf("seed account: %v", err)
+		}
 	}
+	seedAccount(t)
 
 	srv := NewServer("127.0.0.1:0", filepath.Join(home, "missing-ipc.sock"))
-	updateTOTP := func(t *testing.T, secret string) {
+	updateCredentials := func(t *testing.T, value string) {
 		t.Helper()
-		body := fmt.Sprintf(`{"email":%q,"totp_secret":%q}`, email, secret)
+		body := fmt.Sprintf(`{"email":%q,"password":%q,"totp_secret":%q}`, email, value, value)
 		req := httptest.NewRequest(http.MethodPost, "/api/gui/accounts/update", strings.NewReader(body))
 		rec := httptest.NewRecorder()
 		srv.handleAccountUpdate(rec, req)
@@ -59,15 +66,29 @@ func TestHandleAccountUpdate_PreservesEmptyAndHonorsClear(t *testing.T) {
 		return account
 	}
 
-	updateTOTP(t, "")
-	if got := reloadAccount(t).TOTPSecret; got != originalSecret {
-		t.Fatalf("empty totp_secret changed stored value to %q", got)
+	assertCredentials := func(t *testing.T, wantPassword, wantTOTPSecret string) {
+		t.Helper()
+		account := reloadAccount(t)
+		if account.Password != wantPassword {
+			t.Fatalf("password = %q, want %q", account.Password, wantPassword)
+		}
+		if account.TOTPSecret != wantTOTPSecret {
+			t.Fatalf("totp_secret = %q, want %q", account.TOTPSecret, wantTOTPSecret)
+		}
 	}
 
-	updateTOTP(t, "[CLEAR]")
-	if got := reloadAccount(t).TOTPSecret; got != "" {
-		t.Fatalf("[CLEAR] totp_secret left stored value %q", got)
-	}
+	updateCredentials(t, "")
+	assertCredentials(t, originalPassword, originalSecret)
+
+	updateCredentials(t, "[REDACTED]")
+	assertCredentials(t, originalPassword, originalSecret)
+
+	updateCredentials(t, "[CLEAR]")
+	assertCredentials(t, "", "")
+
+	seedAccount(t)
+	updateCredentials(t, "CLEAR")
+	assertCredentials(t, "", "")
 }
 
 func TestCORS_VaryAndCredentials(t *testing.T) {

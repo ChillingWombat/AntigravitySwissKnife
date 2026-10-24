@@ -1288,8 +1288,11 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 		}
 	}
 	acc.Notes = notes
-	if password != "" && !isRedactionPlaceholder(password) {
-		acc.Password = password
+	cleanPassword := strings.TrimSpace(password)
+	if cleanPassword == "[CLEAR]" || cleanPassword == "CLEAR" {
+		acc.Password = ""
+	} else if cleanPassword != "" && !isRedactionPlaceholder(cleanPassword) {
+		acc.Password = cleanPassword
 	}
 	cleanTOTP := strings.TrimSpace(totpSecret)
 	if cleanTOTP == "[CLEAR]" || cleanTOTP == "CLEAR" {
