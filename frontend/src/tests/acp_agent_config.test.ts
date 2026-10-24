@@ -113,6 +113,26 @@ describe('ACP agent registry API client', () => {
     assert.equal(calls[0].method, 'POST')
     assert.deepEqual(JSON.parse(calls[0].body || '{}'), { id: 'agent-antigravity' })
   })
+
+  it('POSTs to the protocol ping endpoint with an optional agent id', async () => {
+    const calls = recordFetch()
+    await api.pingAcpAgents('agent-antigravity-acp')
+    assert.equal(calls[0].url, '/api/utilities/acp/ping')
+    assert.equal(calls[0].method, 'POST')
+    assert.deepEqual(JSON.parse(calls[0].body || '{}'), { id: 'agent-antigravity-acp' })
+  })
+
+  it('POSTs a prompt and working directory to the prompt endpoint', async () => {
+    const calls = recordFetch()
+    await api.promptAcpAgent('agent-pi', 'Reply with pong', '/tmp/workspace')
+    assert.equal(calls[0].url, '/api/utilities/acp/prompt')
+    assert.equal(calls[0].method, 'POST')
+    assert.deepEqual(JSON.parse(calls[0].body || '{}'), {
+      id: 'agent-pi',
+      prompt: 'Reply with pong',
+      cwd: '/tmp/workspace',
+    })
+  })
 })
 
 describe('ACP Agent Mesh page configurability', () => {
@@ -264,5 +284,81 @@ describe('ACP Agent Mesh page configurability', () => {
     assert.match(text, /No answer/, 'unreachable candidates must be labelled')
 
     unmount()
+  })
+
+  it('falls back to the mesh and excludes idle/not-found nodes from ping success', async () => {
+    const rendered = await mountPage()
+
+    globalThis.fetch = (async (url: any) => {
+      const target = String(url)
+      if (target.includes('/api/utilities/acp/ping')) {
+        // Older test mocks and daemons answer with the plain mesh shape.
+        return { ok: true, status: 200, json: async () => MESH_FIXTURE } as any
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ...MESH_FIXTURE,
+          agents: [
+            { ...MESH_FIXTURE.agents[0], status: 'connected', ping_latency_ms: 1.2 },
+            { ...MESH_FIXTURE.agents[1], status: 'installed_idle', ping_latency_ms: null },
+            {
+              ...MESH_FIXTURE.agents[1],
+              id: 'custom-not-found',
+              name: 'Absent Agent',
+              status: 'not_found',
+              ping_latency_ms: null,
+            },
+          ],
+        }),
+      } as any
+    }) as any
+
+    const pingAll = rendered
+      .querySelectorAll('button')
+      .find((button) => (button.textContent || '').includes('Ping All ACP Nodes'))
+    await rendered.click(pingAll)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    const pageText = rendered.container.textContent || ''
+    assert.match(pageText, /1 active agent daemon responded successfully/)
+    assert.match(pageText, /installed_idle/)
+    assert.match(pageText, /not_found/)
+
+    rendered.unmount()
+  })
+
+  it('uses the mesh fallback when an older API client has no ping method', async () => {
+    const rendered = await mountPage()
+    const originalPing = (api as any).pingAcpAgents
+    ;(api as any).pingAcpAgents = undefined
+
+    try {
+      globalThis.fetch = (async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ...MESH_FIXTURE,
+          agents: [{ ...MESH_FIXTURE.agents[0], status: 'connected', ping_latency_ms: 0.8 }],
+        }),
+      })) as any
+
+      const pingAll = rendered
+        .querySelectorAll('button')
+        .find((button) => (button.textContent || '').includes('Ping All ACP Nodes'))
+      await rendered.click(pingAll)
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      })
+
+      assert.match(rendered.container.textContent || '', /1 active agent daemon responded successfully/)
+      assert.match(rendered.container.textContent || '', /MESH_STATUS_FALLBACK/)
+    } finally {
+      ;(api as any).pingAcpAgents = originalPing
+      rendered.unmount()
+    }
   })
 })

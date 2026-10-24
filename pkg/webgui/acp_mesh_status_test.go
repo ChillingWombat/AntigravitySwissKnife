@@ -1,10 +1,19 @@
 package webgui
 
 import (
+	"bytes"
+	"encoding/json"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/acpmesh"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 // A detected process whose endpoint never answers is installed, not connected, and
@@ -71,5 +80,155 @@ func TestAbsentAgentReportsNotFound(t *testing.T) {
 	node := buildACPNode(acpmesh.Resolved{ID: "ghost", Endpoint: "127.0.0.1:1"}, false, 0, false)
 	if node["status"] != "not_found" {
 		t.Errorf("status = %v, want not_found", node["status"])
+	}
+}
+
+func TestAntigravityACPBinFallbackInCWD(t *testing.T) {
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	bin := filepath.Join(binDir, "antigravity-acp")
+	if err := os.WriteFile(bin, []byte("fake"), 0o755); err != nil {
+		t.Fatalf("write fallback binary: %v", err)
+	}
+	t.Chdir(dir)
+
+	node := buildACPNode(acpmesh.Resolved{
+		ID:         acpmesh.PresetAntigravityACP,
+		Name:       "Antigravity ACP Adapter",
+		BinaryPath: filepath.Join(dir, "missing", "antigravity-acp"),
+	}, false, 0, false)
+
+	if node["status"] != "installed_idle" {
+		t.Fatalf("status = %v, want installed_idle from CWD fallback", node["status"])
+	}
+	if node["binary_path"] != bin {
+		t.Fatalf("binary_path = %v, want %s", node["binary_path"], bin)
+	}
+}
+
+func writeWebGUIFakeACP(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based ACP stdio fixture is not available on Windows")
+	}
+	script := filepath.Join(t.TempDir(), "antigravity-acp")
+	content := `#!/bin/sh
+if [ "$1" != "--surface" ] || [ "$2" != "cli" ]; then
+  exit 2
+fi
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo":{"name":"webgui-fake-acp","version":"2.6.7"}}}'
+      ;;
+    *'"method":"session/new"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"webgui-session"}}'
+      ;;
+    *'"method":"session/prompt"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"webgui-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"webgui "}}}}'
+      printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"webgui-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"answer"}}}}'
+      printf '%s\n' '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}'
+      ;;
+  esac
+done
+`
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake ACP executable: %v", err)
+	}
+	return script
+}
+
+func configureFakeAntigravityACP(t *testing.T, bin string) {
+	t.Helper()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.SetACPAgents([]core.ACPAgentConfig{{
+		ID:         acpmesh.PresetAntigravityACP,
+		BinaryPath: bin,
+	}}); err != nil {
+		t.Fatalf("save ACP agent config: %v", err)
+	}
+}
+
+func TestACPPingRouteReturnsMeasuredHandshake(t *testing.T) {
+	bin := writeWebGUIFakeACP(t)
+	configureFakeAntigravityACP(t, bin)
+
+	srv := NewServer("127.0.0.1:0", "")
+	mux := srv.setupRoutes()
+	req := httptest.NewRequest(http.MethodPost, "/api/utilities/acp/ping", bytes.NewBufferString(`{"id":"agent-antigravity-acp"}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Status      string                    `json:"status"`
+		Results     []acpmesh.HandshakeResult `json:"results"`
+		Logs        []AcpHandshakeLog         `json:"logs"`
+		Agents      []map[string]interface{}  `json:"agents"`
+		OnlineCount int                       `json:"online_count"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode ping response: %v", err)
+	}
+	if response.Status != "ok" || len(response.Results) != 1 {
+		t.Fatalf("unexpected ping response: %+v", response)
+	}
+	result := response.Results[0]
+	if !result.Reachable || !result.Verified || result.Transport != "stdio-acp" {
+		t.Fatalf("unexpected handshake result: %+v", result)
+	}
+	if result.AgentVersion != "2.6.7" || result.LatencyMs <= 0 {
+		t.Fatalf("handshake metadata is not real: %+v", result)
+	}
+	if response.OnlineCount != 1 || len(response.Logs) != 1 || response.Logs[0].Status != "success" {
+		t.Fatalf("unexpected logs/count: %+v", response)
+	}
+
+	var node map[string]interface{}
+	for _, candidate := range response.Agents {
+		if candidate["id"] == acpmesh.PresetAntigravityACP {
+			node = candidate
+		}
+	}
+	if node == nil {
+		t.Fatal("updated Antigravity ACP node is missing")
+	}
+	if node["status"] != "connected" || node["transport"] != "stdio-acp" {
+		t.Fatalf("updated node was not reconciled with the handshake: %+v", node)
+	}
+}
+
+func TestACPPromptRouteDispatchesACP(t *testing.T) {
+	bin := writeWebGUIFakeACP(t)
+	configureFakeAntigravityACP(t, bin)
+
+	srv := NewServer("127.0.0.1:0", "")
+	mux := srv.setupRoutes()
+	body := `{"id":"agent-antigravity-acp","prompt":"Reply from the route","cwd":"` + strings.ReplaceAll(t.TempDir(), `\`, `\\`) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/utilities/acp/prompt", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var response map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode prompt response: %v", err)
+	}
+	if response["status"] != "ok" || response["response"] != "webgui answer" {
+		t.Fatalf("unexpected prompt response: %+v", response)
+	}
+	if response["transport"] != "stdio-acp" || response["session_id"] != "webgui-session" {
+		t.Fatalf("unexpected prompt metadata: %+v", response)
 	}
 }

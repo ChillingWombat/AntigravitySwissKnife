@@ -34,6 +34,8 @@ import type {
   AcpAgentInput,
   AcpDetectResponse,
   AcpMeshResponse,
+  AcpPingResponse,
+  AcpPromptResponse,
 } from './types'
 
 function formatErrorMessage(rawText: string, status: number): string {
@@ -1053,6 +1055,20 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
+    }),
+
+  pingAcpAgents: (id?: string) =>
+    request<AcpPingResponse>('/api/utilities/acp/ping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(id ? { id } : {}),
+    }),
+
+  promptAcpAgent: (id: string, prompt: string, cwd?: string) =>
+    request<AcpPromptResponse>('/api/utilities/acp/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, prompt, ...(cwd ? { cwd } : {}) }),
     }),
 
   // Real Token Analytics & Pricing API

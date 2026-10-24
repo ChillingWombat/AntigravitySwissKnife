@@ -293,7 +293,7 @@ func (p Preset) DefaultBinaryPath(env Env) string {
 	return expandPath(raw, env)
 }
 
-// expandPath expands the "~/" and "%LOCALAPPDATA%/" prefixes and normalises
+// expandPath expands the "~/", "%LOCALAPPDATA%/" and "%USERPROFILE%/" prefixes and normalises
 // separators to forward slashes. These values are displayed and persisted, never
 // executed by this package, so a stable representation is preferable to
 // host-dependent separators.
@@ -312,6 +312,16 @@ func expandPath(raw string, env Env) string {
 			return raw
 		}
 		return path.Join(base, strings.TrimPrefix(raw, "%LOCALAPPDATA%/"))
+	case strings.HasPrefix(raw, "%USERPROFILE%/"):
+		base := strings.TrimSpace(os.Getenv("USERPROFILE"))
+		if base == "" {
+			base = env.Home
+		}
+		base = toSlash(base)
+		if base == "" {
+			return raw
+		}
+		return path.Join(base, strings.TrimPrefix(raw, "%USERPROFILE%/"))
 	}
 	return raw
 }

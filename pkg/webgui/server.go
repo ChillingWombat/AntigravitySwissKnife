@@ -552,6 +552,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/utilities/acp", s.handleUtilitiesACP)
 	mux.HandleFunc("/api/utilities/acp/agents", s.handleUtilitiesACPAgents)
 	mux.HandleFunc("/api/utilities/acp/detect", s.handleUtilitiesACPAgentDetect)
+	mux.HandleFunc("/api/utilities/acp/ping", s.handleUtilitiesACPPing)
+	mux.HandleFunc("/api/utilities/acp/prompt", s.handleUtilitiesACPPrompt)
 	mux.HandleFunc("/api/utilities/import", s.handleUtilitiesImport)
 	mux.HandleFunc("/api/utilities/import/scan", s.handleUtilitiesImportScan)
 
