@@ -10,6 +10,12 @@ import (
 	"testing"
 )
 
+type gatewayRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f gatewayRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
 // newGatewayFixture seeds a store with one enabled OpenAI-compatible model whose
 // base URL points at upstream.
 func newGatewayFixture(t *testing.T, upstream string) (*Store, *Gateway) {
@@ -278,5 +284,43 @@ func TestGatewayReportsProviderFailure(t *testing.T) {
 	stream := rr.Body.String()
 	if !strings.Contains(stream, "quota exceeded") {
 		t.Fatalf("expected the provider error to surface, got %s", stream)
+	}
+}
+
+func TestGatewayBlocksCloudMetadataSSRF(t *testing.T) {
+	targets := []string{
+		"http://169.254.169.254/latest/meta-data",
+		"http://metadata.google.internal/computeMetadata/v1",
+	}
+	providers := []ProviderType{ProviderCustom, ProviderAnthropic, ProviderGemini}
+
+	for _, target := range targets {
+		for _, provider := range providers {
+			t.Run(string(provider)+"/"+target, func(t *testing.T) {
+				upstreamCalls := 0
+				gateway := &Gateway{
+					AllowLoopback: true,
+					client: &http.Client{Transport: gatewayRoundTripFunc(func(*http.Request) (*http.Response, error) {
+						upstreamCalls++
+						return nil, fmt.Errorf("upstream should not be called")
+					})},
+				}
+				model := &CustomModel{
+					ID:           "metadata-ssrf",
+					Name:         "test-model",
+					ProviderType: provider,
+					BaseURL:      target,
+				}
+				req := httptest.NewRequest(http.MethodPost, "/v1beta/models/metadata-ssrf:generateContent", nil)
+
+				err := gateway.runTurn(req, model, &geminiRequest{}, func(geminiResponse) error { return nil })
+				if err == nil || !strings.Contains(err.Error(), "ssrf blocked") {
+					t.Fatalf("expected cloud metadata SSRF rejection, got %v", err)
+				}
+				if upstreamCalls != 0 {
+					t.Fatalf("metadata URL reached the upstream transport %d times", upstreamCalls)
+				}
+			})
+		}
 	}
 }

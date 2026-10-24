@@ -42,5 +42,11 @@ describe('TOTP Utility', () => {
 
     const res4 = await generateTOTP('TOOSHORT') // Less than 16 chars
     assert.equal(res4, null)
+
+    const res5 = await generateTOTP('JBSWY3DP') // Valid Base32, but only 40 bits
+    assert.equal(res5, null)
+
+    const res6 = await generateTOTP('JBSW=Y3DPEHPK3PXP') // Padding is only valid at the end
+    assert.equal(res6, null)
   })
 })

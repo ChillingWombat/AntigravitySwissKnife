@@ -491,12 +491,47 @@ func (s *Service) loadConfig() error {
 }
 
 func (s *Service) saveConfig() error {
-	_ = os.MkdirAll(filepath.Dir(s.configPath), 0755)
 	data, err := json.MarshalIndent(s.config, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.configPath, data, 0644)
+	return writePrivateConfig(s.configPath, data)
+}
+
+func writePrivateConfig(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	if dir != "." {
+		if err := os.Chmod(dir, 0700); err != nil {
+			return err
+		}
+	}
+
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 // GetConfig returns current bridge configuration.
@@ -541,7 +576,7 @@ func (s *Service) UpdateConfig(c Config) error {
 	err := s.saveConfig()
 	s.mu.Unlock()
 	if s.authMgr != nil {
-		s.authMgr.SetUseAppPassword(c.UseAppPassword)
+		s.authMgr.UpdateCredentials(c.AuthToken, c.PairingPIN, c.UseAppPassword)
 	}
 	return err
 }

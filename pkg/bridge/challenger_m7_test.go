@@ -405,7 +405,7 @@ func TestChallengerM7_Channels_WhatsApp_AdversarialScenarios(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected MCP mode to succeed with verify token, got: %v", err)
 	}
-	if !strings.Contains(mcpMsg, "WhatsApp MCP bridge verified") {
+	if !strings.Contains(mcpMsg, "live delivery has not been verified") {
 		t.Fatalf("unexpected MCP message: %s", mcpMsg)
 	}
 }
