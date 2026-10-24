@@ -425,11 +425,55 @@ func TestReportAgentTask_JailedPathAndIDValidation(t *testing.T) {
 
 	// 3. Valid local workspace path
 	tmpWs := t.TempDir()
+	if eval, err := filepath.EvalSymlinks(tmpWs); err == nil {
+		tmpWs = eval
+	}
 	err = ReportAgentTask(tmpWs, validTask)
 	if err != nil {
 		t.Fatalf("expected success for valid workspace, got: %v", err)
 	}
 	targetFile := filepath.Join(tmpWs, ".antigravity", "agent_tasks.json")
+	if _, err := os.Stat(targetFile); err != nil {
+		t.Errorf("expected agent_tasks.json to be created in %s, got: %v", targetFile, err)
+	}
+
+	// 4. A symlinked workspace path must resolve to its target before writing.
+	validProj := t.TempDir()
+	if eval, err := filepath.EvalSymlinks(validProj); err == nil {
+		validProj = eval
+	}
+	symlinkProj := filepath.Join(t.TempDir(), "valid-proj-link")
+	if err := os.Symlink(validProj, symlinkProj); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	err = ReportAgentTask(symlinkProj, validTask)
+	if err != nil {
+		t.Fatalf("expected success for symlinked workspace, got: %v", err)
+	}
+	targetFile = filepath.Join(validProj, ".antigravity", "agent_tasks.json")
+	if _, err := os.Stat(targetFile); err != nil {
+		t.Errorf("expected agent_tasks.json to be created in %s, got: %v", targetFile, err)
+	}
+
+	if runtime.GOOS == "windows" {
+		return
+	}
+	realTmp := t.TempDir()
+	tempLinkParent := t.TempDir()
+	symlinkTmp := filepath.Join(tempLinkParent, "tmp-link")
+	if err := os.Symlink(realTmp, symlinkTmp); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	t.Setenv("TMPDIR", symlinkTmp)
+	validProj = filepath.Join(realTmp, "project")
+	if err := os.MkdirAll(validProj, 0755); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	err = ReportAgentTask(validProj, validTask)
+	if err != nil {
+		t.Fatalf("expected success for project under canonicalized TMPDIR, got: %v", err)
+	}
+	targetFile = filepath.Join(validProj, ".antigravity", "agent_tasks.json")
 	if _, err := os.Stat(targetFile); err != nil {
 		t.Errorf("expected agent_tasks.json to be created in %s, got: %v", targetFile, err)
 	}
