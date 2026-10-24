@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, Link, ExternalLink } from 'lucide-react'
 import type { AccountState } from '../types'
 import { isProOrAbovePlan } from '../types'
@@ -99,7 +99,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     password: false,
     totpSecret: false,
   })
-  const quotaRequestGate = useRef(createRequestGate()).current
+  const quotaRequestGateRef = useRef(createRequestGate())
 
   const [liveQuota5h, setLiveQuota5h] = useState<number | null>(
     account.quota_5h_available ?? account.quota_5h_current ?? null
@@ -159,7 +159,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [isWaitingForVerification, setIsWaitingForVerification] = useState(false)
   const isWaitingForVerificationRef = useRef<boolean>(false)
 
-  const applyQuotaSummaryUpdate = (q: any, isLiveRefresh: boolean = false) => {
+  const applyQuotaSummaryUpdate = useCallback((q: any, isLiveRefresh: boolean = false) => {
     if (!q) return
     if (q.quota_5h_fraction !== undefined) setLiveQuota5h(q.quota_5h_fraction)
     if (q.quota_weekly_fraction !== undefined) setLiveQuotaWeekly(q.quota_weekly_fraction)
@@ -190,21 +190,21 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       const nextSt = account.is_active ? 'ACTIVE' : 'STANDBY'
       setCurrentStatus(nextSt)
     }
-  }
+  }, [account.is_active, currentStatus])
 
-  const handleRefreshLiveQuota = async (
+  const handleRefreshLiveQuota = useCallback(async (
     targetEmail?: string | React.MouseEvent
   ): Promise<any> => {
     const normalizedEmail = typeof targetEmail === 'string' ? targetEmail.trim() : ''
     const effectiveEmail = normalizedEmail || email.trim() || account.email
     if (!effectiveEmail) return null
-    const requestId = quotaRequestGate.begin()
+    const requestId = quotaRequestGateRef.current.begin()
     setIsRefreshingQuota(true)
     setError(null)
     let q: any = null
     try {
       const committed = await commitLatest(
-        quotaRequestGate,
+        quotaRequestGateRef.current,
         requestId,
         api.refreshAccountQuota(effectiveEmail),
         (result) => {
@@ -231,16 +231,16 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       )
       return committed ? q : null
     } catch (err: any) {
-      if (quotaRequestGate.isCurrent(requestId)) {
+      if (quotaRequestGateRef.current.isCurrent(requestId)) {
         console.warn('Quota refresh warning:', err)
       }
       return null
     } finally {
-      if (quotaRequestGate.isCurrent(requestId)) {
+      if (quotaRequestGateRef.current.isCurrent(requestId)) {
         setIsRefreshingQuota(false)
       }
     }
-  }
+  }, [account.email, email, currentStatus, applyQuotaSummaryUpdate, onSaved, onClose])
 
   const resolveFreshVerificationUrl = async (): Promise<string | null> => {
     const targetEmail = email.trim() || account.email
@@ -299,7 +299,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
   useEffect(() => {
     const accountEmail = account.email
-    const requestId = quotaRequestGate.begin()
+    const requestId = quotaRequestGateRef.current.begin()
     const hydration = initialHydrationStateRef.current
     if (!hydration.isNewAccount && account.email && hydration.hasCredentials) {
       if (hydration.accountStatus?.toUpperCase() === 'ERROR') {
@@ -310,7 +310,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         (hydration.accountStatus?.toUpperCase() === 'BANNED' && !account.error_message)
       ) {
         void commitLatest(
-          quotaRequestGate,
+          quotaRequestGateRef.current,
           requestId,
           api.getQuotaSummary(accountEmail),
           (q) => {
@@ -321,9 +321,9 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     }
 
     return () => {
-      quotaRequestGate.begin()
+      quotaRequestGateRef.current.begin()
     }
-  }, [account.email])
+  }, [account.email, account.error_message])
 
   useEffect(() => {
     const hasRedactedCredentials =
@@ -403,20 +403,20 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [formattedCode, setFormattedCode] = useState<string>('--- ---')
   const [remainingSeconds, setRemainingSeconds] = useState<number>(30)
   const [copiedTotp, setCopiedTotp] = useState(false)
-  const totpRequestGate = useRef(createRequestGate()).current
+  const totpRequestGateRef = useRef(createRequestGate())
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null
     const updateCode = async () => {
       const clean = totpSecret?.trim()
       if (!clean) {
-        totpRequestGate.begin()
+        totpRequestGateRef.current.begin()
         setDerivedCode(null)
         setFormattedCode('--- ---')
         return
       }
-      const requestId = totpRequestGate.begin()
-      await commitLatest(totpRequestGate, requestId, generateTOTP(clean), (res) => {
+      const requestId = totpRequestGateRef.current.begin()
+      await commitLatest(totpRequestGateRef.current, requestId, generateTOTP(clean), (res) => {
         if (res) {
           setDerivedCode(res.code)
           setFormattedCode(res.formattedCode)
@@ -431,10 +431,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     updateCode()
     timer = setInterval(updateCode, 1000)
     return () => {
-      totpRequestGate.begin()
+      totpRequestGateRef.current.begin()
       if (timer) clearInterval(timer)
     }
-  }, [totpSecret, totpRequestGate])
+  }, [totpSecret])
 
   const handleCopyTotpCode = async () => {
     if (!derivedCode) return
