@@ -58,37 +58,39 @@ describe('Custom model navigation and integration mode layout', () => {
     return jsonResponse({ integration, endpoint: 'http://127.0.0.1:8765/v1', gemini_base: 'http://127.0.0.1:8765/gemini' })
   }
 
-  it('renders the renamed tab switcher in the top-bar portal and keeps model actions in the Models body', async () => {
-    const { document } = initDOM()
-    const topBar = document.createElement('div')
-    topBar.id = 'top-bar-right'
-    document.body.appendChild(topBar)
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+  for (const portalId of ['custom-models-top-bar-portal', 'top-bar-right']) {
+    it(`renders the tab switcher in #${portalId} and keeps model actions in the Models body`, async () => {
+      const { document } = initDOM()
+      const topBar = document.createElement('div')
+      topBar.id = portalId
+      document.body.appendChild(topBar)
+      const container = document.createElement('div')
+      document.body.appendChild(container)
 
-    globalThis.fetch = (async (url: unknown) => mockFetch(url)) as typeof fetch
-    root = createRoot(container as unknown as Element)
-    await act(async () => {
-      root?.render(React.createElement(CustomModelsPage))
+      globalThis.fetch = (async (url: unknown) => mockFetch(url)) as typeof fetch
+      root = createRoot(container as unknown as Element)
+      await act(async () => {
+        root?.render(React.createElement(CustomModelsPage))
+      })
+      await flush()
+
+      assert.match(topBar.textContent || '', /Models/)
+      assert.match(topBar.textContent || '', /Integration Mode/)
+      assert.doesNotMatch(document.body.textContent || '', /Model Source & Mode Settings/)
+
+      const gadget = (container as any).querySelector('.google-card.custom-models-toolbar-gadget')
+      assert.ok(gadget, 'Models body must render the dedicated toolbar gadget')
+      assert.ok(gadget?.classList.contains('google-card'))
+      const labels = Array.from(gadget?.querySelectorAll('button') || []).map((button: any) => compactText(button.textContent))
+      assert.ok(labels.some((label) => label.startsWith('All Models')), 'All Models filter must be in the Models gadget')
+      assert.ok(labels.some((label) => label.startsWith('Enabled')), 'Enabled filter must be in the Models gadget')
+      assert.ok(labels.some((label) => label.startsWith('Disabled')), 'Disabled filter must be in the Models gadget')
+      assert.ok(labels.some((label) => label === 'Add Custom Model'), 'Add Custom Model must be in the Models gadget')
+      assert.ok(labels.some((label) => label === 'Add GCP Models'), 'Add GCP Models must be in the Models gadget')
+      assert.ok(gadget?.querySelector('button[title="Refresh Quotas"]'), 'Refresh must be in the Models gadget')
+      assert.equal((topBar as any).querySelector('button[title="Refresh Quotas"]'), null, 'Model actions must not remain in the header portal')
     })
-    await flush()
-
-    assert.match(topBar.textContent || '', /Models/)
-    assert.match(topBar.textContent || '', /Integration Mode/)
-    assert.doesNotMatch(document.body.textContent || '', /Model Source & Mode Settings/)
-
-    const gadget = (container as any).querySelector('.google-card.custom-models-toolbar-gadget')
-    assert.ok(gadget, 'Models body must render the dedicated toolbar gadget')
-    assert.ok(gadget?.classList.contains('google-card'))
-    const labels = Array.from(gadget?.querySelectorAll('button') || []).map((button: any) => compactText(button.textContent))
-    assert.ok(labels.some((label) => label.startsWith('All Models')), 'All Models filter must be in the Models gadget')
-    assert.ok(labels.some((label) => label.startsWith('Enabled')), 'Enabled filter must be in the Models gadget')
-    assert.ok(labels.some((label) => label.startsWith('Disabled')), 'Disabled filter must be in the Models gadget')
-    assert.ok(labels.some((label) => label === 'Add Custom Model'), 'Add Custom Model must be in the Models gadget')
-    assert.ok(labels.some((label) => label === 'Add GCP Models'), 'Add GCP Models must be in the Models gadget')
-    assert.ok(gadget?.querySelector('button[title="Refresh Quotas"]'), 'Refresh must be in the Models gadget')
-    assert.equal((topBar as any).querySelector('button[title="Refresh Quotas"]'), null, 'Model actions must not remain in the header portal')
-  })
+  }
 
   it('wraps mode cards and explanation copy inside their gadget boundaries', async () => {
     initDOM()

@@ -558,7 +558,9 @@ export const CustomModelsPage: React.FC = () => {
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
-    setPortalTarget(document.getElementById('top-bar-right'))
+    const target =
+      document.getElementById('custom-models-top-bar-portal') || document.getElementById('top-bar-right')
+    setPortalTarget(target)
   }, [])
 
   useEffect(() => {

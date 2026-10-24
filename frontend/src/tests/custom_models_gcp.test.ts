@@ -43,6 +43,12 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
       pageContent.includes('const topBarActions = portalTarget ? createPortal(tabSwitcher, portalTarget) : tabSwitcher'),
       'Top bar portal must render the Models and Integration Mode tab switcher'
     )
+    assert.ok(
+      pageContent.includes(
+        "document.getElementById('custom-models-top-bar-portal') || document.getElementById('top-bar-right')"
+      ),
+      'Top bar portal must prefer custom-models-top-bar-portal with top-bar-right fallback'
+    )
     assert.ok(pageContent.includes('Integration Mode'), 'Top bar switcher must include Integration Mode')
     const toolbar = getModelsToolbar()
     const refreshBtnCount = (toolbar.match(/handleRefreshAllQuotas/g) || []).length
