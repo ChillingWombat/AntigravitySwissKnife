@@ -124,6 +124,7 @@ async function teardownDaemonForAppExit() {
 const DAEMON_PORT = 8765;
 const DAEMON_HOST = '127.0.0.1';
 const DAEMON_URL = `http://${DAEMON_HOST}:${DAEMON_PORT}`;
+let trustedConnectingFallbackUrl = null;
 
 // Helper: verify that target URL belongs strictly to the local daemon origin (P1-16)
 // Helper: verify that an IPC event originates from our active main window and trusted daemon origin
@@ -134,13 +135,26 @@ function isTrustedSender(event, targetWindow = mainWindow) {
   if (!event || !event.sender || event.sender !== targetWindow.webContents) {
     return false;
   }
-  const frameUrl = event.senderFrame?.url;
-  return isTrustedDaemonOrigin(frameUrl);
+  if (event.senderFrame) {
+    if (event.senderFrame.parent) return false;
+    const mainFrame = event.sender.mainFrame;
+    if (mainFrame && (
+      event.senderFrame !== mainFrame ||
+      event.senderFrame.routingId !== mainFrame.routingId
+    )) {
+      return false;
+    }
+  }
+  return isTrustedDaemonOrigin(event.senderFrame?.url);
+}
+
+function isTrustedConnectingFallbackUrl(targetUrl) {
+  return Boolean(trustedConnectingFallbackUrl) && targetUrl === trustedConnectingFallbackUrl;
 }
 
 function isTrustedDaemonOrigin(targetUrl, daemonBase = DAEMON_URL) {
   if (!targetUrl || typeof targetUrl !== 'string') return false;
-  if (targetUrl.startsWith('data:text/html')) return true;
+  if (isTrustedConnectingFallbackUrl(targetUrl)) return true;
   try {
     const parsed = new URL(targetUrl);
     const expected = new URL(daemonBase);
@@ -247,6 +261,12 @@ const daemonManager = new DaemonManager({
 // Liveness probe helper
 function probeDaemonStatus(timeoutMs = 1500) {
   return daemonManager.checkStatus(timeoutMs);
+}
+
+function loadConnectingFallback(win) {
+  const fallbackUrl = `data:text/html;charset=utf-8,${encodeURIComponent(buildConnectingFallbackHtml())}`;
+  trustedConnectingFallbackUrl = fallbackUrl;
+  return win.loadURL(fallbackUrl).catch(() => {});
 }
 
 function buildConnectingFallbackHtml() {
@@ -734,8 +754,7 @@ async function createWindow() {
 
   const showConnectingFallback = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
-    const html = buildConnectingFallbackHtml();
-    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => {});
+    loadConnectingFallback(mainWindow);
   };
 
   let backgroundRetryTimer = null;
@@ -1330,4 +1349,5 @@ module.exports = {
   isTrustedDaemonOrigin,
   isSafeExternalUrl,
   isTrustedSender,
+  loadConnectingFallback,
 };
