@@ -34,6 +34,8 @@ export interface GitHubWorkspacePageProps {
   fallbackProject?: string
 }
 
+const getCurrentTimestamp = () => Date.now()
+
 export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope, fallbackProject }) => {
   const [repo, setRepo] = useState<any>(null)
   const [issues, setIssues] = useState<any[]>([])
@@ -187,7 +189,14 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
     }
   }, [navigateToConversation])
 
-  const getEffectiveWorkspacePath = () => {
+  const [currentTime, setCurrentTime] = useState(getCurrentTimestamp)
+
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(getCurrentTimestamp()), 60_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const getEffectiveWorkspacePath = useCallback(() => {
     if (scope && scope !== 'GLOBAL') {
       return scope
     }
@@ -199,10 +208,11 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       return fallbackProject
     }
     return scope === 'GLOBAL' ? 'GLOBAL' : '.'
-  }
+  }, [fallbackProject, scope])
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true)
+    setCurrentTime(getCurrentTimestamp())
     const wsPath = getEffectiveWorkspacePath()
     try {
       const repoRes = await api.getGitHubRepo(wsPath)
@@ -213,18 +223,21 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       }
       const issuesRes = await api.getGitHubIssues(wsPath, stateFilter)
       if (issuesRes.success && issuesRes.issues) {
-        setIssues(issuesRes.issues)
-        if (!selectedItem && issuesRes.issues.length > 0) {
-          setSelectedItem(issuesRes.issues[0])
-          setEditTitle(issuesRes.issues[0].title)
-          setEditBody(issuesRes.issues[0].body || '')
+        const issues = issuesRes.issues
+        setIssues(issues)
+        if (issues.length > 0) {
+          setSelectedItem((prev: any) => prev ?? issues[0])
         }
       } else {
         setIssues([])
       }
       const prsRes = await api.getGitHubPRs(wsPath, stateFilter)
       if (prsRes.success && prsRes.prs) {
-        setPRs(prsRes.prs)
+        const prs = prsRes.prs
+        setPRs(prs)
+        if (prs.length > 0) {
+          setSelectedItem((prev: any) => prev ?? prs[0])
+        }
       } else {
         setPRs([])
       }
@@ -249,7 +262,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
     } finally {
       setLoading(false)
     }
-  }
+  }, [stateFilter, getEffectiveWorkspacePath, showToast])
 
   const handleMoveCard = async (targetColumnId: string) => {
     if (!draggedCard || draggedCard.column_id === targetColumnId) {
@@ -359,7 +372,13 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
 
   useEffect(() => {
     loadData()
-  }, [stateFilter, scope, fallbackProject])
+  }, [loadData])
+
+  useEffect(() => {
+    if (!selectedItem) return
+    setEditTitle(selectedItem.title || '')
+    setEditBody(selectedItem.body || '')
+  }, [selectedItem])
 
   const selectItemForEditing = async (item: any, itemType?: 'issue' | 'pr') => {
     const requestId = ++selectionRequestRef.current
@@ -515,7 +534,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
         // Only show agents killed within 3 days (<= 72 hours) for both main conversations and subagents
         if (agentStatusFilter === 'killed') {
           const tMod = item.last_modified ? new Date(item.last_modified).getTime() : 0
-          const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000
+          const threeDaysAgo = currentTime - 3 * 24 * 60 * 60 * 1000
           if (tMod <= 0 || tMod < threeDaysAgo) return false
         }
       }
@@ -532,7 +551,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
   const getGroupedAgentTasks = () => {
     const validTasks = filteredItems
     const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
-    const now = Date.now()
+    const now = currentTime
     const groupsMap = new Map<string, {
       rootId: string
       title: string
