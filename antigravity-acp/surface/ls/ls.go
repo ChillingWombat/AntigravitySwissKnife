@@ -91,8 +91,12 @@ func (s *Surface) Start(ctx context.Context, opts surface.SessionOptions) (strin
 	}
 	// The server rejects a relative or doubled path ("invalid path: //"), so the
 	// workspace must be absolute before it becomes a file URI.
-	if abs, err := filepath.Abs(workspace); err == nil {
-		workspace = abs
+	// Keep slash-rooted paths as POSIX paths on Windows so their file URIs do
+	// not acquire the current drive letter.
+	if runtime.GOOS != "windows" || !strings.HasPrefix(strings.ReplaceAll(workspace, `\`, "/"), "/") {
+		if abs, err := filepath.Abs(workspace); err == nil {
+			workspace = abs
+		}
 	}
 	var reply struct {
 		CascadeID string `json:"cascadeId"`
@@ -325,9 +329,14 @@ func cwdFromWorkspaceURI(raw string) string {
 	if parsed.Host != "" && parsed.Host != "localhost" {
 		cwd = "//" + parsed.Host + cwd
 	}
-	cwd = filepath.FromSlash(cwd)
-	if runtime.GOOS == "windows" && len(cwd) >= 3 && cwd[0] == '\\' && cwd[2] == ':' {
-		cwd = cwd[1:]
+	if runtime.GOOS == "windows" {
+		if parsed.Host != "" && parsed.Host != "localhost" {
+			cwd = filepath.FromSlash(cwd)
+		} else if len(cwd) >= 3 && cwd[0] == '/' && cwd[2] == ':' {
+			cwd = filepath.FromSlash(cwd[1:])
+		}
+	} else {
+		cwd = filepath.FromSlash(cwd)
 	}
 	return cwd
 }

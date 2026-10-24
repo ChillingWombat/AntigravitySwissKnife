@@ -2,13 +2,94 @@ package cli
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/ChillingWombat/AntigravitySwissKnife/antigravity-acp/surface"
 )
+
+const mockAGYHelperEnv = "ANTIGRAVITY_ACP_TEST_HELPER"
+
+func TestMain(m *testing.M) {
+	if os.Getenv(mockAGYHelperEnv) == "1" {
+		os.Exit(runMockAGY())
+	}
+	os.Exit(m.Run())
+}
+
+func runMockAGY() int {
+	exe, err := os.Executable()
+	if err != nil {
+		return 1
+	}
+	dir := filepath.Dir(exe)
+	if _, err := os.Stat(filepath.Join(dir, "record")); err == nil {
+		wd, err := os.Getwd()
+		if err != nil {
+			return 1
+		}
+		if err := os.WriteFile(filepath.Join(dir, "cwd.txt"), []byte(wd+"\n"), 0644); err != nil {
+			return 1
+		}
+		args, err := os.OpenFile(filepath.Join(dir, "args.txt"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			return 1
+		}
+		if _, err := args.WriteString(strings.Join(os.Args[1:], " ") + "\n"); err != nil {
+			args.Close()
+			return 1
+		}
+		if err := args.Close(); err != nil {
+			return 1
+		}
+	}
+	if stderr, err := os.ReadFile(filepath.Join(dir, "stderr.txt")); err == nil {
+		_, _ = os.Stderr.Write(stderr)
+	}
+	if stdout, err := os.ReadFile(filepath.Join(dir, "stream.ndjson")); err == nil {
+		_, _ = os.Stdout.Write(stdout)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "fail")); err == nil {
+		return 7
+	}
+	return 0
+}
+
+func mockAGYBinary(t *testing.T, dir string) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.Open(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+
+	name := "agy"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(dir, name)
+	dst, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		t.Fatal(err)
+	}
+	if err := dst.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(mockAGYHelperEnv, "1")
+	return path
+}
 
 // fakeAGY writes a script that replays recorded stream-json lines.
 func fakeAGY(t *testing.T, lines ...string) string {
@@ -19,12 +100,7 @@ func fakeAGY(t *testing.T, lines ...string) string {
 	if err := os.WriteFile(fixture, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "agy")
-	body := "#!/bin/sh\ncat '" + fixture + "'\n"
-	if err := os.WriteFile(path, []byte(body), 0755); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	return mockAGYBinary(t, dir)
 }
 
 // recordingAGY writes a fake CLI that records its argv and working directory.
@@ -37,14 +113,10 @@ func recordingAGY(t *testing.T, lines ...string) (bin, argsPath, cwdPath string)
 	}
 	argsPath = filepath.Join(dir, "args.txt")
 	cwdPath = filepath.Join(dir, "cwd.txt")
-	bin = filepath.Join(dir, "agy")
-	body := "#!/bin/sh\n" +
-		"printf '%s\\n' \"$*\" >> '" + argsPath + "'\n" +
-		"pwd > '" + cwdPath + "'\n" +
-		"cat '" + fixture + "'\n"
-	if err := os.WriteFile(bin, []byte(body), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "record"), nil, 0644); err != nil {
 		t.Fatal(err)
 	}
+	bin = mockAGYBinary(t, dir)
 	return bin, argsPath, cwdPath
 }
 
@@ -165,11 +237,13 @@ func TestSendCapturesTopLevelResultConversationID(t *testing.T) {
 
 func TestSendIncludesStderrOnFailure(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "agy")
-	body := "#!/bin/sh\necho 'backend exploded' >&2\nexit 7\n"
-	if err := os.WriteFile(bin, []byte(body), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "stderr.txt"), []byte("backend exploded\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "fail"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	bin := mockAGYBinary(t, dir)
 
 	s := New(bin)
 	_, err := s.Send(context.Background(), "cli-abc", "hello", func(surface.Event) error { return nil })

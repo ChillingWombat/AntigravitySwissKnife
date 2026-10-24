@@ -425,6 +425,9 @@ func TestReportAgentTask_JailedPathAndIDValidation(t *testing.T) {
 
 	// 3. Valid local workspace path
 	tmpWs := t.TempDir()
+	if eval, err := filepath.EvalSymlinks(tmpWs); err == nil {
+		tmpWs = eval
+	}
 	err = ReportAgentTask(tmpWs, validTask)
 	if err != nil {
 		t.Fatalf("expected success for valid workspace, got: %v", err)

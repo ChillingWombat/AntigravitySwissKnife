@@ -449,7 +449,7 @@ func ResolveProjectPath(nameOrPath string) string {
 		}
 	}
 	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
+		return canonicalPath(p)
 	}
 	firstSeg := p
 	rest := ""
@@ -468,9 +468,9 @@ func ResolveProjectPath(nameOrPath string) string {
 
 	// 2. Check relative to current working directory
 	if wd, err := os.Getwd(); err == nil && wd != "" {
-		candidate := filepath.Join(wd, p)
+		candidate := canonicalPath(filepath.Join(wd, p))
 		if _, err := os.Stat(candidate); err == nil {
-			return filepath.Clean(candidate)
+			return candidate
 		}
 		curr := wd
 		for i := 0; i < 15 && curr != "" && curr != "/" && curr != "."; i++ {
@@ -567,6 +567,17 @@ func ResolveProjectPath(nameOrPath string) string {
 		}
 	}
 	return filepath.Clean(p)
+}
+
+func canonicalPath(path string) string {
+	clean := filepath.Clean(path)
+	if clean == "." {
+		return clean
+	}
+	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+		return resolved
+	}
+	return clean
 }
 
 func latestWorkspaceFromDB() string {
