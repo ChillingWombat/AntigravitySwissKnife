@@ -40,6 +40,8 @@ var verifyAppPasswordForAuth = func(cfg *core.Config, candidate string) bool {
 	return cfg.VerifyAppPassword(candidate)
 }
 
+var loadConfigForAuth = core.LoadConfig
+
 // GenerateLocalSessionToken returns the 64-character hex-encoded session token.
 //
 // The token is persisted in session.token (0600) and REUSED across restarts:
@@ -332,16 +334,16 @@ func (s *Server) validateRequestAuth(r *http.Request) bool {
 		return false
 	}
 
-	if appPasswordCandidate == "" && !s.allowLegacyAppPasswordAttempt(r) {
+	if !s.allowLegacyAppPasswordAttempt(r) {
 		return false
 	}
 
-	cfg, err := core.LoadConfig()
+	cfg, err := loadConfigForAuth()
 	if err == nil && cfg != nil && cfg.AppPasswordEnabled {
 		if appPasswordCandidate != "" {
 			return verifyAppPasswordForAuth(cfg, appPasswordCandidate)
 		}
-		if candidate != "" {
+		if candidate != "" && !isSessionTokenShaped(candidate) {
 			return verifyAppPasswordForAuth(cfg, candidate)
 		}
 	}

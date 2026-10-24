@@ -184,20 +184,47 @@ func TestAuthHotPath_LazyConfigLoad(t *testing.T) {
 	// Write a corrupt config that would fail LoadConfig()
 	_ = os.WriteFile(filepath.Join(tempDir, "config.json"), []byte("{corrupt-json"), 0600)
 
+	originalLoad := loadConfigForAuth
+	loads := 0
+	loadConfigForAuth = func() (*core.Config, error) {
+		loads++
+		return core.LoadConfig()
+	}
+	t.Cleanup(func() {
+		loadConfigForAuth = originalLoad
+	})
+
+	originalVerify := verifyAppPasswordForAuth
+	verifications := 0
+	verifyAppPasswordForAuth = func(cfg *core.Config, candidate string) bool {
+		verifications++
+		return false
+	}
+	t.Cleanup(func() {
+		verifyAppPasswordForAuth = originalVerify
+	})
+
 	srv := NewServer("127.0.0.1:0", "")
 
-	// 1. Unauthenticated request without credentials: must not load config / fail closed immediately
-	req := httptest.NewRequest(http.MethodGet, "/api/accounts", nil)
-	if srv.validateRequestAuth(req) {
-		t.Fatal("expected validateRequestAuth to return false immediately when no credentials provided")
-	}
-
-	// 2. Request with stale session token: must not load config / fail closed immediately
+	// 1. A stale session-shaped token must fail closed before config load or PBKDF2.
 	staleToken := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	reqStale := httptest.NewRequest(http.MethodGet, "/api/accounts", nil)
 	reqStale.Header.Set("Authorization", "Bearer "+staleToken)
 	if srv.validateRequestAuth(reqStale) {
 		t.Fatal("expected validateRequestAuth to return false immediately for stale session token without disk load")
+	}
+
+	// 2. Unauthenticated request without credentials must not load config either.
+	req := httptest.NewRequest(http.MethodGet, "/api/accounts", nil)
+	if srv.validateRequestAuth(req) {
+		t.Fatal("expected validateRequestAuth to return false immediately when no credentials provided")
+	}
+
+	if loads != 0 {
+		t.Fatalf("LoadConfig calls = %d, want 0", loads)
+	}
+	if verifications != 0 {
+		t.Fatalf("PBKDF2 verifications = %d, want 0", verifications)
 	}
 }
 
@@ -251,7 +278,7 @@ func TestAuthHotPath_SessionTokenShapedCandidateBypassesPBKDF2(t *testing.T) {
 	}
 }
 
-func TestAuthHotPath_LegacyBearerVerificationIsRateLimited(t *testing.T) {
+func TestAuthHotPath_AppPasswordVerificationIsRateLimited(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 	cfg := core.DefaultConfig()
@@ -272,18 +299,55 @@ func TestAuthHotPath_LegacyBearerVerificationIsRateLimited(t *testing.T) {
 		verifyAppPasswordForAuth = originalVerify
 	})
 
-	srv := NewServer("127.0.0.1:0", "")
-	for i := 0; i < legacyAppPasswordAttemptLimit*3; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/api/accounts", nil)
-		req.RemoteAddr = "198.51.100.20:4321"
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer invalid-token-%d", i))
-		if srv.validateRequestAuth(req) {
-			t.Fatalf("invalid legacy token %d was accepted", i)
-		}
+	testCases := []struct {
+		name  string
+		setup func(*http.Request, int)
+	}{
+		{
+			name: "legacy bearer token",
+			setup: func(req *http.Request, i int) {
+				req.Header.Set("Authorization", fmt.Sprintf("Bearer invalid-token-%d", i))
+			},
+		},
+		{
+			name: "app password header",
+			setup: func(req *http.Request, i int) {
+				req.Header.Set("X-App-Password", fmt.Sprintf("invalid-password-%d", i))
+			},
+		},
+		{
+			name: "app password with legacy bearer",
+			setup: func(req *http.Request, i int) {
+				req.Header.Set("Authorization", fmt.Sprintf("Bearer invalid-token-%d", i))
+				req.Header.Set("X-App-Password", fmt.Sprintf("invalid-password-%d", i))
+			},
+		},
+		{
+			name: "app password with stale session-shaped bearer",
+			setup: func(req *http.Request, i int) {
+				req.Header.Set("Authorization", "Bearer 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+				req.Header.Set("X-App-Password", fmt.Sprintf("invalid-password-%d", i))
+			},
+		},
 	}
 
-	if verifications != legacyAppPasswordAttemptLimit {
-		t.Fatalf("PBKDF2 verifications = %d, want bounded at %d", verifications, legacyAppPasswordAttemptLimit)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			verifications = 0
+			srv := NewServer("127.0.0.1:0", "")
+			for i := 0; i < legacyAppPasswordAttemptLimit*3; i++ {
+				req := httptest.NewRequest(http.MethodGet, "/api/accounts", nil)
+				req.RemoteAddr = "198.51.100.20:4321"
+				testCase.setup(req, i)
+				if srv.validateRequestAuth(req) {
+					t.Fatalf("invalid credentials %d were accepted", i)
+				}
+			}
+
+			if verifications != legacyAppPasswordAttemptLimit {
+				t.Fatalf("PBKDF2 verifications = %d, want bounded at %d", verifications, legacyAppPasswordAttemptLimit)
+			}
+		})
 	}
 }
 
