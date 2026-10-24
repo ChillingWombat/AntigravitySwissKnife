@@ -551,7 +551,7 @@ describe('accountPresentation utility', () => {
       assert.strictEqual(fallback.verificationUrl, null)
     })
 
-    it('fetches unredacted credentials only when redacted and does not rerun after hydration', async () => {
+    it('fetches credentials for redacted or fleet-stripped state and does not rerun after hydration', async () => {
       const fs = await import('node:fs')
       const path = await import('node:path')
       const modalSrc = fs.readFileSync(
@@ -566,12 +566,33 @@ describe('accountPresentation utility', () => {
       assert.ok(exportEffect, 'should have a dedicated credential export effect')
       assert.ok(modalSrc.includes("'[REDACTED]'"), 'should define the redacted credential sentinel')
       assert.ok(
-        modalSrc.includes('[account.refresh_token, account.password, account.totp_secret]'),
-        'should inspect only the credentials displayed in the modal'
+        modalSrc.includes('Boolean((account as any).has_totp && !account.totp_secret)'),
+        'should detect fleet accounts that advertise stored MFA without the secret'
       )
       assert.ok(
-        modalSrc.includes('if (!hasRedactedCredentials) return'),
-        'should skip the export when no displayed credential is redacted'
+        modalSrc.includes('(!account.access_token && !account.refresh_token)'),
+        'should detect fleet accounts with stripped OAuth credentials'
+      )
+      assert.ok(
+        modalSrc.includes(
+          'if (!hasRedactedCredentials && !credentialsStrippedByFleet) return'
+        ),
+        'should skip the export only when no displayed credential was stripped'
+      )
+      assert.ok(
+        modalSrc.includes(
+          '(account.totp_secret === REDACTED_CREDENTIAL || !account.totp_secret)'
+        ),
+        'should hydrate an empty MFA secret as well as a redacted one'
+      )
+      assert.ok(
+        modalSrc.includes('(found.totp_secret || found.mfa)'),
+        'should accept either totp_secret or mfa from the export'
+      )
+      assert.ok(
+        modalSrc.includes('found.credential?.access_token') &&
+          modalSrc.includes('found.credential?.refresh_token'),
+        'should hydrate OAuth tokens from the exported credential object'
       )
       assert.ok(
         exportEffect && !exportEffect[1].includes('refreshToken'),
@@ -592,6 +613,12 @@ describe('accountPresentation utility', () => {
       assert.ok(
         modalSrc.includes('credentialTouchedRef.current.totpSecret = true'),
         'should protect a user-edited MFA secret from async hydration'
+      )
+      assert.ok(
+        modalSrc.includes('return REDACTED_CREDENTIAL') &&
+          modalSrc.includes("return '[CLEAR]'") &&
+          modalSrc.includes('credentialHydrationRef.current.completedFor'),
+        'should preserve MFA until hydration finishes and clear only after an explicit hydrated edit'
       )
       assert.ok(
         !modalSrc.includes('||\n          exported[0]') && !modalSrc.includes('|| exported[0]'),

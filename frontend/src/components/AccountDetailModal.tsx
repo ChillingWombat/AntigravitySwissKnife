@@ -77,7 +77,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [totpSecret, setTotpSecret] = useState(account.totp_secret || '')
   const [showTotp, setShowTotp] = useState(false)
   const [refreshToken, setRefreshToken] = useState(account.refresh_token || '')
-  const [extractedAccessToken, setExtractedAccessToken] = useState<string>('')
+  const [extractedAccessToken, setExtractedAccessToken] = useState<string>(
+    account.access_token && account.access_token !== REDACTED_CREDENTIAL
+      ? account.access_token
+      : ''
+  )
   const [showOAuth, setShowOAuth] = useState(false)
   const [isExtractingOAuth, setIsExtractingOAuth] = useState(false)
   const [showManualCallbackField, setShowManualCallbackField] = useState(false)
@@ -99,6 +103,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     password: false,
     totpSecret: false,
   })
+  const credentialHydrationRef = useRef({ completedFor: '' })
   const quotaRequestGateRef = useRef(createRequestGate())
 
   const [liveQuota5h, setLiveQuota5h] = useState<number | null>(
@@ -332,9 +337,15 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       [account.refresh_token, account.password, account.totp_secret].some(
         (value) => value === REDACTED_CREDENTIAL
       )
-    if (!hasRedactedCredentials) return
+    const credentialsStrippedByFleet =
+      !isNewAccount &&
+      Boolean(account.email) &&
+      (Boolean((account as any).has_totp && !account.totp_secret) ||
+        (!account.access_token && !account.refresh_token))
+    if (!hasRedactedCredentials && !credentialsStrippedByFleet) return
 
     let cancelled = false
+    credentialHydrationRef.current.completedFor = ''
     api.exportAccounts(account.email)
       .then((exported) => {
         if (cancelled || !Array.isArray(exported) || exported.length === 0) return
@@ -344,27 +355,56 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         if (!found) return
 
         const touched = credentialTouchedRef.current
-        if (account.refresh_token === REDACTED_CREDENTIAL && !touched.refreshToken) {
-          setRefreshToken(
-            found.refresh_token && found.refresh_token !== REDACTED_CREDENTIAL
-              ? found.refresh_token
+        const foundRefreshToken =
+          found.refresh_token && found.refresh_token !== REDACTED_CREDENTIAL
+            ? found.refresh_token
+            : found.credential?.refresh_token &&
+                found.credential.refresh_token !== REDACTED_CREDENTIAL
+              ? found.credential.refresh_token
               : ''
-          )
+        const foundAccessToken =
+          found.access_token && found.access_token !== REDACTED_CREDENTIAL
+            ? found.access_token
+            : found.credential?.access_token &&
+                found.credential.access_token !== REDACTED_CREDENTIAL
+              ? found.credential.access_token
+              : ''
+
+        if (
+          (account.refresh_token === REDACTED_CREDENTIAL || !account.refresh_token) &&
+          foundRefreshToken &&
+          !touched.refreshToken
+        ) {
+          setRefreshToken(foundRefreshToken)
         }
-        if (account.password === REDACTED_CREDENTIAL && !touched.password) {
-          setPassword(
-            found.password && found.password !== REDACTED_CREDENTIAL ? found.password : ''
-          )
+        if (
+          (account.password === REDACTED_CREDENTIAL || !account.password) &&
+          found.password &&
+          found.password !== REDACTED_CREDENTIAL &&
+          !touched.password
+        ) {
+          setPassword(found.password)
         }
-        if (account.totp_secret === REDACTED_CREDENTIAL && !touched.totpSecret) {
+        if (
+          (account.totp_secret === REDACTED_CREDENTIAL || !account.totp_secret) &&
+          (found.totp_secret || found.mfa) &&
+          !touched.totpSecret
+        ) {
           const secret =
             found.totp_secret && found.totp_secret !== REDACTED_CREDENTIAL
               ? found.totp_secret
               : found.mfa && found.mfa !== REDACTED_CREDENTIAL
                 ? found.mfa
                 : ''
-          setTotpSecret(secret)
+          if (secret) setTotpSecret(secret)
         }
+        if (
+          (account.access_token === REDACTED_CREDENTIAL || !account.access_token) &&
+          foundAccessToken
+        ) {
+          setExtractedAccessToken(foundAccessToken)
+        }
+        credentialHydrationRef.current.completedFor = account.email.trim().toLowerCase()
       }).catch((err) => {
         if (!cancelled) {
           console.warn('Failed to load unredacted account credentials:', err)
@@ -374,7 +414,15 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     return () => {
       cancelled = true
     }
-  }, [isNewAccount, account.email, account.refresh_token, account.password, account.totp_secret])
+  }, [
+    isNewAccount,
+    account.email,
+    account.refresh_token,
+    account.access_token,
+    account.password,
+    account.totp_secret,
+    account.has_mfa,
+  ])
 
   useEffect(() => {
     if (isNewAccount || (currentStatus || '').toUpperCase() !== 'ERROR') return
@@ -509,7 +557,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         priority: priority,
         password: password,
         notes: notes.trim(),
-        totp_secret: normalizeMfaSecret(totpSecret).toUpperCase(),
+        totp_secret: resolveTotpSecretForUpdate(),
         refresh_token: newRefreshToken.trim(),
         access_token: newAccessToken?.trim() || undefined,
         credits: account.credits !== undefined && account.credits !== null ? account.credits : 0,
@@ -656,6 +704,26 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     }
   }
 
+  const resolveTotpSecretForUpdate = (): string => {
+    const normalized = normalizeMfaSecret(totpSecret).toUpperCase()
+    const hadStoredTotp = Boolean(
+      account.has_mfa || (account as any).has_totp || account.totp_secret
+    )
+    if (!normalized && hadStoredTotp) {
+      const secretAlreadyAvailable = Boolean(
+        account.totp_secret && account.totp_secret !== REDACTED_CREDENTIAL
+      )
+      const hydrationCompleted =
+        secretAlreadyAvailable ||
+        credentialHydrationRef.current.completedFor === account.email.trim().toLowerCase()
+      if (credentialTouchedRef.current.totpSecret && hydrationCompleted) {
+        return '[CLEAR]'
+      }
+      return REDACTED_CREDENTIAL
+    }
+    return normalized
+  }
+
   const handleSave = async () => {
     setIsSaving(true)
     setError(null)
@@ -673,7 +741,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         priority: priority,
         password: password,
         notes: notes.trim(),
-        totp_secret: normalizeMfaSecret(totpSecret).toUpperCase(),
+        totp_secret: resolveTotpSecretForUpdate(),
         refresh_token: refreshToken.trim(),
         access_token: extractedAccessToken.trim() || undefined,
         credits: account.credits !== undefined && account.credits !== null ? account.credits : 0,

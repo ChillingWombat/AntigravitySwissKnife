@@ -1009,11 +1009,17 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 	store, _ := keyring.NewStore("")
 	if store != nil {
 		if existing, _ := store.GetAccount(p.Email); existing != nil {
-			if p.Password == "[REDACTED]" {
+			if p.Password == "[REDACTED]" || p.Password == "" {
 				p.Password = existing.Password
 			}
-			if p.TOTPSecret == "[REDACTED]" {
+			if p.Password == "[CLEAR]" || p.Password == "CLEAR" {
+				p.Password = ""
+			}
+			if p.TOTPSecret == "[REDACTED]" || p.TOTPSecret == "" {
 				p.TOTPSecret = existing.TOTPSecret
+			}
+			if p.TOTPSecret == "[CLEAR]" || p.TOTPSecret == "CLEAR" {
+				p.TOTPSecret = ""
 			}
 			if p.RefreshToken == "[REDACTED]" {
 				p.RefreshToken = existing.RefreshToken
