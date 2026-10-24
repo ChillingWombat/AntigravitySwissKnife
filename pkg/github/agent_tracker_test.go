@@ -225,9 +225,6 @@ func TestResolveProjectPath(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	parentDir := t.TempDir()
-	if eval, err := filepath.EvalSymlinks(parentDir); err == nil {
-		parentDir = eval
-	}
 	projA := filepath.Join(parentDir, "ProjectAlpha")
 	projB := filepath.Join(parentDir, "ProjectBeta")
 	if err := os.MkdirAll(projA, 0755); err != nil {
@@ -358,9 +355,6 @@ func TestResolveProjectPath(t *testing.T) {
 
 func TestExtractTaskAndWorkItemsFromTranscript(t *testing.T) {
 	tmpDir := t.TempDir()
-	if eval, err := filepath.EvalSymlinks(tmpDir); err == nil {
-		tmpDir = eval
-	}
 	brainDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", "test-conv", ".system_generated", "logs")
 	if err := os.MkdirAll(brainDir, 0755); err != nil {
 		t.Fatal(err)

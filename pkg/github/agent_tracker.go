@@ -418,7 +418,7 @@ func isAppRuntimeDir(dir string) bool {
 
 // ResolveProjectPath resolves a workspace path or bare project name to an absolute directory path when possible.
 func ResolveProjectPath(nameOrPath string) string {
-	return canonicalPath(resolveProjectPathRaw(nameOrPath))
+	return resolveProjectPathRaw(nameOrPath)
 }
 
 func resolveProjectPathRaw(nameOrPath string) string {
@@ -452,7 +452,7 @@ func resolveProjectPathRaw(nameOrPath string) string {
 		}
 	}
 	if filepath.IsAbs(p) {
-		return canonicalPath(p)
+		return filepath.Clean(p)
 	}
 	firstSeg := p
 	rest := ""
@@ -471,7 +471,7 @@ func resolveProjectPathRaw(nameOrPath string) string {
 
 	// 2. Check relative to current working directory
 	if wd, err := os.Getwd(); err == nil && wd != "" {
-		candidate := canonicalPath(filepath.Join(wd, p))
+		candidate := filepath.Clean(filepath.Join(wd, p))
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}
