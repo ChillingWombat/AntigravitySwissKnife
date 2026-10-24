@@ -77,6 +77,28 @@ describe('accountPresentation utility', () => {
       assert.strictEqual(resolved.accessToken, 'fresh-access-token')
     })
 
+    it('uses usable fallback credentials when primary values are redacted', () => {
+      const account = {
+        email: 'fallback@example.com',
+        totp_secret: '[REDACTED]',
+        access_token: '[REDACTED]',
+      }
+
+      const resolved = resolveHydratedAccountCredentials(
+        account,
+        {
+          totp_secret: '[REDACTED]',
+          mfa: 'FALLBACK-MFA-SECRET',
+          access_token: '[REDACTED]',
+          credential: { access_token: 'FALLBACK-ACCESS-TOKEN' },
+        },
+        { password: '', totpSecret: '', accessToken: '', refreshToken: '' }
+      )
+
+      assert.strictEqual(resolved.totpSecret, 'FALLBACK-MFA-SECRET')
+      assert.strictEqual(resolved.accessToken, 'FALLBACK-ACCESS-TOKEN')
+    })
+
     it('preserves MFA and access token edits made before hydration resolves', () => {
       const account = {
         email: 'edited@example.com',
@@ -622,40 +644,18 @@ describe('accountPresentation utility', () => {
         'utf8'
       )
       const exportEffect = modalSrc.match(
-        /useEffect\(\(\) => \{\s*const hasRedactedCredentials[\s\S]*?\n  \}, \[([^\]]+)\]\)/
+        /useEffect\(\(\) => \{[\s\S]*?shouldHydrateAccountCredentials\(account, isNewAccount\)[\s\S]*?resolveHydratedAccountCredentials\(account, found, \{[\s\S]*?\n  \}, \[([^\]]+)\]\)/
       )
 
       assert.ok(modalSrc.includes('api.exportAccounts(account.email)'), 'should call api.exportAccounts with account email')
       assert.ok(exportEffect, 'should have a dedicated credential export effect')
-      assert.ok(modalSrc.includes("'[REDACTED]'"), 'should define the redacted credential sentinel')
       assert.ok(
-        modalSrc.includes('Boolean((account as any).has_totp && !account.totp_secret)'),
-        'should detect fleet accounts that advertise stored MFA without the secret'
+        modalSrc.includes('shouldHydrateAccountCredentials(account, isNewAccount)'),
+        'should gate credential export with the shared hydration check'
       )
       assert.ok(
-        modalSrc.includes('(!account.access_token && !account.refresh_token)'),
-        'should detect fleet accounts with stripped OAuth credentials'
-      )
-      assert.ok(
-        modalSrc.includes(
-          'if (!hasRedactedCredentials && !credentialsStrippedByFleet) return'
-        ),
-        'should skip the export only when no displayed credential was stripped'
-      )
-      assert.ok(
-        modalSrc.includes(
-          '(account.totp_secret === REDACTED_CREDENTIAL || !account.totp_secret)'
-        ),
-        'should hydrate an empty MFA secret as well as a redacted one'
-      )
-      assert.ok(
-        modalSrc.includes('(found.totp_secret || found.mfa)'),
-        'should accept either totp_secret or mfa from the export'
-      )
-      assert.ok(
-        modalSrc.includes('found.credential?.access_token') &&
-          modalSrc.includes('found.credential?.refresh_token'),
-        'should hydrate OAuth tokens from the exported credential object'
+        modalSrc.includes('resolveHydratedAccountCredentials(account, found, {'),
+        'should hydrate exported credentials through the shared resolver'
       )
       assert.ok(
         exportEffect && !exportEffect[1].includes('refreshToken'),

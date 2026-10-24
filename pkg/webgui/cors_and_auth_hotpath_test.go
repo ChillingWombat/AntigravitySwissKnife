@@ -11,7 +11,64 @@ import (
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
+
+func TestHandleAccountUpdate_PreservesEmptyAndHonorsClear(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	const email = "mfa-handler@example.com"
+	const originalSecret = "{{SECRET_handler}}"
+
+	store, err := keyring.NewStore("")
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := store.UpdateAccountFull(email, "MFA Handler", "Pro", "ACTIVE", "High", "", "", originalSecret, "", 0, false, false, false); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+
+	srv := NewServer("127.0.0.1:0", filepath.Join(home, "missing-ipc.sock"))
+	updateTOTP := func(t *testing.T, secret string) {
+		t.Helper()
+		body := fmt.Sprintf(`{"email":%q,"totp_secret":%q}`, email, secret)
+		req := httptest.NewRequest(http.MethodPost, "/api/gui/accounts/update", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		srv.handleAccountUpdate(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("update status = %d, body = %q", rec.Code, rec.Body.String())
+		}
+	}
+
+	reloadAccount := func(t *testing.T) *keyring.Account {
+		t.Helper()
+		reloaded, err := keyring.NewStore("")
+		if err != nil {
+			t.Fatalf("reload store: %v", err)
+		}
+		account, err := reloaded.GetAccount(email)
+		if err != nil {
+			t.Fatalf("reload account: %v", err)
+		}
+		if account == nil {
+			t.Fatal("account missing after handler update")
+		}
+		return account
+	}
+
+	updateTOTP(t, "")
+	if got := reloadAccount(t).TOTPSecret; got != originalSecret {
+		t.Fatalf("empty totp_secret changed stored value to %q", got)
+	}
+
+	updateTOTP(t, "[CLEAR]")
+	if got := reloadAccount(t).TOTPSecret; got != "" {
+		t.Fatalf("[CLEAR] totp_secret left stored value %q", got)
+	}
+}
 
 func TestCORS_VaryAndCredentials(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "")

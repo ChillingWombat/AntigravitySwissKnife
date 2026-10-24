@@ -333,19 +333,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   }, [account.email, account.error_message])
 
   useEffect(() => {
-    const hasRedactedCredentials =
-      shouldHydrateAccountCredentials(account, isNewAccount) ||
-      (!isNewAccount &&
-        Boolean(account.email) &&
-        [account.refresh_token, account.password, account.totp_secret].some(
-          (value) => value === REDACTED_CREDENTIAL
-        ))
-    const credentialsStrippedByFleet =
-      !isNewAccount &&
-      Boolean(account.email) &&
-      (Boolean((account as any).has_totp && !account.totp_secret) ||
-        (!account.access_token && !account.refresh_token))
-    if (!hasRedactedCredentials && !credentialsStrippedByFleet) return
+    if (!shouldHydrateAccountCredentials(account, isNewAccount)) return
 
     let cancelled = false
     credentialHydrationRef.current.completedFor = ''

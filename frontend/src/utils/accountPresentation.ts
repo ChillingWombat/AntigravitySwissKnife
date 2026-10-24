@@ -30,7 +30,11 @@ export interface AccountCredentialValues {
 const REDACTED_CREDENTIAL = '[REDACTED]'
 
 function isUsableCredential(value?: string): value is string {
-  return Boolean(value) && value !== REDACTED_CREDENTIAL
+  return typeof value === 'string' && value.trim() !== '' && value.trim() !== REDACTED_CREDENTIAL
+}
+
+function firstUsableCredential(...values: Array<string | undefined>): string | undefined {
+  return values.find(isUsableCredential)
 }
 
 export function shouldHydrateAccountCredentials(
@@ -52,21 +56,17 @@ export function resolveHydratedAccountCredentials(
   match: CredentialAccount,
   current: AccountCredentialValues
 ): AccountCredentialValues {
-  const initialAccessToken = isUsableCredential(account.access_token)
-    ? account.access_token
-    : ''
-
   const resolveField = (
     initialValue: string | undefined,
-    initialUiValue: string,
     currentValue: string,
     matchValue: string | undefined
   ): string => {
-    if (
-      !isUsableCredential(initialValue) &&
-      currentValue === initialUiValue &&
-      isUsableCredential(matchValue)
-    ) {
+    const isUnedited =
+      currentValue === '' ||
+      currentValue === REDACTED_CREDENTIAL ||
+      currentValue === (initialValue || '')
+
+    if (!isUsableCredential(initialValue) && isUnedited && isUsableCredential(matchValue)) {
       return matchValue
     }
     return currentValue
@@ -75,27 +75,23 @@ export function resolveHydratedAccountCredentials(
   return {
     password: resolveField(
       account.password,
-      account.password || '',
       current.password,
       match.password
     ),
     totpSecret: resolveField(
       account.totp_secret,
-      account.totp_secret || '',
       current.totpSecret,
-      match.totp_secret || match.mfa
+      firstUsableCredential(match.totp_secret, match.mfa)
     ),
     accessToken: resolveField(
       account.access_token,
-      initialAccessToken,
       current.accessToken,
-      match.access_token || match.credential?.access_token
+      firstUsableCredential(match.access_token, match.credential?.access_token)
     ),
     refreshToken: resolveField(
       account.refresh_token,
-      account.refresh_token || '',
       current.refreshToken,
-      match.refresh_token || match.credential?.refresh_token
+      firstUsableCredential(match.refresh_token, match.credential?.refresh_token)
     ),
   }
 }

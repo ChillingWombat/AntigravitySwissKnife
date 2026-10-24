@@ -1012,14 +1012,8 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 			if p.Password == "[REDACTED]" || p.Password == "" {
 				p.Password = existing.Password
 			}
-			if p.Password == "[CLEAR]" || p.Password == "CLEAR" {
-				p.Password = ""
-			}
 			if p.TOTPSecret == "[REDACTED]" || p.TOTPSecret == "" {
 				p.TOTPSecret = existing.TOTPSecret
-			}
-			if p.TOTPSecret == "[CLEAR]" || p.TOTPSecret == "CLEAR" {
-				p.TOTPSecret = ""
 			}
 			if p.RefreshToken == "[REDACTED]" {
 				p.RefreshToken = existing.RefreshToken
