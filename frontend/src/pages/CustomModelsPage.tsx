@@ -556,11 +556,9 @@ export const CustomModelsPage: React.FC = () => {
 
   const [modelFilter, setModelFilter] = useState<ModelFilterOption>('all')
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
-  const [portalLeftTarget, setPortalLeftTarget] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
     setPortalTarget(document.getElementById('top-bar-right'))
-    setPortalLeftTarget(document.getElementById('top-bar-left'))
   }, [])
 
   useEffect(() => {
@@ -1262,58 +1260,71 @@ export const CustomModelsPage: React.FC = () => {
   const filterStats = computeModelFilterStats(models)
   const filteredModels = filterModels(models, modelFilter)
 
+  const tabSwitcher = (
+    <div
+      style={{
+        display: 'inline-flex',
+        gap: '4px',
+        padding: '3px',
+        borderRadius: '8px',
+        backgroundColor: 'var(--tonal)',
+      }}
+    >
+      <button
+        type="button"
+        data-testid="btnTabCustomModels"
+        onClick={() => setPageView('models')}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          border: 'none',
+          borderRadius: '6px',
+          padding: '6px 14px',
+          fontSize: '12px',
+          fontWeight: pageView === 'models' ? 600 : 500,
+          color: pageView === 'models' ? 'var(--primary)' : 'var(--text-muted)',
+          backgroundColor: pageView === 'models' ? 'var(--surface)' : 'transparent',
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+          boxShadow: pageView === 'models' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+        }}
+      >
+        <Cpu size={14} />
+        Models
+      </button>
+      <button
+        type="button"
+        data-testid="btnTabModelSource"
+        onClick={() => setPageView('model_source')}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          border: 'none',
+          borderRadius: '6px',
+          padding: '6px 14px',
+          fontSize: '12px',
+          fontWeight: pageView === 'model_source' ? 600 : 500,
+          color: pageView === 'model_source' ? 'var(--primary)' : 'var(--text-muted)',
+          backgroundColor: pageView === 'model_source' ? 'var(--surface)' : 'transparent',
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+          boxShadow: pageView === 'model_source' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+        }}
+      >
+        <SlidersHorizontal size={14} />
+        Integration Mode
+      </button>
+    </div>
+  )
+
+  const topBarActions = portalTarget ? createPortal(tabSwitcher, portalTarget) : tabSwitcher
+
   if (pageView === 'model_source') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'inline-flex', gap: '4px', padding: '3px', borderRadius: '8px', backgroundColor: 'var(--tonal)' }}>
-            <button
-              type="button"
-              data-testid="btnTabCustomModels"
-              onClick={() => setPageView('models')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                border: 'none',
-                borderRadius: '6px',
-                padding: '6px 14px',
-                fontSize: '12px',
-                fontWeight: 500,
-                color: 'var(--text-muted)',
-                backgroundColor: 'transparent',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <Cpu size={14} />
-              Models
-            </button>
-            <button
-              type="button"
-              data-testid="btnTabModelSource"
-              onClick={() => setPageView('model_source')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                border: 'none',
-                borderRadius: '6px',
-                padding: '6px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                color: 'var(--primary)',
-                backgroundColor: 'var(--surface)',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-              }}
-            >
-              <SlidersHorizontal size={14} />
-              Model Source & Mode Settings
-            </button>
-          </div>
-        </div>
+        {topBarActions}
         <ModelSourceTab />
       </div>
     )
@@ -1321,143 +1332,120 @@ export const CustomModelsPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'inline-flex', gap: '4px', padding: '3px', borderRadius: '8px', backgroundColor: 'var(--tonal)' }}>
+      {topBarActions}
+
+      <div
+        className="google-card custom-models-toolbar-gadget"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+          flexWrap: 'wrap',
+          padding: '14px 18px',
+          marginBottom: '20px',
+          backgroundColor: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: '14px',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            backgroundColor: 'var(--tonal)',
+            borderRadius: '8px',
+            padding: '3px',
+            gap: '2px',
+          }}
+        >
+          {[
+            { id: 'all', label: 'All Models', count: filterStats.total },
+            { id: 'enabled', label: 'Enabled', count: filterStats.enabled },
+            { id: 'disabled', label: 'Disabled', count: filterStats.disabled },
+          ].map((tab) => {
+            const isActive = modelFilter === tab.id
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => setModelFilter(tab.id as ModelFilterOption)}
+                style={{
+                  borderRadius: '6px',
+                  padding: '6px 16px',
+                  fontSize: '12px',
+                  fontWeight: isActive ? 600 : 500,
+                  color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                  backgroundColor: isActive ? 'var(--surface, #ffffff)' : 'transparent',
+                  boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  lineHeight: 1.4,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span>{tab.label}</span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    padding: '1px 6px',
+                    borderRadius: '10px',
+                    backgroundColor: isActive ? 'rgba(26, 115, 232, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                    color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                  }}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <button
             type="button"
-            data-testid="btnTabCustomModels"
-            onClick={() => setPageView('models')}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: 'var(--primary)',
-              backgroundColor: 'var(--surface)',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-            }}
+            onClick={openAddModal}
+            className="btn-pill-primary"
+            style={{ padding: '7px 16px', fontSize: '12px', whiteSpace: 'nowrap' }}
           >
-            <Cpu size={14} />
-            Models
+            <Plus size={14} /> Add Custom Model
           </button>
           <button
             type="button"
-            data-testid="btnTabModelSource"
-            onClick={() => setPageView('model_source')}
+            onClick={openAddGcpModal}
+            className="btn-pill-tonal"
+            style={{ padding: '7px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+          >
+            <GoogleCloudLogoIcon size={15} /> Add GCP Models
+          </button>
+          <button
+            type="button"
+            onClick={handleRefreshAllQuotas}
+            disabled={refreshingQuotas || loading}
+            className="btn-pill-tonal"
             style={{
+              width: '34px',
+              height: '34px',
+              padding: 0,
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '6px',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 500,
-              color: 'var(--text-muted)',
-              backgroundColor: 'transparent',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              boxSizing: 'border-box',
             }}
+            title="Refresh Quotas"
           >
-            <SlidersHorizontal size={14} />
-            Model Source & Mode Settings
+            <RefreshCw size={14} className={refreshingQuotas ? 'spin' : ''} />
           </button>
         </div>
       </div>
-      {/* Top Bar Left Filter Pills via Portal */}
-      {portalLeftTarget &&
-        createPortal(
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              backgroundColor: 'var(--tonal)',
-              borderRadius: '8px',
-              padding: '3px',
-              gap: '2px',
-            }}
-          >
-            {[
-              { id: 'all', label: 'All Models', count: filterStats.total },
-              { id: 'enabled', label: 'Enabled', count: filterStats.enabled },
-              { id: 'disabled', label: 'Disabled', count: filterStats.disabled },
-            ].map((tab) => {
-              const isActive = modelFilter === tab.id
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setModelFilter(tab.id as ModelFilterOption)}
-                  style={{
-                    borderRadius: '6px',
-                    padding: '6px 16px',
-                    fontSize: '12px',
-                    fontWeight: isActive ? 600 : 500,
-                    color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                    backgroundColor: isActive ? 'var(--surface, #ffffff)' : 'transparent',
-                    boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    whiteSpace: 'nowrap',
-                    lineHeight: 1.4,
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <span>{tab.label}</span>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      padding: '1px 6px',
-                      borderRadius: '10px',
-                      backgroundColor: isActive ? 'rgba(26, 115, 232, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                      color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                    }}
-                  >
-                    {tab.count}
-                  </span>
-                </button>
-              )
-            })}
-          </div>,
-          portalLeftTarget
-        )}
-
-      {/* Top Bar Action Buttons via Portal */}
-      {portalTarget &&
-        createPortal(
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button onClick={openAddModal} className="btn-pill-primary" style={{ padding: '7px 16px', fontSize: '12px', whiteSpace: 'nowrap' }}>
-              <Plus size={14} /> Add Custom Model
-            </button>
-            <button
-              onClick={openAddGcpModal}
-              className="btn-pill-tonal"
-              style={{ padding: '7px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
-            >
-              <GoogleCloudLogoIcon size={15} /> Add GCP Models
-            </button>
-            <button
-              onClick={handleRefreshAllQuotas}
-              disabled={refreshingQuotas || loading}
-              className="btn-pill-tonal"
-              style={{ padding: '7px 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-              title="Refresh Quotas"
-            >
-              <RefreshCw size={14} className={refreshingQuotas ? 'spin' : ''} />
-            </button>
-          </div>,
-          portalTarget
-        )}
 
       {feedback && (
         <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: '#fce8e6', color: '#b3261e', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
