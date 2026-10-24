@@ -436,4 +436,22 @@ func TestReportAgentTask_JailedPathAndIDValidation(t *testing.T) {
 	if _, err := os.Stat(targetFile); err != nil {
 		t.Errorf("expected agent_tasks.json to be created in %s, got: %v", targetFile, err)
 	}
+
+	// 4. A symlinked workspace path must resolve to its target before writing.
+	validProj := t.TempDir()
+	if eval, err := filepath.EvalSymlinks(validProj); err == nil {
+		validProj = eval
+	}
+	symlinkProj := filepath.Join(t.TempDir(), "valid-proj-link")
+	if err := os.Symlink(validProj, symlinkProj); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	err = ReportAgentTask(symlinkProj, validTask)
+	if err != nil {
+		t.Fatalf("expected success for symlinked workspace, got: %v", err)
+	}
+	targetFile = filepath.Join(validProj, ".antigravity", "agent_tasks.json")
+	if _, err := os.Stat(targetFile); err != nil {
+		t.Errorf("expected agent_tasks.json to be created in %s, got: %v", targetFile, err)
+	}
 }

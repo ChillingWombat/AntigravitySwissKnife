@@ -387,7 +387,6 @@ func ResolveProjectFolderFromConfig(nameOrID string) string {
 	return ""
 }
 
-
 func isGitDir(dir string) bool {
 	if dir == "" {
 		return false
@@ -419,6 +418,10 @@ func isAppRuntimeDir(dir string) bool {
 
 // ResolveProjectPath resolves a workspace path or bare project name to an absolute directory path when possible.
 func ResolveProjectPath(nameOrPath string) string {
+	return canonicalPath(resolveProjectPathRaw(nameOrPath))
+}
+
+func resolveProjectPathRaw(nameOrPath string) string {
 	p := strings.TrimSpace(nameOrPath)
 	p = strings.Trim(p, "\"'`")
 	if p == "" || p == "." || strings.EqualFold(p, "global") {

@@ -93,7 +93,8 @@ func (s *Surface) Start(ctx context.Context, opts surface.SessionOptions) (strin
 	// workspace must be absolute before it becomes a file URI.
 	// Keep slash-rooted paths as POSIX paths on Windows so their file URIs do
 	// not acquire the current drive letter.
-	if runtime.GOOS != "windows" || !strings.HasPrefix(strings.ReplaceAll(workspace, `\`, "/"), "/") {
+	posixRooted := strings.HasPrefix(workspace, "/") && !strings.HasPrefix(workspace, "//")
+	if runtime.GOOS != "windows" || !posixRooted {
 		if abs, err := filepath.Abs(workspace); err == nil {
 			workspace = abs
 		}
