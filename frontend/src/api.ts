@@ -163,6 +163,12 @@ export function cancelAllInFlightRequests(): void {
   inFlightControllers.clear()
 }
 
+export function shouldRunBackgroundPoll(
+  visibilityState: DocumentVisibilityState | string = typeof document !== 'undefined' ? document.visibilityState : 'visible',
+): boolean {
+  return visibilityState !== 'hidden'
+}
+
 /**
  * Runs a polling task once at a time so interval ticks cannot cancel the task
  * already in flight.

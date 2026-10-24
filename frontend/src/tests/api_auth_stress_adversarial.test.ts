@@ -8,6 +8,7 @@ import {
   cancelInFlightRequest,
   cancelAllInFlightRequests,
   runSingleFlightPoll,
+  shouldRunBackgroundPoll,
   setSessionToken,
   getSessionToken,
 } from '../api.ts'
@@ -826,5 +827,50 @@ describe('Adversarial Stress Suite: Frontend API Client Auth & Concurrency (Mile
 
     await slowPoll
     assert.equal(isPollingRef.current, false, 'The polling guard must reset after completion')
+  })
+
+  it('5.3: Skips interval polls while hidden and resumes immediately when visible', async () => {
+    const originalDocument = (globalThis as any).document
+    let visibilityState: DocumentVisibilityState = 'hidden'
+    let pollCount = 0
+    const isPollingRef = { current: false }
+    const pollStatus = () =>
+      runSingleFlightPoll(isPollingRef, async () => {
+        pollCount++
+      })
+
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        get visibilityState() {
+          return visibilityState
+        },
+      },
+    })
+
+    try {
+      const intervalTick = () => {
+        if (!shouldRunBackgroundPoll()) return
+        void pollStatus()
+      }
+      const handleVisibilityChange = () => {
+        if (shouldRunBackgroundPoll()) void pollStatus()
+      }
+
+      intervalTick()
+      await Promise.resolve()
+      assert.equal(pollCount, 0, 'A hidden document must skip the background interval poll')
+
+      visibilityState = 'visible'
+      handleVisibilityChange()
+      await Promise.resolve()
+      assert.equal(pollCount, 1, 'Becoming visible must trigger an immediate single-flight poll')
+      assert.equal(isPollingRef.current, false)
+    } finally {
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        value: originalDocument,
+      })
+    }
   })
 })

@@ -17,7 +17,7 @@ import { AppLockScreen } from './components/AppLockScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import type { AccountState, FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
 import { toAccountState } from './types'
-import { api, setSessionToken, getSessionToken, runSingleFlightPoll } from './api'
+import { api, setSessionToken, getSessionToken, runSingleFlightPoll, shouldRunBackgroundPoll } from './api'
 
 export const App: React.FC = () => {
   const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: ACP Agent Mesh
@@ -154,11 +154,11 @@ export const App: React.FC = () => {
     }
     // Poll status and fleet metrics periodically without overlapping requests.
     const interval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      if (!shouldRunBackgroundPoll()) return
       void pollStatus()
     }, 10000)
     const handleVisibilityChange = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      if (shouldRunBackgroundPoll()) {
         void pollStatus()
       }
     }
