@@ -3,6 +3,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -53,8 +54,9 @@ func (s *Surface) Start(ctx context.Context, opts surface.SessionOptions) (strin
 }
 
 type streamEvent struct {
-	Event      string `json:"event"`
-	StepUpdate *struct {
+	Event          string `json:"event"`
+	ConversationID string `json:"conversation_id"`
+	StepUpdate     *struct {
 		ConversationID string `json:"conversation_id"`
 		StepIndex      int    `json:"step_index"`
 		State          string `json:"state"`
@@ -74,8 +76,16 @@ type streamEvent struct {
 // Send runs one turn and streams text deltas as they arrive.
 func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(surface.Event) error) (surface.StopReason, error) {
 	args := []string{"--output-format", "stream-json"}
-	if cwd := s.cwdFor(sessionID); cwd != "" {
+	cwd := s.cwdFor(sessionID)
+	if cwd != "" {
 		args = append(args, "--add-dir", cwd)
+	}
+	model, effort := s.modelEffortFor(sessionID)
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	if effort != "" {
+		args = append(args, "--effort", effort)
 	}
 	if conv := s.conversationFor(sessionID); conv != "" {
 		args = append(args, "--conversation", conv)
@@ -93,10 +103,15 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 		args = append(args, "--conversation", conv)
 	}
 	cmd := exec.CommandContext(ctx, s.Bin, args...)
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return surface.StopReason(""), err
 	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return surface.StopReason(""), fmt.Errorf("start agy: %w", err)
 	}
@@ -124,11 +139,11 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 		case "init":
 			// The CLI allocates the conversation id; remember it so the next turn
 			// resumes this conversation instead of starting a fresh one.
-			if ev.Init != nil && ev.Init.ConversationID != "" {
-				s.mu.Lock()
-				s.convIDs[sessionID] = ev.Init.ConversationID
-				s.mu.Unlock()
+			conversationID := ev.ConversationID
+			if conversationID == "" && ev.Init != nil {
+				conversationID = ev.Init.ConversationID
 			}
+			s.rememberConversation(sessionID, conversationID)
 		case "step_update":
 			if ev.StepUpdate == nil || ev.StepUpdate.TextDelta == "" {
 				continue
@@ -138,16 +153,29 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 				return surface.StopCancelled, err
 			}
 		case "result":
+			conversationID := ev.ConversationID
+			if conversationID == "" && ev.Result != nil {
+				conversationID = ev.Result.ConversationID
+			}
+			s.rememberConversation(sessionID, conversationID)
 			if ev.Result != nil && ev.Result.Status != "" && ev.Result.Status != "SUCCESS" {
 				return surface.StopRefusal, errors.New("agy status " + ev.Result.Status)
 			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		if ctx.Err() != nil {
+			return surface.StopCancelled, nil
+		}
+		return surface.StopReason(""), commandError("read agy output", err, stderr.String())
+	}
 	if err := cmd.Wait(); err != nil {
 		if ctx.Err() != nil {
 			return surface.StopCancelled, nil
 		}
-		return surface.StopReason(""), fmt.Errorf("agy turn failed: %w", err)
+		return surface.StopReason(""), commandError("agy turn failed", err, stderr.String())
 	}
 	return surface.StopEndTurn, nil
 }
@@ -169,6 +197,22 @@ func (s *Surface) conversationFor(sessionID string) string {
 	return s.convIDs[sessionID]
 }
 
+func (s *Surface) rememberConversation(sessionID, conversationID string) {
+	if conversationID == "" {
+		return
+	}
+	s.mu.Lock()
+	s.convIDs[sessionID] = conversationID
+	s.mu.Unlock()
+}
+
+func (s *Surface) modelEffortFor(sessionID string) (model, effort string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	opts := s.sessions[sessionID]
+	return opts.Model, opts.Effort
+}
+
 func (s *Surface) modeFor(sessionID string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -176,6 +220,16 @@ func (s *Surface) modeFor(sessionID string) string {
 		return mode
 	}
 	return "accept-edits"
+}
+
+// SetModel changes the model used by subsequent turns of a session.
+func (s *Surface) SetModel(ctx context.Context, sessionID, model string) error {
+	s.mu.Lock()
+	opts := s.sessions[sessionID]
+	opts.Model = model
+	s.sessions[sessionID] = opts
+	s.mu.Unlock()
+	return nil
 }
 
 // Cancel stops the running turn by killing its process. The conversation id is
@@ -190,9 +244,14 @@ func (s *Surface) Cancel(ctx context.Context, sessionID string) error {
 	return cmd.Process.Kill()
 }
 
-func (s *Surface) List(ctx context.Context) ([]surface.SessionInfo, error) { return nil, nil }
-
 func (s *Surface) Close(ctx context.Context, sessionID string) error { return nil }
+
+func commandError(prefix string, err error, stderr string) error {
+	if stderr = strings.TrimSpace(stderr); stderr != "" {
+		return fmt.Errorf("%s: %w: %s", prefix, err, stderr)
+	}
+	return fmt.Errorf("%s: %w", prefix, err)
+}
 
 // conversationFromSession extracts the agy conversation id embedded in a session
 // id, if one has been recorded.
