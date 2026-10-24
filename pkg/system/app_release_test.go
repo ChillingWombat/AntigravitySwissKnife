@@ -84,7 +84,7 @@ func TestAppReleaseManager_404OrEmptyReleases(t *testing.T) {
 }
 
 func TestAppReleaseManager_OlderRelease(t *testing.T) {
-	// Remote release is older than current version (e.g. 0.0.5 vs 0.1.0)
+	// Remote release is older than the current AppVersion.
 	olderRelease := []GitHubRelease{
 		{
 			TagName:     "v0.0.5",
@@ -194,6 +194,31 @@ func TestAppReleaseManager_FindBestAsset(t *testing.T) {
 	bestMac := mgr.findBestAsset(assets, "darwin", "arm64")
 	if bestMac == nil || bestMac.Name != "Antigravity-Swiss-Knife-2.1.0-arm64.dmg" {
 		t.Errorf("expected Mac dmg, got %v", bestMac)
+	}
+}
+
+func TestAppReleaseManager_FindBestDarwinAssetByArchitecture(t *testing.T) {
+	mgr := NewAppReleaseManager()
+	assets := []GitHubReleaseAsset{
+		{Name: "Antigravity-Swiss-Knife-2.1.0-x64.dmg", BrowserDownloadURL: "http://example.com/app-x64.dmg"},
+		{Name: "Antigravity-Swiss-Knife-2.1.0-arm64.dmg", BrowserDownloadURL: "http://example.com/app-arm64.dmg"},
+	}
+
+	tests := []struct {
+		goarch   string
+		expected string
+	}{
+		{goarch: "arm64", expected: "Antigravity-Swiss-Knife-2.1.0-arm64.dmg"},
+		{goarch: "amd64", expected: "Antigravity-Swiss-Knife-2.1.0-x64.dmg"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.goarch, func(t *testing.T) {
+			best := mgr.findBestAsset(assets, "darwin", tc.goarch)
+			if best == nil || best.Name != tc.expected {
+				t.Fatalf("expected %s, got %v", tc.expected, best)
+			}
+		})
 	}
 }
 

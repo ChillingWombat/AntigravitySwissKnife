@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 // The LLM gateway exposes the Swiss Knife custom models over the wire format the
@@ -32,8 +34,9 @@ const gatewayMaxBody = 32 * 1024 * 1024
 
 // Gateway serves custom models to Antigravity surfaces that support a gateway URL.
 type Gateway struct {
-	store *Store
-	token string
+	store         *Store
+	token         string
+	AllowLoopback bool
 	// client is overridable in tests.
 	client *http.Client
 }
@@ -41,9 +44,19 @@ type Gateway struct {
 // NewGateway builds a gateway over the custom model store.
 func NewGateway(store *Store) *Gateway {
 	return &Gateway{
-		store:  store,
-		token:  store.GatewayToken(),
-		client: &http.Client{Timeout: 300 * time.Second},
+		store:         store,
+		token:         store.GatewayToken(),
+		AllowLoopback: core.IsRunningTests(),
+		client: &http.Client{
+			Timeout: 300 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return fmt.Errorf("stopped after 5 redirects")
+				}
+				_, _, err := ValidateEndpointSSRF(req.URL.String(), ProviderCustom, core.IsRunningTests())
+				return err
+			},
+		},
 	}
 }
 
@@ -283,6 +296,9 @@ func (g *Gateway) runOpenAICompatible(r *http.Request, model *CustomModel, req *
 	if endpoint == "" {
 		return fmt.Errorf("model %q has no base URL", model.ID)
 	}
+	if _, _, err := ValidateEndpointSSRF(endpoint, model.ProviderType, g.AllowLoopback || model.ProviderType == ProviderLocal || model.ProviderType == ProviderCustom); err != nil {
+		return err
+	}
 
 	messages, callIDs := geminiToOpenAIMessages(req)
 	payload := map[string]interface{}{
@@ -454,6 +470,9 @@ func (g *Gateway) runOpenAICompatible(r *http.Request, model *CustomModel, req *
 
 func (g *Gateway) runAnthropic(r *http.Request, model *CustomModel, req *geminiRequest, emit func(geminiResponse) error) error {
 	endpoint := ResolveEndpoint(ProviderAnthropic, model.BaseURL, model.Name)
+	if _, _, err := ValidateEndpointSSRF(endpoint, model.ProviderType, g.AllowLoopback || model.ProviderType == ProviderLocal || model.ProviderType == ProviderCustom); err != nil {
+		return err
+	}
 	messages, system := geminiToAnthropicMessages(req)
 	payload := map[string]interface{}{
 		"model":      model.Name,
@@ -635,8 +654,11 @@ func (g *Gateway) runGeminiAPI(r *http.Request, model *CustomModel, req *geminiR
 		base += "/v1beta"
 	}
 	endpoint := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse", base, model.Name)
+	if _, _, err := ValidateEndpointSSRF(endpoint, model.ProviderType, g.AllowLoopback || model.ProviderType == ProviderLocal || model.ProviderType == ProviderCustom); err != nil {
+		return err
+	}
 	payload := map[string]interface{}{
-		"contents":          req.Contents,
+		"contents":          normalizeGeminiContents(req.Contents),
 		"systemInstruction": req.SystemInstruction,
 	}
 	if req.Tools != nil {
@@ -1292,4 +1314,27 @@ func conversationSeed(messages []openAIMessage) string {
 		}
 	}
 	return ""
+}
+
+// normalizeGeminiContents ensures every turn has an explicit role and that the
+// conversation never ends on a model turn (which Google Vertex AI / Gemini
+// rejects with "Requests ending with a model turn are not supported.").
+func normalizeGeminiContents(contents []geminiContent) []geminiContent {
+	if len(contents) == 0 {
+		return []geminiContent{{Role: "user", Parts: []geminiPart{{Text: "Continue."}}}}
+	}
+	out := make([]geminiContent, 0, len(contents)+1)
+	for _, c := range contents {
+		if strings.TrimSpace(c.Role) == "" {
+			c.Role = "user"
+		}
+		out = append(out, c)
+	}
+	if strings.EqualFold(strings.TrimSpace(out[len(out)-1].Role), "model") {
+		out = append(out, geminiContent{
+			Role:  "user",
+			Parts: []geminiPart{{Text: "Please continue."}},
+		})
+	}
+	return out
 }

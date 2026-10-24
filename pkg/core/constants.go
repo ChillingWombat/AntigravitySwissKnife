@@ -11,9 +11,67 @@ import (
 	"time"
 )
 
+// CommandForExecutable builds an exec.Cmd that can launch Windows command
+// scripts directly. CreateProcess cannot execute .cmd or .bat files itself.
+func CommandForExecutable(bin string, args ...string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		lower := strings.ToLower(bin)
+		if strings.HasSuffix(lower, ".cmd") || strings.HasSuffix(lower, ".bat") {
+			if exe := resolveWindowsNativeExeForScript(bin); exe != "" {
+				return exec.Command(exe, args...)
+			}
+			escapedArgs := make([]string, 0, len(args)+2)
+			escapedArgs = append(escapedArgs, "/c", bin)
+			for _, a := range args {
+				escapedArgs = append(escapedArgs, escapeWindowsCmdArg(a))
+			}
+			return exec.Command("cmd.exe", escapedArgs...)
+		}
+	}
+	return exec.Command(bin, args...)
+}
+
+func resolveWindowsNativeExeForScript(scriptPath string) string {
+	dir := filepath.Dir(scriptPath)
+	base := strings.ToLower(filepath.Base(scriptPath))
+	if (base == "code.cmd" || base == "code-insiders.cmd") && strings.EqualFold(filepath.Base(dir), "bin") {
+		exeName := "Code.exe"
+		if strings.HasPrefix(base, "code-insiders") {
+			exeName = "Code - Insiders.exe"
+		}
+		candidate := filepath.Join(filepath.Dir(dir), exeName)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	ext := filepath.Ext(scriptPath)
+	if ext != "" {
+		candidate := strings.TrimSuffix(scriptPath, ext) + ".exe"
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func escapeWindowsCmdArg(arg string) string {
+	if !strings.ContainsAny(arg, "&|<>^") {
+		return arg
+	}
+	var b strings.Builder
+	for _, r := range arg {
+		switch r {
+		case '&', '|', '<', '>', '^':
+			b.WriteByte('^')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 const (
 	AppName    = "Antigravity Swiss Knife"
-	AppVersion = "0.1.0"
+	AppVersion = "0.2.0"
 	AppID      = "com.antigravity.swiss-knife"
 
 	// Default timeouts and intervals
@@ -112,6 +170,9 @@ func GetConfigDir() string {
 		if appData := os.Getenv("APPDATA"); appData != "" {
 			return filepath.Join(appData, "antigravity-swiss")
 		}
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			return filepath.Join(home, "AppData", "Roaming", "antigravity-swiss")
+		}
 	} else if runtime.GOOS == "darwin" {
 		home, err := os.UserHomeDir()
 		if err == nil {
@@ -208,11 +269,17 @@ func GetAntigravityHostConfigDir() string {
 		if appData := os.Getenv("APPDATA"); appData != "" {
 			return filepath.Join(appData, "Antigravity")
 		}
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			return filepath.Join(home, "AppData", "Roaming", "Antigravity")
+		}
 	} else if runtime.GOOS == "darwin" {
 		home, err := os.UserHomeDir()
 		if err == nil {
 			return filepath.Join(home, "Library", "Application Support", "Antigravity")
 		}
+	}
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "Antigravity")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -310,6 +377,11 @@ func GetAntigravityBinaryPath() string {
 	if p := os.Getenv("ANTIGRAVITY_BIN_PATH"); p != "" {
 		return p
 	}
+	if cfg, err := LoadConfig(); err == nil && cfg != nil {
+		if p := resolveConfiguredAntigravityBinary(cfg.DesktopAppPath); p != "" {
+			return p
+		}
+	}
 	switch runtime.GOOS {
 	case "windows":
 		return filepath.Join(GetAntigravityDesktopAppPath(), "Antigravity.exe")
@@ -330,6 +402,34 @@ func GetAntigravityBinaryPath() string {
 		}
 		return filepath.Join(GetAntigravityDesktopAppPath(), "antigravity")
 	}
+}
+
+func resolveConfiguredAntigravityBinary(configured string) string {
+	configured = strings.TrimSpace(configured)
+	if configured == "" {
+		return ""
+	}
+	info, err := os.Stat(configured)
+	if err != nil {
+		return ""
+	}
+	if !info.IsDir() {
+		return configured
+	}
+
+	var candidate string
+	switch runtime.GOOS {
+	case "windows":
+		candidate = filepath.Join(configured, "Antigravity.exe")
+	case "darwin":
+		candidate = filepath.Join(configured, "Contents", "MacOS", "Antigravity")
+	default:
+		candidate = filepath.Join(configured, "antigravity")
+	}
+	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		return candidate
+	}
+	return ""
 }
 
 // IsRunningTests returns true if the current execution is within a Go test runner.

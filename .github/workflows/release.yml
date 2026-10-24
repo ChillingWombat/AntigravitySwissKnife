@@ -16,6 +16,10 @@ on:
         required: false
         default: false
         type: boolean
+      tag_name:
+        description: 'Release tag (defaults to the dispatched workflow ref)'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -130,19 +134,33 @@ jobs:
           merge-multiple: true
 
       - name: Compute SHA-256 Checksums
+        id: checksums
         run: |
           cd artifacts
           sha256sum * > SHA256SUMS.txt || true
           cat SHA256SUMS.txt
+          {
+            echo 'sha256<<EOF'
+            cat SHA256SUMS.txt
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Publish official GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: |
             artifacts/*.deb
             artifacts/*.exe
             artifacts/*.dmg
             artifacts/SHA256SUMS.txt
           prerelease: ${{ github.event.inputs.prerelease == 'true' || false }}
-          body: ${{ github.event.inputs.release_notes || 'Official production release of Antigravity Swiss Knife installers for Linux (.deb), Windows (.exe), and macOS (.dmg).' }}
+          body: |
+            ${{ github.event.inputs.release_notes || 'Official production release of Antigravity Swiss Knife installers for Linux (.deb), Windows (.exe), and macOS (.dmg).' }}
+
+            ## SHA256SUMS.txt
+
+            ```
+            ${{ steps.checksums.outputs.sha256 }}
+            ```
           generate_release_notes: true

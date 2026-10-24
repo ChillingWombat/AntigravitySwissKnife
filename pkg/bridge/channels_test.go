@@ -199,31 +199,31 @@ func TestChannelsManager_WhatsAppWebhookAndRecordActivity(t *testing.T) {
 		t.Fatalf("expected verify token required error for [REDACTED], got: %v", err)
 	}
 
-	// Valid verify token -> success + verified identity "WhatsApp Webhook Gateway"
+	// A verify token proves local webhook configuration, not live WhatsApp delivery.
 	cm.config.WhatsApp.VerifyToken = "super-secret-verify-token"
 	msg, err := cm.TestChannel("whatsapp")
 	if err != nil {
 		t.Fatalf("expected WhatsApp webhook test to succeed, got: %v", err)
 	}
-	if !strings.Contains(msg, "WhatsApp custom webhook bridge verified") {
-		t.Errorf("expected success message containing verification confirmation, got: %s", msg)
+	if !strings.Contains(msg, "live delivery has not been verified") {
+		t.Errorf("expected an honest unverified status, got: %s", msg)
 	}
 
 	st := cm.GetStatus()
-	if !st.WhatsApp.Connected {
-		t.Errorf("expected WhatsApp connected=true")
+	if st.WhatsApp.Connected {
+		t.Errorf("webhook token configuration must not report WhatsApp as connected")
 	}
-	if st.WhatsApp.Identity != "WhatsApp Webhook Gateway" {
-		t.Errorf("expected WhatsApp identity 'WhatsApp Webhook Gateway', got: %q", st.WhatsApp.Identity)
+	if st.WhatsApp.Identity != "" {
+		t.Errorf("webhook token configuration must not invent a WhatsApp identity, got: %q", st.WhatsApp.Identity)
 	}
-	if !strings.Contains(st.WhatsApp.StatusText, "Verified") {
-		t.Errorf("expected StatusText to contain 'Verified', got: %q", st.WhatsApp.StatusText)
+	if !strings.Contains(st.WhatsApp.StatusText, "live delivery unverified") {
+		t.Errorf("expected StatusText to disclose unverified delivery, got: %q", st.WhatsApp.StatusText)
 	}
 
 	// Ensure mode: webhook takes precedence even if AccessToken is populated
 	cm.config.WhatsApp.AccessToken = "old-legacy-token"
 	msgWithToken, err := cm.TestChannel("whatsapp")
-	if err != nil || !strings.Contains(msgWithToken, "WhatsApp custom webhook bridge verified") {
+	if err != nil || !strings.Contains(msgWithToken, "live delivery has not been verified") {
 		t.Errorf("expected webhook mode to take precedence when AccessToken exists, got err=%v msg=%s", err, msgWithToken)
 	}
 

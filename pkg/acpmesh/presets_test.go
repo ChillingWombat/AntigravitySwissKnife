@@ -126,6 +126,20 @@ func TestDefaultBinaryPathPerOS(t *testing.T) {
 	}
 }
 
+func TestExpandPathExpandsUserProfile(t *testing.T) {
+	env := testEnv("windows")
+
+	t.Setenv("USERPROFILE", "")
+	if got := expandPath("%USERPROFILE%/bin/antigravity-acp.exe", env); got != "/home/tester/bin/antigravity-acp.exe" {
+		t.Fatalf("USERPROFILE fallback expansion = %q", got)
+	}
+
+	t.Setenv("USERPROFILE", `C:\Users\tester`)
+	if got := expandPath("%USERPROFILE%/bin/antigravity-acp.exe", env); got != "C:/Users/tester/bin/antigravity-acp.exe" {
+		t.Fatalf("USERPROFILE env expansion = %q", got)
+	}
+}
+
 func TestMergePresetWithoutOverrideUsesOSDefault(t *testing.T) {
 	agents := Merge(nil, testEnv("windows"))
 	if len(agents) != len(Presets()) {

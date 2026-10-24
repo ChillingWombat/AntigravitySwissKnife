@@ -111,8 +111,7 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 					}
 				}
 			}
-			info.Version = LatestDesktopVersion
-			info.UpToDate = true
+			applyDetectedVersion(&info, extractDesktopVersion(cfg.DesktopAppPath, resDir, info.Path), LatestDesktopVersion)
 			return info
 		}
 	}
@@ -170,23 +169,7 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 		}
 
 		// Attempt to extract version from package.json
-		version := readPackageJSONVersion(
-			filepath.Join(resDir, "app", "package.json"),
-			filepath.Join(resDir, "package.json"),
-			filepath.Join(appPath, "resources", "app", "package.json"),
-			filepath.Join(appPath, "resources", "package.json"),
-			filepath.Join(appPath, "package.json"),
-			filepath.Join(filepath.Dir(info.Path), "resources", "app", "package.json"),
-			filepath.Join(filepath.Dir(info.Path), "resources", "package.json"),
-		)
-
-		if version == "" {
-			// Fallback to active release baseline if detected
-			version = LatestDesktopVersion
-		}
-
-		info.Version = version
-		info.UpToDate = compareVersions(version, LatestDesktopVersion) >= 0
+		applyDetectedVersion(&info, extractDesktopVersion(appPath, resDir, info.Path), LatestDesktopVersion)
 	}
 
 	// Check running process state
@@ -241,18 +224,7 @@ func (d *Detector) detectAgyCLI() InstallationInfo {
 	}
 
 	if info.Installed {
-		cmd := exec.Command(info.Path, "--version")
-		core.SetHiddenConsole(cmd) // Prevent console window flash on Windows (runs every detection cycle)
-		if out, err := cmd.Output(); err == nil {
-			v := strings.TrimSpace(string(out))
-			if v != "" {
-				info.Version = v
-			}
-		}
-		if info.Version == "" {
-			info.Version = LatestAgyVersion
-		}
-		info.UpToDate = compareVersions(info.Version, "1.2.0") >= 0
+		applyDetectedVersion(&info, extractAgyVersion(info.Path), LatestAgyVersion)
 	}
 
 	return info
@@ -337,6 +309,43 @@ func (d *Detector) detectVSCodeExtension() InstallationInfo {
 	}
 
 	return info
+}
+
+func extractDesktopVersion(appPath, resDir, binPath string) string {
+	return readPackageJSONVersion(
+		filepath.Join(appPath, "resources", "app", "package.json"),
+		filepath.Join(appPath, "resources", "package.json"),
+		filepath.Join(appPath, "package.json"),
+		filepath.Join(filepath.Dir(binPath), "resources", "app", "package.json"),
+		filepath.Join(filepath.Dir(binPath), "resources", "package.json"),
+		filepath.Join(resDir, "app", "package.json"),
+		filepath.Join(resDir, "package.json"),
+	)
+}
+
+func extractAgyVersion(binPath string) string {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" && (strings.HasSuffix(strings.ToLower(binPath), ".cmd") || strings.HasSuffix(strings.ToLower(binPath), ".bat")) {
+		cmd = exec.Command("cmd.exe", "/c", binPath, "--version")
+	} else {
+		cmd = exec.Command(binPath, "--version")
+	}
+	core.SetHiddenConsole(cmd) // Prevent console window flash on Windows (runs every detection cycle)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func applyDetectedVersion(info *InstallationInfo, version, latestVersion string) {
+	if strings.TrimSpace(version) == "" {
+		info.Version = "unknown"
+		info.UpToDate = false
+		return
+	}
+	info.Version = strings.TrimSpace(version)
+	info.UpToDate = compareVersions(info.Version, latestVersion) >= 0
 }
 
 func readPackageJSONVersion(paths ...string) string {

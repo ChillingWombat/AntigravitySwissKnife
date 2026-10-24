@@ -183,6 +183,15 @@ func (am *AuthManager) GetUseAppPassword() bool {
 	return am.useAppPassword && IsAppPasswordConfigured()
 }
 
+// UpdateCredentials replaces the live token, pairing PIN, and App Access Password mode.
+func (am *AuthManager) UpdateCredentials(token, pin string, useAppPassword bool) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	am.token = token
+	am.pin = pin
+	am.useAppPassword = useAppPassword
+}
+
 // RotateCredentials generates a fresh token and pairing PIN and saves them.
 func (am *AuthManager) RotateCredentials() (string, string, error) {
 	am.mu.Lock()

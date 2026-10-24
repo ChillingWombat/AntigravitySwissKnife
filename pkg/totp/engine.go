@@ -50,6 +50,7 @@ func CleanSecret(raw string) string {
 	}
 
 	cleaned := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(raw, " ", ""), "-", ""))
+	cleaned = strings.TrimRight(cleaned, "=")
 
 	// Format 2: Hexadecimal seed string
 	if isHexString(cleaned) && len(cleaned) >= 16 && len(cleaned)%2 == 0 {
@@ -76,19 +77,41 @@ func isHexString(s string) bool {
 	return true
 }
 
-// ValidateSecret checks if the given secret contains only valid RFC 4648 Base32 characters.
+// ValidateSecret checks for valid RFC 4648 Base32 characters and at least 80 bits of key material.
 func ValidateSecret(secret string) bool {
 	cleaned := CleanSecret(secret)
-	if len(cleaned) == 0 {
-		return false
+	return validateCleanedSecret(cleaned) == nil
+}
+
+func validateCleanedSecret(cleaned string) error {
+	unpadded := strings.TrimRight(cleaned, "=")
+	if strings.Contains(unpadded, "=") {
+		return fmt.Errorf("padding is only permitted at the end")
 	}
-	_, err := base32.StdEncoding.DecodeString(cleaned)
-	return err == nil
+	if len(unpadded) < 16 {
+		return fmt.Errorf("secret must contain at least 80 bits of Base32 data")
+	}
+	for _, c := range unpadded {
+		if !((c >= 'A' && c <= 'Z') || (c >= '2' && c <= '7')) {
+			return fmt.Errorf("invalid Base32 character %q", c)
+		}
+	}
+	key, err := base32.StdEncoding.DecodeString(cleaned)
+	if err != nil {
+		return err
+	}
+	if len(key) < 10 {
+		return fmt.Errorf("secret must contain at least 80 bits of Base32 data")
+	}
+	return nil
 }
 
 // GenerateCode computes the 6-digit TOTP code for the given secret at timestamp t.
 func (e *Engine) GenerateCode(secret string, t time.Time) (string, error) {
 	cleaned := CleanSecret(secret)
+	if err := validateCleanedSecret(cleaned); err != nil {
+		return "", fmt.Errorf("invalid base32 secret: %w", err)
+	}
 	key, err := base32.StdEncoding.DecodeString(cleaned)
 	if err != nil {
 		return "", fmt.Errorf("invalid base32 secret: %w", err)

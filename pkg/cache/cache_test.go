@@ -1,10 +1,14 @@
 package cache
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	_ "modernc.org/sqlite"
 )
 
 func TestCacheInspectorAndPrunerShield(t *testing.T) {
@@ -149,3 +153,140 @@ func TestCachePrunerSizeLimitAndUnlimitedAge(t *testing.T) {
 	}
 }
 
+func TestDiscoverActiveCascadeIDsAndAutomaticShield(t *testing.T) {
+	antigravityDir := t.TempDir()
+	brainDir := filepath.Join(antigravityDir, "brain")
+	if err := os.MkdirAll(brainDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite", filepath.Join(antigravityDir, "conversation_summaries.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`CREATE TABLE conversation_summaries (
+		conversation_id TEXT PRIMARY KEY,
+		not_fully_idle INTEGER,
+		status TEXT,
+		last_modified_time TEXT
+	)`); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	stale := time.Now().Add(-3 * time.Hour).UTC().Format(time.RFC3339)
+	rows := []struct {
+		id, status string
+		notIdle    int
+		modified   string
+	}{
+		{"active-conversation", "CASCADE_RUN_STATUS_IDLE", 1, now},
+		{"running-conversation", "CASCADE_RUN_STATUS_RUNNING", 0, now},
+		{"stale-conversation", "CASCADE_RUN_STATUS_RUNNING", 1, stale},
+		{"idle-conversation", "CASCADE_RUN_STATUS_IDLE", 0, now},
+	}
+	for _, row := range rows {
+		if _, err := db.Exec(
+			`INSERT INTO conversation_summaries (conversation_id, not_fully_idle, status, last_modified_time) VALUES (?, ?, ?, ?)`,
+			row.id, row.notIdle, row.status, row.modified,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ids, err := DiscoverActiveCascadeIDs(brainDir)
+	if err != nil {
+		t.Fatalf("DiscoverActiveCascadeIDs failed: %v", err)
+	}
+	if len(ids) != 2 || ids[0] != "active-conversation" || ids[1] != "running-conversation" {
+		t.Fatalf("unexpected active cascade IDs: %v", ids)
+	}
+
+	scratchDir := filepath.Join(brainDir, "active-conversation", "scratch")
+	if err := os.MkdirAll(scratchDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	protectedFile := filepath.Join(scratchDir, "protected.bin")
+	if err := os.WriteFile(protectedFile, []byte("active data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-10 * 24 * time.Hour)
+	if err := os.Chtimes(protectedFile, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := NewPruner(brainDir).Prune(PruneOptions{
+		MinAgeDays:   1,
+		PruneScratch: true,
+	})
+	if err != nil {
+		t.Fatalf("Prune failed: %v", err)
+	}
+	if res.SkippedShield != 1 {
+		t.Errorf("expected automatically discovered active cascade to be shielded, got %d shields", res.SkippedShield)
+	}
+	if _, err := os.Stat(protectedFile); err != nil {
+		t.Errorf("expected active cascade file to remain: %v", err)
+	}
+}
+
+func TestCachePrunerSerializesWithAdvisoryLock(t *testing.T) {
+	brainDir := t.TempDir()
+	scratchDir := filepath.Join(brainDir, "stale-conversation", "scratch")
+	if err := os.MkdirAll(scratchDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	staleFile := filepath.Join(scratchDir, "old.bin")
+	if err := os.WriteFile(staleFile, []byte("stale"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(staleFile, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	lockPath := filepath.Join(brainDir, ".prune.lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := core.LockFile(lockFile); err != nil {
+		lockFile.Close()
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, pruneErr := NewPruner(brainDir).Prune(PruneOptions{
+			MinAgeDays:   1,
+			PruneScratch: true,
+		})
+		done <- pruneErr
+	}()
+
+	select {
+	case pruneErr := <-done:
+		_ = core.UnlockFile(lockFile)
+		_ = lockFile.Close()
+		t.Fatalf("prune completed while another process held the advisory lock: %v", pruneErr)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	if err := core.UnlockFile(lockFile); err != nil {
+		t.Fatal(err)
+	}
+	if err := lockFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case pruneErr := <-done:
+		if pruneErr != nil {
+			t.Fatalf("prune failed after lock release: %v", pruneErr)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("prune did not resume after lock release")
+	}
+}

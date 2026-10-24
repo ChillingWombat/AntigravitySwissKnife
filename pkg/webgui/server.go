@@ -552,6 +552,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/utilities/acp", s.handleUtilitiesACP)
 	mux.HandleFunc("/api/utilities/acp/agents", s.handleUtilitiesACPAgents)
 	mux.HandleFunc("/api/utilities/acp/detect", s.handleUtilitiesACPAgentDetect)
+	mux.HandleFunc("/api/utilities/acp/ping", s.handleUtilitiesACPPing)
+	mux.HandleFunc("/api/utilities/acp/prompt", s.handleUtilitiesACPPrompt)
 	mux.HandleFunc("/api/utilities/import", s.handleUtilitiesImport)
 	mux.HandleFunc("/api/utilities/import/scan", s.handleUtilitiesImportScan)
 
@@ -6418,7 +6420,11 @@ func launchIDETarget(dir string, candidates []string) (bool, string) {
 		if err != nil {
 			continue
 		}
-		cmd := exec.Command(canonical, dir)
+		binPath := canonical
+		if resolved, lookErr := exec.LookPath(canonical); lookErr == nil {
+			binPath = resolved
+		}
+		cmd := core.CommandForExecutable(binPath, dir)
 		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
 			cmd.Dir = dir
 		}
@@ -6444,7 +6450,11 @@ func (s *Server) launchSandboxedIDE(dir string, candidates []string) (bool, stri
 			args = append(args, "--transient", "--new-window", "--disable-extensions")
 		}
 		args = append(args, dir)
-		cmd := exec.Command(canonical, args...)
+		binPath := canonical
+		if resolved, lookErr := exec.LookPath(canonical); lookErr == nil {
+			binPath = resolved
+		}
+		cmd := core.CommandForExecutable(binPath, args...)
 		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
 			cmd.Dir = dir
 		}

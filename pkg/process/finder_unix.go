@@ -6,16 +6,21 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 )
 
-// findAntigravityProcessesNative scans Linux /proc for running antigravity instances.
+// findAntigravityProcessesNative scans /proc on Linux and falls back to the
+// platform process list on macOS or when procfs is unavailable.
 func (s *Shield) findAntigravityProcessesNative() ([]ProcessInfo, error) {
+	if runtime.GOOS == "darwin" {
+		return s.findAntigravityProcessesFromList()
+	}
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return nil, err
+		return s.findAntigravityProcessesFromList()
 	}
 
 	var results []ProcessInfo
@@ -88,7 +93,51 @@ func (s *Shield) findAntigravityProcessesNative() ([]ProcessInfo, error) {
 		})
 	}
 
-	// Prioritize primary Desktop IDE process at the front (comm == "antigravity" and not an Electron sub-process)
+	sortAntigravityProcesses(results)
+	return results, nil
+}
+
+func (s *Shield) findAntigravityProcessesFromList() ([]ProcessInfo, error) {
+	entries, err := ListProcesses()
+	if err != nil {
+		return nil, err
+	}
+
+	var results []ProcessInfo
+	for _, entry := range entries {
+		if entry.PID <= 0 || entry.PID == os.Getpid() || (os.Getppid() > 1 && entry.PID == os.Getppid()) {
+			continue
+		}
+		if isZombieProcess(entry.PID) || s.IsProtected(entry.PID) {
+			continue
+		}
+		if !isAntigravityProcess(entry.Comm, entry.Cmdline) {
+			continue
+		}
+		results = append(results, ProcessInfo{
+			PID:         entry.PID,
+			Name:        entry.Comm,
+			Cmdline:     strings.TrimSpace(entry.Cmdline),
+			IsHostIDE:   s.protectedPID > 0 && entry.PID == s.protectedPID,
+			IsProtected: s.IsProtected(entry.PID),
+		})
+	}
+	sortAntigravityProcesses(results)
+	return results, nil
+}
+
+func isAntigravityProcess(comm, cmdline string) bool {
+	lowerComm := strings.ToLower(comm)
+	lowerCmdline := strings.ToLower(cmdline)
+	if strings.Contains(lowerComm, "swiss") || strings.Contains(lowerComm, "antigravity-swi") ||
+		strings.Contains(lowerCmdline, "swiss") || strings.Contains(lowerCmdline, "antigravity-swi") {
+		return false
+	}
+	return IsExactAntigravityExecutable(comm) || IsExactAntigravityExecutable(extractArgv0(cmdline))
+}
+
+// Prioritize primary Desktop IDE process at the front (comm == "antigravity" and not an Electron sub-process)
+func sortAntigravityProcesses(results []ProcessInfo) {
 	sort.SliceStable(results, func(i, j int) bool {
 		isMainIDE := func(p ProcessInfo) bool {
 			lower := strings.ToLower(p.Cmdline)
@@ -101,6 +150,4 @@ func (s *Shield) findAntigravityProcessesNative() ([]ProcessInfo, error) {
 		}
 		return results[i].PID < results[j].PID
 	})
-
-	return results, nil
 }

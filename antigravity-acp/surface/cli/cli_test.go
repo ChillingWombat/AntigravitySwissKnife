@@ -27,6 +27,27 @@ func fakeAGY(t *testing.T, lines ...string) string {
 	return path
 }
 
+// recordingAGY writes a fake CLI that records its argv and working directory.
+func recordingAGY(t *testing.T, lines ...string) (bin, argsPath, cwdPath string) {
+	t.Helper()
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "stream.ndjson")
+	if err := os.WriteFile(fixture, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	argsPath = filepath.Join(dir, "args.txt")
+	cwdPath = filepath.Join(dir, "cwd.txt")
+	bin = filepath.Join(dir, "agy")
+	body := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$*\" >> '" + argsPath + "'\n" +
+		"pwd > '" + cwdPath + "'\n" +
+		"cat '" + fixture + "'\n"
+	if err := os.WriteFile(bin, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return bin, argsPath, cwdPath
+}
+
 // Lines recorded from a real `agy --output-format stream-json -p` run.
 const (
 	lineInit   = `{"event":"init","conversation_id":"conv-1","init":{"cwd":"/tmp"}}`
@@ -74,5 +95,88 @@ func TestConversationResumeID(t *testing.T) {
 	}
 	if got := conversationFromSession("cli-abc"); got != "" {
 		t.Errorf("fresh session must not carry a conversation id, got %q", got)
+	}
+}
+
+func TestSendResumesTopLevelConversationAndAppliesSessionOptions(t *testing.T) {
+	bin, argsPath, cwdPath := recordingAGY(t, lineInit, lineActive, lineDone, lineResult)
+	cwd := t.TempDir()
+	s := New(bin)
+	sessionID, err := s.Start(context.Background(), surface.SessionOptions{Cwd: cwd, Effort: "high"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := s.SetModel(context.Background(), sessionID, "model-2"); err != nil {
+		t.Fatalf("SetModel: %v", err)
+	}
+
+	for turn := 0; turn < 2; turn++ {
+		if _, err := s.Send(context.Background(), sessionID, "hello", func(surface.Event) error { return nil }); err != nil {
+			t.Fatalf("Send turn %d: %v", turn+1, err)
+		}
+	}
+
+	rawArgs, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocations := strings.Split(strings.TrimSpace(string(rawArgs)), "\n")
+	if len(invocations) != 2 {
+		t.Fatalf("invocations = %d, want 2", len(invocations))
+	}
+	for _, want := range []string{"--model model-2", "--effort high"} {
+		if !strings.Contains(invocations[0], want) {
+			t.Errorf("first invocation missing %q: %s", want, invocations[0])
+		}
+	}
+	if !strings.Contains(invocations[1], "--conversation conv-1") {
+		t.Errorf("second invocation did not resume conversation: %s", invocations[1])
+	}
+
+	gotCwd, err := os.ReadFile(cwdPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(gotCwd)) != cwd {
+		t.Errorf("cmd.Dir = %q, want %q", strings.TrimSpace(string(gotCwd)), cwd)
+	}
+}
+
+func TestSendCapturesTopLevelResultConversationID(t *testing.T) {
+	result := `{"event":"result","conversation_id":"conv-result","result":{"status":"SUCCESS"}}`
+	bin, argsPath, _ := recordingAGY(t, result)
+	s := New(bin)
+
+	for turn := 0; turn < 2; turn++ {
+		if _, err := s.Send(context.Background(), "cli-abc", "hello", func(surface.Event) error { return nil }); err != nil {
+			t.Fatalf("Send turn %d: %v", turn+1, err)
+		}
+	}
+
+	rawArgs, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocations := strings.Split(strings.TrimSpace(string(rawArgs)), "\n")
+	if len(invocations) != 2 || !strings.Contains(invocations[1], "--conversation conv-result") {
+		t.Errorf("second invocation did not use result conversation id: %s", strings.Join(invocations, "\n"))
+	}
+}
+
+func TestSendIncludesStderrOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "agy")
+	body := "#!/bin/sh\necho 'backend exploded' >&2\nexit 7\n"
+	if err := os.WriteFile(bin, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	s := New(bin)
+	_, err := s.Send(context.Background(), "cli-abc", "hello", func(surface.Event) error { return nil })
+	if err == nil {
+		t.Fatal("expected Send to fail")
+	}
+	if !strings.Contains(err.Error(), "backend exploded") {
+		t.Errorf("error %q does not include stderr", err)
 	}
 }

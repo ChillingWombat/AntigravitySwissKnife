@@ -981,6 +981,13 @@ func (d *Daemon) registerRPCHandlers() {
 			opts.PruneSteps = true
 			opts.PruneTasks = true
 		}
+		if opts.ActiveCascadeID == "" && len(opts.ActiveCascadeIDs) == 0 {
+			activeIDs, err := cache.DiscoverActiveCascadeIDs(d.Pruner.BrainDir)
+			if err != nil {
+				return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+			}
+			opts.ActiveCascadeIDs = activeIDs
+		}
 
 		res, err := d.Pruner.Prune(opts)
 		if err != nil {
@@ -1286,10 +1293,7 @@ func (d *Daemon) registerRPCHandlers() {
 	// 11b. Multi-Surface Antigravity Session Inspector
 	d.Server.Register("swiss.getSurfaces", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		home, _ := os.UserHomeDir()
-		configDir := filepath.Join(home, ".config", "Antigravity")
-		if custom := os.Getenv("ANTIGRAVITY_CONFIG_DIR"); custom != "" {
-			configDir = custom
-		}
+		configDir := core.GetAntigravityHostConfigDir()
 		return map[string]interface{}{
 			"surfaces":               keyring.DetectAllSurfacesRedacted(home, configDir),
 			"active_surface_account": keyring.ResolveRunningAntigravityAccountRedacted(home, configDir),
@@ -1901,13 +1905,17 @@ func (d *Daemon) runLoop() {
 				_, _ = d.Vault.Sync()
 			}
 			if autoPruneOn && d.Pruner != nil {
-				_, _ = d.Pruner.Prune(cache.PruneOptions{
-					MinAgeDays:   pruneAge,
-					MaxSizeGB:    pruneMaxGB,
-					PruneScratch: true,
-					PruneSteps:   true,
-					PruneTasks:   true,
-				})
+				activeIDs, err := cache.DiscoverActiveCascadeIDs(d.Pruner.BrainDir)
+				if err == nil {
+					_, _ = d.Pruner.Prune(cache.PruneOptions{
+						MinAgeDays:       pruneAge,
+						MaxSizeGB:        pruneMaxGB,
+						PruneScratch:     true,
+						PruneSteps:       true,
+						PruneTasks:       true,
+						ActiveCascadeIDs: activeIDs,
+					})
+				}
 			}
 
 		case <-activeTimer.C:

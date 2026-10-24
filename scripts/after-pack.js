@@ -94,9 +94,11 @@ exports.default = async function afterPack(context) {
       }
     }
 
-    const swissBin = path.join(appOutDir, 'resources', 'bin', 'swiss');
-    if (fs.existsSync(swissBin)) {
-      fs.chmodSync(swissBin, 0o755);
+    for (const binName of ['swiss', 'antigravity-acp']) {
+      const binFile = path.join(appOutDir, 'resources', 'bin', binName);
+      if (fs.existsSync(binFile)) {
+        fs.chmodSync(binFile, 0o755);
+      }
     }
   } else if (electronPlatformName === 'darwin') {
     const rootDir = path.resolve(__dirname, '..');

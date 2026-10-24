@@ -22,10 +22,13 @@
 const { execSync, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const rootDir = path.resolve(__dirname, '..');
 const workflowFile = path.join(rootDir, '.github', 'workflows', 'release.yml');
 const pkgJsonPath = path.join(rootDir, 'package.json');
+const buildReleasePath = path.join(rootDir, 'scripts', 'build-release.js');
+const installLinuxPath = path.join(rootDir, 'scripts', 'install-linux.js');
 
 let totalChecks = 0;
 let passedChecks = 0;
@@ -97,7 +100,11 @@ function phase1() {
 
   if (workflowDispatch && typeof workflowDispatch === 'object') {
     const inputs = workflowDispatch.inputs || {};
-    check('workflow_dispatch defines optional inputs (release_notes or prerelease)', 'release_notes' in inputs || 'prerelease' in inputs);
+    const optionalInputs = ['release_notes', 'prerelease', 'tag_name'];
+    check(
+      'workflow_dispatch defines optional release_notes, prerelease, and tag_name inputs',
+      optionalInputs.every((name) => inputs[name] && inputs[name].required !== true)
+    );
   }
 
   // Validate Permissions & Concurrency
@@ -169,7 +176,12 @@ function phase2(workflow) {
   check('Job steps compile frontend bundle via "npm run build:frontend"', hasFrontendBuild);
 
   const hasPackaging = steps.some((s) => s.run && (s.run.includes('build-release.js') || s.run.includes('release:') || s.run.includes('${{ matrix.target.script }}')));
-  check('Job steps compile native daemon and package standard OS installer', hasPackaging);
+  const buildReleaseSource = fs.readFileSync(buildReleasePath, 'utf8');
+  const packagesAcp = buildReleaseSource.includes('function buildAcpBinary(') &&
+    buildReleaseSource.includes("buildAcpBinary('linux'") &&
+    buildReleaseSource.includes("buildAcpBinary('windows'") &&
+    buildReleaseSource.includes("buildAcpBinary('darwin'");
+  check('Job steps compile Swiss and antigravity-acp for every target OS', hasPackaging && packagesAcp);
 }
 
 // ==============================================================================
@@ -215,7 +227,15 @@ function phase3(workflow) {
   check('publish-release computes SHA-256 checksums (sha256sum * > SHA256SUMS.txt)', !!checksumStep);
 
   const ghReleaseStep = publishSteps.find((s) => s.uses && s.uses.startsWith('softprops/action-gh-release'));
-  check('publish-release publishes official release via softprops/action-gh-release@v2', !!ghReleaseStep);
+  const releaseTag = ghReleaseStep?.with?.tag_name || '';
+  const releaseBody = ghReleaseStep?.with?.body || '';
+  check(
+    'publish-release sets tag_name and includes SHA256SUMS.txt in release notes',
+    !!ghReleaseStep &&
+      releaseTag.includes('github.event.inputs.tag_name') &&
+      releaseTag.includes('github.ref_name') &&
+      releaseBody.includes('SHA256SUMS.txt')
+  );
 
   const releaseFiles = ghReleaseStep?.with?.files || '';
   const publishesAllAssets = releaseFiles.includes('.deb') && releaseFiles.includes('.exe') && releaseFiles.includes('.dmg') && releaseFiles.includes('SHA256SUMS.txt');
@@ -230,7 +250,6 @@ function phase4() {
   console.log('Phase 4: Package.json Release & Build Script Mapping Verification');
   console.log('======================================================================');
 
-  check('package.json exists', fs.existsSync(pkgJsonPath));
   const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
   const scripts = pkg.scripts || {};
 
@@ -250,6 +269,12 @@ function phase4() {
     const matches = exists && val.includes(expectedContains);
     check(`package.json scripts.${name} is defined and valid ("${val || ''}")`, matches);
   }
+
+  const installLinuxSource = fs.readFileSync(installLinuxPath, 'utf8');
+  const installsAcp = installLinuxSource.includes('installAcpCliSymlink') &&
+    installLinuxSource.includes("'antigravity-acp'") &&
+    installLinuxSource.includes('resources');
+  check('Linux installer exposes the bundled antigravity-acp binary on the CLI path', installsAcp);
 }
 
 // ==============================================================================
@@ -334,11 +359,16 @@ function phase5() {
     if (/\.(png|jpg|jpeg|ico|icns|bin|exe|deb|dmg|zip|gz|woff|woff2)$/i.test(relFile)) continue;
     // Ignore this verification script itself to avoid false positives on pattern definitions
     if (relFile === 'scripts/verify-release-pipeline.js') continue;
+    // Test fixtures intentionally contain synthetic PEM material. Keep scanning
+    // them for real API tokens and cloud credentials.
+    const isTestFixture = /(?:^|\/)(?:testdata|fixtures)\//.test(relFile) ||
+      /_test\.(?:go|js|ts|tsx)$/.test(relFile);
 
     const fullPath = path.join(rootDir, relFile);
     try {
       const content = fs.readFileSync(fullPath, 'utf8');
       for (const { name, regex } of secretPatterns) {
+        if (isTestFixture && name === 'RSA/EC Private Key') continue;
         if (regex.test(content)) {
           leaks.push({ file: relFile, secretType: name });
         }

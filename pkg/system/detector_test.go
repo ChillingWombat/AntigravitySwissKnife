@@ -3,6 +3,8 @@ package system
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"testing"
 )
 
@@ -130,6 +132,12 @@ func TestDetector_DesktopAppPathResolvesToBinary(t *testing.T) {
 	if fi, err := os.Stat(res.DesktopApp.Path); err != nil || fi.IsDir() {
 		t.Errorf("expected DesktopApp.Path to be a file, got dir or error: %v", err)
 	}
+	if res.DesktopApp.Version != "unknown" {
+		t.Errorf("expected unprobed desktop version to be unknown, got %q", res.DesktopApp.Version)
+	}
+	if res.DesktopApp.UpToDate {
+		t.Error("expected unprobed desktop version not to report up to date")
+	}
 }
 
 func TestDetector_DesktopAppPathResolvesDirectoryToBinary(t *testing.T) {
@@ -154,4 +162,64 @@ func TestDetector_DesktopAppPathResolvesDirectoryToBinary(t *testing.T) {
 	}
 }
 
+func TestDetector_AgyVersionProbeUsesLatestVersionAndDoesNotFabricate(t *testing.T) {
+	cases := []struct {
+		name        string
+		posixScript string
+		winScript   string
+		wantVersion string
+		wantCurrent bool
+	}{
+		{
+			name:        "older version",
+			posixScript: "#!/bin/sh\nprintf '1.2.0\\n'\n",
+			winScript:   "@echo off\r\necho 1.2.0\r\n",
+			wantVersion: "1.2.0",
+			wantCurrent: false,
+		},
+		{
+			name:        "probe failure",
+			posixScript: "#!/bin/sh\nexit 1\n",
+			winScript:   "@echo off\r\nexit /b 1\r\n",
+			wantVersion: "unknown",
+			wantCurrent: false,
+		},
+	}
 
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configDir := filepath.Join(tmpDir, "config")
+			if err := os.MkdirAll(configDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+
+			agyName := "agy"
+			scriptBody := tc.posixScript
+			if runtime.GOOS == "windows" {
+				agyName = "agy.cmd"
+				scriptBody = tc.winScript
+			}
+			agyPath := filepath.Join(tmpDir, agyName)
+			if err := os.WriteFile(agyPath, []byte(scriptBody), 0755); err != nil {
+				t.Fatal(err)
+			}
+			configJSON := `{"agy_cli_path":` + strconv.Quote(agyPath) + `}`
+			if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(configJSON), 0600); err != nil {
+				t.Fatal(err)
+			}
+
+			t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", configDir)
+			info := NewDetector().DetectAll().AgyCLI
+			if !info.Installed {
+				t.Fatal("expected configured agy binary to be detected")
+			}
+			if info.Version != tc.wantVersion {
+				t.Errorf("expected agy version %q, got %q", tc.wantVersion, info.Version)
+			}
+			if info.UpToDate != tc.wantCurrent {
+				t.Errorf("expected agy UpToDate=%v, got %v", tc.wantCurrent, info.UpToDate)
+			}
+		})
+	}
+}

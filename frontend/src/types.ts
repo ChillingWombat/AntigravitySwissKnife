@@ -945,10 +945,18 @@ export interface AcpAgentInstance {
   pid: number
   port_socket: string
   acp_version: string
-  status: 'active_hosting' | 'listening' | 'connected' | 'idle' | 'unreachable'
+  status:
+    | 'active_hosting'
+    | 'listening'
+    | 'connected'
+    | 'installed_idle'
+    | 'not_found'
+    | 'idle'
+    | 'unreachable'
   ping_latency_ms: number | null
   supported_tools: string[]
   last_handshake: string
+  transport?: string
   /** True when the agent was added by the user rather than being a built-in preset. */
   custom?: boolean
   /** True when the endpoint is the computed OS default rather than a stored override. */
@@ -996,6 +1004,42 @@ export interface AcpHandshakeLog {
   action: string
   payload_summary: string
   status: 'success' | 'warning' | 'error'
+}
+
+export interface AcpHandshakeResult {
+  agent_id: string
+  agent_name: string
+  transport: 'stdio-acp' | 'pi-rpc' | 'socket' | string
+  endpoint: string
+  reachable: boolean
+  verified: boolean
+  protocol: string
+  agent_version?: string
+  tools?: string[]
+  ping_latency_ms: number
+  summary: string
+  error?: string
+}
+
+export interface AcpPingResponse {
+  status: string
+  results: AcpHandshakeResult[]
+  logs: AcpHandshakeLog[]
+  agents: AcpAgentInstance[]
+  online_count: number
+}
+
+export interface AcpPromptResponse {
+  status: string
+  agent_id: string
+  agent_name?: string
+  transport: string
+  protocol?: string
+  endpoint?: string
+  session_id?: string
+  response: string
+  stop_reason?: string
+  latency_ms?: number
 }
 
 export interface StoragePaths {

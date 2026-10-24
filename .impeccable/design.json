@@ -1,0 +1,382 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-24T02:18:22Z",
+  "title": "Design System: Antigravity Swiss Knife",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Precision Blue",
+        "canonical": "oklch(48% 0.19 258)",
+        "tonalRamp": [
+          "oklch(20% 0.08 258)",
+          "oklch(30% 0.12 258)",
+          "oklch(40% 0.16 258)",
+          "oklch(48% 0.19 258)",
+          "oklch(60% 0.17 258)",
+          "oklch(72% 0.13 258)",
+          "oklch(84% 0.08 258)",
+          "oklch(95% 0.03 258)"
+        ]
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Deep Precision Blue",
+        "canonical": "oklch(41% 0.18 258)",
+        "tonalRamp": [
+          "oklch(18% 0.07 258)",
+          "oklch(27% 0.11 258)",
+          "oklch(34% 0.15 258)",
+          "oklch(41% 0.18 258)",
+          "oklch(55% 0.16 258)",
+          "oklch(69% 0.12 258)",
+          "oklch(82% 0.08 258)",
+          "oklch(94% 0.03 258)"
+        ]
+      },
+      "accent-dark": {
+        "role": "primary",
+        "displayName": "Signal Blue",
+        "canonical": "oklch(82% 0.10 252)",
+        "tonalRamp": [
+          "oklch(18% 0.05 252)",
+          "oklch(29% 0.07 252)",
+          "oklch(41% 0.09 252)",
+          "oklch(53% 0.10 252)",
+          "oklch(65% 0.10 252)",
+          "oklch(74% 0.10 252)",
+          "oklch(82% 0.10 252)",
+          "oklch(95% 0.04 252)"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Working Paper",
+        "canonical": "oklch(98% 0.006 255)",
+        "tonalRamp": [
+          "oklch(15% 0.006 255)",
+          "oklch(28% 0.006 255)",
+          "oklch(41% 0.006 255)",
+          "oklch(54% 0.006 255)",
+          "oklch(67% 0.006 255)",
+          "oklch(80% 0.006 255)",
+          "oklch(90% 0.006 255)",
+          "oklch(98% 0.006 255)"
+        ]
+      },
+      "canvas-dark": {
+        "role": "neutral",
+        "displayName": "Night Canvas",
+        "canonical": "oklch(19% 0.004 270)",
+        "tonalRamp": [
+          "oklch(12% 0.004 270)",
+          "oklch(19% 0.004 270)",
+          "oklch(29% 0.004 270)",
+          "oklch(41% 0.004 270)",
+          "oklch(54% 0.004 270)",
+          "oklch(67% 0.004 270)",
+          "oklch(82% 0.004 270)",
+          "oklch(95% 0.004 270)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Instrument White",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(28% 0 0)",
+          "oklch(41% 0 0)",
+          "oklch(54% 0 0)",
+          "oklch(67% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(100% 0 0)"
+        ]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Night Surface",
+        "canonical": "oklch(23% 0.003 270)",
+        "tonalRamp": [
+          "oklch(13% 0.003 270)",
+          "oklch(23% 0.003 270)",
+          "oklch(32% 0.003 270)",
+          "oklch(43% 0.003 270)",
+          "oklch(56% 0.003 270)",
+          "oklch(69% 0.003 270)",
+          "oklch(82% 0.003 270)",
+          "oklch(95% 0.003 270)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Gauge Line",
+        "canonical": "oklch(90% 0.004 255)",
+        "tonalRamp": [
+          "oklch(18% 0.004 255)",
+          "oklch(30% 0.004 255)",
+          "oklch(43% 0.004 255)",
+          "oklch(56% 0.004 255)",
+          "oklch(68% 0.004 255)",
+          "oklch(78% 0.004 255)",
+          "oklch(90% 0.004 255)",
+          "oklch(97% 0.004 255)"
+        ]
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "Operator Ink",
+        "canonical": "oklch(25% 0 0)",
+        "tonalRamp": [
+          "oklch(12% 0 0)",
+          "oklch(25% 0 0)",
+          "oklch(38% 0 0)",
+          "oklch(51% 0 0)",
+          "oklch(64% 0 0)",
+          "oklch(76% 0 0)",
+          "oklch(88% 0 0)",
+          "oklch(97% 0 0)"
+        ]
+      },
+      "foreground-muted": {
+        "role": "neutral",
+        "displayName": "Muted Graphite",
+        "canonical": "oklch(43% 0.005 255)",
+        "tonalRamp": [
+          "oklch(14% 0.005 255)",
+          "oklch(26% 0.005 255)",
+          "oklch(35% 0.005 255)",
+          "oklch(43% 0.005 255)",
+          "oklch(56% 0.005 255)",
+          "oklch(69% 0.005 255)",
+          "oklch(82% 0.005 255)",
+          "oklch(95% 0.005 255)"
+        ]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "Signal Green",
+        "canonical": "oklch(47% 0.13 151)",
+        "tonalRamp": [
+          "oklch(17% 0.05 151)",
+          "oklch(28% 0.08 151)",
+          "oklch(38% 0.11 151)",
+          "oklch(47% 0.13 151)",
+          "oklch(59% 0.12 151)",
+          "oklch(71% 0.09 151)",
+          "oklch(83% 0.06 151)",
+          "oklch(95% 0.02 151)"
+        ]
+      },
+      "warning": {
+        "role": "semantic",
+        "displayName": "Caution Amber",
+        "canonical": "oklch(52% 0.13 65)",
+        "tonalRamp": [
+          "oklch(17% 0.05 65)",
+          "oklch(29% 0.08 65)",
+          "oklch(40% 0.11 65)",
+          "oklch(52% 0.13 65)",
+          "oklch(63% 0.12 65)",
+          "oklch(74% 0.09 65)",
+          "oklch(85% 0.06 65)",
+          "oklch(96% 0.02 65)"
+        ]
+      },
+      "danger": {
+        "role": "semantic",
+        "displayName": "Fault Red",
+        "canonical": "oklch(47% 0.17 28)",
+        "tonalRamp": [
+          "oklch(16% 0.06 28)",
+          "oklch(27% 0.10 28)",
+          "oklch(37% 0.14 28)",
+          "oklch(47% 0.17 28)",
+          "oklch(59% 0.15 28)",
+          "oklch(71% 0.11 28)",
+          "oklch(84% 0.07 28)",
+          "oklch(95% 0.02 28)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page and major workspace titles."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Primary card and section headings."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card titles and grouped controls."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Controls, table content, and operational prose."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Status labels, tabs, metadata, and compact actions."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Code, logs, IDs, and terminal output."
+      }
+    },
+    "shadows": [
+      {
+        "name": "ambient-low",
+        "value": "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
+        "purpose": "Inputs, chips, and compact controls."
+      },
+      {
+        "name": "panel-lift",
+        "value": "0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04)",
+        "purpose": "Popovers and raised panels."
+      },
+      {
+        "name": "floating-layer",
+        "value": "0 10px 25px -3px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.04)",
+        "purpose": "Dialogs and genuinely detached surfaces."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Hover, focus, and control state changes."
+      },
+      {
+        "name": "state-standard",
+        "value": "200ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Toggles and short panel transitions."
+      },
+      {
+        "name": "measure-update",
+        "value": "600ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Quota gauge progress updates."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "desktop-min",
+        "value": "1216px",
+        "purpose": "Minimum supported Electron workspace width."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single commit action in a local control group.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Run switch</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 34px; padding: 8px 16px; border: 0; border-radius: 9999px; background: var(--accent, #0b57d0); color: var(--accent-foreground, #ffffff); font: 600 12px/1.3 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-btn-primary:hover { background: var(--primary-hover, #0842a0); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); } .ds-btn-primary:focus-visible { outline: 2px solid var(--primary, #0b57d0); outline-offset: 2px; } .ds-btn-primary:disabled { opacity: 0.48; cursor: not-allowed; box-shadow: none; }"
+    },
+    {
+      "name": "Tonal Button",
+      "kind": "button",
+      "refersTo": "button-tonal",
+      "description": "A secondary action that remains part of the working surface.",
+      "html": "<button class=\"ds-btn-tonal\" type=\"button\">Refresh</button>",
+      "css": ".ds-btn-tonal { display: inline-flex; align-items: center; justify-content: center; height: 34px; padding: 8px 16px; border: 0; border-radius: 9999px; background: var(--tonal, #f1f3f4); color: var(--on-primary-container, #1f1f1f); font: 600 12px/1.3 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease-out; } .ds-btn-tonal:hover { background: var(--tonal-hover, #e8eaed); } .ds-btn-tonal:focus-visible { outline: 2px solid var(--primary, #0b57d0); outline-offset: 2px; } .ds-btn-tonal:disabled { opacity: 0.48; cursor: not-allowed; }"
+    },
+    {
+      "name": "Outlined Button",
+      "kind": "button",
+      "refersTo": "button-outlined",
+      "description": "A low-emphasis action for reversible or optional operations.",
+      "html": "<button class=\"ds-btn-outlined\" type=\"button\">View logs</button>",
+      "css": ".ds-btn-outlined { display: inline-flex; align-items: center; justify-content: center; height: 34px; padding: 7px 15px; border: 1px solid var(--border, #e0e2e5); border-radius: 9999px; background: transparent; color: var(--foreground, #1f1f1f); font: 600 12px/1.3 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease-out, border-color 150ms ease-out; } .ds-btn-outlined:hover { background: var(--hover, rgba(11, 87, 208, 0.06)); border-color: var(--text-subtle, #747775); } .ds-btn-outlined:focus-visible { outline: 2px solid var(--primary, #0b57d0); outline-offset: 2px; } .ds-btn-outlined:disabled { opacity: 0.48; cursor: not-allowed; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A compact field for exact local configuration values.",
+      "html": "<label class=\"ds-field\"><span>Endpoint</span><input class=\"ds-field-input\" value=\"127.0.0.1:8765\" /></label>",
+      "css": ".ds-field { display: grid; gap: 6px; color: var(--foreground, #1f1f1f); font: 600 12px/1.3 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; } .ds-field-input { width: 100%; height: 34px; padding: 8px 12px; border: 1px solid var(--text-subtle, #747775); border-radius: 8px; background: var(--surface, #ffffff); color: var(--foreground, #1f1f1f); caret-color: var(--primary, #0b57d0); font: 400 13px/1.5 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; transition: border-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-field-input:hover { border-color: var(--text-muted, #444746); } .ds-field-input:focus { border-color: var(--primary, #0b57d0); outline: 2px solid var(--primary, #0b57d0); outline-offset: 1px; }"
+    },
+    {
+      "name": "Navigation Item",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "A compact rail destination with a stable icon and active state.",
+      "html": "<a class=\"ds-nav-item\" href=\"#\" aria-current=\"page\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m7.5 4.27 9 5.15\"/><path d=\"M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z\"/><path d=\"m3.3 7 8.7 5 8.7-5\"/><path d=\"M12 22V12\"/></svg><span>Extensions</span></a>",
+      "css": ".ds-nav-item { display: grid; grid-template-columns: 20px 1fr; align-items: center; gap: 10px; min-height: 36px; padding: 8px 12px; border-radius: 8px; color: var(--text-muted, #444746); font: 600 12px/1.3 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; text-decoration: none; white-space: nowrap; transition: background-color 150ms ease-out, color 150ms ease-out; } .ds-nav-item:hover { background: var(--hover-overlay, rgba(0, 0, 0, 0.04)); color: var(--foreground, #1f1f1f); } .ds-nav-item[aria-current='page'] { background: var(--primary-container, #c2e7ff); color: var(--on-primary-container, #041e49); } .ds-nav-item:focus-visible { outline: 2px solid var(--primary, #0b57d0); outline-offset: 2px; }"
+    },
+    {
+      "name": "Data Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A single bounded group of controls or live measurements.",
+      "html": "<section class=\"ds-card\"><h2>Quota state</h2><p>Gemini 5H remains available.</p></section>",
+      "css": ".ds-card { padding: 20px; border: 1px solid var(--border, #e0e2e5); border-radius: 8px; background: var(--surface, #ffffff); color: var(--foreground, #1f1f1f); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); } .ds-card h2 { margin: 0 0 8px; font: 600 16px/1.4 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; } .ds-card p { margin: 0; color: var(--text-muted, #444746); font: 400 13px/1.5 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; } .ds-card:focus-within { border-color: var(--primary, #0b57d0); box-shadow: 0 0 0 1px var(--primary, #0b57d0); }"
+    },
+    {
+      "name": "Toggle Switch",
+      "kind": "custom",
+      "refersTo": "toggle-track-on",
+      "description": "A labeled binary control with a tokenized track and visible keyboard focus.",
+      "html": "<label class=\"ds-switch\"><input class=\"ds-switch-input\" type=\"checkbox\" role=\"switch\" aria-label=\"Enable feature\" checked /><span class=\"ds-switch-track\"><span class=\"ds-switch-thumb\"></span></span></label>",
+      "css": ".ds-switch { position: relative; display: inline-flex; align-items: center; cursor: pointer; } .ds-switch-input { position: absolute; width: 1px; height: 1px; opacity: 0; } .ds-switch-track { display: inline-flex; align-items: center; width: 40px; height: 20px; padding: 2px; border-radius: 9999px; background: var(--border, #d1d5db); transition: background-color 200ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 150ms ease-out; } .ds-switch-input:checked + .ds-switch-track { background: var(--green, #16a34a); } .ds-switch-input:focus-visible + .ds-switch-track { box-shadow: 0 0 0 2px var(--primary, #0b57d0); } .ds-switch-input:disabled + .ds-switch-track { opacity: 0.6; cursor: not-allowed; } .ds-switch-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--surface, #ffffff); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); transform: translateX(20px); transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-switch-input:not(:checked) + .ds-switch-track .ds-switch-thumb { transform: translateX(0); }"
+    },
+    {
+      "name": "Quota Gauge",
+      "kind": "custom",
+      "refersTo": "quota-gauge",
+      "description": "A compact percentage instrument with semantic health color.",
+      "html": "<div class=\"ds-gauge\" role=\"img\" aria-label=\"Quota 68 percent\"><svg width=\"72\" height=\"72\" viewBox=\"0 0 72 72\"><circle cx=\"36\" cy=\"36\" r=\"30\" fill=\"none\" stroke=\"var(--tonal, #e0e2e5)\" stroke-width=\"6\"/><circle cx=\"36\" cy=\"36\" r=\"30\" fill=\"none\" stroke=\"var(--green, #137333)\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-dasharray=\"188.5\" stroke-dashoffset=\"60.3\" transform=\"rotate(-90 36 36)\"/></svg><strong>68%</strong><span>Gemini 5H</span></div>",
+      "css": ".ds-gauge { display: inline-grid; grid-template-rows: 72px auto auto; justify-items: center; gap: 4px; color: var(--foreground, #1f1f1f); font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; } .ds-gauge svg { grid-row: 1; grid-column: 1; } .ds-gauge strong { grid-row: 1; grid-column: 1; align-self: center; font-size: 26px; font-variant-numeric: tabular-nums; } .ds-gauge span { color: var(--text, #1f1f1f); font-size: 12px; font-weight: 600; white-space: nowrap; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Precision Instrument Deck",
+    "overview": "The interface is an operator deck for local runtime control: compact, legible, and arranged around live state rather than presentation. Familiar desktop patterns carry the workflow. The visual identity comes from exact alignment, restrained blue signals, and the confidence of a tool that never hides whether it is connected, loading, or blocked. This is an Operate-mode system. Density is deliberate, but visual noise is not. Every border, label, number, and control earns its place through grouping, state, or action. Surfaces stay quiet in both light and dark themes so quota, account, and connection changes remain the loudest information on screen.",
+    "keyCharacteristics": [
+      "Local-first operational clarity with visible runtime truth.",
+      "One restrained blue accent for actions, selection, and focus.",
+      "A 4px spacing grid with 1px tokenized borders.",
+      "Fixed, compact type steps and tabular numerals for data.",
+      "Flat surfaces at rest with low, functional elevation.",
+      "Familiar controls with complete keyboard and state behavior."
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "Primary blue marks actions, selected state, and focus. It never becomes page decoration.",
+        "section": "colors"
+      },
+      {
+        "name": "The Stable Scale Rule",
+        "body": "UI type uses a fixed rem scale; viewport-driven type changes are not used.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-at-Rest Rule",
+        "body": "Borders and tonal layers separate surfaces at rest. Shadows appear only for elevation or transient overlays.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use Lucide for every icon and keep one stroke vocabulary.",
+      "Do keep action labels on one line and let tags wrap.",
+      "Do show hover, focus, disabled, loading, empty, and error states.",
+      "Do use tabular numerals for percentages, counters, and aligned telemetry.",
+      "Do use semantic tokens in both themes instead of hardcoded surface colors.",
+      "Do preserve familiar desktop control behavior before adding expression."
+    ],
+    "donts": [
+      "Don't add decorative emojis, secondary icon sets, or unrequested gadget icons.",
+      "Don't place explanatory subtitles under every heading or toggle.",
+      "Don't use gradients, glass effects, glows, or large shadows as decoration.",
+      "Don't use accent blue on inactive states or large passive surfaces.",
+      "Don't show a success or connected state without live runtime evidence.",
+      "Don't shrink type or clip controls to solve constrained layouts."
+    ]
+  }
+}

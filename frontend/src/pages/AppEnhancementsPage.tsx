@@ -15,6 +15,7 @@ import {
   ChevronUp,
   ChevronRight,
 } from 'lucide-react'
+import { GithubIcon } from '../components/GithubIcon'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 import type { EnhancementsConfig, GUIConfig } from '../types'
@@ -260,6 +261,19 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     }
   }
 
+  const updateConfig = async (patch: Partial<EnhancementsConfig>) => {
+    if (!config) return
+    const previousConfig = config
+    const nextConfig = { ...config, ...patch }
+    setConfig(nextConfig)
+    try {
+      await api.updateEnhancements(nextConfig)
+    } catch (err: any) {
+      setConfig(previousConfig)
+      setStatusMsg({ text: 'Failed to update enhancement: ' + err.message, type: 'error' })
+    }
+  }
+
   const handleSaveAndApply = async () => {
     if (config?.prompt_jump_bar?.custom_color && !isValidHexColor(config.prompt_jump_bar.custom_color)) {
       setStatusMsg({ text: 'Invalid hex color format for prompt jump bar (expected e.g. #0b57d0)', type: 'error' })
@@ -481,7 +495,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   fontSize: '12px',
                   borderRadius: '6px',
                   border: '1px solid var(--border)',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface, #ffffff)',
                   color: 'var(--text)',
                   cursor: 'pointer',
                 }}
@@ -602,7 +616,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   {jb.color_mode === 'custom' && (
                     <div
                       style={{
-                        background: '#ffffff',
+                        background: 'var(--surface, #ffffff)',
                         padding: '14px',
                         borderRadius: '8px',
                         border: '1px solid var(--border)',
@@ -1032,7 +1046,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 padding: '14px 16px',
                 borderRadius: '8px',
                 border: `1px solid ${config.tool_density_mode === opt.id ? 'var(--primary)' : 'var(--border)'}`,
-                background: config.tool_density_mode === opt.id ? '#f0f7ff' : '#ffffff',
+                background: config.tool_density_mode === opt.id ? 'var(--accent-subtle, #f0f7ff)' : 'var(--surface, #ffffff)',
                 cursor: 'pointer',
                 transition: 'border-color 0.15s, background 0.15s',
               }}
@@ -1082,6 +1096,17 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   {/* Category 2: Project Panel */}
   {activeCategoryTab === 1 && (
     <>
+      <div className="google-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+            Target Project in Automations
+          </h2>
+          <ToggleSwitch
+            checked={config.automation_target_project_enabled !== false}
+            onChange={(val) => updateConfig({ automation_target_project_enabled: val })}
+          />
+        </div>
+      </div>
 
       {/* Feature 5: Project Colors & Active Conversation Tab Indicator */}
       {guiConfig && (
@@ -1130,7 +1155,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           guiConfig.active_conversation_indicator === 'background' ? 'var(--primary)' : 'var(--border)'
                         }`,
                         background:
-                          guiConfig.active_conversation_indicator === 'background' ? '#eff6ff' : '#f8fafc',
+                          guiConfig.active_conversation_indicator === 'background' ? 'var(--accent-subtle, #eff6ff)' : '#f8fafc',
                         cursor: 'pointer',
                         transition: 'all 0.15s',
                       }}
@@ -1177,7 +1202,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           guiConfig.active_conversation_indicator === 'border' ? 'var(--primary)' : 'var(--border)'
                         }`,
                         background:
-                          guiConfig.active_conversation_indicator === 'border' ? '#eff6ff' : '#f8fafc',
+                          guiConfig.active_conversation_indicator === 'border' ? 'var(--accent-subtle, #eff6ff)' : '#f8fafc',
                         cursor: 'pointer',
                         transition: 'all 0.15s',
                       }}
@@ -1209,7 +1234,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 padding: '4px 8px',
                                 borderRadius: '6px',
                                 border: '1px solid var(--border)',
-                                background: '#ffffff',
+                                background: 'var(--surface, #ffffff)',
                                 fontSize: '12px',
                                 fontWeight: 600,
                                 color: 'var(--text)',
@@ -1256,7 +1281,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           guiConfig.active_conversation_indicator === 'left_bar' ? 'var(--primary)' : 'var(--border)'
                         }`,
                         background:
-                          guiConfig.active_conversation_indicator === 'left_bar' ? '#eff6ff' : '#f8fafc',
+                          guiConfig.active_conversation_indicator === 'left_bar' ? 'var(--accent-subtle, #eff6ff)' : '#f8fafc',
                         cursor: 'pointer',
                         transition: 'all 0.15s',
                       }}
@@ -1627,7 +1652,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   padding: '16px',
                   borderRadius: '8px',
                   border: `1px solid ${guiConfig.conversation_tabs_mode === 'fixed' ? 'var(--primary)' : 'var(--border)'}`,
-                  background: guiConfig.conversation_tabs_mode === 'fixed' ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
+                  background: guiConfig.conversation_tabs_mode === 'fixed' ? 'var(--accent-subtle, #f0f7ff)' : 'var(--card-bg, #ffffff)',
                   cursor: 'pointer',
                   transition: 'border-color 0.15s, background 0.15s',
                 }}
@@ -1664,7 +1689,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                       padding: '0 10px',
                       borderRadius: '6px',
                       border: '1px solid var(--border)',
-                      background: '#ffffff',
+                      background: 'var(--surface, #ffffff)',
                       fontSize: '13px',
                       fontWeight: 600,
                       color: 'var(--text)',
@@ -1692,7 +1717,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   padding: '16px',
                   borderRadius: '8px',
                   border: `1px solid ${guiConfig.conversation_tabs_mode !== 'fixed' ? 'var(--primary)' : 'var(--border)'}`,
-                  background: guiConfig.conversation_tabs_mode !== 'fixed' ? '#f0f7ff' : 'var(--card-bg, #ffffff)',
+                  background: guiConfig.conversation_tabs_mode !== 'fixed' ? 'var(--accent-subtle, #f0f7ff)' : 'var(--card-bg, #ffffff)',
                   cursor: 'pointer',
                   transition: 'border-color 0.15s, background 0.15s',
                 }}
@@ -1728,7 +1753,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         padding: '0 10px',
                         borderRadius: '6px',
                         border: '1px solid var(--border)',
-                        background: '#ffffff',
+                        background: 'var(--surface, #ffffff)',
                         fontSize: '13px',
                         fontWeight: 600,
                         color: 'var(--text)',
@@ -1760,7 +1785,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           padding: '0 8px',
                           borderRadius: '6px',
                           border: '1px solid var(--border)',
-                          background: '#ffffff',
+                          background: 'var(--surface, #ffffff)',
                           fontSize: '12px',
                           fontWeight: 600,
                           color: 'var(--text)',
@@ -1792,7 +1817,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                           padding: '0 8px',
                           borderRadius: '6px',
                           border: '1px solid var(--border)',
-                          background: '#ffffff',
+                          background: 'var(--surface, #ffffff)',
                           fontSize: '12px',
                           fontWeight: 600,
                           color: 'var(--text)',
@@ -2210,7 +2235,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               padding: '16px',
               borderRadius: '10px',
               border: `1px solid ${(op.aux_tabs_format || 'icon') === 'icon' ? 'var(--primary)' : 'var(--border)'}`,
-              backgroundColor: (op.aux_tabs_format || 'icon') === 'icon' ? '#eff6ff' : '#ffffff',
+              backgroundColor: (op.aux_tabs_format || 'icon') === 'icon' ? 'var(--accent-subtle, #eff6ff)' : 'var(--surface, #ffffff)',
               cursor: 'pointer',
               transition: 'all 0.15s ease',
             }}
@@ -2307,9 +2332,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 }}
                 title="GitHub"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
-                </svg>
+                <GithubIcon size={14} />
               </div>
             </div>
           </div>
@@ -2324,7 +2347,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               padding: '16px',
               borderRadius: '10px',
               border: `1px solid ${op.aux_tabs_format === 'icon_and_name' ? 'var(--primary)' : 'var(--border)'}`,
-              backgroundColor: op.aux_tabs_format === 'icon_and_name' ? '#eff6ff' : '#ffffff',
+              backgroundColor: op.aux_tabs_format === 'icon_and_name' ? 'var(--accent-subtle, #eff6ff)' : 'var(--surface, #ffffff)',
               cursor: 'pointer',
               transition: 'all 0.15s ease',
             }}
@@ -2428,9 +2451,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   fontWeight: 500,
                 }}
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
-                </svg>
+                <GithubIcon size={13} />
                 <span>GitHub</span>
               </div>
             </div>
@@ -2523,7 +2544,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         padding: '14px',
                         borderRadius: '8px',
                         border: `1px solid ${op.division_style === 'divider_line' ? 'var(--primary)' : 'var(--border)'}`,
-                        backgroundColor: op.division_style === 'divider_line' ? '#eff6ff' : '#ffffff',
+                        backgroundColor: op.division_style === 'divider_line' ? 'var(--accent-subtle, #eff6ff)' : 'var(--surface, #ffffff)',
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
                       }}
@@ -2566,7 +2587,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         padding: '14px',
                         borderRadius: '8px',
                         border: `1px solid ${op.division_style === 'border_zone' ? 'var(--primary)' : 'var(--border)'}`,
-                        backgroundColor: op.division_style === 'border_zone' ? '#eff6ff' : '#ffffff',
+                        backgroundColor: op.division_style === 'border_zone' ? 'var(--accent-subtle, #eff6ff)' : 'var(--surface, #ffffff)',
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
                       }}
@@ -2635,7 +2656,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                               padding: '10px 12px',
                               borderRadius: '8px',
                               border: `1px solid ${op.zone_background_contrast === tone.id ? 'var(--primary)' : 'var(--border)'}`,
-                              background: op.zone_background_contrast === tone.id ? '#eff6ff' : '#ffffff',
+                              background: op.zone_background_contrast === tone.id ? 'var(--accent-subtle, #eff6ff)' : 'var(--surface, #ffffff)',
                               cursor: 'pointer',
                             }}
                           >
@@ -2663,7 +2684,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         flexWrap: 'wrap',
                         gap: '0px',
                         padding: '12px 14px',
-                        background: '#ffffff',
+                        background: 'var(--surface, #ffffff)',
                         borderRadius: '8px',
                         border: '1px solid var(--border)',
                       }}
@@ -2740,7 +2761,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                         flexWrap: 'wrap',
                         gap: '0px',
                         padding: '12px 14px',
-                        background: '#ffffff',
+                        background: 'var(--surface, #ffffff)',
                         borderRadius: '8px',
                         border: '1px solid var(--border)',
                       }}
@@ -2797,7 +2818,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                                 padding: '4px 8px',
                                 borderRadius: '6px',
                                 border: `1px solid ${op.zone_border_color === col.hex ? 'var(--primary)' : 'var(--border)'}`,
-                                background: op.zone_border_color === col.hex ? '#eff6ff' : '#ffffff',
+                                background: op.zone_border_color === col.hex ? 'var(--accent-subtle, #eff6ff)' : 'var(--surface, #ffffff)',
                                 fontSize: '11px',
                                 fontWeight: op.zone_border_color === col.hex ? 700 : 500,
                                 cursor: 'pointer',

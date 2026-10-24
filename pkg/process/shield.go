@@ -356,7 +356,7 @@ func extractArgv0(cmdline string) string {
 
 // FindAntigravityProcesses returns running Antigravity Desktop IDE instances.
 // Platform implementations live in finder_windows.go (Toolhelp32 snapshot) and
-// finder_unix.go (/proc scan).
+// finder_unix.go (/proc scan with ps fallback).
 func (s *Shield) FindAntigravityProcesses() ([]ProcessInfo, error) {
 	return s.findAntigravityProcessesNative()
 }
@@ -419,41 +419,30 @@ func (s *Shield) IsAntigravityRunning() bool {
 
 // FindLanguageServerProcesses scans for active Antigravity language_server instances.
 func (s *Shield) FindLanguageServerProcesses() ([]ProcessInfo, error) {
-	entries, err := os.ReadDir("/proc")
+	entries, err := ListProcesses()
 	if err != nil {
-		// Non-Linux or restricted /proc fallback
 		return nil, err
 	}
 
 	var results []ProcessInfo
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		pid, err := strconv.Atoi(entry.Name())
-		if err != nil || pid <= 0 {
+		pid := entry.PID
+		if pid <= 0 {
 			continue
 		}
 		if isZombieProcess(pid) {
 			continue
 		}
 
-		cmdlineBytes, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
-		if err != nil {
-			continue
-		}
-		cmdline := strings.ReplaceAll(string(cmdlineBytes), "\x00", " ")
+		cmdline := strings.TrimSpace(entry.Cmdline)
 		lower := strings.ToLower(cmdline)
 
 		// Match language_server spawned for Antigravity IDE hub
 		if strings.Contains(lower, "language_server") && (strings.Contains(lower, "antigravity") || strings.Contains(lower, "subclient_type hub")) {
-			commBytes, _ := os.ReadFile(filepath.Join("/proc", entry.Name(), "comm"))
-			comm := strings.TrimSpace(string(commBytes))
-
 			results = append(results, ProcessInfo{
 				PID:         pid,
-				Name:        comm,
-				Cmdline:     strings.TrimSpace(cmdline),
+				Name:        entry.Comm,
+				Cmdline:     cmdline,
 				IsHostIDE:   false,
 				IsProtected: s.IsProtected(pid),
 			})
