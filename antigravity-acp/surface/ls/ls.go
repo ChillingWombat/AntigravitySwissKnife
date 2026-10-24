@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -490,9 +491,9 @@ func (s *Surface) isIdle(ctx context.Context, sessionID string) (bool, error) {
 func workspaceURI(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if strings.HasPrefix(cwd, "/") && !strings.HasPrefix(cwd, "//") {
-		if abs, err := filepath.Abs(cwd); err == nil {
-			cwd = abs
-		}
+		cwd = path.Clean(cwd)
+	} else if abs, err := filepath.Abs(cwd); err == nil {
+		cwd = abs
 	}
 	slashed := strings.ReplaceAll(cwd, `\`, "/")
 	if strings.HasPrefix(slashed, "//") {

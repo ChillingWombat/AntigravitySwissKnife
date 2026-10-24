@@ -320,4 +320,8 @@ func TestWorkspaceURIProducesFileURIs(t *testing.T) {
 			t.Errorf("workspaceURI(%q) = %q, want %q", tt.cwd, got, tt.want)
 		}
 	}
+	got := workspaceURI(".")
+	if !strings.HasPrefix(got, "file:///") || got == "file:///." {
+		t.Errorf("workspaceURI(\".\") = %q, want absolute file URI", got)
+	}
 }
