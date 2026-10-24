@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -98,7 +100,7 @@ func (s *Surface) Start(ctx context.Context, opts surface.SessionOptions) (strin
 	err := s.Call(ctx, "StartCascade", map[string]interface{}{
 		"source":         "CORTEX_TRAJECTORY_SOURCE_AGENT_API",
 		"trajectoryType": "CORTEX_TRAJECTORY_TYPE_CASCADE",
-		"workspaceUris":  []string{"file://" + workspace},
+		"workspaceUris":  []string{workspaceURI(workspace)},
 	}, &reply)
 	if err != nil {
 		return "", err
@@ -142,15 +144,15 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 	s.mu.Lock()
 	s.cancelled[sessionID] = false
 	s.mu.Unlock()
+	if err := s.seedOffset(ctx, sessionID); err != nil {
+		return "", err
+	}
 	if err := s.Call(ctx, "SendUserCascadeMessage", body, nil); err != nil {
 		return "", err
 	}
 
 	ticker := time.NewTicker(400 * time.Millisecond)
 	defer ticker.Stop()
-	if err := s.seedOffset(ctx, sessionID); err != nil {
-		return "", err
-	}
 	quietTicks := 0
 	sawText := false
 	deadline := time.Now().Add(turnTimeout)
@@ -164,8 +166,14 @@ func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(
 			_ = s.Cancel(context.Background(), sessionID)
 			return surface.StopCancelled, nil
 		case <-ticker.C:
-			if quietTicks > 2 && sawText {
-				return surface.StopEndTurn, nil
+			if quietTicks >= 4 && sawText {
+				idle, idleErr := s.isIdle(ctx, sessionID)
+				if idleErr != nil {
+					return "", idleErr
+				}
+				if idle {
+					return surface.StopEndTurn, nil
+				}
 			}
 			s.mu.Lock()
 			stopped := s.cancelled[sessionID]
@@ -265,10 +273,12 @@ func (s *Surface) List(ctx context.Context) ([]surface.SessionInfo, error) {
 	// The server answers with a map keyed by cascade id, not a list.
 	var reply struct {
 		Summaries map[string]struct {
-			StepCount        int    `json:"stepCount"`
-			LastModifiedTime string `json:"lastModifiedTime"`
-			CreatedTime      string `json:"createdTime"`
-			Status           string `json:"status"`
+			StepCount        int      `json:"stepCount"`
+			LastModifiedTime string   `json:"lastModifiedTime"`
+			CreatedTime      string   `json:"createdTime"`
+			Status           string   `json:"status"`
+			WorkspaceURI     string   `json:"workspaceUri"`
+			WorkspaceURIs    []string `json:"workspaceUris"`
 		} `json:"trajectorySummaries"`
 	}
 	if err := s.Call(ctx, "GetAllCascadeTrajectories", map[string]interface{}{}, &reply); err != nil {
@@ -276,13 +286,50 @@ func (s *Surface) List(ctx context.Context) ([]surface.SessionInfo, error) {
 	}
 	out := make([]surface.SessionInfo, 0, len(reply.Summaries))
 	for id, summary := range reply.Summaries {
-		info := surface.SessionInfo{ID: id}
+		cwd := cwdFromWorkspaceURIs(summary.WorkspaceURIs)
+		if cwd == "" {
+			cwd = cwdFromWorkspaceURI(summary.WorkspaceURI)
+		}
+		if cwd == "" {
+			s.mu.Lock()
+			cwd = s.sessions[id].Cwd
+			s.mu.Unlock()
+		}
+		info := surface.SessionInfo{ID: id, Cwd: cwd}
 		if stamp, perr := time.Parse(time.RFC3339Nano, summary.LastModifiedTime); perr == nil {
 			info.UpdatedAt = stamp.Unix()
 		}
 		out = append(out, info)
 	}
 	return out, nil
+}
+
+func cwdFromWorkspaceURIs(uris []string) string {
+	for _, uri := range uris {
+		if cwd := cwdFromWorkspaceURI(uri); cwd != "" {
+			return cwd
+		}
+	}
+	return ""
+}
+
+func cwdFromWorkspaceURI(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "file" {
+		return ""
+	}
+	cwd := parsed.Path
+	if parsed.Host != "" && parsed.Host != "localhost" {
+		cwd = "//" + parsed.Host + cwd
+	}
+	cwd = filepath.FromSlash(cwd)
+	if runtime.GOOS == "windows" && len(cwd) >= 3 && cwd[0] == '\\' && cwd[2] == ':' {
+		cwd = cwd[1:]
+	}
+	return cwd
 }
 
 // History replays the planner responses already recorded in a cascade.
@@ -438,4 +485,22 @@ func (s *Surface) isIdle(ctx context.Context, sessionID string) (bool, error) {
 		return false, nil
 	}
 	return status.Status == "CASCADE_RUN_STATUS_IDLE", nil
+}
+
+func workspaceURI(workspace string) string {
+	slashed := strings.ReplaceAll(strings.TrimSpace(workspace), `\`, "/")
+	if strings.HasPrefix(slashed, "//") {
+		trimmed := strings.TrimPrefix(slashed, "//")
+		parts := strings.SplitN(trimmed, "/", 2)
+		host := parts[0]
+		pathPart := "/"
+		if len(parts) == 2 && parts[1] != "" {
+			pathPart = "/" + parts[1]
+		}
+		return (&url.URL{Scheme: "file", Host: host, Path: pathPart}).String()
+	}
+	if len(slashed) >= 2 && ((slashed[0] >= 'A' && slashed[0] <= 'Z') || (slashed[0] >= 'a' && slashed[0] <= 'z')) && slashed[1] == ':' {
+		slashed = "/" + slashed
+	}
+	return (&url.URL{Scheme: "file", Path: slashed}).String()
 }

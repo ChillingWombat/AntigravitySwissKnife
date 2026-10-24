@@ -48,6 +48,7 @@ type SessionInfo struct {
 	ID        string
 	Title     string
 	UpdatedAt int64
+	Cwd       string
 }
 
 // ModelSelector is implemented by surfaces that can change the model of an open
@@ -64,6 +65,11 @@ type HistoryProvider interface {
 	History(ctx context.Context, sessionID string) ([]Event, error)
 }
 
+// SessionLister is implemented by surfaces that can enumerate stored sessions.
+type SessionLister interface {
+	List(ctx context.Context) ([]SessionInfo, error)
+}
+
 // Surface is one way of talking to Antigravity. Implementations own their
 // transport; the ACP layer only sees Send and its event stream.
 type Surface interface {
@@ -77,8 +83,6 @@ type Surface interface {
 	// Cancel stops an in-flight turn without killing the session if the surface
 	// supports that; otherwise it terminates the process behind the session.
 	Cancel(ctx context.Context, sessionID string) error
-	// List returns the conversations this surface can resume.
-	List(ctx context.Context) ([]SessionInfo, error)
 	// Close releases the session.
 	Close(ctx context.Context, sessionID string) error
 }
