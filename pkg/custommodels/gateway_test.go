@@ -324,3 +324,17 @@ func TestGatewayBlocksCloudMetadataSSRF(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeGeminiContentsAppendsUserTurnWhenEndingWithModel(t *testing.T) {
+	in := []geminiContent{
+		{Role: "user", Parts: []geminiPart{{Text: "hello"}}},
+		{Role: "model", Parts: []geminiPart{{Text: "partial"}}},
+	}
+	got := normalizeGeminiContents(in)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 turns after normalizing trailing model turn, got %d", len(got))
+	}
+	if got[len(got)-1].Role != "user" {
+		t.Fatalf("expected final turn role=user, got %q", got[len(got)-1].Role)
+	}
+}

@@ -658,7 +658,7 @@ func (g *Gateway) runGeminiAPI(r *http.Request, model *CustomModel, req *geminiR
 		return err
 	}
 	payload := map[string]interface{}{
-		"contents":          req.Contents,
+		"contents":          normalizeGeminiContents(req.Contents),
 		"systemInstruction": req.SystemInstruction,
 	}
 	if req.Tools != nil {
@@ -1314,4 +1314,27 @@ func conversationSeed(messages []openAIMessage) string {
 		}
 	}
 	return ""
+}
+
+// normalizeGeminiContents ensures every turn has an explicit role and that the
+// conversation never ends on a model turn (which Google Vertex AI / Gemini
+// rejects with "Requests ending with a model turn are not supported.").
+func normalizeGeminiContents(contents []geminiContent) []geminiContent {
+	if len(contents) == 0 {
+		return []geminiContent{{Role: "user", Parts: []geminiPart{{Text: "Continue."}}}}
+	}
+	out := make([]geminiContent, 0, len(contents)+1)
+	for _, c := range contents {
+		if strings.TrimSpace(c.Role) == "" {
+			c.Role = "user"
+		}
+		out = append(out, c)
+	}
+	if strings.EqualFold(strings.TrimSpace(out[len(out)-1].Role), "model") {
+		out = append(out, geminiContent{
+			Role:  "user",
+			Parts: []geminiPart{{Text: "Please continue."}},
+		})
+	}
+	return out
 }
