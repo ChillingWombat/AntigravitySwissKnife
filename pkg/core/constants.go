@@ -13,7 +13,7 @@ import (
 
 const (
 	AppName    = "Antigravity Swiss Knife"
-	AppVersion = "0.1.0"
+	AppVersion = "0.2.0"
 	AppID      = "com.antigravity.swiss-knife"
 
 	// Default timeouts and intervals
