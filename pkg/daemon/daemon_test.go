@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -12,6 +14,16 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 )
+
+func testSocketPath(t *testing.T, dir, name string) string {
+	t.Helper()
+	sockPath := filepath.Join(dir, name)
+	if len(sockPath) > 90 || runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		sockPath = filepath.Join(os.TempDir(), fmt.Sprintf("ask-%d.sock", time.Now().UnixNano()))
+		t.Cleanup(func() { _ = os.Remove(sockPath) })
+	}
+	return sockPath
+}
 
 func TestDaemonFullLifecycleAndRPC(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "swiss_test_daemon_*")
@@ -25,8 +37,7 @@ func TestDaemonFullLifecycleAndRPC(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-
-	sockPath := filepath.Join(tmpDir, "daemon.sock")
+	sockPath := testSocketPath(t, tmpDir, "daemon.sock")
 	cfg := core.DefaultConfig()
 
 	d, err := NewDaemon(cfg, sockPath)
@@ -230,7 +241,7 @@ func TestDaemon_GUIConfigPartialUpdateRPC(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-	sockPath := filepath.Join(tmpDir, "daemon.sock")
+	sockPath := testSocketPath(t, tmpDir, "daemon.sock")
 	cfg := core.DefaultConfig()
 
 	d, err := NewDaemon(cfg, sockPath)
@@ -301,7 +312,7 @@ func TestDaemon_MonitorAndInjectGUI_AutoReinstallLoader(t *testing.T) {
 	_ = os.WriteFile(asarPath, []byte("clean-upstream-asar"), 0644)
 	_ = os.WriteFile(backupPath, []byte("old-backup"), 0644)
 
-	sockPath := filepath.Join(tmpDir, "daemon.sock")
+	sockPath := testSocketPath(t, tmpDir, "daemon.sock")
 	cfg := core.DefaultConfig()
 
 	d, err := NewDaemon(cfg, sockPath)
@@ -333,7 +344,7 @@ func TestDaemon_MonitorAndInjectGUI_NoDevToolsNoPanic(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-	sockPath := filepath.Join(tmpDir, "daemon.sock")
+	sockPath := testSocketPath(t, tmpDir, "daemon.sock")
 	cfg := core.DefaultConfig()
 
 	d, err := NewDaemon(cfg, sockPath)
@@ -352,7 +363,7 @@ func TestDaemon_GetFleetQuota_DualEngineRouting(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-	sockPath := filepath.Join(tmpDir, "daemon.sock")
+	sockPath := testSocketPath(t, tmpDir, "daemon.sock")
 	cfg := core.DefaultConfig()
 	cfg.AllowNonGeminiNativeModels = true
 
@@ -428,7 +439,7 @@ func TestDaemon_AutoSwitch_DualEngineCandidateValidation(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-	sockPath := filepath.Join(tmpDir, "daemon.sock")
+	sockPath := testSocketPath(t, tmpDir, "daemon.sock")
 	cfg := core.DefaultConfig()
 	cfg.AllowNonGeminiNativeModels = true
 	cfg.AutoSwitchEnabled = true
@@ -519,5 +530,3 @@ func TestDaemon_AutoSwitch_DualEngineCandidateValidation(t *testing.T) {
 		t.Errorf("expected successor candidate to be healthy under dual-engine routing, got isHealthy=false")
 	}
 }
-
-

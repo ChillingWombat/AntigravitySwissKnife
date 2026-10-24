@@ -95,7 +95,13 @@ test('DaemonManager - cleanupSocket removes existing socket file and handles non
   assert.equal(fs.existsSync(testSockPath), true);
 
   dm.cleanupSocket(testSockPath);
-  assert.equal(fs.existsSync(testSockPath), false);
+  if (process.platform === 'win32') {
+    // Windows daemons use named pipes, so cleanupSocket must not delete a filesystem path.
+    assert.equal(fs.existsSync(testSockPath), true);
+    fs.rmSync(testSockPath, { force: true });
+  } else {
+    assert.equal(fs.existsSync(testSockPath), false);
+  }
 
   assert.doesNotThrow(() => dm.cleanupSocket(testSockPath));
   try { fs.rmdirSync(path.dirname(testSockPath)); } catch {}
