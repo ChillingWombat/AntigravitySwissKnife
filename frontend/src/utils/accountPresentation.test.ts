@@ -207,7 +207,7 @@ describe('accountPresentation utility', () => {
       assert.ok(!modalSrc.includes('Claude &amp; GPT Models:'), 'should not render header above Claude & GPT models toggle')
       assert.ok(!modalSrc.includes('Plan Tier / Membership:'), 'should not contain manual Plan Tier select in form body')
       assert.ok(
-        modalSrc.includes('renderPlanTierBadge(currentPlanTier') || modalSrc.includes('renderPlanTierBadge(account.plan_tier)'),
+        modalSrc.includes('renderPlanTierBadge(currentPlanTier)'),
         'should render read-only plan tier badge in header'
       )
       assert.ok(
@@ -215,7 +215,8 @@ describe('accountPresentation utility', () => {
         'should derive account header presentation through getAccountHeaderDisplay'
       )
       assert.ok(modalSrc.includes('displayAccountName'), 'should use the derived display account name')
-      assert.ok(modalSrc.includes('displayAccountTier'), 'should use the derived display account tier')
+      assert.ok(!modalSrc.includes('account.name ='), 'should not mutate account.name')
+      assert.ok(!modalSrc.includes('account.plan_tier ='), 'should not mutate account.plan_tier')
       assert.ok(modalSrc.includes('onBlur={handleEmailBlur}'), 'should trigger handleEmailBlur on account ID blur')
       assert.ok(modalSrc.includes('Show OAuth refresh token'), 'should have refresh token eye toggle tooltip')
       assert.ok(modalSrc.includes("refreshToken.trim().startsWith('ya29.')"), 'should detect temporary access token and advise refresh token')
