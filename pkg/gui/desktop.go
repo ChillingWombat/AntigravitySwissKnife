@@ -430,9 +430,11 @@ func generateMainLoaderScript() string {
     const app = electron && electron.app;
 
     const configDir = (typeof process !== "undefined" && process.env && process.env.ANTIGRAVITY_SWISS_CONFIG_DIR) ||
-      (typeof process !== "undefined" && process.platform === "win32" && process.env && process.env.APPDATA
-        ? path.join(process.env.APPDATA, "antigravity-swiss")
-        : path.join(os.homedir(), ".config", "antigravity-swiss"));
+      (typeof process !== "undefined" && process.platform === "win32"
+        ? path.join((process.env && process.env.APPDATA) || path.join(os.homedir(), "AppData", "Roaming"), "antigravity-swiss")
+        : typeof process !== "undefined" && process.platform === "darwin"
+          ? path.join(os.homedir(), "Library", "Application Support", "antigravity-swiss")
+          : path.join((typeof process !== "undefined" && process.env && process.env.XDG_CONFIG_HOME) || path.join(os.homedir(), ".config"), "antigravity-swiss"));
 
     const cssPath = path.join(configDir, "persistent_styles.css");
     const jsPath = path.join(configDir, "persistent_script.js");
@@ -485,9 +487,11 @@ func generatePreloadLoaderScript() string {
     const { webFrame } = require('electron');
 
     const configDir = (typeof process !== "undefined" && process.env && process.env.ANTIGRAVITY_SWISS_CONFIG_DIR) ||
-      (typeof process !== "undefined" && process.platform === "win32" && process.env && process.env.APPDATA
-        ? path.join(process.env.APPDATA, "antigravity-swiss")
-        : path.join(os.homedir(), ".config", "antigravity-swiss"));
+      (typeof process !== "undefined" && process.platform === "win32"
+        ? path.join((process.env && process.env.APPDATA) || path.join(os.homedir(), "AppData", "Roaming"), "antigravity-swiss")
+        : typeof process !== "undefined" && process.platform === "darwin"
+          ? path.join(os.homedir(), "Library", "Application Support", "antigravity-swiss")
+          : path.join((typeof process !== "undefined" && process.env && process.env.XDG_CONFIG_HOME) || path.join(os.homedir(), ".config"), "antigravity-swiss"));
 
     const cssPath = path.join(configDir, "persistent_styles.css");
     const jsPath = path.join(configDir, "persistent_script.js");

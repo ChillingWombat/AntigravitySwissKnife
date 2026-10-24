@@ -376,6 +376,20 @@ func (m *AppReleaseManager) findBestAsset(assets []GitHubReleaseAsset, goos, goa
 			} else if strings.HasSuffix(name, ".zip") && strings.Contains(name, "mac") {
 				score += 30
 			}
+			switch goarchLower {
+			case "arm64":
+				if strings.Contains(name, "arm64") || strings.Contains(name, "aarch64") {
+					score += 50
+				} else if strings.Contains(name, "x64") || strings.Contains(name, "amd64") || strings.Contains(name, "x86_64") {
+					score -= 50
+				}
+			case "amd64":
+				if strings.Contains(name, "x64") || strings.Contains(name, "amd64") || strings.Contains(name, "x86_64") {
+					score += 50
+				} else if strings.Contains(name, "arm64") || strings.Contains(name, "aarch64") {
+					score -= 50
+				}
+			}
 		}
 
 		if score > 0 {

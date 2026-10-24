@@ -6418,7 +6418,11 @@ func launchIDETarget(dir string, candidates []string) (bool, string) {
 		if err != nil {
 			continue
 		}
-		cmd := exec.Command(canonical, dir)
+		binPath := canonical
+		if resolved, lookErr := exec.LookPath(canonical); lookErr == nil {
+			binPath = resolved
+		}
+		cmd := core.CommandForExecutable(binPath, dir)
 		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
 			cmd.Dir = dir
 		}
@@ -6444,7 +6448,11 @@ func (s *Server) launchSandboxedIDE(dir string, candidates []string) (bool, stri
 			args = append(args, "--transient", "--new-window", "--disable-extensions")
 		}
 		args = append(args, dir)
-		cmd := exec.Command(canonical, args...)
+		binPath := canonical
+		if resolved, lookErr := exec.LookPath(canonical); lookErr == nil {
+			binPath = resolved
+		}
+		cmd := core.CommandForExecutable(binPath, args...)
 		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
 			cmd.Dir = dir
 		}
