@@ -17,7 +17,7 @@ import { AppLockScreen } from './components/AppLockScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import type { AccountState, FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
 import { toAccountState } from './types'
-import { api, setSessionToken, getSessionToken } from './api'
+import { api, setSessionToken, getSessionToken, runSingleFlightPoll, shouldRunBackgroundPoll } from './api'
 
 export const App: React.FC = () => {
   const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: ACP Agent Mesh
@@ -35,6 +35,7 @@ export const App: React.FC = () => {
   const [rules, setRules] = useState<RuleConfig | null>(null)
   const [, setLoading] = useState<boolean>(true)
   const [isLocked, setIsLocked] = useState<boolean>(false)
+  const isPollingRef = React.useRef(false)
 
   const effectiveAccounts: AccountState[] = React.useMemo(() => {
     if (fleet?.accounts && fleet.accounts.length > 0) {
@@ -56,7 +57,7 @@ export const App: React.FC = () => {
         try {
           const injected = await electronAPI.getSessionToken()
           if (injected) setSessionToken(injected)
-        } catch (_) {}
+        } catch {}
       }
       const res = await api.getAuthStatus()
       if (res.password_required) {
@@ -100,9 +101,11 @@ export const App: React.FC = () => {
   }
 
 
+  const pollStatus = () => runSingleFlightPoll(isPollingRef, loadAllData)
+
   useEffect(() => {
     checkAuth()
-    loadAllData()
+    void pollStatus()
     // Listen for navigation requests from Electron system tray context menu
     let unsubNavigate: (() => void) | undefined
     const electronAPI = (window as any).electronAPI
@@ -149,13 +152,27 @@ export const App: React.FC = () => {
         }
       })
     }
-    // Poll status and fleet metrics periodically
-    const interval = setInterval(loadAllData, 10000)
+    // Poll status and fleet metrics periodically without overlapping requests.
+    const interval = setInterval(() => {
+      if (!shouldRunBackgroundPoll()) return
+      void pollStatus()
+    }, 10000)
+    const handleVisibilityChange = () => {
+      if (shouldRunBackgroundPoll()) {
+        void pollStatus()
+      }
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange)
+    }
     return () => {
       if (typeof unsubNavigate === 'function') {
         unsubNavigate()
       }
       clearInterval(interval)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange)
+      }
     }
   }, [])
 

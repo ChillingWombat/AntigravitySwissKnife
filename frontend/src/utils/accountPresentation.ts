@@ -176,3 +176,76 @@ export function parseAccountErrorAlert(
     isValidationRequired,
   }
 }
+
+export interface RequestGate {
+  begin: () => number
+  isCurrent: (requestId: number) => boolean
+}
+
+export function createRequestGate(): RequestGate {
+  let currentRequest = 0
+  return {
+    begin: () => ++currentRequest,
+    isCurrent: (requestId: number) => requestId === currentRequest,
+  }
+}
+
+export async function commitLatest<T>(
+  gate: RequestGate,
+  requestId: number,
+  result: Promise<T>,
+  commit: (value: T) => void
+): Promise<boolean> {
+  const value = await result
+  if (!gate.isCurrent(requestId)) return false
+  commit(value)
+  return true
+}
+
+export async function copyWithStatus(
+  write: () => Promise<boolean | void>,
+  setCopied: (copied: boolean) => void
+): Promise<boolean> {
+  try {
+    const result = await write()
+    if (result === false) throw new Error('clipboard copy failed')
+    setCopied(true)
+    return true
+  } catch {
+    setCopied(false)
+    return false
+  }
+}
+
+export async function copyTextWithFallback(text: string): Promise<boolean> {
+  const electronWrite = (window as any).electronAPI?.writeClipboard
+  if (electronWrite) {
+    try {
+      if (await electronWrite(text)) return true
+    } catch {}
+  }
+
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {}
+  }
+
+  const textArea = document.createElement('textarea')
+  textArea.value = text
+  textArea.style.position = 'fixed'
+  textArea.style.opacity = '0'
+  document.body.appendChild(textArea)
+  try {
+    textArea.focus()
+    textArea.select()
+    const ok = document.execCommand('copy')
+    if (!ok) throw new Error('execCommand copy failed')
+    return true
+  } catch {
+    return false
+  } finally {
+    textArea.remove()
+  }
+}

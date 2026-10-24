@@ -401,7 +401,7 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
     it('source code defines billion unit "B" formatting for counts >= 1,000,000,000 across formatters', () => {
       assert.match(source, /1000000000|1_000_000_000/, 'TokenMonitorPage.tsx must check for 1e9 threshold')
       assert.match(source, /\/ 1000000000|\/ 1_000_000_000/, 'TokenMonitorPage.tsx must divide by 1e9 for B unit')
-      assert.match(source, /B[`\'"]/, 'TokenMonitorPage.tsx must format with B unit suffix')
+      assert.match(source, /B[`'"]/, 'TokenMonitorPage.tsx must format with B unit suffix')
     })
 
     describe('formatTokens: token counts >= 1000M format with B unit', () => {

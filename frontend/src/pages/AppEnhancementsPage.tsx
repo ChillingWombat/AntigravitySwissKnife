@@ -209,10 +209,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     }
   }
 
-  useEffect(() => {
-    loadConfig()
-  }, [])
-
   const loadConfig = async () => {
     try {
       setLoading(true)
@@ -245,6 +241,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    loadConfig()
+  }, [])
 
   const isValidHexColor = (c?: string) => {
     if (!c) return true
@@ -987,9 +987,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
               <span style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--text)' }}>
                 Click Ring To Compact
               </span>
-              <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-                Click or press Enter on the ring to send the native compact command immediately.
-              </p>
             </div>
             <ToggleSwitch
               size="sm"

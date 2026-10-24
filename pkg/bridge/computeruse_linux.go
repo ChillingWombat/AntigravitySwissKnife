@@ -40,21 +40,6 @@ func performMove(x, y int) error {
 	return fmt.Errorf("move not configured: xdotool or ydotool is required on Linux")
 }
 
-func performScroll(amount int) error {
-	if bin, err := exec.LookPath("xdotool"); err == nil {
-		button := "5" // scroll down
-		if amount < 0 {
-			button = "4" // scroll up
-			amount = -amount
-		}
-		if amount == 0 {
-			amount = 1
-		}
-		return exec.Command(bin, "click", "--repeat", strconv.Itoa(amount), button).Run()
-	}
-	return fmt.Errorf("scroll not configured: xdotool is required on Linux")
-}
-
 func performType(text string) error {
 	if bin, err := exec.LookPath("xdotool"); err == nil {
 		return exec.Command(bin, "type", "--clearmodifiers", text).Run()

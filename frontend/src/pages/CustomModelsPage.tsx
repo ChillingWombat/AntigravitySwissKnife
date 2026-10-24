@@ -95,6 +95,9 @@ const normalizeQuotaType = (t?: string | null): QuotaType => {
   return 'na'
 }
 
+const getCurrentTimestamp = () => Date.now()
+const getCurrentTimestampIso = () => new Date().toISOString()
+
 export const CustomModelsPage: React.FC = () => {
   const [pageView, setPageView] = useState<'models' | 'model_source'>('models')
   const [config, setConfig] = useState<CustomModelsConfig | null>(null)
@@ -474,7 +477,7 @@ export const CustomModelsPage: React.FC = () => {
     const gcpHasBudgetCap = gcpBudgetCapType !== 'none' && gcpBudgetCapValue !== null && gcpBudgetCapValue !== undefined
 
     const finalModel: CustomModel = {
-      id: isEdit ? gcpEditingModel.id : `gcp-${effModel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
+      id: isEdit ? gcpEditingModel.id : `gcp-${effModel.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${getCurrentTimestamp()}`,
       name: effModel,
       display_name: gcpDisplayName.trim() || `${effModel} (GCP Vertex)`,
       provider_type: 'gcp',
@@ -493,7 +496,7 @@ export const CustomModelsPage: React.FC = () => {
       budget_cap_value: gcpHasBudgetCap ? gcpBudgetCapValue : null,
       is_default: gcpIsDefault,
       last_test_success: gcpTestResult ? gcpTestResult.success : gcpEditingModel?.last_test_success,
-      last_tested_at: gcpTestResult ? new Date().toISOString() : gcpEditingModel?.last_tested_at,
+      last_tested_at: gcpTestResult ? getCurrentTimestampIso() : gcpEditingModel?.last_tested_at,
       enabled: isEdit ? gcpEditingModel.enabled : true,
       context_window: isEdit && gcpEditingModel.context_window ? gcpEditingModel.context_window : ctxWindow,
       supports_thinking: isReasoning,
@@ -672,7 +675,7 @@ export const CustomModelsPage: React.FC = () => {
         model_id: model.name?.trim() || model.id,
         endpoint: model.base_url,
         provider_type: model.provider_type,
-        audited_at: model.last_security_audit || new Date().toISOString(),
+        audited_at: model.last_security_audit || getCurrentTimestampIso(),
         summary: `Previously audited: ${model.security_risk_level.toUpperCase()} Risk.`,
         probes: [],
         recommendations: [],
@@ -1077,7 +1080,7 @@ export const CustomModelsPage: React.FC = () => {
     const modelToSave: CustomModel = {
       id:
         editingModel?.id ||
-        `${effectiveProvider}-${modelName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`,
+        `${effectiveProvider}-${modelName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${getCurrentTimestamp()}`,
       internal_id: editingModel?.internal_id,
       name: modelName.trim(),
       display_name: displayName.trim() || modelName.trim(),
@@ -1103,7 +1106,7 @@ export const CustomModelsPage: React.FC = () => {
       price_source: priceSource,
       is_default: isDefault,
       last_test_success: modalTestResult ? modalTestResult.success : editingModel?.last_test_success,
-      last_tested_at: modalTestResult ? new Date().toISOString() : editingModel?.last_tested_at,
+      last_tested_at: modalTestResult ? getCurrentTimestampIso() : editingModel?.last_tested_at,
       enabled: enabled,
       context_window: Number(contextWindow) || 1048576,
       supports_thinking: isThinking,

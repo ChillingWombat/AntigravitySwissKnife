@@ -200,7 +200,7 @@ func LoadConfig() (*Config, error) {
 
 	cfg := DefaultConfig()
 	if err := json.Unmarshal(data, cfg); err != nil {
-		return DefaultConfig(), nil // fallback safely
+		return DefaultConfig(), fmt.Errorf("failed to parse config file %s: %w", cfgPath, err)
 	}
 	if cfg.AutoSwitchThreshold <= 0 {
 		cfg.AutoSwitchThreshold = DefaultAutoSwitchThresholdFraction

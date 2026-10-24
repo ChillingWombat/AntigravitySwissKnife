@@ -2,18 +2,45 @@ package webgui
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
+
+const (
+	legacyAppPasswordAttemptLimit  = 5
+	legacyAppPasswordAttemptWindow = time.Second
+)
+
+type appPasswordAttemptWindow struct {
+	started  time.Time
+	attempts int
+}
+
+var localSessionTokenCache struct {
+	sync.RWMutex
+	path    string
+	token   string
+	modTime time.Time
+	size    int64
+}
+
+var verifyAppPasswordForAuth = func(cfg *core.Config, candidate string) bool {
+	return cfg.VerifyAppPassword(candidate)
+}
+
+var loadConfigForAuth = core.LoadConfig
 
 // GenerateLocalSessionToken returns the 64-character hex-encoded session token.
 //
@@ -50,23 +77,102 @@ func GenerateLocalSessionToken() (string, error) {
 	return token, nil
 }
 
-// isValidSessionToken accepts the 64-character hex tokens this generator produces.
-func isValidSessionToken(tok string) bool {
+// isSessionTokenShaped checks whether tok is exactly 64 lowercase hex characters.
+func isSessionTokenShaped(tok string) bool {
 	if len(tok) != 64 {
 		return false
 	}
-	_, err := hex.DecodeString(tok)
-	return err == nil
+	for i := 0; i < len(tok); i++ {
+		c := tok[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
-// GetLocalSessionToken reads the current session token from the configuration directory.
+// isValidSessionToken accepts the 64-character hex tokens this generator produces.
+func isValidSessionToken(tok string) bool {
+	return isSessionTokenShaped(tok)
+}
+
+// GetLocalSessionToken reads the current session token, reusing the cached value
+// while the token file's modification time and size are unchanged.
 //
 // Parameters: none.
 // Returns:
 //   - string: the stored session token string.
 //   - error: if file cannot be read or is empty.
 func GetLocalSessionToken() (string, error) {
-	return core.GetLocalSessionToken()
+	tokenPath := filepath.Join(core.GetConfigDir(), "session.token")
+	info, err := os.Stat(tokenPath)
+	if err != nil {
+		localSessionTokenCache.Lock()
+		if localSessionTokenCache.path == tokenPath {
+			localSessionTokenCache.path = ""
+			localSessionTokenCache.token = ""
+			localSessionTokenCache.modTime = time.Time{}
+			localSessionTokenCache.size = 0
+		}
+		localSessionTokenCache.Unlock()
+		return "", err
+	}
+
+	localSessionTokenCache.RLock()
+	if localSessionTokenCache.path == tokenPath &&
+		localSessionTokenCache.token != "" &&
+		localSessionTokenCache.modTime.Equal(info.ModTime()) &&
+		localSessionTokenCache.size == info.Size() {
+		token := localSessionTokenCache.token
+		localSessionTokenCache.RUnlock()
+		return token, nil
+	}
+	localSessionTokenCache.RUnlock()
+
+	token, err := core.GetLocalSessionToken()
+	if err != nil {
+		return "", err
+	}
+
+	localSessionTokenCache.Lock()
+	localSessionTokenCache.path = tokenPath
+	localSessionTokenCache.token = token
+	localSessionTokenCache.modTime = info.ModTime()
+	localSessionTokenCache.size = info.Size()
+	localSessionTokenCache.Unlock()
+	return token, nil
+}
+
+func (s *Server) allowLegacyAppPasswordAttempt(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil || host == "" {
+		host = r.RemoteAddr
+	}
+	if host == "" {
+		host = "unknown"
+	}
+
+	now := time.Now()
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	if s.legacyAppPasswordAttempts == nil {
+		s.legacyAppPasswordAttempts = make(map[string]appPasswordAttemptWindow)
+	}
+	for client, attempt := range s.legacyAppPasswordAttempts {
+		if now.Sub(attempt.started) >= legacyAppPasswordAttemptWindow {
+			delete(s.legacyAppPasswordAttempts, client)
+		}
+	}
+	attempt := s.legacyAppPasswordAttempts[host]
+	if attempt.started.IsZero() {
+		attempt.started = now
+	}
+	if attempt.attempts >= legacyAppPasswordAttemptLimit {
+		return false
+	}
+	attempt.attempts++
+	s.legacyAppPasswordAttempts[host] = attempt
+	return true
 }
 
 // isPublicPath checks if a requested HTTP URL path is in the unauthenticated public whitelist.
@@ -190,39 +296,55 @@ func (s *Server) validateRequestAuth(r *http.Request) bool {
 	if candidate != "" {
 		s.authMu.RLock()
 		daemonTok := s.daemonSessionToken
+		expiry, exists := s.sessionTokens[candidate]
 		s.authMu.RUnlock()
-		if daemonTok != "" && candidate == daemonTok {
+
+		if daemonTok != "" && subtle.ConstantTimeCompare([]byte(candidate), []byte(daemonTok)) == 1 {
 			return true
 		}
 
 		// Check against active sessionTokens cache
-		s.authMu.RLock()
-		expiry, exists := s.sessionTokens[candidate]
-		s.authMu.RUnlock()
-		if exists && time.Now().Before(expiry) {
-			return true
+		if exists {
+			now := time.Now()
+			if now.Before(expiry) {
+				return true
+			}
+			s.authMu.Lock()
+			if exp, ok := s.sessionTokens[candidate]; ok && !now.Before(exp) {
+				delete(s.sessionTokens, candidate)
+			}
+			s.authMu.Unlock()
 		}
 
-		// Check against session.token file on disk
-		if diskToken, err := GetLocalSessionToken(); err == nil && diskToken != "" && candidate == diskToken {
-			s.authMu.Lock()
-			if s.sessionTokens == nil {
-				s.sessionTokens = make(map[string]time.Time)
+		// Only session-shaped values can be local session tokens.
+		if isSessionTokenShaped(candidate) {
+			if diskToken, err := GetLocalSessionToken(); err == nil && diskToken != "" && subtle.ConstantTimeCompare([]byte(candidate), []byte(diskToken)) == 1 {
+				s.authMu.Lock()
+				if s.sessionTokens == nil {
+					s.sessionTokens = make(map[string]time.Time)
+				}
+				s.sessionTokens[candidate] = time.Now().Add(24 * time.Hour)
+				s.authMu.Unlock()
+				return true
 			}
-			s.sessionTokens[candidate] = time.Now().Add(24 * time.Hour)
-			s.authMu.Unlock()
-			return true
 		}
 	}
 
-	// Check App Password verification if AppPasswordEnabled is configured
-	cfg, err := core.LoadConfig()
+	if appPasswordCandidate == "" && (candidate == "" || isSessionTokenShaped(candidate)) {
+		return false
+	}
+
+	if !s.allowLegacyAppPasswordAttempt(r) {
+		return false
+	}
+
+	cfg, err := loadConfigForAuth()
 	if err == nil && cfg != nil && cfg.AppPasswordEnabled {
-		if appPasswordCandidate != "" && cfg.VerifyAppPassword(appPasswordCandidate) {
-			return true
+		if appPasswordCandidate != "" {
+			return verifyAppPasswordForAuth(cfg, appPasswordCandidate)
 		}
-		if candidate != "" && cfg.VerifyAppPassword(candidate) {
-			return true
+		if candidate != "" && !isSessionTokenShaped(candidate) {
+			return verifyAppPasswordForAuth(cfg, candidate)
 		}
 	}
 

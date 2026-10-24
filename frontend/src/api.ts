@@ -45,7 +45,7 @@ function formatErrorMessage(rawText: string, status: number): string {
     const parsed = JSON.parse(trimmed)
     if (parsed.error && typeof parsed.error === 'string') return parsed.error
     if (parsed.message && typeof parsed.message === 'string') return parsed.message
-  } catch (_) {}
+  } catch {}
   const singleLine = trimmed.split('\n')[0].replace(/^(error:\s*|failed to\s*)/i, '').trim()
   return singleLine.slice(0, 200) || `Request failed with status ${status}`
 }
@@ -59,7 +59,7 @@ function formatErrorMessage(rawText: string, status: number): string {
 const SESSION_TOKEN_KEY = 'swiss_session_token'
 
 let sessionToken: string | null = null
-try { sessionToken = localStorage.getItem(SESSION_TOKEN_KEY) } catch (_) {}
+try { sessionToken = localStorage.getItem(SESSION_TOKEN_KEY) } catch {}
 
 export function setSessionToken(token: string | null) {
   const clean = token && token.trim() ? token.trim() : null
@@ -67,7 +67,7 @@ export function setSessionToken(token: string | null) {
   try {
     if (clean) localStorage.setItem(SESSION_TOKEN_KEY, clean)
     else localStorage.removeItem(SESSION_TOKEN_KEY)
-  } catch (_) {}
+  } catch {}
 }
 
 export function getSessionToken(): string | null {
@@ -85,7 +85,7 @@ try {
     const rest = parsedUrl.searchParams.toString()
     window.history.replaceState({}, '', parsedUrl.pathname + (rest ? `?${rest}` : '') + parsedUrl.hash)
   }
-} catch (_) {}
+} catch {}
 
 let silentTokenRefresh: Promise<boolean> | null = null
 
@@ -110,7 +110,7 @@ async function trySilentTokenRefresh(): Promise<boolean> {
           return true
         }
         return false
-      } catch (_) {
+      } catch {
         return false
       }
     })().finally(() => { silentTokenRefresh = null })
@@ -163,6 +163,29 @@ export function cancelAllInFlightRequests(): void {
   inFlightControllers.clear()
 }
 
+export function shouldRunBackgroundPoll(
+  visibilityState: DocumentVisibilityState | string = typeof document !== 'undefined' ? document.visibilityState : 'visible',
+): boolean {
+  return visibilityState !== 'hidden'
+}
+
+/**
+ * Runs a polling task once at a time so interval ticks cannot cancel the task
+ * already in flight.
+ */
+export async function runSingleFlightPoll(
+  isPollingRef: { current: boolean },
+  pollStatus: () => Promise<void>,
+): Promise<void> {
+  if (isPollingRef.current) return
+  isPollingRef.current = true
+  try {
+    await pollStatus()
+  } finally {
+    isPollingRef.current = false
+  }
+}
+
 /**
  * Checks whether an error was caused by request abort/cancellation.
  */
@@ -205,13 +228,14 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
   }
 
   // Chain external signal if caller provided one
-  if (options?.signal) {
-    if (options.signal.aborted) {
-      controller.abort(options.signal.reason)
+  const callerSignal = options?.signal
+  let onCallerAbort: (() => void) | undefined
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort(callerSignal.reason)
     } else {
-      options.signal.addEventListener('abort', () => {
-        controller.abort(options.signal?.reason)
-      })
+      onCallerAbort = () => controller.abort(callerSignal.reason)
+      callerSignal.addEventListener('abort', onCallerAbort, { once: true })
     }
   }
 
@@ -248,7 +272,7 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
       }
       if (res.status === 401) {
         setSessionToken(null)
-        try { window.dispatchEvent(new Event('swiss:auth-required')) } catch (_) {}
+        try { window.dispatchEvent(new Event('swiss:auth-required')) } catch {}
       }
     }
 
@@ -281,6 +305,9 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
     }
     if (shouldCancelPrevious && inFlightControllers.get(cancelKey) === controller) {
       inFlightControllers.delete(cancelKey)
+    }
+    if (callerSignal && onCallerAbort) {
+      callerSignal.removeEventListener('abort', onCallerAbort)
     }
   }
 }

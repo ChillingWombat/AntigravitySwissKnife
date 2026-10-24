@@ -11,11 +11,24 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
 )
+
+func titleCase(s string) string {
+	prev := ' '
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(prev) {
+			prev = r
+			return unicode.ToTitle(r)
+		}
+		prev = r
+		return r
+	}, s)
+}
 
 // redactedPlaceholders lists the masked sentinels that API responses use in
 // place of real secrets. They must never be persisted as credentials.
@@ -833,7 +846,7 @@ func (s *Store) BatchImportAccounts(items []BatchImportItem) (int, error) {
 		}
 
 		if item.Priority != "" {
-			p := strings.Title(strings.ToLower(strings.TrimSpace(item.Priority)))
+			p := titleCase(strings.ToLower(strings.TrimSpace(item.Priority)))
 			if p == "High" || p == "Mid" || p == "Low" {
 				acc.Priority = p
 			}
@@ -1248,7 +1261,7 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 		}
 	}
 	if priority != "" {
-		p := strings.Title(strings.ToLower(strings.TrimSpace(priority)))
+		p := titleCase(strings.ToLower(strings.TrimSpace(priority)))
 		if p == "High" || p == "Mid" || p == "Low" {
 			acc.Priority = p
 		}

@@ -118,9 +118,11 @@ func discordUserAllowed(allowed []string, userID string) bool {
 	return false
 }
 
+var discordHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
 // SendDiscordReply posts a text message back to the specified Discord channel.
 func SendDiscordReply(token, channelID, text string) error {
-	return SendDiscordReplyWithClient(http.DefaultClient, token, channelID, text)
+	return SendDiscordReplyWithClient(discordHTTPClient, token, channelID, text)
 }
 
 // SendDiscordReplyWithClient posts a text message using the specified HTTP client.

@@ -22,7 +22,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -38,6 +38,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Go (1.26.x)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -52,9 +57,10 @@ jobs:
           if command -v codex-security >/dev/null 2>&1; then
             codex-security scan . --dry-run
           else
-            npx --yes @openai/codex-security scan . --dry-run || echo "Codex security scan validated"
+            echo "codex-security is unavailable; running go vet instead."
+            go vet ./...
           fi
-          npm audit --audit-level=critical || true
+          npm audit --audit-level=critical
 
   build-and-package:
     name: Build & Package (${{ matrix.target.name }})
@@ -82,10 +88,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Go (1.23.x)
+      - name: Setup Go (1.26.x)
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23.x'
+          go-version: '1.26.x'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -117,12 +123,14 @@ jobs:
             release/*/*.exe
             release/*/*.dmg
             dist-desktop/*.${{ matrix.target.artifact_ext }}
-          if-no-files-found: warn
+          if-no-files-found: error
 
   publish-release:
     name: Publish Official GitHub Release
     runs-on: ubuntu-latest
     needs: [security-scan, build-and-package]
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -137,7 +145,7 @@ jobs:
         id: checksums
         run: |
           cd artifacts
-          sha256sum * > SHA256SUMS.txt || true
+          sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
           {
             echo 'sha256<<EOF'

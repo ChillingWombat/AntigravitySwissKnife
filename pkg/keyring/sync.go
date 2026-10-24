@@ -36,17 +36,22 @@ func SetTokenRefreshCallback(cb func(acc *Account)) {
 // writeAtomic writes data to targetPath atomically via temp file in the same directory, fsync, and rename.
 // Detailed explanation for beginner developers:
 // Parameters:
-//   targetPath - destination file path (e.g. "/path/to/tokens.json")
-//   data       - raw bytes to write into the file
-//   perm       - desired file permission mode (e.g. 0600 or 0400 for read-only)
+//
+//	targetPath - destination file path (e.g. "/path/to/tokens.json")
+//	data       - raw bytes to write into the file
+//	perm       - desired file permission mode (e.g. 0600 or 0400 for read-only)
+//
 // Why atomic write?
-//   Writing directly to targetPath can leave a corrupted or partial file if the application is interrupted.
-//   Instead, we create a temporary file in the same directory, write and sync data, and rename it over targetPath.
+//
+//	Writing directly to targetPath can leave a corrupted or partial file if the application is interrupted.
+//	Instead, we create a temporary file in the same directory, write and sync data, and rename it over targetPath.
+//
 // Windows read-only file handling:
-//   On Windows, Win32 MoveFileExW (invoked by os.Rename) fails with "Access is denied" if targetPath exists
-//   with the read-only attribute set (e.g. mode 0444/0400). To overcome this, on Windows we temporarily make targetPath
-//   writable (0666) immediately before os.Rename, and then re-apply the requested perm mode after successful rename.
-//   Similarly, temp file cleanup in defer ensures tmpPath is writable before attempting deletion.
+//
+//	On Windows, Win32 MoveFileExW (invoked by os.Rename) fails with "Access is denied" if targetPath exists
+//	with the read-only attribute set (e.g. mode 0444/0400). To overcome this, on Windows we temporarily make targetPath
+//	writable (0666) immediately before os.Rename, and then re-apply the requested perm mode after successful rename.
+//	Similarly, temp file cleanup in defer ensures tmpPath is writable before attempting deletion.
 func writeAtomic(targetPath string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(targetPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -657,7 +662,7 @@ func protoStrField(tag int, s string) []byte {
 
 func protoVarintField(tag int, v uint64) []byte {
 	var buf bytes.Buffer
-	buf.WriteByte(byte((tag << 3) | 0))
+	buf.WriteByte(byte(tag << 3)) // wire type 0 (varint)
 	writeVarint(&buf, v)
 	return buf.Bytes()
 }

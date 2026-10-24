@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-func test(t *testing.T) {
-	// dummy
-}
-
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
 		v1, v2 string

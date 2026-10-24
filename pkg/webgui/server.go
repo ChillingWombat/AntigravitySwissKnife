@@ -52,40 +52,41 @@ var distFS embed.FS
 
 // Server serves the minimalist light theme web UI and REST API.
 type Server struct {
-	client              *ipc.Client
-	guiStore            *gui.Store
-	customModelsStore   *custommodels.Store
-	customModelsGateway *custommodels.Gateway
-	cloudCodeProxy      *custommodels.Proxy
-	customModelsTester  *custommodels.Tester
-	systemDetector      *system.Detector
-	appReleaseManager   *system.AppReleaseManager
-	enhancementsStore   *enhancements.Store
-	oauthMgr            *keyring.GoogleOAuthManager
-	githubService       *github.Service
-	vaultManager        *vault.Manager
-	revivalEngine       *revival.Engine
-	bridgeService       *bridge.Service
-	httpServer          *http.Server
-	addr                string
-	memoMu              sync.RWMutex
-	globalMemosPath     string
-	antigravityDataDir  string
-	catalogFetcher      func(force bool) []custommodels.CatalogModelInput
-	knownWorkspaces     map[string]struct{}
-	quotaPollMu         sync.Mutex
-	quotaPolling        bool
-	testIDEsMu          sync.Mutex
-	testIDEs            []int
-	lazyMu              sync.Mutex
-	authMu              sync.RWMutex
-	sessionTokens       map[string]time.Time
-	daemonSessionToken  string
-	desktopSettingsMu   sync.Mutex
-	isSwitching         atomic.Bool
-	lifetimeCostsMu     sync.RWMutex
-	lifetimeCostsCache  map[string]float64
-	lifetimeCostsExp    time.Time
+	client                    *ipc.Client
+	guiStore                  *gui.Store
+	customModelsStore         *custommodels.Store
+	customModelsGateway       *custommodels.Gateway
+	cloudCodeProxy            *custommodels.Proxy
+	customModelsTester        *custommodels.Tester
+	systemDetector            *system.Detector
+	appReleaseManager         *system.AppReleaseManager
+	enhancementsStore         *enhancements.Store
+	oauthMgr                  *keyring.GoogleOAuthManager
+	githubService             *github.Service
+	vaultManager              *vault.Manager
+	revivalEngine             *revival.Engine
+	bridgeService             *bridge.Service
+	httpServer                *http.Server
+	addr                      string
+	memoMu                    sync.RWMutex
+	globalMemosPath           string
+	antigravityDataDir        string
+	catalogFetcher            func(force bool) []custommodels.CatalogModelInput
+	knownWorkspaces           map[string]struct{}
+	quotaPollMu               sync.Mutex
+	quotaPolling              bool
+	testIDEsMu                sync.Mutex
+	testIDEs                  []int
+	lazyMu                    sync.Mutex
+	authMu                    sync.RWMutex
+	sessionTokens             map[string]time.Time
+	daemonSessionToken        string
+	legacyAppPasswordAttempts map[string]appPasswordAttemptWindow
+	desktopSettingsMu         sync.Mutex
+	isSwitching               atomic.Bool
+	lifetimeCostsMu           sync.RWMutex
+	lifetimeCostsCache        map[string]float64
+	lifetimeCostsExp          time.Time
 }
 
 // NewServer initializes the web UI server.
@@ -131,17 +132,25 @@ func NewServer(addr string, socketPath string) *Server {
 	}
 }
 
-func (s *Server) createSessionToken() string {
+func (s *Server) createSessionToken() (string, error) {
 	s.authMu.Lock()
 	defer s.authMu.Unlock()
 	if s.sessionTokens == nil {
 		s.sessionTokens = make(map[string]time.Time)
 	}
+	now := time.Now()
+	for tok, exp := range s.sessionTokens {
+		if !now.Before(exp) {
+			delete(s.sessionTokens, tok)
+		}
+	}
 	b := make([]byte, 32)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate session token: %w", err)
+	}
 	tok := hex.EncodeToString(b)
-	s.sessionTokens[tok] = time.Now().Add(24 * time.Hour)
-	return tok
+	s.sessionTokens[tok] = now.Add(24 * time.Hour)
+	return tok, nil
 }
 
 func (s *Server) isAuthorized(r *http.Request) bool {
@@ -728,6 +737,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
+			addVaryHeader(w.Header(), "Origin")
 			if !isAllowedLoopbackOrigin(origin) && !isExternalOriginAllowedPath(r.URL.Path) {
 				if r.Method == http.MethodOptions {
 					w.WriteHeader(http.StatusForbidden)
@@ -737,7 +747,9 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 				return
 			}
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			if isAllowedLoopbackOrigin(origin) {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Origin, Accept, Access-Control-Request-Private-Network, X-Bridge-Token, X-Pairing-PIN, X-App-Password, X-Session-Token, Mcp-Session-Id")
 			w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
@@ -808,12 +820,6 @@ func isAllowedLoopbackOrigin(origin string) bool {
 		}
 	}
 	return loopbackOriginRegex.MatchString(lower)
-}
-
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(indexHTML))
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -888,26 +894,6 @@ func redactAccount(acc keyring.Account) keyring.Account {
 			c.IDToken = "[REDACTED]"
 		}
 		r.Credential = &c
-	}
-	return r
-}
-
-func redactAccountExport(exp keyring.AccountExport) keyring.AccountExport {
-	r := exp
-	if r.Password != "" {
-		r.Password = "[REDACTED]"
-	}
-	if r.TOTPSecret != "" {
-		r.TOTPSecret = "[REDACTED]"
-	}
-	if r.MFA != "" {
-		r.MFA = "[REDACTED]"
-	}
-	if r.AccessToken != "" {
-		r.AccessToken = "[REDACTED]"
-	}
-	if r.RefreshToken != "" {
-		r.RefreshToken = "[REDACTED]"
 	}
 	return r
 }
@@ -3218,6 +3204,17 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func addVaryHeader(header http.Header, value string) {
+	for _, line := range header.Values("Vary") {
+		for _, existing := range strings.Split(line, ",") {
+			if strings.EqualFold(strings.TrimSpace(existing), value) {
+				return
+			}
+		}
+	}
+	header.Add("Vary", value)
+}
+
 func (s *Server) handleCustomModelPresets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, custommodels.GetPresets())
 }
@@ -3955,12 +3952,24 @@ func (s *Server) handleAuthUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !cfg.AppPasswordEnabled {
-		tok := s.createSessionToken()
+		tok, tokenErr := s.createSessionToken()
+		if tokenErr != nil {
+			http.Error(w, "failed to create session token", http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, map[string]interface{}{"success": true, "token": tok, "session_token": tok})
 		return
 	}
+	if !s.allowLegacyAppPasswordAttempt(r) {
+		http.Error(w, "too many password attempts", http.StatusTooManyRequests)
+		return
+	}
 	if cfg.VerifyAppPassword(p.Password) {
-		tok := s.createSessionToken()
+		tok, tokenErr := s.createSessionToken()
+		if tokenErr != nil {
+			http.Error(w, "failed to create session token", http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, map[string]interface{}{"success": true, "token": tok, "session_token": tok})
 	} else {
 		writeJSON(w, map[string]interface{}{"success": false, "error": "Incorrect password"})
@@ -5273,9 +5282,7 @@ func ensureNotSensitiveLocation(cleaned, evalPath string) error {
 	if eh, errH := filepath.EvalSymlinks(home); errH == nil {
 		homeRoots = append(homeRoots, stripExtendedPrefix(eh))
 	}
-	for _, alias := range find8dot3Aliases(home, os.TempDir()) {
-		homeRoots = append(homeRoots, alias)
-	}
+	homeRoots = append(homeRoots, find8dot3Aliases(home, os.TempDir())...)
 	for _, h := range homeRoots {
 		sensitivePaths := []string{
 			filepath.Join(h, ".ssh"),

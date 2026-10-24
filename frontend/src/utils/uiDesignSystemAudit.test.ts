@@ -167,6 +167,44 @@ describe('UI Design System Audit & Voice Invariants (Milestone 16)', () => {
       }
     })
 
+    it('removes tutorial microcopy while preserving page headings and actions', () => {
+      const removedMicrocopy = [
+        ['AppEnhancementsPage.tsx', 'Click or press Enter on the ring'],
+        ['ExtensionsPage.tsx', 'Choose whether extensions appear as individual dedicated buttons'],
+        ['ACPAgentMeshPage.tsx', 'Click &quot;Ping All ACP Nodes&quot; above'],
+        ['RemoteControlPage.tsx', 'Remote sessions authenticate with an 8-character'],
+        ['WhatsAppBridgePage.tsx', 'Select transport architecture for inbound and outbound messages.'],
+      ] as const
+
+      for (const [pageName, copy] of removedMicrocopy) {
+        const content = fs.readFileSync(path.join(pagesDir, pageName), 'utf8')
+        assert.equal(
+          content.includes(copy),
+          false,
+          `${pageName} must not contain tutorial microcopy: ${copy}`
+        )
+      }
+
+      const retainedLabels = [
+        ['AppEnhancementsPage.tsx', 'Click Ring To Compact'],
+        ['ExtensionsPage.tsx', 'Left Panel Extensions Access Mode'],
+        ['ACPAgentMeshPage.tsx', 'Ping All ACP Nodes'],
+        ['RemoteControlPage.tsx', '8-Character Security PIN & App Password Mode'],
+        ['WhatsAppBridgePage.tsx', 'Integration Mode'],
+      ] as const
+
+      for (const [pageName, label] of retainedLabels) {
+        const content = fs.readFileSync(path.join(pagesDir, pageName), 'utf8')
+        assert.ok(content.includes(label), `${pageName} must retain "${label}"`)
+      }
+
+      const acpContent = fs.readFileSync(path.join(pagesDir, 'ACPAgentMeshPage.tsx'), 'utf8')
+      assert.ok(
+        acpContent.includes('No ACP handshakes or delegations.'),
+        'ACPAgentMeshPage empty state must stay concise'
+      )
+    })
+
     it('verifies humanized copy in SwitcherSettingsPage', () => {
       const content = fs.readFileSync(path.join(pagesDir, 'SwitcherSettingsPage.tsx'), 'utf8')
       assert.ok(

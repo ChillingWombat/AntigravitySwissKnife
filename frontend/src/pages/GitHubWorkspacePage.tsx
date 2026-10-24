@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   GitPullRequest,
   AlertCircle,
@@ -33,6 +33,8 @@ export interface GitHubWorkspacePageProps {
   scope?: string
   fallbackProject?: string
 }
+
+const getCurrentTimestamp = () => Date.now()
 
 export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope, fallbackProject }) => {
   const [repo, setRepo] = useState<any>(null)
@@ -83,12 +85,12 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
   }, [])
 
 
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToastMsg(msg)
     setTimeout(() => setToastMsg(null), 3000)
-  }
+  }, [])
 
-  const navigateToConversation = (convId: string, rootParentId?: string, isPruned?: boolean) => {
+  const navigateToConversation = useCallback((convId: string, rootParentId?: string, isPruned?: boolean) => {
     const targetId = convId || rootParentId
     if (isPruned || (targetId && ((window as any).__swissPrunedConversations?.has?.(targetId) || (window.parent as any)?.__swissPrunedConversations?.has?.(targetId)))) {
       showToast('Conversation database was pruned or archived (local file not found)')
@@ -115,7 +117,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
           parentStage.style.display = 'none'
         }
       }
-    } catch (_) {}
+    } catch {}
 
     // 2. Try clicking matching sidebar conversation element in DOM
     if (!targetId || typeof targetId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(targetId)) {
@@ -127,13 +129,13 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
     let sidebarLink: HTMLElement | null = null
     try {
       sidebarLink = document.querySelector(targetSelector) as HTMLElement | null
-    } catch (_) {}
+    } catch {}
     if (!sidebarLink) {
       try {
         if (window.parent && window.parent !== window) {
           sidebarLink = window.parent.document.querySelector(targetSelector) as HTMLElement | null
         }
-      } catch (_) {}
+      } catch {}
     }
     if (sidebarLink) {
       sidebarLink.click()
@@ -160,7 +162,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
           }
         }
       }
-    } catch (_) {}
+    } catch {}
 
     // 3. In-memory navigation via pushState preserving ?section= to prevent 404s in Web GUI and cold reloads in Electron
     try {
@@ -173,16 +175,28 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
         window.parent.history.pushState({}, '', `/c/${targetId}${query}`)
         window.parent.dispatchEvent(new PopStateEvent('popstate'))
       }
-    } catch (_) {
+    } catch {
       // ignore
     }
-  }
+  }, [showToast])
 
-  const jumpToConversation = navigateToConversation
-  ;(window as any).navigateToConversation = navigateToConversation
-  ;(window as any).jumpToConversation = jumpToConversation
+  useEffect(() => {
+    ;(window as any).navigateToConversation = navigateToConversation
+    ;(window as any).jumpToConversation = navigateToConversation
+    return () => {
+      delete (window as any).navigateToConversation
+      delete (window as any).jumpToConversation
+    }
+  }, [navigateToConversation])
 
-  const getEffectiveWorkspacePath = () => {
+  const [currentTime, setCurrentTime] = useState(getCurrentTimestamp)
+
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(getCurrentTimestamp()), 60_000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const getEffectiveWorkspacePath = useCallback(() => {
     if (scope && scope !== 'GLOBAL') {
       return scope
     }
@@ -194,10 +208,11 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       return fallbackProject
     }
     return scope === 'GLOBAL' ? 'GLOBAL' : '.'
-  }
+  }, [fallbackProject, scope])
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true)
+    setCurrentTime(getCurrentTimestamp())
     const wsPath = getEffectiveWorkspacePath()
     try {
       const repoRes = await api.getGitHubRepo(wsPath)
@@ -208,18 +223,21 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       }
       const issuesRes = await api.getGitHubIssues(wsPath, stateFilter)
       if (issuesRes.success && issuesRes.issues) {
-        setIssues(issuesRes.issues)
-        if (!selectedItem && issuesRes.issues.length > 0) {
-          setSelectedItem(issuesRes.issues[0])
-          setEditTitle(issuesRes.issues[0].title)
-          setEditBody(issuesRes.issues[0].body || '')
+        const issues = issuesRes.issues
+        setIssues(issues)
+        if (issues.length > 0) {
+          setSelectedItem((prev: any) => prev ?? issues[0])
         }
       } else {
         setIssues([])
       }
       const prsRes = await api.getGitHubPRs(wsPath, stateFilter)
       if (prsRes.success && prsRes.prs) {
-        setPRs(prsRes.prs)
+        const prs = prsRes.prs
+        setPRs(prs)
+        if (prs.length > 0) {
+          setSelectedItem((prev: any) => prev ?? prs[0])
+        }
       } else {
         setPRs([])
       }
@@ -236,7 +254,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
         } else {
           setKanbanBoard(null)
         }
-      } catch (_) {
+      } catch {
         setKanbanBoard(null)
       }
     } catch (err: any) {
@@ -244,7 +262,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
     } finally {
       setLoading(false)
     }
-  }
+  }, [stateFilter, getEffectiveWorkspacePath, showToast])
 
   const handleMoveCard = async (targetColumnId: string) => {
     if (!draggedCard || draggedCard.column_id === targetColumnId) {
@@ -354,7 +372,13 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
 
   useEffect(() => {
     loadData()
-  }, [stateFilter, scope, fallbackProject])
+  }, [loadData])
+
+  useEffect(() => {
+    if (!selectedItem) return
+    setEditTitle(selectedItem.title || '')
+    setEditBody(selectedItem.body || '')
+  }, [selectedItem])
 
   const selectItemForEditing = async (item: any, itemType?: 'issue' | 'pr') => {
     const requestId = ++selectionRequestRef.current
@@ -510,7 +534,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
         // Only show agents killed within 3 days (<= 72 hours) for both main conversations and subagents
         if (agentStatusFilter === 'killed') {
           const tMod = item.last_modified ? new Date(item.last_modified).getTime() : 0
-          const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000
+          const threeDaysAgo = currentTime - 3 * 24 * 60 * 60 * 1000
           if (tMod <= 0 || tMod < threeDaysAgo) return false
         }
       }
@@ -527,7 +551,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
   const getGroupedAgentTasks = () => {
     const validTasks = filteredItems
     const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000
-    const now = Date.now()
+    const now = currentTime
     const groupsMap = new Map<string, {
       rootId: string
       title: string
@@ -546,7 +570,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
           const pm = window.parent.location.pathname.match(/\/c\/([^/?#]+)/)
           if (pm && pm[1]) return pm[1]
         }
-      } catch (_) {}
+      } catch {}
       const activeSelector = '[data-testid="conversation-row-sidebar"][aria-selected="true"], [data-testid="conversation-row-sidebar"][data-selected="true"], [data-testid="conversation-row-sidebar"].bg-accent, [data-testid="conversation-row-sidebar"].bg-sidebar-accent, [data-testid="conversation-row-sidebar"][data-state="active"]'
       const row = document.querySelector(activeSelector) || (window.parent && window.parent.document.querySelector(activeSelector))
       if (row) {

@@ -8,6 +8,8 @@ const {
   isTrustedDaemonOrigin,
   isSafeExternalUrl,
   DAEMON_URL,
+  isTrustedSender,
+  loadConnectingFallback,
 } = require('./main');
 const { DaemonManager } = require('./daemon-manager');
 
@@ -47,11 +49,10 @@ test('isTrustedDaemonOrigin - verifies exact origin matching', () => {
   assert.equal(isTrustedDaemonOrigin('http://127.0.0.1:8766', DAEMON_URL), false);
   assert.equal(isTrustedDaemonOrigin('http://localhost:8765', DAEMON_URL), false);
 
-  // Fallback connecting screens (data:text/html)
-  assert.equal(isTrustedDaemonOrigin('data:text/html;charset=utf-8,%3Ch1%3EConnecting%3C/h1%3E', DAEMON_URL), true);
-  assert.equal(isTrustedDaemonOrigin('data:text/html,<h1>Connecting</h1>', DAEMON_URL), true);
-
-  // Dangerous non-HTML data URIs must NOT be trusted
+  // Data URLs are trusted only when they exactly match the loaded fallback.
+  assert.equal(isTrustedDaemonOrigin('data:text/html;charset=utf-8,%3Ch1%3EConnecting%3C/h1%3E', DAEMON_URL), false);
+  assert.equal(isTrustedDaemonOrigin('data:text/html,<h1>Connecting</h1>', DAEMON_URL), false);
+  assert.equal(isTrustedDaemonOrigin('data:application/javascript,alert(1)', DAEMON_URL), false);
   assert.equal(isTrustedDaemonOrigin('data:application/javascript,alert(1)', DAEMON_URL), false);
   assert.equal(isTrustedDaemonOrigin('data:image/svg+xml,<svg></svg>', DAEMON_URL), false);
   assert.equal(isTrustedDaemonOrigin('data:text/plain,hello', DAEMON_URL), false);
@@ -251,4 +252,91 @@ test('recoverDaemonConnection - does not navigate when the daemon contract is in
 
   assert.equal(result.success, false);
   assert.deepEqual(loadedUrls, []);
+});
+
+test('isTrustedSender - verifies window status, main-frame identity, and exact origin', async () => {
+  const mainFrame = {
+    url: 'http://127.0.0.1:8765/api/status',
+    parent: null,
+    routingId: 1,
+  };
+  const fakeWebContents = { mainFrame };
+  const fakeWindow = {
+    isDestroyed: () => false,
+    webContents: fakeWebContents,
+  };
+
+  // Valid event from daemon origin.
+  assert.equal(
+    isTrustedSender({ sender: fakeWebContents, senderFrame: mainFrame }, fakeWindow),
+    true
+  );
+
+  let fallbackUrl = '';
+  await loadConnectingFallback({
+    loadURL: async (url) => {
+      fallbackUrl = url;
+    },
+  });
+  assert.match(fallbackUrl, /^data:text\/html;charset=utf-8,/);
+
+  // Arbitrary data URLs are rejected even after the official fallback is known.
+  mainFrame.url = 'data:text/html,<script>alert(1)</script>';
+  assert.equal(
+    isTrustedSender({ sender: fakeWebContents, senderFrame: mainFrame }, fakeWindow),
+    false
+  );
+
+  // The exact connecting fallback data URL is trusted on the main frame.
+  mainFrame.url = fallbackUrl;
+  assert.equal(
+    isTrustedSender({ sender: fakeWebContents, senderFrame: mainFrame }, fakeWindow),
+    true
+  );
+
+  // Subframes cannot use IPC even when they claim a trusted URL.
+  assert.equal(
+    isTrustedSender(
+      {
+        sender: fakeWebContents,
+        senderFrame: { ...mainFrame, parent: mainFrame, routingId: 2 },
+      },
+      fakeWindow
+    ),
+    false
+  );
+
+  // Missing or destroyed window.
+  mainFrame.url = DAEMON_URL;
+  assert.equal(isTrustedSender({ sender: fakeWebContents, senderFrame: mainFrame }, null), false);
+  assert.equal(
+    isTrustedSender(
+      { sender: fakeWebContents, senderFrame: mainFrame },
+      { isDestroyed: () => true, webContents: fakeWebContents }
+    ),
+    false
+  );
+
+  // Missing event or wrong sender.
+  assert.equal(isTrustedSender(null, fakeWindow), false);
+  assert.equal(isTrustedSender({}, fakeWindow), false);
+  assert.equal(isTrustedSender({ sender: {} }, fakeWindow), false);
+
+  // Missing senderFrame or untrusted URL.
+  assert.equal(isTrustedSender({ sender: fakeWebContents }, fakeWindow), false);
+  mainFrame.url = 'http://attacker.com';
+  assert.equal(
+    isTrustedSender({ sender: fakeWebContents, senderFrame: mainFrame }, fakeWindow),
+    false
+  );
+  mainFrame.url = 'file:///etc/passwd';
+  assert.equal(
+    isTrustedSender({ sender: fakeWebContents, senderFrame: mainFrame }, fakeWindow),
+    false
+  );
+  mainFrame.url = 'javascript:alert(1)';
+  assert.equal(
+    isTrustedSender({ sender: fakeWebContents, senderFrame: mainFrame }, fakeWindow),
+    false
+  );
 });

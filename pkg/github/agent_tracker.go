@@ -1031,11 +1031,6 @@ func extractTaskAndWorkItemsFromTranscript(convID string, extraPrompt string) (s
 	return workItem, issues, prs
 }
 
-func extractTaskFromTranscript(convID string) (string, []int) {
-	workItem, issues, _ := extractTaskAndWorkItemsFromTranscript(convID, "")
-	return workItem, issues
-}
-
 func appendUniqueInts(base []int, items []int) []int {
 	seen := make(map[int]bool)
 	for _, n := range base {
