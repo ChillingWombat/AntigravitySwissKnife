@@ -1,6 +1,7 @@
 package webgui
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -139,6 +140,44 @@ func TestCORS_VaryAndCredentials(t *testing.T) {
 	})
 }
 
+func TestCORS_PreservesExistingVary(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	handler := srv.corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for _, existing := range []string{"Accept-Encoding", "Accept-Encoding, Origin"} {
+		t.Run(existing, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/gui/config", nil)
+			req.Header.Set("Origin", "http://127.0.0.1:8765")
+			rec := httptest.NewRecorder()
+			rec.Header().Set("Vary", existing)
+
+			handler.ServeHTTP(rec, req)
+
+			originCount := 0
+			values := rec.Header().Values("Vary")
+			for _, line := range values {
+				for _, value := range strings.Split(line, ",") {
+					switch {
+					case strings.EqualFold(strings.TrimSpace(value), "Origin"):
+						originCount++
+					case strings.EqualFold(strings.TrimSpace(value), "Accept-Encoding"):
+					default:
+						t.Fatalf("unexpected Vary value %q", value)
+					}
+				}
+			}
+			if originCount != 1 {
+				t.Fatalf("Vary values = %q, want exactly one Origin", values)
+			}
+			if !strings.Contains(strings.Join(values, ","), "Accept-Encoding") {
+				t.Fatalf("existing Vary header was lost: %q", values)
+			}
+		})
+	}
+}
+
 func TestAuthHotPath_LazyConfigLoad(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
@@ -212,6 +251,42 @@ func TestAuthHotPath_SessionTokenShapedCandidateBypassesPBKDF2(t *testing.T) {
 	}
 }
 
+func TestAuthHotPath_LegacyBearerVerificationIsRateLimited(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	cfg := core.DefaultConfig()
+	if err := cfg.SetAppPassword("legacy-password"); err != nil {
+		t.Fatalf("SetAppPassword: %v", err)
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save config: %v", err)
+	}
+
+	originalVerify := verifyAppPasswordForAuth
+	verifications := 0
+	verifyAppPasswordForAuth = func(cfg *core.Config, candidate string) bool {
+		verifications++
+		return false
+	}
+	t.Cleanup(func() {
+		verifyAppPasswordForAuth = originalVerify
+	})
+
+	srv := NewServer("127.0.0.1:0", "")
+	for i := 0; i < legacyAppPasswordAttemptLimit*3; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/accounts", nil)
+		req.RemoteAddr = "198.51.100.20:4321"
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer invalid-token-%d", i))
+		if srv.validateRequestAuth(req) {
+			t.Fatalf("invalid legacy token %d was accepted", i)
+		}
+	}
+
+	if verifications != legacyAppPasswordAttemptLimit {
+		t.Fatalf("PBKDF2 verifications = %d, want bounded at %d", verifications, legacyAppPasswordAttemptLimit)
+	}
+}
+
 func TestAuthHotPath_PruneExpiredSessionTokens(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "")
 
@@ -246,7 +321,10 @@ func TestAuthHotPath_PruneExpiredSessionTokens(t *testing.T) {
 		srv.sessionTokens[active] = time.Now().Add(2 * time.Hour)
 		srv.authMu.Unlock()
 
-		newTok := srv.createSessionToken()
+		newTok, err := srv.createSessionToken()
+		if err != nil {
+			t.Fatalf("createSessionToken: %v", err)
+		}
 
 		srv.authMu.RLock()
 		defer srv.authMu.RUnlock()

@@ -52,40 +52,41 @@ var distFS embed.FS
 
 // Server serves the minimalist light theme web UI and REST API.
 type Server struct {
-	client              *ipc.Client
-	guiStore            *gui.Store
-	customModelsStore   *custommodels.Store
-	customModelsGateway *custommodels.Gateway
-	cloudCodeProxy      *custommodels.Proxy
-	customModelsTester  *custommodels.Tester
-	systemDetector      *system.Detector
-	appReleaseManager   *system.AppReleaseManager
-	enhancementsStore   *enhancements.Store
-	oauthMgr            *keyring.GoogleOAuthManager
-	githubService       *github.Service
-	vaultManager        *vault.Manager
-	revivalEngine       *revival.Engine
-	bridgeService       *bridge.Service
-	httpServer          *http.Server
-	addr                string
-	memoMu              sync.RWMutex
-	globalMemosPath     string
-	antigravityDataDir  string
-	catalogFetcher      func(force bool) []custommodels.CatalogModelInput
-	knownWorkspaces     map[string]struct{}
-	quotaPollMu         sync.Mutex
-	quotaPolling        bool
-	testIDEsMu          sync.Mutex
-	testIDEs            []int
-	lazyMu              sync.Mutex
-	authMu              sync.RWMutex
-	sessionTokens       map[string]time.Time
-	daemonSessionToken  string
-	desktopSettingsMu   sync.Mutex
-	isSwitching         atomic.Bool
-	lifetimeCostsMu     sync.RWMutex
-	lifetimeCostsCache  map[string]float64
-	lifetimeCostsExp    time.Time
+	client                    *ipc.Client
+	guiStore                  *gui.Store
+	customModelsStore         *custommodels.Store
+	customModelsGateway       *custommodels.Gateway
+	cloudCodeProxy            *custommodels.Proxy
+	customModelsTester        *custommodels.Tester
+	systemDetector            *system.Detector
+	appReleaseManager         *system.AppReleaseManager
+	enhancementsStore         *enhancements.Store
+	oauthMgr                  *keyring.GoogleOAuthManager
+	githubService             *github.Service
+	vaultManager              *vault.Manager
+	revivalEngine             *revival.Engine
+	bridgeService             *bridge.Service
+	httpServer                *http.Server
+	addr                      string
+	memoMu                    sync.RWMutex
+	globalMemosPath           string
+	antigravityDataDir        string
+	catalogFetcher            func(force bool) []custommodels.CatalogModelInput
+	knownWorkspaces           map[string]struct{}
+	quotaPollMu               sync.Mutex
+	quotaPolling              bool
+	testIDEsMu                sync.Mutex
+	testIDEs                  []int
+	lazyMu                    sync.Mutex
+	authMu                    sync.RWMutex
+	sessionTokens             map[string]time.Time
+	daemonSessionToken        string
+	legacyAppPasswordAttempts map[string]appPasswordAttemptWindow
+	desktopSettingsMu         sync.Mutex
+	isSwitching               atomic.Bool
+	lifetimeCostsMu           sync.RWMutex
+	lifetimeCostsCache        map[string]float64
+	lifetimeCostsExp          time.Time
 }
 
 // NewServer initializes the web UI server.
@@ -131,7 +132,7 @@ func NewServer(addr string, socketPath string) *Server {
 	}
 }
 
-func (s *Server) createSessionToken() string {
+func (s *Server) createSessionToken() (string, error) {
 	s.authMu.Lock()
 	defer s.authMu.Unlock()
 	if s.sessionTokens == nil {
@@ -144,10 +145,12 @@ func (s *Server) createSessionToken() string {
 		}
 	}
 	b := make([]byte, 32)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate session token: %w", err)
+	}
 	tok := hex.EncodeToString(b)
 	s.sessionTokens[tok] = now.Add(24 * time.Hour)
-	return tok
+	return tok, nil
 }
 
 func (s *Server) isAuthorized(r *http.Request) bool {
@@ -734,7 +737,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
-			w.Header().Set("Vary", "Origin")
+			addVaryHeader(w.Header(), "Origin")
 			if !isAllowedLoopbackOrigin(origin) && !isExternalOriginAllowedPath(r.URL.Path) {
 				if r.Method == http.MethodOptions {
 					w.WriteHeader(http.StatusForbidden)
@@ -3201,6 +3204,17 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func addVaryHeader(header http.Header, value string) {
+	for _, line := range header.Values("Vary") {
+		for _, existing := range strings.Split(line, ",") {
+			if strings.EqualFold(strings.TrimSpace(existing), value) {
+				return
+			}
+		}
+	}
+	header.Add("Vary", value)
+}
+
 func (s *Server) handleCustomModelPresets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, custommodels.GetPresets())
 }
@@ -3938,12 +3952,20 @@ func (s *Server) handleAuthUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !cfg.AppPasswordEnabled {
-		tok := s.createSessionToken()
+		tok, tokenErr := s.createSessionToken()
+		if tokenErr != nil {
+			http.Error(w, "failed to create session token", http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, map[string]interface{}{"success": true, "token": tok, "session_token": tok})
 		return
 	}
 	if cfg.VerifyAppPassword(p.Password) {
-		tok := s.createSessionToken()
+		tok, tokenErr := s.createSessionToken()
+		if tokenErr != nil {
+			http.Error(w, "failed to create session token", http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, map[string]interface{}{"success": true, "token": tok, "session_token": tok})
 	} else {
 		writeJSON(w, map[string]interface{}{"success": false, "error": "Incorrect password"})
