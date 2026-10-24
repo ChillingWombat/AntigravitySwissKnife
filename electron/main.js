@@ -29,7 +29,7 @@ if (process.platform === 'linux' && process.env.ELECTRON_NO_SANDBOX === '1' && a
 // Desktop background & close behavior settings (defaults to ON: minimize to system tray on window close)
 function getCloseToTraySetting() {
   try {
-    const configDir = path.join(os.homedir(), '.config', 'antigravity-swiss');
+    const configDir = getSwissConfigDir();
     const settingsPath = path.join(configDir, 'desktop_settings.json');
     if (fs.existsSync(settingsPath)) {
       const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
@@ -45,7 +45,7 @@ function getCloseToTraySetting() {
 
 function setCloseToTraySetting(enabled) {
   try {
-    const configDir = path.join(os.homedir(), '.config', 'antigravity-swiss');
+    const configDir = getSwissConfigDir();
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true });
     }
@@ -66,7 +66,7 @@ function setCloseToTraySetting(enabled) {
 // Desktop runtime mode setting ('app' | 'daemon', defaults to 'app')
 function getRuntimeModeSetting() {
   try {
-    const configDir = path.join(os.homedir(), '.config', 'antigravity-swiss');
+    const configDir = getSwissConfigDir();
     const settingsPath = path.join(configDir, 'desktop_settings.json');
     if (fs.existsSync(settingsPath)) {
       const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
@@ -82,7 +82,7 @@ function getRuntimeModeSetting() {
 
 function setRuntimeModeSetting(mode) {
   try {
-    const configDir = path.join(os.homedir(), '.config', 'antigravity-swiss');
+    const configDir = getSwissConfigDir();
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true });
     }
@@ -160,16 +160,13 @@ function getSwissConfigDir() {
     return process.env.ANTIGRAVITY_SWISS_CONFIG_DIR;
   }
   const home = os.homedir();
-  if (process.platform === 'win32' && process.env.APPDATA) {
-    return path.join(process.env.APPDATA, 'antigravity-swiss');
+  if (process.platform === 'win32') {
+    return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'antigravity-swiss');
   }
   if (process.platform === 'darwin') {
     return path.join(home, 'Library', 'Application Support', 'antigravity-swiss');
   }
-  if (process.env.XDG_CONFIG_HOME) {
-    return path.join(process.env.XDG_CONFIG_HOME, 'antigravity-swiss');
-  }
-  return path.join(home, '.config', 'antigravity-swiss');
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'antigravity-swiss');
 }
 
 function getDaemonSessionToken(maxAgeMs = 3000) {
@@ -1262,6 +1259,7 @@ module.exports = {
   createTray,
   updateTrayMenu,
   registerIpcHandlers,
+  getSwissConfigDir,
   getCloseToTraySetting,
   setCloseToTraySetting,
   getRuntimeModeSetting,

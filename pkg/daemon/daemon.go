@@ -1293,10 +1293,7 @@ func (d *Daemon) registerRPCHandlers() {
 	// 11b. Multi-Surface Antigravity Session Inspector
 	d.Server.Register("swiss.getSurfaces", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		home, _ := os.UserHomeDir()
-		configDir := filepath.Join(home, ".config", "Antigravity")
-		if custom := os.Getenv("ANTIGRAVITY_CONFIG_DIR"); custom != "" {
-			configDir = custom
-		}
+		configDir := core.GetAntigravityHostConfigDir()
 		return map[string]interface{}{
 			"surfaces":               keyring.DetectAllSurfacesRedacted(home, configDir),
 			"active_surface_account": keyring.ResolveRunningAntigravityAccountRedacted(home, configDir),

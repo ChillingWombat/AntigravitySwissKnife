@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 )
 
@@ -72,13 +73,9 @@ type Scanner struct {
 // NewScanner creates a new local machine account scanner.
 func NewScanner(store *Store) *Scanner {
 	home, _ := os.UserHomeDir()
-	configDir := filepath.Join(home, ".config", "Antigravity")
-	if custom := os.Getenv("ANTIGRAVITY_CONFIG_DIR"); custom != "" {
-		configDir = custom
-	}
 	return &Scanner{
 		homeDir:              home,
-		antigravityConfigDir: configDir,
+		antigravityConfigDir: core.GetAntigravityHostConfigDir(),
 		store:                store,
 	}
 }
@@ -179,10 +176,7 @@ func DetectAllSurfaces(homeDir, configDir string) map[string]*DetectedSurfaceAcc
 		homeDir, _ = os.UserHomeDir()
 	}
 	if configDir == "" {
-		configDir = filepath.Join(homeDir, ".config", "Antigravity")
-		if custom := os.Getenv("ANTIGRAVITY_CONFIG_DIR"); custom != "" {
-			configDir = custom
-		}
+		configDir = core.GetAntigravityHostConfigDir()
 	}
 
 	cacheKey := homeDir + "|" + configDir

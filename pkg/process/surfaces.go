@@ -175,7 +175,7 @@ func LaunchVSCode(source, gatewayURL, gatewayKey string, gatewayModels []string)
 		if err != nil {
 			continue
 		}
-		cmd := exec.Command(binPath)
+		cmd := core.CommandForExecutable(binPath)
 		if source == "custom" {
 			// The running editor swallows a second launch (and its environment), so a
 			// custom window needs its own user-data-dir to be a separate instance.
