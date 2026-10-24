@@ -1,7 +1,10 @@
 package webgui
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +19,17 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/process"
 )
+
+// AcpHandshakeLog is one server-measured protocol probe.
+type AcpHandshakeLog struct {
+	ID             string `json:"id"`
+	Timestamp      string `json:"timestamp"`
+	FromAgent      string `json:"from_agent"`
+	ToAgent        string `json:"to_agent"`
+	Action         string `json:"action"`
+	PayloadSummary string `json:"payload_summary"`
+	Status         string `json:"status"`
+}
 
 // writeJSONStatus writes a JSON body with an explicit HTTP status code.
 func writeJSONStatus(w http.ResponseWriter, status int, v interface{}) {
@@ -231,6 +245,11 @@ func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndp
 		reachable, latency = acpmesh.ProbeEndpoint(agent.Endpoint, 20*time.Millisecond)
 	}
 
+	binaryPath := agent.BinaryPath
+	if agent.ID == acpmesh.PresetAntigravityACP {
+		binaryPath = resolveAntigravityACPPath(binaryPath)
+	}
+
 	// Report only what was measured. A detected process with a silent endpoint is
 	// installed, not connected, and its preset tool list is not a negotiation.
 	status := "not_found"
@@ -241,7 +260,7 @@ func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndp
 	if strings.TrimSpace(agent.Endpoint) == "" {
 		// stdio servers are started by their client, so the binary is the state.
 		transport = "stdio"
-		if _, statErr := os.Stat(expandHome(agent.BinaryPath)); statErr == nil {
+		if _, statErr := os.Stat(expandHome(binaryPath)); statErr == nil {
 			status = "installed_idle"
 		}
 	}
@@ -268,7 +287,7 @@ func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndp
 		"id":              agent.ID,
 		"name":            agent.Name,
 		"type":            agent.Type,
-		"binary_path":     agent.BinaryPath,
+		"binary_path":     binaryPath,
 		"pid":             pid,
 		"port_socket":     agent.Endpoint,
 		"acp_version":     version,
@@ -281,6 +300,40 @@ func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndp
 		"os_default":      agent.OSDefault,
 		"editable":        true,
 	}
+}
+
+// resolveAntigravityACPPath checks the configured path, then the bundled bin
+// directory and the launched bundle's bin directory before PATH.
+func resolveAntigravityACPPath(configured string) string {
+	if candidate := expandHome(configured); candidate != "" {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+
+	names := []string{"antigravity-acp"}
+	if runtime.GOOS == "windows" {
+		names = append(names, "antigravity-acp.exe")
+	}
+	var roots []string
+	if executable, err := os.Executable(); err == nil {
+		roots = append(roots, filepath.Dir(executable))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		roots = append(roots, cwd)
+	}
+	for _, root := range roots {
+		for _, name := range names {
+			candidate := filepath.Join(root, "bin", name)
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate
+			}
+		}
+	}
+	if resolved, err := exec.LookPath("antigravity-acp"); err == nil {
+		return resolved
+	}
+	return configured
 }
 
 // expandHome resolves ~ and %VAR% so binary presence can be checked on every OS.
@@ -519,4 +572,226 @@ func (s *Server) handleUtilitiesACPAgentDetect(w http.ResponseWriter, r *http.Re
 		"os_default": osDefault,
 		"pid":        pid,
 	})
+}
+
+// handleUtilitiesACPPing negotiates with one agent, or the whole registry, using
+// the real protocol transport and returns both measured results and updated nodes.
+func (s *Server) handleUtilitiesACPPing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		writeACPError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.ID = strings.TrimSpace(req.ID)
+	if req.ID == "agent-windsurf" {
+		req.ID = acpmesh.PresetDevin
+	}
+
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		writeACPError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resolved := acpmesh.Merge(cfg.GetACPAgents(), acpmesh.CurrentEnv())
+	selected := make([]acpmesh.Resolved, 0, len(resolved))
+	for _, agent := range resolved {
+		if req.ID == "" || agent.ID == req.ID {
+			selected = append(selected, agent)
+		}
+	}
+	if req.ID != "" && len(selected) == 0 {
+		writeACPError(w, http.StatusNotFound, "unknown agent "+req.ID)
+		return
+	}
+
+	mesh := buildACPMeshResponse(cfg)
+	nodes, _ := mesh["agents"].([]map[string]interface{})
+	nodeByID := make(map[string]map[string]interface{}, len(nodes))
+	for _, node := range nodes {
+		id, _ := node["id"].(string)
+		nodeByID[id] = node
+	}
+
+	results := make([]acpmesh.HandshakeResult, 0, len(selected))
+	logs := make([]AcpHandshakeLog, 0, len(selected))
+	onlineCount := 0
+	for _, agent := range selected {
+		expandedBin := agent.BinaryPath
+		node := nodeByID[agent.ID]
+		if node != nil {
+			if path, ok := node["binary_path"].(string); ok && path != "" {
+				expandedBin = path
+			}
+		}
+
+		result := acpmesh.ProbeAgentHandshake(r.Context(), agent, expandedBin)
+		results = append(results, result)
+		if result.Reachable {
+			onlineCount++
+		}
+
+		timestamp := time.Now().UTC().Format(time.RFC3339)
+		if node != nil {
+			applyHandshakeToNode(node, result, timestamp)
+		}
+		logs = append(logs, handshakeLog(result, timestamp))
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"status":       "ok",
+		"results":      results,
+		"logs":         logs,
+		"agents":       nodes,
+		"online_count": onlineCount,
+	})
+}
+
+func applyHandshakeToNode(node map[string]interface{}, result acpmesh.HandshakeResult, timestamp string) {
+	node["transport"] = result.Transport
+	if result.Endpoint != "" {
+		if current, _ := node["port_socket"].(string); strings.TrimSpace(current) == "" {
+			node["port_socket"] = result.Endpoint
+		}
+	}
+
+	if result.Reachable {
+		status := "connected"
+		if node["status"] == "active_hosting" && result.Transport == "socket" {
+			status = "active_hosting"
+		}
+		node["status"] = status
+		node["ping_latency_ms"] = result.LatencyMs
+		node["acp_version"] = result.AgentVersion
+		node["supported_tools"] = append([]string{}, result.Tools...)
+		node["last_handshake"] = timestamp
+		return
+	}
+
+	node["ping_latency_ms"] = nil
+	node["acp_version"] = ""
+	node["supported_tools"] = []string{}
+	node["last_handshake"] = "failed " + timestamp
+	pid, _ := node["pid"].(int)
+	endpoint, _ := node["port_socket"].(string)
+	binaryPath, _ := node["binary_path"].(string)
+	switch {
+	case pid > 0:
+		node["status"] = "installed_idle"
+	case strings.TrimSpace(endpoint) != "":
+		node["status"] = "unreachable"
+	case strings.TrimSpace(binaryPath) != "":
+		if _, err := os.Stat(expandHome(binaryPath)); err == nil {
+			node["status"] = "installed_idle"
+		} else {
+			node["status"] = "not_found"
+		}
+	default:
+		node["status"] = "not_found"
+	}
+}
+
+func handshakeLog(result acpmesh.HandshakeResult, timestamp string) AcpHandshakeLog {
+	action := "ENDPOINT_PROBE"
+	status := "warning"
+	switch result.Transport {
+	case "stdio-acp":
+		action = "ACP_INITIALIZE"
+	case "pi-rpc":
+		action = "PI_GET_STATE"
+	}
+	if result.Verified {
+		status = "success"
+	} else if !result.Reachable {
+		status = "error"
+	}
+
+	summary := result.Summary
+	if result.Error != "" {
+		summary = result.Error
+	} else if result.Reachable {
+		summary = fmt.Sprintf("%s (%.2f ms)", summary, result.LatencyMs)
+	}
+	return AcpHandshakeLog{
+		ID:             fmt.Sprintf("handshake-%d-%s", time.Now().UnixNano(), result.AgentID),
+		Timestamp:      timestamp,
+		FromAgent:      "Antigravity Swiss Knife",
+		ToAgent:        result.AgentName,
+		Action:         action,
+		PayloadSummary: summary,
+		Status:         status,
+	}
+}
+
+// handleUtilitiesACPPrompt sends one prompt over the agent's supported protocol.
+func (s *Server) handleUtilitiesACPPrompt(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		ID     string `json:"id"`
+		Prompt string `json:"prompt"`
+		Cwd    string `json:"cwd"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeACPError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.ID = strings.TrimSpace(req.ID)
+	if req.ID == "" {
+		writeACPError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		writeACPError(w, http.StatusBadRequest, "prompt is required")
+		return
+	}
+
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		writeACPError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resolved := acpmesh.Merge(cfg.GetACPAgents(), acpmesh.CurrentEnv())
+	var agent *acpmesh.Resolved
+	for i := range resolved {
+		if resolved[i].ID == req.ID {
+			agent = &resolved[i]
+			break
+		}
+	}
+	if agent == nil {
+		writeACPError(w, http.StatusNotFound, "unknown agent "+req.ID)
+		return
+	}
+
+	expandedBin := agent.BinaryPath
+	if agent.ID == acpmesh.PresetAntigravityACP {
+		expandedBin = resolveAntigravityACPPath(expandedBin)
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+
+	result, err := acpmesh.PromptAgent(ctx, *agent, expandedBin, req.Prompt, req.Cwd)
+	if err != nil {
+		writeACPError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	response := map[string]interface{}{
+		"status":   "ok",
+		"agent_id": agent.ID,
+	}
+	for key, value := range result {
+		response[key] = value
+	}
+	writeJSON(w, response)
 }

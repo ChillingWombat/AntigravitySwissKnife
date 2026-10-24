@@ -15,7 +15,9 @@ import type {
   AcpDetectCandidate,
   AcpDetectResponse,
   AcpHandshakeLog,
+  AcpHandshakeResult,
   AcpMeshResponse,
+  AcpPingResponse,
 } from '../types'
 import { api } from '../api'
 import {
@@ -66,6 +68,87 @@ const CARD_ACTION_STYLE: React.CSSProperties = {
   color: 'var(--text)',
 }
 
+const ACTIVE_ACP_STATUSES = new Set<AcpAgentInstance['status']>([
+  'active_hosting',
+  'connected',
+  'listening',
+])
+
+function acpAgentIsOnline(agent: AcpAgentInstance | undefined): boolean {
+  return Boolean(agent && ACTIVE_ACP_STATUSES.has(agent.status))
+}
+
+function fallbackHandshakeLogs(agents: AcpAgentInstance[], timestamp: string): AcpHandshakeLog[] {
+  return agents.map((agent, index) => {
+    const online = acpAgentIsOnline(agent)
+    return {
+      id: `fallback-${Date.now()}-${index}-${agent.id}`,
+      timestamp,
+      from_agent: 'Antigravity Swiss Knife',
+      to_agent: agent.name,
+      action: 'MESH_STATUS_FALLBACK',
+      payload_summary: `${agent.port_socket || 'stdio'} reported status ${agent.status}; protocol was not re-negotiated.`,
+      status: online ? 'success' : agent.status === 'unreachable' || agent.status === 'not_found' ? 'error' : 'warning',
+    }
+  })
+}
+
+function fallbackHandshakeResults(agents: AcpAgentInstance[]): AcpHandshakeResult[] {
+  return agents.map((agent) => ({
+    agent_id: agent.id,
+    agent_name: agent.name,
+    transport: agent.transport || 'socket',
+    endpoint: agent.port_socket,
+    reachable: acpAgentIsOnline(agent),
+    verified: false,
+    protocol: 'unknown',
+    agent_version: agent.acp_version || undefined,
+    tools: agent.supported_tools || [],
+    ping_latency_ms: agent.ping_latency_ms || 0,
+    summary: `Mesh status reported ${agent.status}; no protocol handshake was performed.`,
+  }))
+}
+
+async function probeAcpAgents(id?: string): Promise<{
+  agents: AcpAgentInstance[]
+  results: AcpHandshakeResult[]
+  logs: AcpHandshakeLog[]
+  usedFallback: boolean
+}> {
+  let pingResponse: AcpPingResponse | null = null
+  if (typeof (api as any).pingAcpAgents === 'function') {
+    try {
+      pingResponse = await (api as any).pingAcpAgents(id)
+    } catch {
+      // The older daemon does not have the protocol ping route.
+    }
+  }
+
+  if (
+    pingResponse &&
+    Array.isArray((pingResponse as any).results) &&
+    Array.isArray((pingResponse as any).agents)
+  ) {
+    return {
+      agents: pingResponse.agents,
+      results: pingResponse.results,
+      logs: Array.isArray(pingResponse.logs) ? pingResponse.logs : [],
+      usedFallback: false,
+    }
+  }
+
+  const mesh = await api.getAcpMesh()
+  const agents = mesh?.agents || []
+  const selected = id ? agents.filter((agent) => agent.id === id) : agents
+  const timestamp = new Date().toLocaleTimeString()
+  return {
+    agents,
+    results: fallbackHandshakeResults(selected),
+    logs: fallbackHandshakeLogs(selected, timestamp),
+    usedFallback: true,
+  }
+}
+
 /**
  * ACP (Agent Client Protocol) Agent Mesh Page
  * Displays discovered local agent daemons, official brand icons, latency metrics, and handshake delegation stream.
@@ -89,6 +172,9 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
   const [confirm, setConfirm] = useState<ConfirmState>({ kind: null, agent: null })
   const [confirmBusy, setConfirmBusy] = useState(false)
   const [isSettingUp, setIsSettingUp] = useState(false)
+  const [promptTargetId, setPromptTargetId] = useState('agent-pi')
+  const [promptInput, setPromptInput] = useState('')
+  const [isPrompting, setIsPrompting] = useState(false)
 
   const showFeedback = (message: string, isError = false) => {
     setAcpFeedback(message)
@@ -122,31 +208,16 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
     setIsPingingAll(true)
     setAcpFeedback(null)
     try {
-      const res = await api.getAcpMesh()
-      if (res && res.agents) {
-        setAgentInstances(res.agents)
-        const online = res.agents.filter((a: any) => a.status !== 'unreachable')
-        setAcpFeedbackIsError(false)
-        setAcpFeedback(
-          `ACP Handshake ping completed. ${online.length} active agent daemon${
-            online.length === 1 ? '' : 's'
-          } responded successfully.`
-        )
-        const newLogs: AcpHandshakeLog[] = online.map((a: any) => ({
-          id: `log-${Date.now()}-${a.id}`,
-          timestamp: new Date().toLocaleTimeString(),
-          from_agent: 'Antigravity 2.0',
-          to_agent: a.name,
-          action: 'ACP_HELLO / CAPABILITY_EXCHANGE',
-          payload_summary: `Negotiated ${a.supported_tools?.length || 0} tools (${(
-            a.supported_tools || []
-          )
-            .slice(0, 3)
-            .join(', ')}...) over socket ${a.port_socket}`,
-          status: 'success',
-        }))
-        setHandshakeLogs((prev) => [...newLogs, ...prev])
-      }
+      const probe = await probeAcpAgents()
+      setAgentInstances(probe.agents)
+      const onlineCount = probe.results.filter((result) => result.reachable).length
+      setAcpFeedbackIsError(onlineCount === 0)
+      setAcpFeedback(
+        `ACP Handshake ping completed. ${onlineCount} active agent daemon${
+          onlineCount === 1 ? '' : 's'
+        } responded successfully.`
+      )
+      setHandshakeLogs((prev) => [...probe.logs, ...prev])
     } catch (e: any) {
       setAcpFeedbackIsError(true)
       setAcpFeedback(`ACP Ping failed: ${e?.message || 'Network error'}`)
@@ -159,27 +230,17 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
   const handlePingSingleAgent = async (agent: AcpAgentInstance) => {
     setPingingAgentId(agent.id)
     try {
-      const res = await api.getAcpMesh()
-      if (res && res.agents) {
-        setAgentInstances(res.agents)
-        const updatedAgent = res.agents.find((a: any) => a.id === agent.id) || agent
-        const isOnline = updatedAgent.status !== 'unreachable'
-        setAcpFeedbackIsError(false)
-        setAcpFeedback(
-          `ACP Handshake ping completed for ${agent.name}: ${isOnline ? 'Active & Healthy' : 'Offline'}`
-        )
-        const log: AcpHandshakeLog = {
-          id: `log-${Date.now()}-${agent.id}`,
-          timestamp: new Date().toLocaleTimeString(),
-          from_agent: 'Antigravity 2.0',
-          to_agent: agent.name,
-          action: 'ACP_HELLO / DIRECT_PING',
-          payload_summary: isOnline
-            ? `Pinged ${agent.name} over socket ${agent.port_socket} (latency: ${updatedAgent.ping_latency_ms} ms)`
-            : `Attempted ping to ${agent.name} over socket ${agent.port_socket} - daemon unreachable`,
-          status: isOnline ? 'success' : 'warning',
-        }
-        setHandshakeLogs((prev) => [log, ...prev])
+      const probe = await probeAcpAgents(agent.id)
+      setAgentInstances(probe.agents)
+      const updatedAgent = probe.agents.find((candidate) => candidate.id === agent.id) || agent
+      const result = probe.results.find((candidate) => candidate.agent_id === agent.id)
+      const isOnline = result?.reachable ?? acpAgentIsOnline(updatedAgent)
+      setAcpFeedbackIsError(!isOnline)
+      setAcpFeedback(
+        `ACP Handshake ping completed for ${agent.name}: ${isOnline ? 'Active & Healthy' : 'Offline'}`
+      )
+      if (probe.logs.length > 0) {
+        setHandshakeLogs((prev) => [...probe.logs, ...prev])
       }
     } catch (e: any) {
       setAcpFeedbackIsError(true)
@@ -187,6 +248,35 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
     } finally {
       setPingingAgentId(null)
       setTimeout(() => setAcpFeedback(null), 4000)
+    }
+  }
+
+
+  const handleSendAcpPrompt = async () => {
+    const trimmed = promptInput.trim()
+    if (!trimmed || isPrompting) return
+    setIsPrompting(true)
+    setAcpFeedback(null)
+    try {
+      const res = await api.promptAcpAgent(promptTargetId, trimmed)
+      const targetName = agentInstances.find((a) => a.id === promptTargetId)?.name || promptTargetId
+      const replyText = (res?.response || '').trim() || '(empty response)'
+      const log: AcpHandshakeLog = {
+        id: `prompt-${Date.now()}-${promptTargetId}`,
+        timestamp: new Date().toLocaleTimeString(),
+        from_agent: 'Antigravity 2.0',
+        to_agent: targetName,
+        action: 'ACP_PROMPT / RESPONSE',
+        payload_summary: replyText,
+        status: 'success',
+      }
+      setHandshakeLogs((prev) => [log, ...prev])
+      setPromptInput('')
+      showFeedback(`Received response from ${targetName} (${res?.latency_ms ?? 0} ms).`)
+    } catch (e: any) {
+      showFeedback(`Prompt failed: ${e?.message || 'Agent error'}`, true)
+    } finally {
+      setIsPrompting(false)
     }
   }
 
@@ -750,6 +840,49 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
           >
             <Activity size={13} className={isPingingAll ? 'animate-spin' : ''} />
             <span>{isPingingAll ? 'Pinging Nodes...' : 'Ping All ACP Nodes'}</span>
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            gap: '8px',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            marginBottom: '12px',
+          }}
+        >
+          <select
+            aria-label="Target ACP Agent"
+            value={promptTargetId}
+            onChange={(e) => setPromptTargetId(e.target.value)}
+            style={{ fontSize: '12px', padding: '6px 10px', borderRadius: '6px', minWidth: '180px' }}
+          >
+            {agentInstances.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            aria-label="ACP Prompt Input"
+            placeholder="Send prompt over ACP / RPC..."
+            value={promptInput}
+            onChange={(e) => setPromptInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleSendAcpPrompt()
+            }}
+            style={{ flex: 1, minWidth: '220px', fontSize: '12px', padding: '6px 10px', borderRadius: '6px' }}
+          />
+          <button
+            type="button"
+            className="btn-pill-primary"
+            disabled={isPrompting || !promptInput.trim()}
+            onClick={() => void handleSendAcpPrompt()}
+            style={{ padding: '6px 14px', fontSize: '12px' }}
+          >
+            <span>{isPrompting ? 'Sending...' : 'Send Prompt'}</span>
           </button>
         </div>
 
