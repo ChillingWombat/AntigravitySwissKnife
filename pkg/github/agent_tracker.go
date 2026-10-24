@@ -387,7 +387,6 @@ func ResolveProjectFolderFromConfig(nameOrID string) string {
 	return ""
 }
 
-
 func isGitDir(dir string) bool {
 	if dir == "" {
 		return false
@@ -419,6 +418,10 @@ func isAppRuntimeDir(dir string) bool {
 
 // ResolveProjectPath resolves a workspace path or bare project name to an absolute directory path when possible.
 func ResolveProjectPath(nameOrPath string) string {
+	return canonicalPath(resolveProjectPathRaw(nameOrPath))
+}
+
+func resolveProjectPathRaw(nameOrPath string) string {
 	p := strings.TrimSpace(nameOrPath)
 	p = strings.Trim(p, "\"'`")
 	if p == "" || p == "." || strings.EqualFold(p, "global") {
@@ -449,7 +452,7 @@ func ResolveProjectPath(nameOrPath string) string {
 		}
 	}
 	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
+		return canonicalPath(p)
 	}
 	firstSeg := p
 	rest := ""
@@ -468,9 +471,9 @@ func ResolveProjectPath(nameOrPath string) string {
 
 	// 2. Check relative to current working directory
 	if wd, err := os.Getwd(); err == nil && wd != "" {
-		candidate := filepath.Join(wd, p)
+		candidate := canonicalPath(filepath.Join(wd, p))
 		if _, err := os.Stat(candidate); err == nil {
-			return filepath.Clean(candidate)
+			return candidate
 		}
 		curr := wd
 		for i := 0; i < 15 && curr != "" && curr != "/" && curr != "."; i++ {
@@ -567,6 +570,17 @@ func ResolveProjectPath(nameOrPath string) string {
 		}
 	}
 	return filepath.Clean(p)
+}
+
+func canonicalPath(path string) string {
+	clean := filepath.Clean(path)
+	if clean == "." {
+		return clean
+	}
+	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+		return resolved
+	}
+	return clean
 }
 
 func latestWorkspaceFromDB() string {
@@ -754,10 +768,14 @@ func ReportAgentTask(workspacePath string, task SelfReportedTask) error {
 	}
 
 	targetDir := ""
-	cleanWs := filepath.Clean(strings.TrimSpace(workspacePath))
+	cleanWs := canonicalPath(filepath.Clean(strings.TrimSpace(workspacePath)))
 	isSafeWs := false
 	if cleanWs != "" && cleanWs != "." && cleanWs != "GLOBAL" && !strings.Contains(cleanWs, "\x00") {
 		lowerWs := strings.ToLower(cleanWs)
+		allowedRoots := []string{canonicalPath(os.TempDir())}
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			allowedRoots = append(allowedRoots, canonicalPath(homeDir))
+		}
 		isSystem := false
 		for _, sysPrefix := range []string{"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr", "c:\\windows", "c:\\program files", "c:\\program files (x86)"} {
 			if lowerWs == sysPrefix || strings.HasPrefix(lowerWs, sysPrefix+string(filepath.Separator)) {
@@ -767,6 +785,14 @@ func ReportAgentTask(workspacePath string, task SelfReportedTask) error {
 		}
 		if cleanWs == "/" || cleanWs == "\\" || (len(cleanWs) == 3 && cleanWs[1] == ':' && (cleanWs[2] == '\\' || cleanWs[2] == '/')) {
 			isSystem = true
+		}
+		if isSystem {
+			for _, root := range allowedRoots {
+				if cleanWs == root || strings.HasPrefix(cleanWs, root+string(filepath.Separator)) {
+					isSystem = false
+					break
+				}
+			}
 		}
 		if !isSystem {
 			if fi, err := os.Stat(cleanWs); err == nil && fi.IsDir() {

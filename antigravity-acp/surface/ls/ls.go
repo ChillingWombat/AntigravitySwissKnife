@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -88,11 +89,6 @@ func (s *Surface) Start(ctx context.Context, opts surface.SessionOptions) (strin
 	workspace := opts.Cwd
 	if workspace == "" {
 		workspace = "."
-	}
-	// The server rejects a relative or doubled path ("invalid path: //"), so the
-	// workspace must be absolute before it becomes a file URI.
-	if abs, err := filepath.Abs(workspace); err == nil {
-		workspace = abs
 	}
 	var reply struct {
 		CascadeID string `json:"cascadeId"`
@@ -325,9 +321,14 @@ func cwdFromWorkspaceURI(raw string) string {
 	if parsed.Host != "" && parsed.Host != "localhost" {
 		cwd = "//" + parsed.Host + cwd
 	}
-	cwd = filepath.FromSlash(cwd)
-	if runtime.GOOS == "windows" && len(cwd) >= 3 && cwd[0] == '\\' && cwd[2] == ':' {
-		cwd = cwd[1:]
+	if runtime.GOOS == "windows" {
+		if parsed.Host != "" && parsed.Host != "localhost" {
+			cwd = filepath.FromSlash(cwd)
+		} else if len(cwd) >= 3 && cwd[0] == '/' && cwd[2] == ':' {
+			cwd = filepath.FromSlash(cwd[1:])
+		}
+	} else {
+		cwd = filepath.FromSlash(cwd)
 	}
 	return cwd
 }
@@ -487,8 +488,14 @@ func (s *Surface) isIdle(ctx context.Context, sessionID string) (bool, error) {
 	return status.Status == "CASCADE_RUN_STATUS_IDLE", nil
 }
 
-func workspaceURI(workspace string) string {
-	slashed := strings.ReplaceAll(strings.TrimSpace(workspace), `\`, "/")
+func workspaceURI(cwd string) string {
+	cwd = strings.TrimSpace(cwd)
+	if strings.HasPrefix(cwd, "/") && !strings.HasPrefix(cwd, "//") {
+		cwd = path.Clean(cwd)
+	} else if abs, err := filepath.Abs(cwd); err == nil {
+		cwd = abs
+	}
+	slashed := strings.ReplaceAll(cwd, `\`, "/")
 	if strings.HasPrefix(slashed, "//") {
 		trimmed := strings.TrimPrefix(slashed, "//")
 		parts := strings.SplitN(trimmed, "/", 2)
