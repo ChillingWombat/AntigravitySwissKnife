@@ -674,8 +674,8 @@ func TestRemoteManager_LocalHTTPServer_AndPINAuth(t *testing.T) {
 			break
 		}
 	}
-	if authCookie == nil || authCookie.Value != curPIN {
-		t.Fatalf("expected swiss_remote_pin cookie with valid PIN, got %v", authCookie)
+	if authCookie == nil || authCookie.Value == "" || authCookie.Value == curPIN {
+		t.Fatalf("expected an opaque swiss_remote_pin session cookie, got %v", authCookie)
 	}
 
 	// Status endpoint with cookie succeeds

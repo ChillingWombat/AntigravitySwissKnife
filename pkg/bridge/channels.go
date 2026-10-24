@@ -149,12 +149,11 @@ func (cm *ChannelsManager) load() error {
 }
 
 func (cm *ChannelsManager) save() error {
-	_ = os.MkdirAll(filepath.Dir(cm.configPath), 0755)
 	data, err := json.MarshalIndent(cm.config, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(cm.configPath, data, 0644)
+	return writePrivateConfig(cm.configPath, data)
 }
 
 // GetConfig returns current channels settings.
@@ -220,7 +219,11 @@ func (cm *ChannelsManager) UpdateConfig(c ChannelsConfig) error {
 	}
 
 	if cm.verifiedIdentities != nil {
-		if !c.WhatsApp.Enabled || c.WhatsApp.AccessToken != cm.config.WhatsApp.AccessToken {
+		if !c.WhatsApp.Enabled ||
+			c.WhatsApp.AccessToken != cm.config.WhatsApp.AccessToken ||
+			c.WhatsApp.VerifyToken != cm.config.WhatsApp.VerifyToken ||
+			c.WhatsApp.PhoneNumberID != cm.config.WhatsApp.PhoneNumberID ||
+			c.WhatsApp.Mode != cm.config.WhatsApp.Mode {
 			delete(cm.verifiedIdentities, "whatsapp")
 		}
 		if !c.Telegram.Enabled || c.Telegram.BotToken != cm.config.Telegram.BotToken {
@@ -242,7 +245,11 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 
 	// WhatsApp
 	waVerified := cm.verifiedIdentities != nil && cm.verifiedIdentities["whatsapp"] != ""
+	waMode := strings.ToLower(strings.TrimSpace(cm.config.WhatsApp.Mode))
 	waConfigured := strings.TrimSpace(cm.config.WhatsApp.AccessToken) != "" || strings.TrimSpace(cm.config.WhatsApp.PhoneNumberID) != ""
+	if waMode == "mcp" || waMode == "webhook" {
+		waConfigured = strings.TrimSpace(cm.config.WhatsApp.VerifyToken) != "" && cm.config.WhatsApp.VerifyToken != "[REDACTED]"
+	}
 	waState := ChannelState{
 		Enabled:          cm.config.WhatsApp.Enabled,
 		InboundSupported: true,
@@ -255,7 +262,11 @@ func (cm *ChannelsManager) GetStatus() ChannelsStatus {
 	} else if waVerified {
 		waState.StatusText = fmt.Sprintf("Configured (%s mode, Verified)", strings.ToUpper(cm.config.WhatsApp.Mode))
 	} else if waConfigured {
-		waState.StatusText = fmt.Sprintf("Configured (%s mode, Awaiting verification)", strings.ToUpper(cm.config.WhatsApp.Mode))
+		if waMode == "mcp" || waMode == "webhook" {
+			waState.StatusText = fmt.Sprintf("Configured (%s mode; live delivery unverified)", strings.ToUpper(cm.config.WhatsApp.Mode))
+		} else {
+			waState.StatusText = fmt.Sprintf("Configured (%s mode, Awaiting verification)", strings.ToUpper(cm.config.WhatsApp.Mode))
+		}
 	} else {
 		waState.StatusText = "Not configured (awaiting access token)"
 	}
@@ -407,16 +418,14 @@ func (cm *ChannelsManager) TestChannel(channel string) (string, error) {
 			return "WhatsApp Cloud API connection verified.", nil
 		}
 		if cfg.WhatsApp.Mode == "mcp" {
-			if strings.TrimSpace(cfg.WhatsApp.VerifyToken) == "" {
+			verifyToken := strings.TrimSpace(cfg.WhatsApp.VerifyToken)
+			if verifyToken == "" || verifyToken == "[REDACTED]" {
 				return "", fmt.Errorf("WhatsApp MCP bridge is not configured: verify token required")
 			}
 			cm.mu.Lock()
-			if cm.verifiedIdentities == nil {
-				cm.verifiedIdentities = make(map[string]string)
-			}
-			cm.verifiedIdentities["whatsapp"] = "WhatsApp MCP Gateway"
+			delete(cm.verifiedIdentities, "whatsapp")
 			cm.mu.Unlock()
-			return "WhatsApp MCP bridge verified. Token configured for webhook handshakes.", nil
+			return "WhatsApp MCP configuration is valid. Verify token is set; live delivery has not been verified.", nil
 		}
 		if cfg.WhatsApp.Mode == "webhook" {
 			verifyToken := strings.TrimSpace(cfg.WhatsApp.VerifyToken)
@@ -424,12 +433,9 @@ func (cm *ChannelsManager) TestChannel(channel string) (string, error) {
 				return "", fmt.Errorf("WhatsApp webhook bridge is not configured: verify token required")
 			}
 			cm.mu.Lock()
-			if cm.verifiedIdentities == nil {
-				cm.verifiedIdentities = make(map[string]string)
-			}
-			cm.verifiedIdentities["whatsapp"] = "WhatsApp Webhook Gateway"
+			delete(cm.verifiedIdentities, "whatsapp")
 			cm.mu.Unlock()
-			return "WhatsApp custom webhook bridge verified. Verify token ready for inbound events.", nil
+			return "WhatsApp webhook configuration is valid. Verify token is set; live delivery has not been verified.", nil
 		}
 		return "", fmt.Errorf("WhatsApp bridge mode %q is not configured", cfg.WhatsApp.Mode)
 

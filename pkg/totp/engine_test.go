@@ -47,13 +47,30 @@ func TestValidateSecret(t *testing.T) {
 
 	invalid := []string{
 		"18901890", // 8 and 9 are invalid in RFC 4648 base32
+		"JBSWY3DP", // valid Base32 alphabet, but only 40 bits
 		"JBSWY3DPEHPK3PX8",
+		"JBSW=Y3DPEHPK3PXP",
 		"???!!!",
 		"",
 	}
 	for _, s := range invalid {
 		if ValidateSecret(s) {
 			t.Errorf("expected secret %q to be invalid", s)
+		}
+	}
+}
+
+func TestGenerateCodeRejectsWeakOrMalformedSecrets(t *testing.T) {
+	engine := NewEngine()
+	now := time.Now()
+
+	for _, secret := range []string{
+		"JBSWY3DP",
+		"JBSWY3DPEHPK3PX8",
+		"JBSW=Y3DPEHPK3PXP",
+	} {
+		if _, err := engine.GenerateCode(secret, now); err == nil {
+			t.Errorf("expected GenerateCode to reject %q", secret)
 		}
 	}
 }
@@ -133,4 +150,3 @@ func TestCountdown(t *testing.T) {
 		t.Errorf("expected ~0.66 fraction, got %f", info.ProgressFraction)
 	}
 }
-
