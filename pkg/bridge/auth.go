@@ -61,6 +61,7 @@ func GenerateSecureToken() string {
 const pinCharset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 const pinDigits = "0123456789"
 const pinLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+const maxTrackedLockoutIPs = 1024
 
 // GeneratePairingPIN produces an 8-character alphanumeric security PIN containing letters and numbers.
 func GeneratePairingPIN() string {
@@ -136,7 +137,11 @@ func VerifyCandidatePIN(candidate, expectedPIN string, useAppPassword bool) bool
 		return false
 	}
 	if useAppPassword {
-		if cfg, err := core.LoadConfig(); err == nil && cfg != nil && cfg.AppPasswordEnabled && cfg.AppPasswordHash != "" {
+		cfg, err := core.LoadConfig()
+		if err != nil || cfg == nil {
+			return false
+		}
+		if cfg.AppPasswordEnabled && cfg.AppPasswordHash != "" {
 			return cfg.VerifyAppPassword(candidate)
 		}
 	}
@@ -248,31 +253,42 @@ func getClientIP(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
+
 	host := r.RemoteAddr
 	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && h != "" {
 		host = h
 	}
-	host = strings.Trim(host, "[]")
+	remoteIP := canonicalIP(host)
+	if remoteIP == "" || !net.ParseIP(remoteIP).IsLoopback() {
+		return remoteIP
+	}
 
-	ip := net.ParseIP(host)
-	if ip != nil && ip.IsLoopback() {
-		if cf := strings.TrimSpace(r.Header.Get("Cf-Connecting-Ip")); cf != "" {
-			return cf
-		}
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			parts := strings.Split(xff, ",")
-			for i := len(parts) - 1; i >= 0; i-- {
-				p := strings.TrimSpace(parts[i])
-				if p != "" {
-					return p
-				}
+	if cf := canonicalIP(r.Header.Get("Cf-Connecting-Ip")); cf != "" {
+		return cf
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			if ip := canonicalIP(parts[i]); ip != "" {
+				return ip
 			}
 		}
-		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
-			return xri
-		}
 	}
-	return host
+	if xri := canonicalIP(r.Header.Get("X-Real-IP")); xri != "" {
+		return xri
+	}
+	return remoteIP
+}
+
+func canonicalIP(raw string) string {
+	ip := net.ParseIP(strings.TrimSpace(raw))
+	if ip == nil {
+		return ""
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	return ip.String()
 }
 
 // isLockedLocked checks if clientIP is currently locked out, cleaning expired lockouts.
@@ -287,9 +303,59 @@ func (am *AuthManager) isLockedLocked(clientIP string) bool {
 	return false
 }
 
+// sweepLockoutStateLocked removes expired state and caps attacker-controlled map growth.
+func (am *AuthManager) sweepLockoutStateLocked(now time.Time) {
+	cutoff := now.Add(-5 * time.Minute)
+	for ip, until := range am.lockedUntil {
+		if !now.Before(until) {
+			delete(am.lockedUntil, ip)
+			delete(am.failedAttempts, ip)
+		}
+	}
+	for ip, attempts := range am.failedAttempts {
+		recent := attempts[:0]
+		for _, attemptedAt := range attempts {
+			if attemptedAt.After(cutoff) {
+				recent = append(recent, attemptedAt)
+			}
+		}
+		if len(recent) == 0 {
+			delete(am.failedAttempts, ip)
+			continue
+		}
+		am.failedAttempts[ip] = recent
+	}
+
+	for len(am.failedAttempts) > maxTrackedLockoutIPs {
+		oldestIP := ""
+		var oldest time.Time
+		for ip, attempts := range am.failedAttempts {
+			lastAttempt := attempts[len(attempts)-1]
+			if oldestIP == "" || lastAttempt.Before(oldest) {
+				oldestIP = ip
+				oldest = lastAttempt
+			}
+		}
+		delete(am.failedAttempts, oldestIP)
+	}
+	for len(am.lockedUntil) > maxTrackedLockoutIPs {
+		oldestIP := ""
+		var oldest time.Time
+		for ip, until := range am.lockedUntil {
+			if oldestIP == "" || until.Before(oldest) {
+				oldestIP = ip
+				oldest = until
+			}
+		}
+		delete(am.lockedUntil, oldestIP)
+		delete(am.failedAttempts, oldestIP)
+	}
+}
+
 // recordFailureLocked records a failed attempt and evaluates brute force lockout (5 failed attempts within 5 minutes).
 func (am *AuthManager) recordFailureLocked(clientIP string) bool {
 	now := time.Now()
+	am.sweepLockoutStateLocked(now)
 	cutoff := now.Add(-5 * time.Minute)
 	var recentFails []time.Time
 	for _, t := range am.failedAttempts[clientIP] {
@@ -299,6 +365,7 @@ func (am *AuthManager) recordFailureLocked(clientIP string) bool {
 	}
 	recentFails = append(recentFails, now)
 	am.failedAttempts[clientIP] = recentFails
+	am.sweepLockoutStateLocked(now)
 
 	if len(recentFails) >= 5 {
 		am.lockedUntil[clientIP] = now.Add(15 * time.Minute)
@@ -323,95 +390,130 @@ func (am *AuthManager) IsIPLocked(ip string) bool {
 // VerifyPIN validates a candidate PIN or token against expected credentials and enforces brute-force lockout.
 // When candidate is empty, it returns (false, isLocked) without recording a failure.
 func (am *AuthManager) VerifyPIN(r *http.Request, candidate string) (ok bool, locked bool) {
+	return am.verifyCandidate(r, candidate, true)
+}
+
+// VerifyInteractivePIN validates an interactive PIN or App Access Password. Raw bearer tokens are not accepted.
+func (am *AuthManager) VerifyInteractivePIN(r *http.Request, candidate string) (ok bool, locked bool) {
+	return am.verifyCandidate(r, candidate, false)
+}
+
+func (am *AuthManager) verifyCandidate(r *http.Request, candidate string, allowToken bool) (ok bool, locked bool) {
+	ok, locked, _ = am.verifyCandidateState(r, candidate, allowToken)
+	return ok, locked
+}
+
+func (am *AuthManager) verifyCandidateState(r *http.Request, candidate string, allowToken bool) (ok bool, locked bool, alreadyLocked bool) {
+	return am.verifyCandidatesState(r, []string{candidate}, allowToken)
+}
+
+func (am *AuthManager) verifyCandidatesState(r *http.Request, candidates []string, allowToken bool) (ok bool, locked bool, alreadyLocked bool) {
 	if am == nil {
-		return false, false
+		return false, false, false
 	}
 	clientIP := getClientIP(r)
+	uniqueCandidates := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		uniqueCandidates = append(uniqueCandidates, candidate)
+	}
+
+	am.mu.Lock()
+	am.sweepLockoutStateLocked(time.Now())
+	if am.isLockedLocked(clientIP) {
+		am.mu.Unlock()
+		return false, true, true
+	}
+	pin := am.pin
+	token := am.token
+	useAppPassword := am.useAppPassword
+	am.mu.Unlock()
+
+	if len(uniqueCandidates) == 0 {
+		return false, false, false
+	}
+
+	valid := false
+	for _, candidate := range uniqueCandidates {
+		if (allowToken && secureCompare(candidate, token)) || (!useAppPassword && secureCompare(candidate, pin)) {
+			valid = true
+			break
+		}
+	}
+	if !valid && useAppPassword {
+		for _, candidate := range uniqueCandidates {
+			if VerifyCandidatePIN(candidate, pin, useAppPassword) {
+				valid = true
+				break
+			}
+		}
+	}
 
 	am.mu.Lock()
 	defer am.mu.Unlock()
-
+	am.sweepLockoutStateLocked(time.Now())
 	if am.isLockedLocked(clientIP) {
-		return false, true
+		return false, true, true
 	}
-
-	candidate = strings.TrimSpace(candidate)
-	if candidate == "" {
-		return false, false
-	}
-
-	valid := VerifyCandidatePIN(candidate, am.pin, am.useAppPassword) || (am.token != "" && secureCompare(candidate, am.token))
 	if valid {
 		am.recordSuccessLocked(clientIP)
-		return true, false
+		return true, false, false
 	}
-
-	newlyLocked := am.recordFailureLocked(clientIP)
-	return false, newlyLocked
+	return false, am.recordFailureLocked(clientIP), false
 }
 
 // ValidateRequest checks HTTP request headers and query parameters for valid credentials.
 // It enforces brute-force protection: 5 failed PIN attempts within 5 minutes locks the client IP for 15 minutes.
 func (am *AuthManager) ValidateRequest(r *http.Request) (bool, string) {
-	clientIP := getClientIP(r)
-
-	am.mu.Lock()
-	defer am.mu.Unlock()
-
-	// Check active lockout
-	if am.isLockedLocked(clientIP) {
-		return false, "IP temporarily locked due to excessive failed attempts; please try again later"
+	candidates := make([]string, 0, 8)
+	seen := make(map[string]struct{}, 8)
+	addCandidate := func(raw string) {
+		candidate := strings.TrimSpace(raw)
+		if candidate == "" {
+			return
+		}
+		if _, exists := seen[candidate]; exists {
+			return
+		}
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
 	}
 
-	expectedToken := am.token
-	expectedPIN := am.pin
-	useAppPass := am.useAppPassword
-
-	// 1. Authorization header (Bearer <token>)
-	if authHeader := r.Header.Get("Authorization"); authHeader != "" {
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-			bearerToken := strings.TrimSpace(parts[1])
-			if secureCompare(bearerToken, expectedToken) {
-				am.recordSuccessLocked(clientIP)
-				return true, "Bearer token verified"
-			}
-			if VerifyCandidatePIN(bearerToken, expectedPIN, useAppPass) {
-				am.recordSuccessLocked(clientIP)
-				return true, "Pairing PIN verified via Bearer header"
-			}
+	if auth := strings.TrimSpace(r.Header.Get("Authorization")); auth != "" {
+		fields := strings.Fields(auth)
+		if len(fields) == 2 && strings.EqualFold(fields[0], "Bearer") {
+			addCandidate(fields[1])
+		} else if _, password, ok := r.BasicAuth(); ok {
+			addCandidate(password)
 		}
 	}
+	addCandidate(r.Header.Get("X-Bridge-Token"))
+	addCandidate(r.Header.Get("X-Bridge-PIN"))
+	addCandidate(r.Header.Get("X-Pairing-PIN"))
+	_ = r.ParseForm()
+	addCandidate(r.URL.Query().Get("token"))
+	addCandidate(r.URL.Query().Get("auth"))
+	addCandidate(r.FormValue("pin"))
+	addCandidate(r.FormValue("password"))
+	addCandidate(r.FormValue("token"))
 
-	// 2. Custom headers
-	if xToken := r.Header.Get("X-Bridge-Token"); xToken != "" && secureCompare(xToken, expectedToken) {
-		am.recordSuccessLocked(clientIP)
-		return true, "X-Bridge-Token verified"
+	ok, locked, alreadyLocked := am.verifyCandidatesState(r, candidates, true)
+	if ok {
+		return true, ""
 	}
-	if xPin := r.Header.Get("X-Pairing-PIN"); xPin != "" && VerifyCandidatePIN(xPin, expectedPIN, useAppPass) {
-		am.recordSuccessLocked(clientIP)
-		return true, "X-Pairing-PIN verified"
+	if alreadyLocked {
+		return false, "IP temporarily locked due to excessive failed attempts; please try again later"
 	}
-
-	// 3. Query parameters (for SSE / Streamable HTTP GET where headers may be restricted)
-	q := r.URL.Query()
-	if qToken := q.Get("token"); qToken != "" && secureCompare(qToken, expectedToken) {
-		am.recordSuccessLocked(clientIP)
-		return true, "Query token verified"
-	}
-	if qAuth := q.Get("auth"); qAuth != "" && secureCompare(qAuth, expectedToken) {
-		am.recordSuccessLocked(clientIP)
-		return true, "Query auth verified"
-	}
-	if qPin := q.Get("pin"); qPin != "" && VerifyCandidatePIN(qPin, expectedPIN, useAppPass) {
-		am.recordSuccessLocked(clientIP)
-		return true, "Query pairing PIN verified"
-	}
-
-	// Record failed attempt and evaluate brute force lockout (5 failed attempts within 5 minutes)
-	if am.recordFailureLocked(clientIP) {
+	if locked {
 		return false, "IP locked for 15 minutes due to excessive failed attempts"
 	}
-
 	return false, "Missing or invalid bridge credentials"
 }

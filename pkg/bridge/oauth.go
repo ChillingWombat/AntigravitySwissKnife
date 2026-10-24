@@ -722,7 +722,7 @@ func (s *Service) ServeOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Fast-path / Lockout check: verify pin (or check existing lockout if pin is empty)
-		ok, locked := s.authMgr.VerifyPIN(r, pin)
+		ok, locked := s.authMgr.VerifyInteractivePIN(r, pin)
 		if locked {
 			s.renderAuthorizePage(w, r, http.StatusTooManyRequests, "Too many failed attempts. Access temporarily locked.")
 			return
@@ -755,7 +755,7 @@ func (s *Service) ServeOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ok, locked := s.authMgr.VerifyPIN(r, pin)
+		ok, locked := s.authMgr.VerifyInteractivePIN(r, pin)
 		if locked {
 			s.renderAuthorizePage(w, r, http.StatusTooManyRequests, "Too many failed attempts. Access temporarily locked.")
 			return
