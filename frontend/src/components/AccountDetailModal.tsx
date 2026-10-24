@@ -151,6 +151,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   )
 
   const displayAccountName = getAccountHeaderDisplay(isNewAccount, label, email)
+  const displayAccountTier = currentPlanTier || account.plan_tier
 
   const lastVerificationUrlFetchedAtRef = useRef<number>(0)
   const [isWaitingForVerification, setIsWaitingForVerification] = useState(false)
@@ -745,7 +746,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   >
                     {st === 'BANNED' ? 'BANNED' : st === 'ERROR' ? 'ERROR' : account.is_active ? 'ACTIVE' : (st === 'COOLDOWN' || st === 'COOLING') ? 'COOLING' : st}
                   </span>
-                  {renderPlanTierBadge(currentPlanTier || account.plan_tier)}
+                  {renderPlanTierBadge(displayAccountTier)}
                   {account.credits !== undefined && account.credits !== null && account.credits > 0 && (
                     <span
                       className="badge-chip badge-neutral"
