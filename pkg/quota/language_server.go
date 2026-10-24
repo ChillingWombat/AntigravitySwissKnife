@@ -146,9 +146,11 @@ func applyLanguageServerArgon(breakdown *LiveQuotaBreakdown, result *languageSer
 }
 
 func updateArgonModel(breakdown *LiveQuotaBreakdown, name string, remaining float64, resetTime time.Time, now time.Time) {
-	isWeekly := name == "Gemini 4 Argon Weekly"
+	isWeekly := strings.Contains(strings.ToLower(name), "weekly")
 	for i := range breakdown.Models {
-		if !isArgonQuotaIdentifier(breakdown.Models[i].ModelName) || isWeeklyQuota(breakdown.Models[i], now) != isWeekly {
+		existingName := strings.ToLower(breakdown.Models[i].ModelName)
+		existingWeekly := strings.Contains(existingName, "weekly") || strings.Contains(existingName, "7d")
+		if !isArgonQuotaIdentifier(breakdown.Models[i].ModelName) || existingWeekly != isWeekly {
 			continue
 		}
 		breakdown.Models[i].ModelName = name
@@ -199,8 +201,23 @@ func discoverLanguageServerEndpoints() []languageServerEndpoint {
 			ports = append([]int{explicitPort}, ports...)
 		}
 		for _, port := range uniquePorts(ports) {
+			for _, scheme := range []string{"https", "http"} {
+				endpoints = append(endpoints, languageServerEndpoint{
+					origin:    fmt.Sprintf("%s://127.0.0.1:%d", scheme, port),
+					csrfToken: csrfToken,
+				})
+			}
+		}
+	}
+	return endpoints
+}
+
+func languageServerEndpointsForPorts(csrfToken string, ports []int) []languageServerEndpoint {
+	endpoints := make([]languageServerEndpoint, 0, len(ports)*2)
+	for _, port := range uniquePorts(ports) {
+		for _, scheme := range []string{"https", "http"} {
 			endpoints = append(endpoints, languageServerEndpoint{
-				origin:    fmt.Sprintf("https://127.0.0.1:%d", port),
+				origin:    fmt.Sprintf("%s://127.0.0.1:%d", scheme, port),
 				csrfToken: csrfToken,
 			})
 		}

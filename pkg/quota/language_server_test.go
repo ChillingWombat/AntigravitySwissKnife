@@ -202,3 +202,16 @@ func writeGRPCWebJSON(t *testing.T, w http.ResponseWriter, payload any) {
 	}
 	_, _ = w.Write(grpcWebFrame(data))
 }
+
+func TestIssue293LanguageServerEndpointsCoverHTTPAndHTTPS(t *testing.T) {
+	endpoints := languageServerEndpointsForPorts("csrf", []int{43123, 43123})
+	if len(endpoints) != 2 {
+		t.Fatalf("endpoint count = %d, want 2", len(endpoints))
+	}
+	if endpoints[0].origin != "https://127.0.0.1:43123" || endpoints[1].origin != "http://127.0.0.1:43123" {
+		t.Fatalf("endpoint schemes = %q, %q", endpoints[0].origin, endpoints[1].origin)
+	}
+	if endpoints[0].csrfToken != "csrf" || endpoints[1].csrfToken != "csrf" {
+		t.Fatal("language server CSRF token was not retained")
+	}
+}

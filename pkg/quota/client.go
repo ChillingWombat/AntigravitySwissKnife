@@ -19,9 +19,12 @@ import (
 )
 
 var (
-	accountMutationMu sync.Mutex
-	quotaBackoffMu    sync.RWMutex
-	quotaBackoffUntil time.Time
+	accountMutationMu          sync.Mutex
+	quotaBackoffMu             sync.RWMutex
+	quotaBackoffUntil          time.Time
+	quotaCacheLoader           = LoadQuotaCache
+	languageServerArgonFetcher = fetchLanguageServerArgonQuota
+	directArgonQuotaFetcher    = fetchDirectArgonQuotaForBreakdown
 )
 
 func recordQuotaBackoff(d time.Duration) {
@@ -177,6 +180,10 @@ var (
 		"https://cloudcodeassist-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 		"https://cloudaicompanion.googleapis.com/v1internal:retrieveUserQuotaSummary",
 		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
+	}
+	CloudCodeDirectQuotaURLs = []string{
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
+		"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
 	}
 	CloudCodeModelsURLs = []string{
 		"https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
@@ -635,6 +642,18 @@ func parseResetTime(raw string) time.Time {
 	return time.Time{}
 }
 
+func isWeeklyQuotaLabel(label string) bool {
+	label = strings.ToLower(label)
+	return label == "weekly" || strings.Contains(label, "week") || strings.Contains(label, "7d")
+}
+
+func isFiveHourQuotaLabel(label string) bool {
+	label = strings.ToLower(label)
+	return label == "5h" || strings.Contains(label, "5h") ||
+		strings.Contains(label, "fivehour") || strings.Contains(label, "five_hour") ||
+		strings.Contains(label, "five-hour")
+}
+
 func classifyQuotaWindow(window, bucketID, modelName string, rTime time.Time, now time.Time) string {
 	w := strings.ToLower(window)
 	bid := strings.ToLower(bucketID)
@@ -1078,6 +1097,7 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 				if !sawClaudeWeeklyBucket && breakdown.QuotaWeeklyClaudeGPT == 0 && breakdown.Quota5hClaudeGPT > 0 {
 					breakdown.QuotaWeeklyClaudeGPT = breakdown.Quota5hClaudeGPT
 				}
+				enrichBreakdownWithDirectArgon(breakdown, accessToken, project, now)
 				return breakdown, nil
 			}
 
@@ -1156,6 +1176,7 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 					breakdown.QuotaWeeklyClaudeGPT = breakdown.Quota5hClaudeGPT
 				}
 			}
+			enrichBreakdownWithDirectArgon(breakdown, accessToken, project, now)
 			return breakdown, nil
 		}
 	}
@@ -1164,6 +1185,188 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 		return nil, lastAPIError
 	}
 	return nil, fmt.Errorf("upstream quota check failed across all endpoints")
+}
+
+type cloudCodeQuotaBucket struct {
+	ModelID           string   `json:"modelId"`
+	DisplayName       string   `json:"displayName"`
+	Window            string   `json:"window"`
+	RemainingFraction *float64 `json:"remainingFraction"`
+	ResetTime         string   `json:"resetTime"`
+}
+
+func setParsedArgonQuota(result *languageServerArgonQuota, remaining float64, resetAt time.Time, window, bucketID, displayName string, now time.Time) {
+	remaining = ClampFraction(remaining)
+	switch classifyQuotaWindow(window, bucketID, displayName, resetAt, now) {
+	case "weekly":
+		result.Weekly = &remaining
+		result.WeeklyResetTime = resetAt
+	case "5h":
+		result.FiveHour = &remaining
+		result.FiveHourResetTime = resetAt
+	}
+}
+
+func extractArgonFromQuotaBuckets(buckets []cloudCodeQuotaBucket, now time.Time) *languageServerArgonQuota {
+	result := &languageServerArgonQuota{}
+	for _, bucket := range buckets {
+		if bucket.RemainingFraction == nil || !isArgonQuotaIdentifier(bucket.ModelID, bucket.DisplayName) {
+			continue
+		}
+		setParsedArgonQuota(result, *bucket.RemainingFraction, parseResetTime(bucket.ResetTime), bucket.Window, bucket.ModelID, bucket.DisplayName, now)
+	}
+	if result.FiveHour == nil && result.Weekly == nil {
+		return nil
+	}
+	return result
+}
+
+func numericJSONField(values map[string]any, names ...string) (float64, bool) {
+	for _, name := range names {
+		switch value := values[name].(type) {
+		case float64:
+			return value, true
+		case string:
+			parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+			if err == nil {
+				return parsed, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func stringJSONField(values map[string]any, names ...string) string {
+	for _, name := range names {
+		if value, ok := values[name].(string); ok && strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func extractArgonFromModelCatalog(root any, now time.Time) *languageServerArgonQuota {
+	result := &languageServerArgonQuota{}
+	var walk func(any, string)
+	walk = func(node any, path string) {
+		switch typed := node.(type) {
+		case map[string]any:
+			context := path
+			for key, value := range typed {
+				if text, ok := value.(string); ok && isArgonQuotaIdentifier(key, text) {
+					context += " " + key + " " + text
+				}
+			}
+			if isArgonQuotaIdentifier(context) {
+				if remaining, ok := numericJSONField(typed, "remainingFraction"); ok {
+					resetAt := parseResetTime(stringJSONField(typed, "resetTime"))
+					window := stringJSONField(typed, "window", "quotaId", "bucketId", "displayName")
+					if isWeeklyQuotaLabel(window) {
+						window = "weekly"
+					} else if isFiveHourQuotaLabel(window) {
+						window = "5h"
+					} else if isWeeklyQuotaLabel(context) {
+						window = "weekly"
+					} else if isFiveHourQuotaLabel(context) {
+						window = "5h"
+					}
+					setParsedArgonQuota(result, remaining, resetAt, window, "", "", now)
+				}
+			}
+			for key, child := range typed {
+				walk(child, path+"."+key)
+			}
+		case []any:
+			for i, child := range typed {
+				walk(child, fmt.Sprintf("%s[%d]", path, i))
+			}
+		}
+	}
+	walk(root, "")
+	if result.FiveHour == nil && result.Weekly == nil {
+		return nil
+	}
+	return result
+}
+
+func fetchDirectArgonQuota(accessToken, project string, now time.Time) (*languageServerArgonQuota, error) {
+	if accessToken == "" {
+		return nil, fmt.Errorf("empty access token")
+	}
+	if project == "" {
+		project = "aicode-consumers"
+	}
+	client := &http.Client{Timeout: 8 * time.Second}
+	payload, _ := json.Marshal(map[string]string{"project": project})
+
+	for _, endpoint := range CloudCodeDirectQuotaURLs {
+		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+		var response struct {
+			Buckets []cloudCodeQuotaBucket `json:"buckets"`
+		}
+		if json.Unmarshal(body, &response) == nil {
+			if result := extractArgonFromQuotaBuckets(response.Buckets, now); result != nil {
+				return result, nil
+			}
+		}
+	}
+
+	for _, endpoint := range CloudCodeModelsURLs {
+		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+		var response any
+		if json.Unmarshal(body, &response) == nil {
+			if result := extractArgonFromModelCatalog(response, now); result != nil {
+				return result, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("Gemini 4 Argon quota not present in CloudCode responses")
+}
+
+func fetchDirectArgonQuotaForBreakdown(accessToken, project string, now time.Time) (*languageServerArgonQuota, error) {
+	if core.IsRunningTests() {
+		return nil, fmt.Errorf("direct quota fallback disabled during tests")
+	}
+	return fetchDirectArgonQuota(accessToken, project, now)
+}
+
+func enrichBreakdownWithDirectArgon(breakdown *LiveQuotaBreakdown, accessToken, project string, now time.Time) {
+	if breakdown == nil || (breakdown.Quota5hArgon != nil && breakdown.QuotaWeeklyArgon != nil) {
+		return
+	}
+	if argonQuota, err := directArgonQuotaFetcher(accessToken, project, now); err == nil {
+		applyLanguageServerArgon(breakdown, argonQuota, now)
+	}
 }
 
 // DetectTierFromAvailableModels checks model permissions to infer account tier class.
@@ -1381,6 +1584,38 @@ func populateVerificationAuthUser(rawURL, email string) string {
 	return cleanURL
 }
 
+func cachedArgonResetTime(cached *QuotaSummary, resetSeconds float64, now time.Time) (time.Time, bool) {
+	if cached == nil || cached.LastPolled.IsZero() || resetSeconds <= 0 {
+		return time.Time{}, false
+	}
+	resetAt := cached.LastPolled.Add(time.Duration(resetSeconds * float64(time.Second)))
+	return resetAt, resetAt.After(now)
+}
+
+func restoreCachedArgon(breakdown *LiveQuotaBreakdown, cached *QuotaSummary, now time.Time) {
+	if breakdown == nil || cached == nil {
+		return
+	}
+	if breakdown.Quota5hArgon == nil && cached.Quota5hArgon != nil {
+		if resetAt, ok := cachedArgonResetTime(cached, cached.ResetSeconds5hArgon, now); ok {
+			remaining := ClampFraction(*cached.Quota5hArgon)
+			breakdown.Quota5hArgon = &remaining
+			breakdown.ResetSeconds5hArgon = resetAt.Sub(now).Seconds()
+			breakdown.ResetHorizon5hArgonText = FormatResetHorizon(resetAt, now)
+			updateArgonModel(breakdown, "Gemini 4 Argon 5H", remaining, resetAt, now)
+		}
+	}
+	if breakdown.QuotaWeeklyArgon == nil && cached.QuotaWeeklyArgon != nil {
+		if resetAt, ok := cachedArgonResetTime(cached, cached.ResetSecondsWeeklyArgon, now); ok {
+			remaining := ClampFraction(*cached.QuotaWeeklyArgon)
+			breakdown.QuotaWeeklyArgon = &remaining
+			breakdown.ResetSecondsWeeklyArgon = resetAt.Sub(now).Seconds()
+			breakdown.ResetHorizonWeeklyArgonText = FormatResetHorizon(resetAt, now)
+			updateArgonModel(breakdown, "Gemini 4 Argon Weekly", remaining, resetAt, now)
+		}
+	}
+}
+
 // PollAccountLiveQuota queries Google CloudCode for real quota, tier, and credits, refreshing tokens if needed.
 func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	if acc == nil {
@@ -1459,11 +1694,13 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 	}
 
-	if breakdown != nil && acc.IsActive && (breakdown.Quota5hArgon == nil || breakdown.QuotaWeeklyArgon == nil) {
-		// The CloudCode REST summary omits Gemini 4 Argon buckets for paid Pro accounts.
-		// Only the active account can be read from Antigravity's local language server.
-		if argonQuota, err := fetchLanguageServerArgonQuota(acc.Email, now); err == nil {
+	if breakdown != nil && (breakdown.Quota5hArgon == nil || breakdown.QuotaWeeklyArgon == nil) {
+		// The local server has the Argon buckets even when another Swiss account is active.
+		if argonQuota, err := languageServerArgonFetcher(acc.Email, now); err == nil {
 			applyLanguageServerArgon(breakdown, argonQuota, now)
+		}
+		if cached := quotaCacheLoader()[strings.ToLower(strings.TrimSpace(acc.Email))]; cached != nil {
+			restoreCachedArgon(breakdown, cached, now)
 		}
 	}
 
