@@ -337,6 +337,21 @@ func TestVerifyCandidatePIN_CorruptConfigFailsClosed(t *testing.T) {
 	if VerifyCandidatePIN("K7m9P2xQ", "K7m9P2xQ", true) {
 		t.Fatal("expected corrupt config to fail closed instead of accepting the pairing PIN")
 	}
+	authManager := NewAuthManager("test-token-123", "123456", nil)
+	authManager.mu.Lock()
+	authManager.useAppPassword = true
+	authManager.mu.Unlock()
+
+	reqWithPIN := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp?pin=123456", nil)
+	reqWithPIN.RemoteAddr = "127.0.0.1:12345"
+	reqWithPIN.Header.Set("X-Bridge-PIN", "123456")
+	if granted, _ := authManager.VerifyPIN(reqWithPIN, "123456"); granted {
+		t.Fatal("expected VerifyPIN to fail closed with corrupt config")
+	}
+	if granted, _ := authManager.ValidateRequest(reqWithPIN); granted {
+		t.Fatal("expected ValidateRequest to fail closed with corrupt config")
+	}
+
 }
 
 func TestAuthManager_SweepsExpiredLockoutEntries(t *testing.T) {

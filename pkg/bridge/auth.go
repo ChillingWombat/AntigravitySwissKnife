@@ -443,7 +443,7 @@ func (am *AuthManager) verifyCandidatesState(r *http.Request, candidates []strin
 
 	valid := false
 	for _, candidate := range uniqueCandidates {
-		if (allowToken && secureCompare(candidate, token)) || secureCompare(candidate, pin) {
+		if (allowToken && secureCompare(candidate, token)) || (!useAppPassword && secureCompare(candidate, pin)) {
 			valid = true
 			break
 		}
