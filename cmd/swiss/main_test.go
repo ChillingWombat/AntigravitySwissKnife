@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -18,6 +20,9 @@ func TestCLIHelpAndVersion(t *testing.T) {
 	}
 	if !strings.Contains(string(out), core.AppVersion) {
 		t.Errorf("expected version to contain %s, got: %s", core.AppVersion, string(out))
+	}
+	if !strings.Contains(string(out), "("+runtime.Version()+")") {
+		t.Errorf("expected version to contain runtime %s, got: %s", runtime.Version(), string(out))
 	}
 
 	cmdHelp := exec.Command("go", "run", ".", "help")
@@ -42,13 +47,34 @@ func TestCLIAccountsAndStatus(t *testing.T) {
 		t.Errorf("expected JSON status with active_account, got: %s", string(outStatus))
 	}
 
-	cmdQuota := exec.Command("go", "run", ".", "quota")
-	cmdQuota.Env = os.Environ()
+	missingSocket := filepath.Join(t.TempDir(), "missing.sock")
+	cmdQuota := exec.Command("go", "run", ".", "quota", "--socket", missingSocket)
+	cmdQuota.Env = append(os.Environ(), "ANTIGRAVITY_SWISS_CONFIG_DIR="+t.TempDir())
 	outQuota, err := cmdQuota.CombinedOutput()
-	if err != nil {
-		t.Fatalf("quota failed: %v, out: %s", err, string(outQuota))
+	if err == nil {
+		t.Fatalf("expected quota without daemon to fail, got: %s", string(outQuota))
 	}
-	if !strings.Contains(string(outQuota), "Gemini Model Quota Horizons") {
-		t.Errorf("expected quota output with table header, got: %s", string(outQuota))
+	if !strings.Contains(string(outQuota), "Daemon unavailable") {
+		t.Errorf("expected daemon unavailable message, got: %s", string(outQuota))
+	}
+}
+
+func TestCLIQuotaWithoutDaemonDoesNotFabricate(t *testing.T) {
+	missingSocket := filepath.Join(t.TempDir(), "missing.sock")
+	cmd := exec.Command("go", "run", ".", "quota", "--json", "--socket", missingSocket)
+	cmd.Env = append(os.Environ(), "ANTIGRAVITY_SWISS_CONFIG_DIR="+t.TempDir())
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected quota without a daemon to fail, got: %s", string(out))
+	}
+
+	output := string(out)
+	for _, want := range []string{`"error"`, `"daemon_running": false`} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected honest daemon-unavailable output containing %s, got: %s", want, output)
+		}
+	}
+	if strings.Contains(output, "gemini-3.8-flash") {
+		t.Errorf("quota failure must not fabricate model quotas: %s", output)
 	}
 }

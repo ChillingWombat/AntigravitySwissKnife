@@ -84,7 +84,7 @@ func TestAppReleaseManager_404OrEmptyReleases(t *testing.T) {
 }
 
 func TestAppReleaseManager_OlderRelease(t *testing.T) {
-	// Remote release is older than current version (e.g. 0.0.5 vs 0.1.0)
+	// Remote release is older than the current AppVersion.
 	olderRelease := []GitHubRelease{
 		{
 			TagName:     "v0.0.5",

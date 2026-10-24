@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -67,7 +68,7 @@ func main() {
 
 	switch cmd {
 	case "version", "-v", "--version":
-		fmt.Printf("Antigravity Swiss Knife v%s (Go 1.24.6)\n", core.AppVersion)
+		fmt.Printf("Antigravity Swiss Knife v%s (%s)\n", core.AppVersion, runtime.Version())
 	case "status":
 		runStatus(args)
 	case "daemon":
@@ -263,19 +264,70 @@ func runQuota(args []string) {
 	err := client.Call("swiss.getQuotaSummary", nil, &q)
 
 	if err != nil {
-		// Mock quota summary for standalone mode
-		now := time.Now()
-		models := []quota.ModelQuota{
-			{ModelName: "gemini-3.8-flash", Fraction: 0.85, ResetTime: now.Add(4 * time.Hour), ResetText: quota.FormatResetHorizon(now.Add(4*time.Hour), now), HealthStatus: core.StatusHealthy},
-			{ModelName: "gemini-3.1-pro", Fraction: 0.92, ResetTime: now.Add(2 * time.Hour), ResetText: quota.FormatResetHorizon(now.Add(2*time.Hour), now), HealthStatus: core.StatusHealthy},
-			{ModelName: "claude-sonnet-4-6", Fraction: 0.45, ResetTime: now.Add(1 * time.Hour), ResetText: quota.FormatResetHorizon(now.Add(1*time.Hour), now), HealthStatus: core.StatusHealthy},
+		activeAccount := ""
+		accountCount := 0
+		var storeErr error
+		if store, errStore := keyring.NewStore(""); errStore != nil {
+			storeErr = errStore
+		} else {
+			accountCount = len(store.ListAccounts())
+			activeAccount = store.ActiveAccount()
+			if activeAccount == "" {
+				for _, account := range store.ListAccounts() {
+					if account.IsActive {
+						activeAccount = account.Email
+						break
+					}
+				}
+			}
 		}
-		q = quota.QuotaSummary{
-			AccountEmail: "active",
-			Models:       models,
-			MinFraction:  0.45,
-			OverallHealth: core.StatusHealthy,
+
+		var cached *quota.QuotaSummary
+		if activeAccount != "" {
+			cached = quota.LoadQuotaCache()[strings.ToLower(strings.TrimSpace(activeAccount))]
 		}
+
+		if cached != nil {
+			q = *cached
+			if q.AccountEmail == "" {
+				q.AccountEmail = activeAccount
+			}
+			if *jsonOut {
+				payload := map[string]interface{}{
+					"error":          "daemon unavailable",
+					"daemon_running": false,
+					"source":         "cache",
+					"quota":          q,
+				}
+				b, _ := json.MarshalIndent(payload, "", "  ")
+				fmt.Println(string(b))
+			} else {
+				fmt.Fprintf(os.Stderr, "Daemon unavailable; showing cached quota for %s.\n", q.AccountEmail)
+				printQuotaTable(q)
+			}
+			os.Exit(1)
+		}
+
+		if *jsonOut {
+			payload := map[string]interface{}{
+				"error":           "daemon unavailable",
+				"daemon_running":  false,
+				"active_account":  activeAccount,
+				"accounts_loaded": accountCount,
+			}
+			if storeErr != nil {
+				payload["store_error"] = storeErr.Error()
+			}
+			b, _ := json.MarshalIndent(payload, "", "  ")
+			fmt.Println(string(b))
+		} else {
+			message := fmt.Sprintf("Daemon unavailable at %s and no cached quota is available.", *socketPath)
+			if storeErr != nil {
+				message += fmt.Sprintf(" Account store error: %v", storeErr)
+			}
+			fmt.Fprintln(os.Stderr, message)
+		}
+		os.Exit(1)
 	}
 
 	if *jsonOut {
@@ -284,6 +336,10 @@ func runQuota(args []string) {
 		return
 	}
 
+	printQuotaTable(q)
+}
+
+func printQuotaTable(q quota.QuotaSummary) {
 	fmt.Println("Gemini Model Quota Horizons:")
 	fmt.Printf("%-20s %-12s %-14s %s\n", "MODEL", "REMAINING", "HEALTH", "RESET HORIZON")
 	fmt.Println(strings.Repeat("-", 64))
@@ -653,6 +709,12 @@ func runCache(args []string) {
 			PruneSteps:   true,
 			PruneTasks:   true,
 		}
+		activeIDs, err := cache.DiscoverActiveCascadeIDs(pruner.BrainDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Cache prune error: %v\n", err)
+			os.Exit(1)
+		}
+		opts.ActiveCascadeIDs = activeIDs
 		res, err := pruner.Prune(opts)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cache prune error: %v\n", err)

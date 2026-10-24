@@ -148,9 +148,9 @@ test('DaemonManager - rejects health and status payloads that do not match the S
 
 test('DaemonManager - accepts only a complete Swiss health contract', async () => {
   const fixture = await startHttpServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
     if (req.url === '/health') {
-      res.end('{"status":"ok","version":"0.1.0"}');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"status":"ok","version":"0.2.0","daemon_running":true}');
       return;
     }
     res.writeHead(404);
@@ -161,7 +161,7 @@ test('DaemonManager - accepts only a complete Swiss health contract', async () =
     const dm = new DaemonManager({ baseUrl: fixture.baseUrl });
     assert.deepEqual(await dm.checkStatus(250), {
       status: 'ok',
-      version: '0.1.0',
+      version: '0.2.0',
       daemon_running: true,
     });
   } finally {
@@ -177,7 +177,7 @@ test('DaemonManager - accepts an authenticated Swiss status contract when health
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end('{"daemon_running":true,"daemon_pid":4242,"version":"0.1.0"}');
+    res.end('{"daemon_running":true,"daemon_pid":4242,"version":"0.2.0"}');
   });
 
   try {
@@ -188,7 +188,7 @@ test('DaemonManager - accepts an authenticated Swiss status contract when health
     assert.deepEqual(await dm.checkStatus(250), {
       daemon_running: true,
       daemon_pid: 4242,
-      version: '0.1.0',
+      version: '0.2.0',
     });
   } finally {
     await fixture.close();
@@ -212,7 +212,7 @@ test('recoverDaemonConnection - starts the daemon and navigates only to the trus
       checkStatus: async () => ({
         daemon_running: true,
         status: 'ok',
-        version: '0.1.0',
+        version: '0.2.0',
       }),
     },
     window: {
