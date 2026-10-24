@@ -24,7 +24,16 @@ const DEFAULT_INTEGRATION: Integration = {
   proxy: { scope: 'antigravity', pin: '' },
 }
 
+const wrappingTextStyle: React.CSSProperties = {
+  whiteSpace: 'normal',
+  overflowWrap: 'break-word',
+  wordBreak: 'break-word',
+  minWidth: 0,
+}
+
 const cardStyle: React.CSSProperties = {
+  ...wrappingTextStyle,
+  overflow: 'hidden',
   backgroundColor: 'var(--surface)',
   border: '1px solid var(--border)',
   borderRadius: '12px',
@@ -32,6 +41,16 @@ const cardStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: '14px',
+}
+
+const optionCardStyle: React.CSSProperties = {
+  ...wrappingTextStyle,
+  overflow: 'hidden',
+  textAlign: 'left',
+  padding: '14px',
+  borderRadius: '10px',
+  backgroundColor: 'var(--canvas)',
+  cursor: 'pointer',
 }
 
 const sectionLabelStyle: React.CSSProperties = {
@@ -169,9 +188,9 @@ export const ModelSourceTab: React.FC = () => {
     const profile = integration.apps[app]
     const isCustom = profile.source === 'custom'
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>{label}</span>
+      <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
+        <div style={{ ...wrappingTextStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
+          <span style={{ ...wrappingTextStyle, fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>{label}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <div style={segmentedStyle}>
               <button style={segmentStyle(!isCustom)} onClick={() => setApp(app, { source: 'native' })}>
@@ -195,7 +214,7 @@ export const ModelSourceTab: React.FC = () => {
   const isExternal = integration.proxy.scope === 'external'
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {feedback && (
         <div
           style={{
@@ -222,6 +241,7 @@ export const ModelSourceTab: React.FC = () => {
           <button
             onClick={() => save({ ...integration, mode: 'profile_isolation' })}
             style={{
+              ...optionCardStyle,
               textAlign: 'left',
               padding: '14px',
               borderRadius: '10px',
@@ -230,14 +250,15 @@ export const ModelSourceTab: React.FC = () => {
               cursor: 'pointer',
             }}
           >
-            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>Profile Isolation</div>
-            <p style={{ margin: '4px 0 0', fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <div style={{ ...wrappingTextStyle, fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Profile Isolation</div>
+            <p style={{ ...wrappingTextStyle, margin: '4px 0 0', fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               Each app runs on its own profile with a single catalog. Native windows stay untouched; custom-model windows run separately.
             </p>
           </button>
           <button
             onClick={() => save({ ...integration, mode: 'api_proxy' })}
             style={{
+              ...optionCardStyle,
               textAlign: 'left',
               padding: '14px',
               borderRadius: '10px',
@@ -247,12 +268,12 @@ export const ModelSourceTab: React.FC = () => {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>API Proxy</span>
+              <span style={{ ...wrappingTextStyle, fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>API Proxy</span>
               <span style={riskStyle('orange')}>
                 <AlertTriangle size={12} /> Potential Ban Risk
               </span>
             </div>
-            <p style={{ margin: '4px 0 0', fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <p style={{ ...wrappingTextStyle, margin: '4px 0 0', fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
               Routes Antigravity through the local proxy so one catalog can serve both model types. Native model traffic passes through the daemon.
             </p>
           </button>
@@ -291,36 +312,36 @@ export const ModelSourceTab: React.FC = () => {
               <span style={riskStyle('red')}>
                 <AlertCircle size={12} /> Increased Ban Risk
               </span>
-              <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+              <span style={{ ...wrappingTextStyle, fontSize: '11.5px', color: 'var(--text-muted)' }}>
                 External agents can call native models through this endpoint.
               </span>
             </div>
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+          <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
             <span style={sectionLabelStyle}>OpenAI protocol</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-              <code style={{ fontSize: '12px', color: 'var(--text)' }}>{endpoint || '—'}/models</code>
+              <code style={{ ...wrappingTextStyle, fontSize: '12px', color: 'var(--text)' }}>{endpoint || '—'}/models</code>
               <button style={actionStyle} onClick={copyEndpoint}>
                 {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy endpoint'}
               </button>
             </div>
-            <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+            <span style={{ ...wrappingTextStyle, fontSize: '11.5px', color: 'var(--text-muted)' }}>
               `/v1/chat/completions`. Gemini model calls are converted to the Gemini protocol before reaching Google.
             </span>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+          <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
             <span style={sectionLabelStyle}>Gemini protocol</span>
-            <code style={{ fontSize: '12px', color: 'var(--text)' }}>{geminiBase || '—'}/models</code>
-            <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+            <code style={{ ...wrappingTextStyle, fontSize: '12px', color: 'var(--text)' }}>{geminiBase || '—'}/models</code>
+            <span style={{ ...wrappingTextStyle, fontSize: '11.5px', color: 'var(--text-muted)' }}>
               Gemini models only, listed and served without conversion.
             </span>
           </div>
 
           {isExternal && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-              <span style={{ fontSize: '12px', color: 'var(--text)', whiteSpace: 'nowrap' }}>PIN / private key (optional)</span>
+              <span style={{ ...wrappingTextStyle, fontSize: '12px', color: 'var(--text)' }}>PIN / private key (optional)</span>
               <input
                 type="password"
                 value={integration.proxy.pin || ''}
