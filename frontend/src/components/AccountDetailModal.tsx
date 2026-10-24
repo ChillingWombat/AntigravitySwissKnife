@@ -14,6 +14,9 @@ import {
   normalizeMfaSecret,
   parseAccountErrorAlert,
   ACCOUNT_SETUP_TEXTS,
+  createRequestGate,
+  commitLatest,
+  copyTextWithFallback,
 } from '../utils/accountPresentation'
 
 interface AccountDetailModalProps {
@@ -96,7 +99,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     password: false,
     totpSecret: false,
   })
-  const quotaRequestIdRef = useRef(0)
+  const quotaRequestGate = useRef(createRequestGate()).current
 
   const [liveQuota5h, setLiveQuota5h] = useState<number | null>(
     account.quota_5h_available ?? account.quota_5h_current ?? null
@@ -195,39 +198,45 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     const normalizedEmail = typeof targetEmail === 'string' ? targetEmail.trim() : ''
     const effectiveEmail = normalizedEmail || email.trim() || account.email
     if (!effectiveEmail) return null
-    const requestId = ++quotaRequestIdRef.current
+    const requestId = quotaRequestGate.begin()
     setIsRefreshingQuota(true)
     setError(null)
+    let q: any = null
     try {
-      const q = await api.refreshAccountQuota(effectiveEmail)
-      if (requestId !== quotaRequestIdRef.current) return null
-      if (q) {
-        const hadError = (currentStatus || '').toUpperCase() === 'ERROR'
-        const isRecovered =
-          !q.error_status &&
-          !q.error_message &&
-          q.reset_horizon_text !== 'Not Polled' &&
-          !q.reset_horizon_text?.startsWith('Error')
-        applyQuotaSummaryUpdate(q, true)
-        if (hadError || !q.error_message) {
-          onSaved()
-        }
-        if (hadError && isRecovered) {
-          setIsWaitingForVerification(false)
-          if (isWaitingForVerificationRef.current) {
-            isWaitingForVerificationRef.current = false
-            onClose()
+      const committed = await commitLatest(
+        quotaRequestGate,
+        requestId,
+        api.refreshAccountQuota(effectiveEmail),
+        (result) => {
+          q = result
+          if (!result) return
+          const hadError = (currentStatus || '').toUpperCase() === 'ERROR'
+          const isRecovered =
+            !result.error_status &&
+            !result.error_message &&
+            result.reset_horizon_text !== 'Not Polled' &&
+            !result.reset_horizon_text?.startsWith('Error')
+          applyQuotaSummaryUpdate(result, true)
+          if (hadError || !result.error_message) {
+            onSaved()
+          }
+          if (hadError && isRecovered) {
+            setIsWaitingForVerification(false)
+            if (isWaitingForVerificationRef.current) {
+              isWaitingForVerificationRef.current = false
+              onClose()
+            }
           }
         }
-      }
-      return q
+      )
+      return committed ? q : null
     } catch (err: any) {
-      if (requestId === quotaRequestIdRef.current) {
+      if (quotaRequestGate.isCurrent(requestId)) {
         console.warn('Quota refresh warning:', err)
       }
       return null
     } finally {
-      if (requestId === quotaRequestIdRef.current) {
+      if (quotaRequestGate.isCurrent(requestId)) {
         setIsRefreshingQuota(false)
       }
     }
@@ -254,9 +263,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   }
 
   useEffect(() => {
-    let cancelled = false
     const accountEmail = account.email
-    const requestId = ++quotaRequestIdRef.current
+    const requestId = quotaRequestGate.begin()
     if (!isNewAccount && account.email && (account.refresh_token || account.access_token)) {
       if (account.status?.toUpperCase() === 'ERROR') {
         handleRefreshLiveQuota(accountEmail)
@@ -265,17 +273,19 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         liveQuota5h === null ||
         (account.status?.toUpperCase() === 'BANNED' && !account.error_message)
       ) {
-        api.getQuotaSummary(accountEmail).then((q) => {
-          if (!cancelled && requestId === quotaRequestIdRef.current && q) {
-            applyQuotaSummaryUpdate(q, false)
+        void commitLatest(
+          quotaRequestGate,
+          requestId,
+          api.getQuotaSummary(accountEmail),
+          (q) => {
+            if (q) applyQuotaSummaryUpdate(q, false)
           }
-        }).catch(() => {})
+        ).catch(() => {})
       }
     }
 
     return () => {
-      cancelled = true
-      quotaRequestIdRef.current += 1
+      quotaRequestGate.begin()
     }
   }, [account.email])
 
@@ -357,56 +367,49 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [formattedCode, setFormattedCode] = useState<string>('--- ---')
   const [remainingSeconds, setRemainingSeconds] = useState<number>(30)
   const [copiedTotp, setCopiedTotp] = useState(false)
+  const totpRequestGate = useRef(createRequestGate()).current
 
   useEffect(() => {
-    let cancelled = false
     let timer: ReturnType<typeof setInterval> | null = null
     const updateCode = async () => {
       const clean = totpSecret?.trim()
       if (!clean) {
+        totpRequestGate.begin()
         setDerivedCode(null)
         setFormattedCode('--- ---')
         return
       }
-      const res = await generateTOTP(clean)
-      if (cancelled) return
-      if (res) {
-        setDerivedCode(res.code)
-        setFormattedCode(res.formattedCode)
-        setRemainingSeconds(res.remainingSeconds)
-      } else {
-        setDerivedCode(null)
-        setFormattedCode('--- ---')
-      }
+      const requestId = totpRequestGate.begin()
+      await commitLatest(totpRequestGate, requestId, generateTOTP(clean), (res) => {
+        if (res) {
+          setDerivedCode(res.code)
+          setFormattedCode(res.formattedCode)
+          setRemainingSeconds(res.remainingSeconds)
+        } else {
+          setDerivedCode(null)
+          setFormattedCode('--- ---')
+        }
+      })
     }
 
     updateCode()
     timer = setInterval(updateCode, 1000)
     return () => {
-      cancelled = true
+      totpRequestGate.begin()
       if (timer) clearInterval(timer)
     }
   }, [totpSecret])
 
-  const handleCopyTotpCode = () => {
+  const handleCopyTotpCode = async () => {
     if (!derivedCode) return
-    if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(derivedCode).catch(() => {
-        try {
-          const textArea = document.createElement('textarea')
-          textArea.value = derivedCode
-          textArea.style.position = 'fixed'
-          textArea.style.opacity = '0'
-          document.body.appendChild(textArea)
-          textArea.focus()
-          textArea.select()
-          document.execCommand('copy')
-          document.body.removeChild(textArea)
-        } catch {}
-      })
+    try {
+      if (await copyTextWithFallback(derivedCode)) {
+        setCopiedTotp(true)
+        setTimeout(() => setCopiedTotp(false), 1500)
+      }
+    } catch {
+      setCopiedTotp(false)
     }
-    setCopiedTotp(true)
-    setTimeout(() => setCopiedTotp(false), 1500)
   }
 
   useEffect(() => {

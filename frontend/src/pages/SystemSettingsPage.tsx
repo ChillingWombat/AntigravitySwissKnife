@@ -34,6 +34,7 @@ import { ToggleSwitch } from '../components/ToggleSwitch'
 import { GithubIcon } from '../components/GithubIcon'
 import { api } from '../api'
 import { applyTheme, getStoredThemeMode, normalizeThemeMode, type ThemeMode } from '../theme'
+import { copyWithStatus } from '../utils/accountPresentation'
 import soloCanImg from '../assets/solo_can.png'
 
 interface SystemSettingsPageProps {
@@ -576,24 +577,24 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
   }, [])
 
   const copyPath = async (key: string, val: string) => {
-    try {
-      await navigator.clipboard.writeText(val)
-      setCopiedKey(key)
+    const copied = await copyWithStatus(
+      () => navigator.clipboard.writeText(val),
+      (success) => setCopiedKey(success ? key : null)
+    )
+    if (copied) {
       setTimeout(() => setCopiedKey(null), 1500)
-    } catch (err: any) {
-      console.warn('Could not copy path:', err)
     }
   }
 
   const copyReportText = async () => {
-    if (diagResult?.sanitized_report) {
-      try {
-        await navigator.clipboard.writeText(diagResult.sanitized_report)
-        setCopiedReport(true)
-        setTimeout(() => setCopiedReport(false), 1500)
-      } catch (err: any) {
-        console.warn('Could not copy diagnostic report:', err)
-      }
+    const report = diagResult?.sanitized_report
+    if (!report) return
+    const copied = await copyWithStatus(
+      () => navigator.clipboard.writeText(report),
+      setCopiedReport
+    )
+    if (copied) {
+      setTimeout(() => setCopiedReport(false), 1500)
     }
   }
 

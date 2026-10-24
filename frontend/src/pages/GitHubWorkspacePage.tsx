@@ -191,6 +191,11 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
 
   const [currentTime, setCurrentTime] = useState(getCurrentTimestamp)
 
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(getCurrentTimestamp()), 60_000)
+    return () => clearInterval(interval)
+  }, [])
+
   const getEffectiveWorkspacePath = useCallback(() => {
     if (scope && scope !== 'GLOBAL') {
       return scope
@@ -257,7 +262,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [stateFilter, getEffectiveWorkspacePath, showToast])
 
   const handleMoveCard = async (targetColumnId: string) => {
     if (!draggedCard || draggedCard.column_id === targetColumnId) {
