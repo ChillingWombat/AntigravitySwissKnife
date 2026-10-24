@@ -4996,11 +4996,12 @@ func find8dot3Aliases(target string, probes ...string) []string {
 }
 
 func normalizeMacOSPathAlias(p string) string {
-	if runtime.GOOS != "darwin" {
-		return p
-	}
 	normalized := path.Clean(strings.ReplaceAll(stripExtendedPrefix(p), "\\", "/"))
-	if normalized == "/var" || strings.HasPrefix(normalized, "/var/") {
+	if normalized == "/var/folders" || strings.HasPrefix(normalized, "/var/folders/") ||
+		normalized == "/private/var/folders" || strings.HasPrefix(normalized, "/private/var/folders/") {
+		return strings.TrimPrefix(normalized, "/private")
+	}
+	if runtime.GOOS == "darwin" && (normalized == "/var" || strings.HasPrefix(normalized, "/var/")) {
 		return "/private" + normalized
 	}
 	return p
@@ -5088,7 +5089,12 @@ func isSameOrAncestor(ancestorCandidate, child string) bool {
 	return pathMatchesOrIsSubpath(child, ancestorCandidate)
 }
 
-func isAllowedTempPath(candidate string) bool {
+// isStrictSubpath reports whether candidate is beneath root, excluding equality.
+func isStrictSubpath(candidate, root string) bool {
+	return pathMatchesOrIsSubpath(candidate, root) && !pathMatchesOrIsSubpath(root, candidate)
+}
+
+func tempPathRoots() []string {
 	roots := []string{os.TempDir()}
 	if resolved, err := filepath.EvalSymlinks(os.TempDir()); err == nil {
 		roots = append(roots, resolved)
@@ -5096,8 +5102,21 @@ func isAllowedTempPath(candidate string) bool {
 	if runtime.GOOS == "darwin" {
 		roots = append(roots, "/var/folders", "/private/var/folders")
 	}
-	for _, root := range roots {
-		if pathMatchesOrIsSubpath(candidate, root) {
+	return roots
+}
+
+func isAllowedTempPath(candidate string) bool {
+	for _, root := range tempPathRoots() {
+		if isStrictSubpath(candidate, root) {
+			return true
+		}
+	}
+	return false
+}
+
+func isTempPathRoot(candidate string) bool {
+	for _, root := range tempPathRoots() {
+		if pathMatchesOrIsSubpath(candidate, root) && pathMatchesOrIsSubpath(root, candidate) {
 			return true
 		}
 	}
@@ -5359,6 +5378,11 @@ func validateDeletablePath(target string) (string, error) {
 	// 2. Explicitly block Unix root / and top-level aliases
 	if cleanPath == "/" || cleanPath == "\\" || cleanPath == "." {
 		return "", fmt.Errorf("prohibited: cannot delete filesystem root")
+	}
+
+	// Reject the temporary root even when it is outside the listed system directories.
+	if isTempPathRoot(cleanPath) {
+		return "", fmt.Errorf("prohibited: cannot delete temporary directory root: %s", cleanPath)
 	}
 
 	// 3. Explicitly block system directories
