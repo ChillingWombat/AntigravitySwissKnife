@@ -1,6 +1,8 @@
 package cache
 
 import (
+	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -8,11 +10,14 @@ import (
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	_ "modernc.org/sqlite"
 )
 
 // DefaultMaxSizeMinAgeDuration is the safety floor: files younger than 24 hours
 // are never pruned during size-based capacity reduction to safeguard active sessions.
 const DefaultMaxSizeMinAgeDuration = 24 * time.Hour
+
+const activeCascadeStaleness = 2 * time.Hour
 
 // PruneOptions specifies rules and safety constraints for cache cleanup.
 type PruneOptions struct {
@@ -59,6 +64,48 @@ type prunableFile struct {
 // Prune cleans stale files according to PruneOptions while strictly respecting the conversation shield.
 func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 	res := &PruneResult{}
+	brainInfo, err := os.Stat(p.BrainDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return res, nil
+		}
+		return res, err
+	}
+	if !brainInfo.IsDir() {
+		return res, fmt.Errorf("brain cache path is not a directory: %s", p.BrainDir)
+	}
+
+	lockPath := filepath.Join(p.BrainDir, ".prune.lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return res, fmt.Errorf("open prune lock: %w", err)
+	}
+	if err := core.LockFile(lockFile); err != nil {
+		_ = lockFile.Close()
+		return res, fmt.Errorf("acquire prune lock: %w", err)
+	}
+	defer func() {
+		_ = core.UnlockFile(lockFile)
+		_ = lockFile.Close()
+	}()
+
+	activeIDs, err := DiscoverActiveCascadeIDs(p.BrainDir)
+	if err != nil {
+		return res, fmt.Errorf("discover active cascades: %w", err)
+	}
+	if len(activeIDs) > 0 {
+		seenIDs := make(map[string]bool, len(opts.ActiveCascadeIDs)+len(activeIDs))
+		for _, id := range opts.ActiveCascadeIDs {
+			seenIDs[id] = true
+		}
+		for _, id := range activeIDs {
+			if !seenIDs[id] {
+				seenIDs[id] = true
+				opts.ActiveCascadeIDs = append(opts.ActiveCascadeIDs, id)
+			}
+		}
+	}
+
 	if opts.MinAgeDays == 0 && opts.OlderThanDays > 0 {
 		opts.MinAgeDays = opts.OlderThanDays
 	}
@@ -77,8 +124,11 @@ func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 	var totalRemainingBytes int64
 	var remainingPrunable []prunableFile
 
-	err := filepath.Walk(p.BrainDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(p.BrainDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
+			return nil
+		}
+		if path == lockPath {
 			return nil
 		}
 
@@ -176,6 +226,95 @@ func (p *Pruner) Prune(opts PruneOptions) (*PruneResult, error) {
 	res.FreedBytes = res.BytesReclaimed
 	res.DeletedFiles = res.FilesDeleted
 	return res, nil
+}
+
+// DiscoverActiveCascadeIDs returns fresh conversations that are running or not fully idle.
+func DiscoverActiveCascadeIDs(brainDir string) ([]string, error) {
+	if brainDir == "" {
+		brainDir = core.GetBrainDir()
+	}
+
+	candidates := []string{
+		filepath.Join(filepath.Dir(brainDir), "conversation_summaries.db"),
+		filepath.Join(brainDir, "conversation_summaries.db"),
+	}
+	dbPath := ""
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			dbPath = candidate
+			break
+		}
+	}
+	if dbPath == "" {
+		return nil, nil
+	}
+
+	connStr := fmt.Sprintf("file:%s?mode=ro&_busy_timeout=5000", filepath.ToSlash(dbPath))
+	db, err := sql.Open("sqlite", connStr)
+	if err != nil {
+		return nil, fmt.Errorf("open conversation summaries: %w", err)
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`
+		SELECT conversation_id, COALESCE(last_modified_time, '')
+		FROM conversation_summaries
+		WHERE TRIM(COALESCE(conversation_id, '')) != ''
+		  AND (
+			COALESCE(not_fully_idle, 0) != 0
+			OR UPPER(COALESCE(status, '')) LIKE '%RUNNING%'
+		  )`)
+	if err != nil {
+		return nil, fmt.Errorf("query active conversations: %w", err)
+	}
+	defer rows.Close()
+
+	seen := make(map[string]bool)
+	var activeIDs []string
+	for rows.Next() {
+		var id, modified string
+		if err := rows.Scan(&id, &modified); err != nil {
+			return nil, fmt.Errorf("scan active conversation: %w", err)
+		}
+		id = strings.TrimSpace(strings.TrimPrefix(id, "/c/"))
+		if id == "" {
+			continue
+		}
+		modifiedAt := parseConversationTime(modified)
+		if !modifiedAt.IsZero() && time.Since(modifiedAt) > activeCascadeStaleness {
+			continue
+		}
+		if !seen[id] {
+			seen[id] = true
+			activeIDs = append(activeIDs, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate active conversations: %w", err)
+	}
+
+	sort.Strings(activeIDs)
+	return activeIDs, nil
+}
+
+func parseConversationTime(raw string) time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}
+	}
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+	} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed
+		}
+	}
+	return time.Time{}
 }
 
 // isShielded checks whether a relative cache path belongs to any active cascade session.

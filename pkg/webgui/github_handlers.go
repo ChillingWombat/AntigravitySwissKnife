@@ -114,7 +114,7 @@ func (s *Server) handleGitHubIssueUpdate(w http.ResponseWriter, r *http.Request)
 		ws = s.resolveWorkspace(r)
 	}
 
-	repo, err := s.githubService.DetectRepository(ws)
+	repo, err := s.githubService.DetectRepositoryStrict(ws)
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -165,7 +165,7 @@ func (s *Server) handleGitHubIssueComment(w http.ResponseWriter, r *http.Request
 		ws = s.resolveWorkspace(r)
 	}
 
-	repo, err := s.githubService.DetectRepository(ws)
+	repo, err := s.githubService.DetectRepositoryStrict(ws)
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -208,7 +208,7 @@ func (s *Server) handleGitHubIssueCreate(w http.ResponseWriter, r *http.Request)
 		ws = s.resolveWorkspace(r)
 	}
 
-	repo, err := s.githubService.DetectRepository(ws)
+	repo, err := s.githubService.DetectRepositoryStrict(ws)
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
@@ -328,7 +328,7 @@ func (s *Server) handleGitHubKanbanMove(w http.ResponseWriter, r *http.Request) 
 		ws = s.resolveWorkspace(r)
 	}
 
-	repo, err := s.githubService.DetectRepository(ws)
+	repo, err := s.githubService.DetectRepositoryStrict(ws)
 	if err != nil {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return

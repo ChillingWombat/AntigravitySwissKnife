@@ -981,6 +981,13 @@ func (d *Daemon) registerRPCHandlers() {
 			opts.PruneSteps = true
 			opts.PruneTasks = true
 		}
+		if opts.ActiveCascadeID == "" && len(opts.ActiveCascadeIDs) == 0 {
+			activeIDs, err := cache.DiscoverActiveCascadeIDs(d.Pruner.BrainDir)
+			if err != nil {
+				return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+			}
+			opts.ActiveCascadeIDs = activeIDs
+		}
 
 		res, err := d.Pruner.Prune(opts)
 		if err != nil {
@@ -1901,13 +1908,17 @@ func (d *Daemon) runLoop() {
 				_, _ = d.Vault.Sync()
 			}
 			if autoPruneOn && d.Pruner != nil {
-				_, _ = d.Pruner.Prune(cache.PruneOptions{
-					MinAgeDays:   pruneAge,
-					MaxSizeGB:    pruneMaxGB,
-					PruneScratch: true,
-					PruneSteps:   true,
-					PruneTasks:   true,
-				})
+				activeIDs, err := cache.DiscoverActiveCascadeIDs(d.Pruner.BrainDir)
+				if err == nil {
+					_, _ = d.Pruner.Prune(cache.PruneOptions{
+						MinAgeDays:       pruneAge,
+						MaxSizeGB:        pruneMaxGB,
+						PruneScratch:     true,
+						PruneSteps:       true,
+						PruneTasks:       true,
+						ActiveCascadeIDs: activeIDs,
+					})
+				}
 			}
 
 		case <-activeTimer.C:

@@ -2,7 +2,11 @@ package bridge
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -65,6 +69,9 @@ type RemoteManager struct {
 	boundPort     int
 	clientsMu     sync.Mutex
 	activeClients map[string]time.Time
+	pinCookieKey  []byte
+	pinFailures   map[string][]time.Time
+	pinLocked     map[string]time.Time
 
 	webOriginMu       sync.RWMutex
 	webOriginOverride string
@@ -97,12 +104,19 @@ func NewRemoteManager(configPath string) *RemoteManager {
 	if configPath == "" {
 		configPath = filepath.Join(core.GetConfigDir(), "remote_control.json")
 	}
+	pinCookieKey := make([]byte, 32)
+	if _, err := rand.Read(pinCookieKey); err != nil {
+		panic(fmt.Sprintf("generate remote session key: %v", err))
+	}
 	rm := &RemoteManager{
 		config:        DefaultRemoteConfig(),
 		configPath:    configPath,
 		injector:      gui.NewInjector(0),
 		leadHdl:       NewLeadHandler(""),
 		activeClients: make(map[string]time.Time),
+		pinCookieKey:  pinCookieKey,
+		pinFailures:   make(map[string][]time.Time),
+		pinLocked:     make(map[string]time.Time),
 	}
 	_ = rm.load()
 	port := rm.config.Port
@@ -467,12 +481,11 @@ func (rm *RemoteManager) load() error {
 }
 
 func (rm *RemoteManager) save() error {
-	_ = os.MkdirAll(filepath.Dir(rm.configPath), 0755)
 	data, err := json.MarshalIndent(rm.config, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(rm.configPath, data, 0644)
+	return writePrivateConfig(rm.configPath, data)
 }
 
 // GetConfig returns current remote control configuration.
@@ -705,6 +718,10 @@ func (rm *RemoteManager) NotifyAccountSwitch(newAccount string, newPID int) {
 func (rm *RemoteManager) isPINAuthorized(r *http.Request) bool {
 	cfg := rm.GetConfig()
 	expectedPIN := strings.TrimSpace(cfg.SecurityPIN)
+	clientIP := getClientIP(r)
+	if rm.remotePINLocked(clientIP) {
+		return false
+	}
 
 	candidate := strings.TrimSpace(r.Header.Get("X-Remote-PIN"))
 	if candidate == "" {
@@ -715,30 +732,89 @@ func (rm *RemoteManager) isPINAuthorized(r *http.Request) bool {
 	if candidate == "" {
 		candidate = strings.TrimSpace(r.URL.Query().Get("pin"))
 	}
-	if candidate == "" {
+	hadCredential := candidate != ""
+	authorized := VerifyCandidatePIN(candidate, expectedPIN, cfg.UseAppPassword)
+	if !authorized {
 		if cookie, err := r.Cookie("swiss_remote_pin"); err == nil {
-			candidate = strings.TrimSpace(cookie.Value)
+			cookieValue := strings.TrimSpace(cookie.Value)
+			hadCredential = hadCredential || cookieValue != ""
+			if expectedPIN != "" && hmac.Equal([]byte(cookieValue), []byte(rm.remoteSessionCookieValue(expectedPIN))) {
+				authorized = true
+			} else if VerifyCandidatePIN(cookieValue, expectedPIN, cfg.UseAppPassword) {
+				authorized = true
+			}
 		}
 	}
-
-	if !VerifyCandidatePIN(candidate, expectedPIN, cfg.UseAppPassword) {
+	if !authorized {
+		if hadCredential {
+			rm.recordRemotePINFailure(clientIP)
+		}
 		return false
 	}
+	rm.recordRemotePINSuccess(clientIP)
+	return true
+}
 
-	clientIP := getClientIP(r)
+func (rm *RemoteManager) remoteSessionCookieValue(expectedPIN string) string {
+	mac := hmac.New(sha256.New, rm.pinCookieKey)
+	_, _ = mac.Write([]byte(expectedPIN))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (rm *RemoteManager) remotePINLocked(clientIP string) bool {
+	rm.clientsMu.Lock()
+	defer rm.clientsMu.Unlock()
+	until, locked := rm.pinLocked[clientIP]
+	if !locked {
+		return false
+	}
+	if time.Now().Before(until) {
+		return true
+	}
+	delete(rm.pinLocked, clientIP)
+	delete(rm.pinFailures, clientIP)
+	return false
+}
+
+func (rm *RemoteManager) recordRemotePINFailure(clientIP string) {
+	now := time.Now()
+	cutoff := now.Add(-5 * time.Minute)
+	rm.clientsMu.Lock()
+	defer rm.clientsMu.Unlock()
+	if rm.pinFailures == nil {
+		rm.pinFailures = make(map[string][]time.Time)
+	}
+	if rm.pinLocked == nil {
+		rm.pinLocked = make(map[string]time.Time)
+	}
+	var recent []time.Time
+	for _, attemptedAt := range rm.pinFailures[clientIP] {
+		if attemptedAt.After(cutoff) {
+			recent = append(recent, attemptedAt)
+		}
+	}
+	recent = append(recent, now)
+	rm.pinFailures[clientIP] = recent
+	if len(recent) >= 5 {
+		rm.pinLocked[clientIP] = now.Add(15 * time.Minute)
+	}
+}
+
+func (rm *RemoteManager) recordRemotePINSuccess(clientIP string) {
 	now := time.Now()
 	cutoff := now.Add(-2 * time.Minute)
-
 	rm.clientsMu.Lock()
+	defer rm.clientsMu.Unlock()
+	if rm.activeClients == nil {
+		rm.activeClients = make(map[string]time.Time)
+	}
+	delete(rm.pinFailures, clientIP)
 	rm.activeClients[clientIP] = now
 	for ip, lastSeen := range rm.activeClients {
 		if lastSeen.Before(cutoff) {
 			delete(rm.activeClients, ip)
 		}
 	}
-	rm.clientsMu.Unlock()
-
-	return true
 }
 
 // ServeHTTP routes incoming remote HTTP requests to the web console and JSON APIs.
@@ -866,8 +942,19 @@ func (rm *RemoteManager) handleAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := rm.GetConfig()
 	expectedPIN := strings.TrimSpace(cfg.SecurityPIN)
+	clientIP := getClientIP(r)
+	if rm.remotePINLocked(clientIP) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Too many invalid attempts. Try again later.",
+		})
+		return
+	}
 
 	if !VerifyCandidatePIN(pin, expectedPIN, cfg.UseAppPassword) {
+		rm.recordRemotePINFailure(clientIP)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -877,22 +964,11 @@ func (rm *RemoteManager) handleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientIP := getClientIP(r)
-	now := time.Now()
-	cutoff := now.Add(-2 * time.Minute)
-
-	rm.clientsMu.Lock()
-	rm.activeClients[clientIP] = now
-	for ip, lastSeen := range rm.activeClients {
-		if lastSeen.Before(cutoff) {
-			delete(rm.activeClients, ip)
-		}
-	}
-	rm.clientsMu.Unlock()
+	rm.recordRemotePINSuccess(clientIP)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "swiss_remote_pin",
-		Value:    pin,
+		Value:    rm.remoteSessionCookieValue(expectedPIN),
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -1793,15 +1869,10 @@ body {
 <script>
 var basePath = window.location.pathname.indexOf('/remote') === 0 ? '/remote' : '';
 var autoRefreshInterval = null;
-var activePin = '';
-try { activePin = sessionStorage.getItem('swiss_remote_pin') || ''; } catch (e) {}
+try { sessionStorage.removeItem('swiss_remote_pin'); } catch (e) {}
 
 function getHeaders(extra) {
-  var h = extra ? Object.assign({}, extra) : {};
-  if (activePin) {
-    h['X-Remote-PIN'] = activePin;
-  }
-  return h;
+  return extra ? Object.assign({}, extra) : {};
 }
 
 async function checkAuthAndInit() {
@@ -1860,8 +1931,6 @@ async function handleAuthSubmit(e) {
     });
     var data = await res.json();
     if (res.ok && data.success) {
-      activePin = pin;
-      try { sessionStorage.setItem('swiss_remote_pin', pin); } catch (e) {}
       if (data.web_app_available) {
         window.location.href = data.redirect || '/';
         return;
@@ -1880,7 +1949,6 @@ async function handleAuthSubmit(e) {
 }
 
 async function handleLogout() {
-  activePin = '';
   try { sessionStorage.removeItem('swiss_remote_pin'); } catch (e) {}
   try {
     await fetch(basePath + '/api/logout', { method: 'POST' });
@@ -1892,8 +1960,7 @@ function refreshScreenshot() {
   var img = document.getElementById('viewportImg');
   var fallback = document.getElementById('viewportFallback');
   var testImg = new Image();
-  var pinParam = activePin ? ('&pin=' + encodeURIComponent(activePin)) : '';
-  var src = basePath + '/api/screenshot?t=' + Date.now() + pinParam;
+  var src = basePath + '/api/screenshot?t=' + Date.now();
   testImg.onload = function() {
     img.src = src;
     img.style.display = 'block';

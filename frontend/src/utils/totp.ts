@@ -21,7 +21,7 @@ export function sanitizeTotpSecret(secret: string): string {
       }
     }
   }
-  return s.toUpperCase().replace(/[\s=-]/g, '')
+  return s.toUpperCase().replace(/[\s-]/g, '').replace(/=+$/, '')
 }
 
 /**
@@ -49,6 +49,9 @@ export function base32Decode(input: string): Uint8Array {
     }
   }
 
+  if (output.length < 10) {
+    return new Uint8Array(0)
+  }
   return new Uint8Array(output)
 }
 
