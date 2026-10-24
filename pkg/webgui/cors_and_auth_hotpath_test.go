@@ -351,6 +351,102 @@ func TestAuthHotPath_AppPasswordVerificationIsRateLimited(t *testing.T) {
 	}
 }
 
+func TestAuthHotPath_AuthUnlockRateLimitsInvalidPasswordAttempts(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	cfg := core.DefaultConfig()
+	if err := cfg.SetAppPassword("correct-password"); err != nil {
+		t.Fatalf("SetAppPassword: %v", err)
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save config: %v", err)
+	}
+
+	srv := NewServer("127.0.0.1:0", "")
+	const limitedIP = "198.51.100.40:4321"
+	for i := 0; i < legacyAppPasswordAttemptLimit; i++ {
+		req := httptest.NewRequest(
+			http.MethodPost,
+			fmt.Sprintf("/api/auth/unlock?password=invalid-%d", i),
+			strings.NewReader(fmt.Sprintf("{\"password\":\"invalid-%d\"}", i)),
+		)
+		req.RemoteAddr = limitedIP
+		rec := httptest.NewRecorder()
+		srv.handleAuthUnlock(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("attempt %d status = %d, want 200 before limit", i, rec.Code)
+		}
+	}
+
+	blockedReq := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/auth/unlock?password=invalid-%d", legacyAppPasswordAttemptLimit),
+		strings.NewReader(fmt.Sprintf("{\"password\":\"invalid-%d\"}", legacyAppPasswordAttemptLimit)),
+	)
+	blockedReq.RemoteAddr = limitedIP
+	blockedRec := httptest.NewRecorder()
+	srv.handleAuthUnlock(blockedRec, blockedReq)
+	if blockedRec.Code != http.StatusTooManyRequests {
+		t.Fatalf("attempt past limit status = %d, want 429", blockedRec.Code)
+	}
+
+	otherIPReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/auth/unlock?password=invalid-other-ip",
+		strings.NewReader(`{"password":"invalid-other-ip"}`),
+	)
+	otherIPReq.RemoteAddr = "198.51.100.41:4321"
+	otherIPRec := httptest.NewRecorder()
+	srv.handleAuthUnlock(otherIPRec, otherIPReq)
+	if otherIPRec.Code != http.StatusOK {
+		t.Fatalf("other IP status = %d, want 200 with independent limit", otherIPRec.Code)
+	}
+}
+
+func TestAuthHotPath_QueryPasswordRateLimitIsPerIP(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	cfg := core.DefaultConfig()
+	if err := cfg.SetAppPassword("legacy-password"); err != nil {
+		t.Fatalf("SetAppPassword: %v", err)
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save config: %v", err)
+	}
+
+	originalVerify := verifyAppPasswordForAuth
+	verifications := 0
+	verifyAppPasswordForAuth = func(cfg *core.Config, candidate string) bool {
+		verifications++
+		return false
+	}
+	t.Cleanup(func() {
+		verifyAppPasswordForAuth = originalVerify
+	})
+
+	srv := NewServer("127.0.0.1:0", "")
+	const limitedIP = "198.51.100.50:4321"
+	for i := 0; i < legacyAppPasswordAttemptLimit; i++ {
+		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/accounts?password=invalid-%d", i), nil)
+		req.RemoteAddr = limitedIP
+		if srv.validateRequestAuth(req) {
+			t.Fatalf("invalid query password %d was accepted", i)
+		}
+	}
+	if verifications != legacyAppPasswordAttemptLimit {
+		t.Fatalf("query password verifications = %d, want %d", verifications, legacyAppPasswordAttemptLimit)
+	}
+
+	otherIPReq := httptest.NewRequest(http.MethodGet, "/api/accounts?password=invalid-other-ip", nil)
+	otherIPReq.RemoteAddr = "198.51.100.51:4321"
+	if srv.validateRequestAuth(otherIPReq) {
+		t.Fatal("invalid query password from another IP was accepted")
+	}
+	if verifications != legacyAppPasswordAttemptLimit+1 {
+		t.Fatalf("verifications after other IP = %d, want %d", verifications, legacyAppPasswordAttemptLimit+1)
+	}
+}
+
 func TestAuthHotPath_PruneExpiredSessionTokens(t *testing.T) {
 	srv := NewServer("127.0.0.1:0", "")
 

@@ -84,4 +84,17 @@ func TestGetLocalSessionToken_UsesCacheForUnchangedFile(t *testing.T) {
 	if second != cachedToken {
 		t.Fatalf("unchanged file should use cached token %q, got %q", cachedToken, second)
 	}
+
+	bumpedTime := fixedTime.Add(time.Second)
+	if err := os.Chtimes(tokenPath, bumpedTime, bumpedTime); err != nil {
+		t.Fatalf("bump mtime: %v", err)
+	}
+
+	third, err := GetLocalSessionToken()
+	if err != nil {
+		t.Fatalf("third GetLocalSessionToken: %v", err)
+	}
+	if third != replacementToken {
+		t.Fatalf("rewritten token should refresh cache to %q, got %q", replacementToken, third)
+	}
 }

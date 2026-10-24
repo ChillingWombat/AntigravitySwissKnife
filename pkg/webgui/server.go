@@ -3960,6 +3960,10 @@ func (s *Server) handleAuthUnlock(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{"success": true, "token": tok, "session_token": tok})
 		return
 	}
+	if !s.allowLegacyAppPasswordAttempt(r) {
+		http.Error(w, "too many password attempts", http.StatusTooManyRequests)
+		return
+	}
 	if cfg.VerifyAppPassword(p.Password) {
 		tok, tokenErr := s.createSessionToken()
 		if tokenErr != nil {
