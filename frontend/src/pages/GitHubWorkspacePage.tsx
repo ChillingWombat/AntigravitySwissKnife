@@ -218,18 +218,21 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       }
       const issuesRes = await api.getGitHubIssues(wsPath, stateFilter)
       if (issuesRes.success && issuesRes.issues) {
-        setIssues(issuesRes.issues)
-        if (!selectedItem && issuesRes.issues.length > 0) {
-          setSelectedItem(issuesRes.issues[0])
-          setEditTitle(issuesRes.issues[0].title)
-          setEditBody(issuesRes.issues[0].body || '')
+        const issues = issuesRes.issues
+        setIssues(issues)
+        if (issues.length > 0) {
+          setSelectedItem((prev: any) => prev ?? issues[0])
         }
       } else {
         setIssues([])
       }
       const prsRes = await api.getGitHubPRs(wsPath, stateFilter)
       if (prsRes.success && prsRes.prs) {
-        setPRs(prsRes.prs)
+        const prs = prsRes.prs
+        setPRs(prs)
+        if (prs.length > 0) {
+          setSelectedItem((prev: any) => prev ?? prs[0])
+        }
       } else {
         setPRs([])
       }
@@ -254,7 +257,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
     } finally {
       setLoading(false)
     }
-  }, [getEffectiveWorkspacePath, selectedItem, showToast, stateFilter])
+  }, [])
 
   const handleMoveCard = async (targetColumnId: string) => {
     if (!draggedCard || draggedCard.column_id === targetColumnId) {
@@ -365,6 +368,12 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  useEffect(() => {
+    if (!selectedItem) return
+    setEditTitle(selectedItem.title || '')
+    setEditBody(selectedItem.body || '')
+  }, [selectedItem])
 
   const selectItemForEditing = async (item: any, itemType?: 'issue' | 'pr') => {
     const requestId = ++selectionRequestRef.current

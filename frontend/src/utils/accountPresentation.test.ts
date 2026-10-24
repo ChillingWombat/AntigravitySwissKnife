@@ -9,6 +9,40 @@ import {
   ACCOUNT_SETUP_TEXTS,
 } from './accountPresentation.ts'
 
+function createRequestGate() {
+  let currentRequest = 0
+  return {
+    begin: () => ++currentRequest,
+    isCurrent: (requestId: number) => requestId === currentRequest,
+  }
+}
+
+async function commitLatest<T>(
+  gate: ReturnType<typeof createRequestGate>,
+  requestId: number,
+  result: Promise<T>,
+  commit: (value: T) => void
+) {
+  const value = await result
+  if (!gate.isCurrent(requestId)) return false
+  commit(value)
+  return true
+}
+
+async function copyWithStatus(
+  write: () => Promise<void>,
+  setCopied: (copied: boolean) => void
+) {
+  try {
+    await write()
+    setCopied(true)
+    return true
+  } catch {
+    setCopied(false)
+    return false
+  }
+}
+
 describe('accountPresentation utility', () => {
   describe('getAccountTableDisplay', () => {
     it('shows only the account alias and hides the id when alias equals account id', () => {
@@ -185,6 +219,77 @@ describe('accountPresentation utility', () => {
       const res = getAccountTableDisplay('Admin+Team@Google.COM', 'admin+team@google.com')
       assert.strictEqual(res.primaryText, 'Admin+Team@Google.COM')
       assert.strictEqual(res.secondaryText, null)
+    })
+  })
+
+  describe('Account async race protection', () => {
+    it('ignores stale quota and TOTP results after account and secret switches', async () => {
+      const quotaGate = createRequestGate()
+      const totpGate = createRequestGate()
+      let resolveStaleQuota!: (value: string) => void
+      let resolveStaleTotp!: (value: string) => void
+      const staleQuota = new Promise<string>((resolve) => {
+        resolveStaleQuota = resolve
+      })
+      const staleTotp = new Promise<string>((resolve) => {
+        resolveStaleTotp = resolve
+      })
+      const staleQuotaRequest = quotaGate.begin()
+      const staleTotpRequest = totpGate.begin()
+      const currentQuotaRequest = quotaGate.begin()
+      const currentTotpRequest = totpGate.begin()
+      const rendered = { account: 'second@example.com', quota: '', totp: '' }
+
+      assert.strictEqual(
+        await commitLatest(quotaGate, currentQuotaRequest, Promise.resolve('87%'), (value) => {
+          rendered.quota = value
+        }),
+        true
+      )
+      assert.strictEqual(
+        await commitLatest(totpGate, currentTotpRequest, Promise.resolve('654321'), (value) => {
+          rendered.totp = value
+        }),
+        true
+      )
+
+      resolveStaleQuota('13%')
+      resolveStaleTotp('123456')
+      assert.strictEqual(
+        await commitLatest(quotaGate, staleQuotaRequest, staleQuota, (value) => {
+          rendered.quota = value
+        }),
+        false
+      )
+      assert.strictEqual(
+        await commitLatest(totpGate, staleTotpRequest, staleTotp, (value) => {
+          rendered.totp = value
+        }),
+        false
+      )
+      assert.deepStrictEqual(rendered, {
+        account: 'second@example.com',
+        quota: '87%',
+        totp: '654321',
+      })
+    })
+
+    it('leaves copied false when the clipboard write rejects', async () => {
+      const copiedStates: boolean[] = []
+      let copied = false
+      const result = await copyWithStatus(
+        async () => {
+          throw new Error('clipboard denied')
+        },
+        (nextCopied) => {
+          copied = nextCopied
+          copiedStates.push(nextCopied)
+        }
+      )
+
+      assert.strictEqual(result, false)
+      assert.strictEqual(copied, false)
+      assert.deepStrictEqual(copiedStates, [false])
     })
   })
 

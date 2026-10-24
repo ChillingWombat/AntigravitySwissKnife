@@ -564,7 +564,9 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
           setRuntimeMode(res.runtime_mode)
           localStorage.setItem('antigravity_runtime_mode', res.runtime_mode)
         }
-      } catch {}
+      } catch (err: any) {
+        console.warn('Could not read runtime mode setting from API:', err)
+      }
     }
 
     void loadRuntimeMode()

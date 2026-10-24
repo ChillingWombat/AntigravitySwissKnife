@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { Window } from 'happy-dom'
 import { useContextMenuPlacement } from './useContextMenuPlacement'
+import { clampContextMenuPosition } from './contextMenuPosition'
 
 describe('useContextMenuPlacement', () => {
   let dom: Window
@@ -27,7 +28,7 @@ describe('useContextMenuPlacement', () => {
   })
 
   it('repositions on capture-phase scroll and removes the listener on unmount', async () => {
-    const { render } = await import('@testing-library/react')
+    const { act, render } = await import('@testing-library/react')
     const originalAddEventListener = dom.addEventListener.bind(dom)
     const originalRemoveEventListener = dom.removeEventListener.bind(dom)
     let scrollListener: EventListenerOrEventListenerObject | null = null
@@ -60,9 +61,37 @@ describe('useContextMenuPlacement', () => {
     }
 
     const view = render(React.createElement(Menu))
+    const menu = view.getByTestId('menu')
     try {
       assert.notStrictEqual(scrollListener, null)
       assert.strictEqual(capture, true)
+
+      const initialPosition = menu.textContent
+      menu.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        width: 150,
+        height: 150,
+        top: 0,
+        right: 150,
+        bottom: 150,
+        left: 0,
+        toJSON: () => ({}),
+      }) as DOMRect
+      Object.defineProperty(dom, 'innerWidth', { configurable: true, value: 100 })
+      Object.defineProperty(dom, 'innerHeight', { configurable: true, value: 100 })
+
+      await act(async () => {
+        dom.dispatchEvent(new dom.Event('scroll'))
+      })
+
+      const placed = clampContextMenuPosition(
+        { x: 20, y: 30 },
+        { width: 150, height: 150 },
+        { width: 100, height: 100 }
+      )
+      assert.strictEqual(menu.textContent, `${placed.top},${placed.left}`)
+      assert.notStrictEqual(menu.textContent, initialPosition)
     } finally {
       view.unmount()
     }
