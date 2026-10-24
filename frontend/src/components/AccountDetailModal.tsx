@@ -17,6 +17,8 @@ import {
   createRequestGate,
   commitLatest,
   copyTextWithFallback,
+  shouldHydrateAccountCredentials,
+  resolveHydratedAccountCredentials,
 } from '../utils/accountPresentation'
 
 interface AccountDetailModalProps {
@@ -332,11 +334,12 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
   useEffect(() => {
     const hasRedactedCredentials =
-      !isNewAccount &&
-      Boolean(account.email) &&
-      [account.refresh_token, account.password, account.totp_secret].some(
-        (value) => value === REDACTED_CREDENTIAL
-      )
+      shouldHydrateAccountCredentials(account, isNewAccount) ||
+      (!isNewAccount &&
+        Boolean(account.email) &&
+        [account.refresh_token, account.password, account.totp_secret].some(
+          (value) => value === REDACTED_CREDENTIAL
+        ))
     const credentialsStrippedByFleet =
       !isNewAccount &&
       Boolean(account.email) &&
@@ -396,13 +399,29 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               : found.mfa && found.mfa !== REDACTED_CREDENTIAL
                 ? found.mfa
                 : ''
-          if (secret) setTotpSecret(secret)
+          if (secret) {
+            setTotpSecret((currentTotpSecret) =>
+              resolveHydratedAccountCredentials(account, found, {
+                password: '',
+                totpSecret: currentTotpSecret,
+                accessToken: '',
+                refreshToken: '',
+              }).totpSecret
+            )
+          }
         }
         if (
           (account.access_token === REDACTED_CREDENTIAL || !account.access_token) &&
           foundAccessToken
         ) {
-          setExtractedAccessToken(foundAccessToken)
+          setExtractedAccessToken((currentAccessToken) =>
+            resolveHydratedAccountCredentials(account, found, {
+              password: '',
+              totpSecret: '',
+              accessToken: currentAccessToken,
+              refreshToken: '',
+            }).accessToken
+          )
         }
         credentialHydrationRef.current.completedFor = account.email.trim().toLowerCase()
       }).catch((err) => {

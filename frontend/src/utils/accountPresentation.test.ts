@@ -11,6 +11,8 @@ import {
   commitLatest,
   copyWithStatus,
   createRequestGate,
+  shouldHydrateAccountCredentials,
+  resolveHydratedAccountCredentials,
 } from './accountPresentation.ts'
 
 const originalBrowserGlobals = {
@@ -40,6 +42,67 @@ afterEach(() => {
 })
 
 describe('accountPresentation utility', () => {
+  describe('credential hydration', () => {
+    it('hydrates a fleet-stripped MFA secret', () => {
+      const account = {
+        email: 'fleet@example.com',
+        has_totp: true,
+        totp_secret: '',
+      }
+
+      assert.strictEqual(shouldHydrateAccountCredentials(account, false), true)
+      const resolved = resolveHydratedAccountCredentials(
+        account,
+        { totp_secret: 'JBSWY3DPEHPK3PXP' },
+        { password: '', totpSecret: '', accessToken: '', refreshToken: '' }
+      )
+
+      assert.strictEqual(resolved.totpSecret, 'JBSWY3DPEHPK3PXP')
+    })
+
+    it('hydrates a single redacted access token', () => {
+      const account = {
+        email: 'redacted@example.com',
+        access_token: '[REDACTED]',
+        refresh_token: 'stored-refresh-token',
+      }
+
+      assert.strictEqual(shouldHydrateAccountCredentials(account, false), true)
+      const resolved = resolveHydratedAccountCredentials(
+        account,
+        { access_token: 'fresh-access-token' },
+        { password: '', totpSecret: '', accessToken: '', refreshToken: 'stored-refresh-token' }
+      )
+
+      assert.strictEqual(resolved.accessToken, 'fresh-access-token')
+    })
+
+    it('preserves MFA and access token edits made before hydration resolves', () => {
+      const account = {
+        email: 'edited@example.com',
+        totp_secret: '[REDACTED]',
+        access_token: '[REDACTED]',
+      }
+      const current = {
+        password: '',
+        totpSecret: 'USER-MFA-SECRET',
+        accessToken: 'USER-ACCESS-TOKEN',
+        refreshToken: '',
+      }
+
+      const resolved = resolveHydratedAccountCredentials(
+        account,
+        {
+          totp_secret: 'EXPORTED-MFA-SECRET',
+          access_token: 'EXPORTED-ACCESS-TOKEN',
+        },
+        current
+      )
+
+      assert.deepStrictEqual(resolved, current)
+    })
+  })
+
   describe('copyTextWithFallback', () => {
     it('uses window.electronAPI.copyToClipboard when present', async () => {
       let copiedText = ''

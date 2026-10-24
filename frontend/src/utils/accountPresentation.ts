@@ -7,6 +7,99 @@ export interface AccountTableDisplay {
   secondaryText: string | null
 }
 
+export interface CredentialAccount {
+  email?: string
+  password?: string
+  totp_secret?: string
+  access_token?: string
+  refresh_token?: string
+  mfa?: string
+  credential?: {
+    access_token?: string
+    refresh_token?: string
+  }
+}
+
+export interface AccountCredentialValues {
+  password: string
+  totpSecret: string
+  accessToken: string
+  refreshToken: string
+}
+
+const REDACTED_CREDENTIAL = '[REDACTED]'
+
+function isUsableCredential(value?: string): value is string {
+  return Boolean(value) && value !== REDACTED_CREDENTIAL
+}
+
+export function shouldHydrateAccountCredentials(
+  account: CredentialAccount,
+  isNewAccount: boolean
+): boolean {
+  if (isNewAccount || !account.email) return false
+
+  return [
+    account.password,
+    account.totp_secret,
+    account.access_token,
+    account.refresh_token,
+  ].some((value) => !isUsableCredential(value))
+}
+
+export function resolveHydratedAccountCredentials(
+  account: CredentialAccount,
+  match: CredentialAccount,
+  current: AccountCredentialValues
+): AccountCredentialValues {
+  const initialAccessToken = isUsableCredential(account.access_token)
+    ? account.access_token
+    : ''
+
+  const resolveField = (
+    initialValue: string | undefined,
+    initialUiValue: string,
+    currentValue: string,
+    matchValue: string | undefined
+  ): string => {
+    if (
+      !isUsableCredential(initialValue) &&
+      currentValue === initialUiValue &&
+      isUsableCredential(matchValue)
+    ) {
+      return matchValue
+    }
+    return currentValue
+  }
+
+  return {
+    password: resolveField(
+      account.password,
+      account.password || '',
+      current.password,
+      match.password
+    ),
+    totpSecret: resolveField(
+      account.totp_secret,
+      account.totp_secret || '',
+      current.totpSecret,
+      match.totp_secret || match.mfa
+    ),
+    accessToken: resolveField(
+      account.access_token,
+      initialAccessToken,
+      current.accessToken,
+      match.access_token || match.credential?.access_token
+    ),
+    refreshToken: resolveField(
+      account.refresh_token,
+      account.refresh_token || '',
+      current.refreshToken,
+      match.refresh_token || match.credential?.refresh_token
+    ),
+  }
+}
+
 /**
  * Determines what is displayed in the account table row.
  * If account id (email) equals the alias (label), only the alias is shown and the id is hidden.
