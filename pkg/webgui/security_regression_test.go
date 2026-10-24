@@ -507,3 +507,43 @@ func TestSecurityRegression_PlatformIndependentPathContract(t *testing.T) {
 		t.Errorf("[PATH CONTRACT] validateDeletablePath returned empty resolved path")
 	}
 }
+
+func TestSecurityRegression_PlatformIndependentPathContract_TempRootContract(t *testing.T) {
+	tempRoot := filepath.Clean(os.TempDir())
+	forbiddenRoots := []string{tempRoot, "/var/folders", "/private/var/folders"}
+	for _, root := range forbiddenRoots {
+		if isAllowedTempPath(root) {
+			t.Errorf("[TEMP ROOT VULNERABILITY] isAllowedTempPath accepted root %q", root)
+		}
+		if resolved, err := validateDeletablePath(root); err == nil {
+			t.Errorf("[TEMP ROOT VULNERABILITY] validateDeletablePath accepted root %q -> %q", root, resolved)
+		}
+	}
+
+	child := filepath.Join(t.TempDir(), "deletable.txt")
+	if err := os.WriteFile(child, []byte("ok"), 0600); err != nil {
+		t.Fatalf("create temp child: %v", err)
+	}
+	if !isAllowedTempPath(child) {
+		t.Errorf("[PATH CONTRACT] isAllowedTempPath rejected strict temp child %q", child)
+	}
+	if resolved, err := validateDeletablePath(child); err != nil {
+		t.Errorf("[PATH CONTRACT] validateDeletablePath rejected strict temp child %q: %v", child, err)
+	} else if resolved == "" {
+		t.Errorf("[PATH CONTRACT] validateDeletablePath returned an empty path for %q", child)
+	}
+
+	aliases := []struct {
+		input string
+		want  string
+	}{
+		{"/var/folders/AB/CD/T/", "/var/folders/AB/CD/T"},
+		{"/private/var/folders/AB/CD/T", "/var/folders/AB/CD/T"},
+		{"/private/var/folders", "/var/folders"},
+	}
+	for _, alias := range aliases {
+		if got := normalizeMacOSPathAlias(alias.input); got != alias.want {
+			t.Errorf("[PATH ALIAS] normalizeMacOSPathAlias(%q) = %q, want %q", alias.input, got, alias.want)
+		}
+	}
+}

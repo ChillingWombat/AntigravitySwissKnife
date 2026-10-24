@@ -4995,11 +4995,25 @@ func find8dot3Aliases(target string, probes ...string) []string {
 	return aliases
 }
 
+func normalizeMacOSPathAlias(p string) string {
+	normalized := path.Clean(strings.ReplaceAll(stripExtendedPrefix(p), "\\", "/"))
+	if normalized == "/var/folders" || strings.HasPrefix(normalized, "/var/folders/") ||
+		normalized == "/private/var/folders" || strings.HasPrefix(normalized, "/private/var/folders/") {
+		return strings.TrimPrefix(normalized, "/private")
+	}
+	if runtime.GOOS == "darwin" && (normalized == "/var" || strings.HasPrefix(normalized, "/var/")) {
+		return "/private" + normalized
+	}
+	return p
+}
+
 // pathMatchesOrIsSubpath checks if candidate matches root or is inside root, with case-insensitivity on Windows
 // or when Windows drive letters are present. It also strips extended-length prefixes (\\?\) and prevents double-slash boundary bugs.
 func pathMatchesOrIsSubpath(candidate, root string) bool {
 	candidate = stripExtendedPrefix(strings.TrimSpace(candidate))
 	root = stripExtendedPrefix(strings.TrimSpace(root))
+	candidate = normalizeMacOSPathAlias(candidate)
+	root = normalizeMacOSPathAlias(root)
 
 	if candidate == "" || root == "" {
 		return false
@@ -5073,6 +5087,37 @@ func isSameOrAncestor(ancestorCandidate, child string) bool {
 	}
 
 	return pathMatchesOrIsSubpath(child, ancestorCandidate)
+}
+
+// isStrictSubpath reports whether candidate is beneath root, excluding equality.
+func isStrictSubpath(candidate, root string) bool {
+	return pathMatchesOrIsSubpath(candidate, root) && !pathMatchesOrIsSubpath(root, candidate)
+}
+
+func tempPathRoots() []string {
+	roots := []string{os.TempDir()}
+	if resolved, err := filepath.EvalSymlinks(os.TempDir()); err == nil {
+		roots = append(roots, resolved)
+	}
+	return roots
+}
+
+func isAllowedTempPath(candidate string) bool {
+	for _, root := range tempPathRoots() {
+		if isStrictSubpath(candidate, root) {
+			return true
+		}
+	}
+	return false
+}
+
+func isTempPathRoot(candidate string) bool {
+	for _, root := range tempPathRoots() {
+		if pathMatchesOrIsSubpath(candidate, root) && pathMatchesOrIsSubpath(root, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // validateJailedPath resolves a user-supplied path for read-only operations
@@ -5202,12 +5247,15 @@ func ensureNotSensitiveLocation(cleaned, evalPath string) error {
 	}
 
 	systemPrefixes := []string{
-		"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr",
+		"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/private/var", "/bin", "/sbin", "/usr",
 		"c:/windows", "c:/program files", "c:/program files (x86)", "c:/programdata",
 	}
 	for _, candidate := range candidates {
 		norm := strings.ToLower(strings.ReplaceAll(stripExtendedPrefix(candidate), "\\", "/"))
 		for _, sysPrefix := range systemPrefixes {
+			if (sysPrefix == "/var" || sysPrefix == "/private/var") && isAllowedTempPath(candidate) {
+				continue
+			}
 			if norm == sysPrefix || strings.HasPrefix(norm, sysPrefix+"/") {
 				return fmt.Errorf("access denied: destructive operation on system directory %q", sysPrefix)
 			}
@@ -5290,7 +5338,10 @@ func validateDeletablePath(target string) (string, error) {
 	}
 
 	normalized := filepath.ToSlash(trimmed)
-	for _, sys := range []string{"/etc", "/usr", "/var", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev", "/root"} {
+	for _, sys := range []string{"/etc", "/usr", "/var", "/private/var", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev", "/root"} {
+		if (sys == "/var" || sys == "/private/var") && isAllowedTempPath(normalized) {
+			continue
+		}
 		if normalized == sys || strings.HasPrefix(normalized, sys+"/") {
 			return "", fmt.Errorf("prohibited: cannot delete system directory: %s", target)
 		}
@@ -5326,12 +5377,20 @@ func validateDeletablePath(target string) (string, error) {
 		return "", fmt.Errorf("prohibited: cannot delete filesystem root")
 	}
 
+	// Reject the temporary root even when it is outside the listed system directories.
+	if isTempPathRoot(cleanPath) {
+		return "", fmt.Errorf("prohibited: cannot delete temporary directory root: %s", cleanPath)
+	}
+
 	// 3. Explicitly block system directories
 	systemDirs := []string{
-		"/etc", "/usr", "/var", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev", "/root",
+		"/etc", "/usr", "/var", "/private/var", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev", "/root",
 		"C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)", "C:\\ProgramData",
 	}
 	for _, sysDir := range systemDirs {
+		if (sysDir == "/var" || sysDir == "/private/var") && isAllowedTempPath(cleanPath) {
+			continue
+		}
 		if strings.EqualFold(cleanPath, filepath.Clean(sysDir)) || pathMatchesOrIsSubpath(cleanPath, sysDir) {
 			return "", fmt.Errorf("prohibited: cannot delete system directory: %s", cleanPath)
 		}

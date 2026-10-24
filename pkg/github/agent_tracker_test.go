@@ -224,12 +224,14 @@ func TestResolveProjectPath(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	parentDir := t.TempDir()
-	if eval, err := filepath.EvalSymlinks(parentDir); err == nil {
-		parentDir = eval
+	tmpDir := t.TempDir()
+	if runtime.GOOS == "darwin" {
+		if eval, err := filepath.EvalSymlinks(tmpDir); err == nil {
+			tmpDir = eval
+		}
 	}
-	projA := filepath.Join(parentDir, "ProjectAlpha")
-	projB := filepath.Join(parentDir, "ProjectBeta")
+	projA := filepath.Join(tmpDir, "ProjectAlpha")
+	projB := filepath.Join(tmpDir, "ProjectBeta")
 	if err := os.MkdirAll(projA, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -358,9 +360,6 @@ func TestResolveProjectPath(t *testing.T) {
 
 func TestExtractTaskAndWorkItemsFromTranscript(t *testing.T) {
 	tmpDir := t.TempDir()
-	if eval, err := filepath.EvalSymlinks(tmpDir); err == nil {
-		tmpDir = eval
-	}
 	brainDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", "test-conv", ".system_generated", "logs")
 	if err := os.MkdirAll(brainDir, 0755); err != nil {
 		t.Fatal(err)
