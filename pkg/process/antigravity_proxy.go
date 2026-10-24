@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
@@ -49,7 +50,10 @@ func LaunchAntigravityWithCloudCodeProxy(endpoint string, restart bool, shield *
 			return procs[0].PID, fmt.Errorf("Antigravity is already running (PID %d); restart it to pick up the Cloud Code proxy", procs[0].PID)
 		}
 		for _, proc := range procs {
-			_ = shield.SafeKill(proc.PID, 0)
+			if err := shield.SafeKill(proc.PID, syscall.SIGTERM); err != nil {
+				// Windows does not implement SIGTERM for os.Process.
+				_ = shield.SafeKill(proc.PID, syscall.SIGKILL)
+			}
 		}
 		deadline := time.Now().Add(10 * time.Second)
 		for time.Now().Before(deadline) {

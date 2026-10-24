@@ -197,6 +197,31 @@ func TestAppReleaseManager_FindBestAsset(t *testing.T) {
 	}
 }
 
+func TestAppReleaseManager_FindBestDarwinAssetByArchitecture(t *testing.T) {
+	mgr := NewAppReleaseManager()
+	assets := []GitHubReleaseAsset{
+		{Name: "Antigravity-Swiss-Knife-2.1.0-x64.dmg", BrowserDownloadURL: "http://example.com/app-x64.dmg"},
+		{Name: "Antigravity-Swiss-Knife-2.1.0-arm64.dmg", BrowserDownloadURL: "http://example.com/app-arm64.dmg"},
+	}
+
+	tests := []struct {
+		goarch   string
+		expected string
+	}{
+		{goarch: "arm64", expected: "Antigravity-Swiss-Knife-2.1.0-arm64.dmg"},
+		{goarch: "amd64", expected: "Antigravity-Swiss-Knife-2.1.0-x64.dmg"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.goarch, func(t *testing.T) {
+			best := mgr.findBestAsset(assets, "darwin", tc.goarch)
+			if best == nil || best.Name != tc.expected {
+				t.Fatalf("expected %s, got %v", tc.expected, best)
+			}
+		})
+	}
+}
+
 func TestAppReleaseManager_ExecuteUpgrade(t *testing.T) {
 	mockPayload := "dummy-binary-payload-data"
 	downloadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

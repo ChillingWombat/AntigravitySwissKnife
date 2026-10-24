@@ -48,10 +48,7 @@ func NewStore(accountsPath string) (*Store, error) {
 	}
 
 	home, _ := os.UserHomeDir()
-	configDir := filepath.Join(home, ".config", "Antigravity")
-	if custom := os.Getenv("ANTIGRAVITY_CONFIG_DIR"); custom != "" {
-		configDir = custom
-	}
+	configDir := core.GetAntigravityHostConfigDir()
 
 	s := &Store{
 		accountsPath:         accountsPath,
