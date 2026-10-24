@@ -209,10 +209,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     }
   }
 
-  useEffect(() => {
-    loadConfig()
-  }, [])
-
   const loadConfig = async () => {
     try {
       setLoading(true)
@@ -245,6 +241,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    loadConfig()
+  }, [])
 
   const isValidHexColor = (c?: string) => {
     if (!c) return true

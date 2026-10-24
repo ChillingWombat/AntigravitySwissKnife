@@ -48,7 +48,7 @@ export const DiscordBridgePage: React.FC = () => {
       let cfgRes: any = null
       try {
         cfgRes = await api.getChannelsConfig(true)
-      } catch (_) {
+      } catch {
         cfgRes = await api.getChannelsConfig()
       }
       if (cfgRes && cfgRes.config) {

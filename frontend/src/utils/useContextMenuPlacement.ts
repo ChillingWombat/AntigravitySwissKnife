@@ -21,9 +21,10 @@ export function useContextMenuPlacement(open: boolean, point: MenuPoint | null) 
   const [menuPosition, setMenuPosition] = useState<MenuCoordinates | null>(null)
   const x = point?.x ?? 0
   const y = point?.y ?? 0
+  const hasPoint = point !== null
 
   useLayoutEffect(() => {
-    if (!open || !point || !menuRef.current) {
+    if (!open || !hasPoint || !menuRef.current) {
       setMenuPosition(null)
       return
     }
@@ -43,9 +44,7 @@ export function useContextMenuPlacement(open: boolean, point: MenuPoint | null) 
     measure()
     window.addEventListener('resize', measure)
     return () => window.removeEventListener('resize', measure)
-    // point is intentionally not a dependency: callers pass a fresh object each
-    // render, and only the coordinates matter for placement.
-  }, [open, x, y])
+  }, [open, hasPoint, x, y])
 
   return { menuRef, menuPosition }
 }

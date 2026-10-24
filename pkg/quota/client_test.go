@@ -192,6 +192,9 @@ func TestDetectTierFromAvailableModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if tier != PlanTierFree {
+		t.Errorf("expected %s, got %s", PlanTierFree, tier)
+	}
 	// 4. Enterprise models returned via tieredModelIds
 	entServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

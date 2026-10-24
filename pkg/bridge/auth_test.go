@@ -202,3 +202,49 @@ func TestVerifyCandidatePIN_SimplePINAndAppPasswordMode(t *testing.T) {
 		t.Fatalf("expected simple PIN to verify when useAppPassword=false even if App Password is set")
 	}
 }
+
+func TestGetClientIP_LoopbackAndSpoofedXFF(t *testing.T) {
+	// 1. Non-loopback peer with spoofed XFF: must ignore XFF and return RemoteAddr host
+	reqNonLoop := httptest.NewRequest(http.MethodGet, "/", nil)
+	reqNonLoop.RemoteAddr = "198.51.100.2:12345"
+	reqNonLoop.Header.Set("X-Forwarded-For", "10.0.0.1, 10.0.0.2")
+	reqNonLoop.Header.Set("Cf-Connecting-Ip", "10.0.0.3")
+	reqNonLoop.Header.Set("X-Real-IP", "10.0.0.4")
+	if ip := getClientIP(reqNonLoop); ip != "198.51.100.2" {
+		t.Fatalf("expected non-loopback peer to return RemoteAddr host %q, got %q", "198.51.100.2", ip)
+	}
+
+	// 2. Loopback peer with "spoofed, real" XFF: must yield rightmost "real" entry
+	reqLoopXFF := httptest.NewRequest(http.MethodGet, "/", nil)
+	reqLoopXFF.RemoteAddr = "127.0.0.1:45678"
+	reqLoopXFF.Header.Set("X-Forwarded-For", "spoofed, real")
+	if ip := getClientIP(reqLoopXFF); ip != "real" {
+		t.Fatalf("expected loopback peer with 'spoofed, real' XFF to yield 'real', got %q", ip)
+	}
+
+	// 3. Loopback peer with trailing comma / spaces in XFF
+	reqLoopTrailing := httptest.NewRequest(http.MethodGet, "/", nil)
+	reqLoopTrailing.RemoteAddr = "127.0.0.1:45678"
+	reqLoopTrailing.Header.Set("X-Forwarded-For", "attacker-spoofed, 203.0.113.50, ")
+	if ip := getClientIP(reqLoopTrailing); ip != "203.0.113.50" {
+		t.Fatalf("expected rightmost non-empty XFF '203.0.113.50', got %q", ip)
+	}
+
+	// 4. Loopback peer with Cf-Connecting-Ip: takes precedence over XFF and X-Real-IP
+	reqLoopCF := httptest.NewRequest(http.MethodGet, "/", nil)
+	reqLoopCF.RemoteAddr = "127.0.0.1:45678"
+	reqLoopCF.Header.Set("Cf-Connecting-Ip", "198.51.100.88")
+	reqLoopCF.Header.Set("X-Forwarded-For", "10.0.0.1, 10.0.0.2")
+	reqLoopCF.Header.Set("X-Real-IP", "10.0.0.3")
+	if ip := getClientIP(reqLoopCF); ip != "198.51.100.88" {
+		t.Fatalf("expected Cf-Connecting-Ip precedence '198.51.100.88', got %q", ip)
+	}
+
+	// 5. Loopback peer with only X-Real-IP: yields X-Real-IP
+	reqLoopXRI := httptest.NewRequest(http.MethodGet, "/", nil)
+	reqLoopXRI.RemoteAddr = "127.0.0.1:45678"
+	reqLoopXRI.Header.Set("X-Real-IP", "198.51.100.99")
+	if ip := getClientIP(reqLoopXRI); ip != "198.51.100.99" {
+		t.Fatalf("expected X-Real-IP '198.51.100.99', got %q", ip)
+	}
+}

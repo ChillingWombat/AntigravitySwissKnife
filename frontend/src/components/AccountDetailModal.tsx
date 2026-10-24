@@ -131,10 +131,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     currentStatus?.toUpperCase() === 'ERROR' ||
     currentStatus?.toUpperCase() === 'BANNED' ||
     currentStatus?.toUpperCase() === 'NEEDS_REAUTH' ||
-    account.status?.toUpperCase() === 'ERROR' ||
-    account.status?.toUpperCase() === 'BANNED' ||
-    account.status?.toUpperCase() === 'NEEDS_REAUTH' ||
-    Boolean(account.error_message) ||
     Boolean(liveErrorMessage) ||
     (!isNewAccount && !account.refresh_token?.trim() && !refreshToken?.trim())
   )
@@ -145,7 +141,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         (!isNewAccount &&
           (account.is_active ||
             currentStatus === 'ACTIVE' ||
-            account.status === 'ACTIVE' ||
             Boolean(account.refresh_token?.trim()) ||
             Boolean(refreshToken?.trim()) ||
             (Boolean(account.reset_horizon_text?.trim()) &&
@@ -171,22 +166,18 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     if (q.reset_horizon_weekly_text) setLiveResetHorizonWeekly(q.reset_horizon_weekly_text)
     if (q.reset_horizon_weekly_argon_text) setLiveResetHorizonWeeklyArgon(q.reset_horizon_weekly_argon_text)
     if (q.plan_tier) {
-      account.plan_tier = q.plan_tier
       setCurrentPlanTier(q.plan_tier)
     }
     if (q.error_message) {
       setLiveErrorMessage(q.error_message)
-      account.error_message = q.error_message
       if (isLiveRefresh) {
         lastVerificationUrlFetchedAtRef.current = Date.now()
       }
     } else {
       setLiveErrorMessage(null)
-      account.error_message = ''
     }
     if (q.error_status) {
       setCurrentStatus(q.error_status)
-      account.status = q.error_status
     } else if (
       (currentStatus === 'ERROR' || currentStatus === 'BANNED') &&
       (!q.reset_horizon_text ||
@@ -194,7 +185,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     ) {
       const nextSt = account.is_active ? 'ACTIVE' : 'STANDBY'
       setCurrentStatus(nextSt)
-      account.status = nextSt
     }
   }
 
@@ -206,7 +196,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     try {
       const q = await api.refreshAccountQuota(targetEmail)
       if (q) {
-        const hadError = (currentStatus || '').toUpperCase() === 'ERROR' || (account.status || '').toUpperCase() === 'ERROR'
+        const hadError = (currentStatus || '').toUpperCase() === 'ERROR'
         const isRecovered =
           !q.error_status &&
           !q.error_message &&
@@ -236,7 +226,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const resolveFreshVerificationUrl = async (): Promise<string | null> => {
     const targetEmail = email.trim() || account.email
     const currentAlert = parseAccountErrorAlert(
-      liveErrorMessage || account.error_message || account.status_reason,
+      liveErrorMessage || account.status_reason,
       targetEmail
     )
     if (Date.now() - lastVerificationUrlFetchedAtRef.current <= 45_000 && currentAlert.verificationUrl) {
@@ -247,7 +237,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       return null
     }
     const updatedAlert = parseAccountErrorAlert(
-      (q as any)?.error_message || liveErrorMessage || account.error_message || account.status_reason,
+      (q as any)?.error_message || liveErrorMessage || account.status_reason,
       targetEmail
     )
     return updatedAlert.verificationUrl
@@ -389,7 +379,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           textArea.select()
           document.execCommand('copy')
           document.body.removeChild(textArea)
-        } catch (_) {}
+        } catch {}
       })
     }
     setCopiedTotp(true)
@@ -469,12 +459,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       } else {
         if ((updateRes as any)?.status) {
           setCurrentStatus((updateRes as any).status)
-          account.status = (updateRes as any).status
         }
         if ((updateRes as any)?.error_message !== undefined) {
           const msg = (updateRes as any).error_message || null
           setLiveErrorMessage(msg)
-          account.error_message = msg || ''
         }
       }
       onSaved()
@@ -633,7 +621,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       if (res && res.quota) {
         applyQuotaSummaryUpdate(res.quota)
       } else if (res && res.plan_tier) {
-        account.plan_tier = res.plan_tier
         setCurrentPlanTier(res.plan_tier)
       }
       await onSaved()
@@ -666,7 +653,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   }
 
   const st = (
-    currentStatus?.toUpperCase() === 'BANNED' || account.status?.toUpperCase() === 'BANNED'
+    currentStatus?.toUpperCase() === 'BANNED'
       ? 'BANNED'
       : isAccountInError
       ? 'ERROR'
@@ -674,7 +661,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   ).toUpperCase()
 
   const errorAlert = parseAccountErrorAlert(
-    liveErrorMessage || account.error_message || account.status_reason || (isAccountInError ? 'Missing credentials / re-authentication required' : ''),
+    liveErrorMessage || account.status_reason || (isAccountInError ? 'Missing credentials / re-authentication required' : ''),
     email.trim() || account.email
   )
 
@@ -735,7 +722,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   >
                     {st === 'BANNED' ? 'BANNED' : st === 'ERROR' ? 'ERROR' : account.is_active ? 'ACTIVE' : (st === 'COOLDOWN' || st === 'COOLING') ? 'COOLING' : st}
                   </span>
-                  {renderPlanTierBadge(account.plan_tier)}
+                  {renderPlanTierBadge(currentPlanTier || account.plan_tier)}
                   {account.credits !== undefined && account.credits !== null && account.credits > 0 && (
                     <span
                       className="badge-chip badge-neutral"
@@ -783,7 +770,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               <span>Account Suspended Upstream (Banned)</span>
             </div>
             <div style={{ fontSize: '11px', opacity: 0.95, paddingLeft: '24px', lineHeight: 1.4, wordBreak: 'break-word', fontFamily: 'monospace' }}>
-              {liveErrorMessage || account.error_message || account.status_reason || 'This account has been flagged or disabled upstream by Google (e.g. TOS_VIOLATION). Quota requests cannot be serviced.'}
+              {liveErrorMessage || account.status_reason || 'This account has been flagged or disabled upstream by Google (e.g. TOS_VIOLATION). Quota requests cannot be serviced.'}
             </div>
           </div>
         )}

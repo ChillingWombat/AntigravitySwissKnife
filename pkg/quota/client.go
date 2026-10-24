@@ -1649,7 +1649,7 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 				acc.RefreshToken = newRefTok
 			}
 			accountMutationMu.Unlock()
-			pCtx, err = FetchProjectAndTier(accessToken)
+			pCtx, _ = FetchProjectAndTier(accessToken)
 		}
 	}
 

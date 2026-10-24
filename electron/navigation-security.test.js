@@ -8,6 +8,7 @@ const {
   isTrustedDaemonOrigin,
   isSafeExternalUrl,
   DAEMON_URL,
+  isTrustedSender,
 } = require('./main');
 const { DaemonManager } = require('./daemon-manager');
 
@@ -251,4 +252,60 @@ test('recoverDaemonConnection - does not navigate when the daemon contract is in
 
   assert.equal(result.success, false);
   assert.deepEqual(loadedUrls, []);
+});
+
+test('isTrustedSender - verifies window status, sender identity, and frame origin', () => {
+  const fakeWebContents = {};
+  const fakeWindow = {
+    isDestroyed: () => false,
+    webContents: fakeWebContents,
+  };
+
+  // Valid event from daemon origin
+  assert.equal(
+    isTrustedSender(
+      { sender: fakeWebContents, senderFrame: { url: 'http://127.0.0.1:8765/api/status' } },
+      fakeWindow
+    ),
+    true
+  );
+
+  // Valid event from connecting fallback data URL
+  assert.equal(
+    isTrustedSender(
+      { sender: fakeWebContents, senderFrame: { url: 'data:text/html;charset=utf-8,Connecting...' } },
+      fakeWindow
+    ),
+    true
+  );
+
+  // Missing or destroyed window
+  assert.equal(isTrustedSender({ sender: fakeWebContents, senderFrame: { url: DAEMON_URL } }, null), false);
+  assert.equal(
+    isTrustedSender(
+      { sender: fakeWebContents, senderFrame: { url: DAEMON_URL } },
+      { isDestroyed: () => true, webContents: fakeWebContents }
+    ),
+    false
+  );
+
+  // Missing event or wrong sender
+  assert.equal(isTrustedSender(null, fakeWindow), false);
+  assert.equal(isTrustedSender({}, fakeWindow), false);
+  assert.equal(isTrustedSender({ sender: {} }, fakeWindow), false);
+
+  // Missing senderFrame or untrusted URL
+  assert.equal(isTrustedSender({ sender: fakeWebContents }, fakeWindow), false);
+  assert.equal(
+    isTrustedSender({ sender: fakeWebContents, senderFrame: { url: 'http://attacker.com' } }, fakeWindow),
+    false
+  );
+  assert.equal(
+    isTrustedSender({ sender: fakeWebContents, senderFrame: { url: 'file:///etc/passwd' } }, fakeWindow),
+    false
+  );
+  assert.equal(
+    isTrustedSender({ sender: fakeWebContents, senderFrame: { url: 'javascript:alert(1)' } }, fakeWindow),
+    false
+  );
 });

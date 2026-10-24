@@ -709,7 +709,7 @@ describe('Adversarial Stress Suite: Frontend API Client Auth & Concurrency (Mile
         const rest = parsedUrl.searchParams.toString()
         replacedUrl = parsedUrl.pathname + (rest ? `?${rest}` : '') + parsedUrl.hash
       }
-    } catch (_) {}
+    } catch {}
     return { extractedToken: capturedToken, cleanUrl: replacedUrl }
   }
 

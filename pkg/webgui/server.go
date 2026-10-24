@@ -137,10 +137,16 @@ func (s *Server) createSessionToken() string {
 	if s.sessionTokens == nil {
 		s.sessionTokens = make(map[string]time.Time)
 	}
+	now := time.Now()
+	for tok, exp := range s.sessionTokens {
+		if !now.Before(exp) {
+			delete(s.sessionTokens, tok)
+		}
+	}
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
 	tok := hex.EncodeToString(b)
-	s.sessionTokens[tok] = time.Now().Add(24 * time.Hour)
+	s.sessionTokens[tok] = now.Add(24 * time.Hour)
 	return tok
 }
 
@@ -728,6 +734,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
+			w.Header().Set("Vary", "Origin")
 			if !isAllowedLoopbackOrigin(origin) && !isExternalOriginAllowedPath(r.URL.Path) {
 				if r.Method == http.MethodOptions {
 					w.WriteHeader(http.StatusForbidden)
@@ -737,7 +744,9 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 				return
 			}
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			if isAllowedLoopbackOrigin(origin) {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Origin, Accept, Access-Control-Request-Private-Network, X-Bridge-Token, X-Pairing-PIN, X-App-Password, X-Session-Token, Mcp-Session-Id")
 			w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
@@ -808,12 +817,6 @@ func isAllowedLoopbackOrigin(origin string) bool {
 		}
 	}
 	return loopbackOriginRegex.MatchString(lower)
-}
-
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(indexHTML))
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -888,26 +891,6 @@ func redactAccount(acc keyring.Account) keyring.Account {
 			c.IDToken = "[REDACTED]"
 		}
 		r.Credential = &c
-	}
-	return r
-}
-
-func redactAccountExport(exp keyring.AccountExport) keyring.AccountExport {
-	r := exp
-	if r.Password != "" {
-		r.Password = "[REDACTED]"
-	}
-	if r.TOTPSecret != "" {
-		r.TOTPSecret = "[REDACTED]"
-	}
-	if r.MFA != "" {
-		r.MFA = "[REDACTED]"
-	}
-	if r.AccessToken != "" {
-		r.AccessToken = "[REDACTED]"
-	}
-	if r.RefreshToken != "" {
-		r.RefreshToken = "[REDACTED]"
 	}
 	return r
 }
@@ -5273,9 +5256,7 @@ func ensureNotSensitiveLocation(cleaned, evalPath string) error {
 	if eh, errH := filepath.EvalSymlinks(home); errH == nil {
 		homeRoots = append(homeRoots, stripExtendedPrefix(eh))
 	}
-	for _, alias := range find8dot3Aliases(home, os.TempDir()) {
-		homeRoots = append(homeRoots, alias)
-	}
+	homeRoots = append(homeRoots, find8dot3Aliases(home, os.TempDir())...)
 	for _, h := range homeRoots {
 		sensitivePaths := []string{
 			filepath.Join(h, ".ssh"),

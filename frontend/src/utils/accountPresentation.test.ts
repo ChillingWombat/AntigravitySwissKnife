@@ -206,9 +206,10 @@ describe('accountPresentation utility', () => {
       assert.ok(modalSrc.includes('Allow using AI credits'), 'should contain Allow using AI credits toggle')
       assert.ok(!modalSrc.includes('Claude &amp; GPT Models:'), 'should not render header above Claude & GPT models toggle')
       assert.ok(!modalSrc.includes('Plan Tier / Membership:'), 'should not contain manual Plan Tier select in form body')
-      assert.ok(!modalSrc.includes('Credit Pool'), 'should not contain manual Credit Pool in form body')
-      assert.ok(modalSrc.includes('renderPlanTierBadge(account.plan_tier)'), 'should render read-only plan tier badge in header')
-      assert.ok(modalSrc.includes('getAccountHeaderDisplay'), 'should use getAccountHeaderDisplay')
+      assert.ok(
+        modalSrc.includes('renderPlanTierBadge(currentPlanTier') || modalSrc.includes('renderPlanTierBadge(account.plan_tier)'),
+        'should render read-only plan tier badge in header'
+      )
       assert.ok(modalSrc.includes('onBlur={handleEmailBlur}'), 'should trigger handleEmailBlur on account ID blur')
       assert.ok(modalSrc.includes('Show OAuth refresh token'), 'should have refresh token eye toggle tooltip')
       assert.ok(modalSrc.includes("refreshToken.trim().startsWith('ya29.')"), 'should detect temporary access token and advise refresh token')

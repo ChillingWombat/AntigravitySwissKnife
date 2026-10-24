@@ -267,3 +267,21 @@ live CDP fiber → jetski token → `app_storage.json`。vault 的 `active_accou
 6. 本 PR 合并并关闭 #185 后，main 即完整状态。新功能按 §4 带 dist 重建，按 §5 末行建 issue + 独立复核后合并。
 7. `/tmp/swiss-wt/{181,182,185}` 等近期 worktree 已完成各自任务，可择机清理；`D:/Projects/swiss-wt/*` 的失联记录可统一 prune。
 8. subagent 并行开发模式（worktree + junction node_modules + 显式 `git add` + 独立复核）在本项目多次验证有效；汇报必须独立核实（§5），复核结论优先看可复跑脚本。
+
+## 9. 2026-10-24 全仓代码审查、安全加固与性能优化交接（In-Progress Handoff）
+
+- **详细交接文档**：
+  - `.agents/state/checkpoint.md`（工作区状态检查点）
+  - `/home/david/.gemini/antigravity/brain/c20fad1b-91bc-4686-8e93-31acfd1657e2/handoff.md`（完整交接 Artifact）
+  - `/home/david/.gemini/antigravity/brain/c20fad1b-91bc-4686-8e93-31acfd1657e2/review.md`（全量审查问题清单）
+- **基线提交**：`39e1e84`（`main`）
+- **五个并行 Flash Worker 状态（Write Scopes 完全正交）**：
+  1. **W1 (`043a279e-9496-4e18-95c2-18ac8c51710a`) — `pkg/bridge/**`**：已修复 `getClientIP` 信任任意对端 `X-Forwarded-For` 导致 PIN 暴力破解锁定绕过（仅在 `RemoteAddr` 为 loopback 时按 `Cf-Connecting-Ip` → 最右 `X-Forwarded-For` → `X-Real-IP` 提取）；`/oauth/authorize` 与 `/oauth/token` 统一接入 `AuthManager.VerifyPIN` 锁定（超限返回 429）；校验 `authorization_code` 的 `client_id`、强制 `redirect_uri` 与 PKCE 方法白名单；常量时间凭据比对；`remote.go` 共享 `http.Transport`（仅 loopback 允许 `InsecureSkipVerify`）并迁移至 `ReverseProxy.Rewrite`、HTTPS 下设 `swiss_remote_pin` Cookie `Secure: true`；Discord 客户端加 15s 超时；清理 `U1000` 死代码。`go test ./pkg/bridge/...` 与 `staticcheck`（除 ST1005）全绿。
+  2. **W2 (`e3176e42-de96-4c60-aa41-bedf3533e633`) — `pkg/webgui/**` + `pkg/core/config*.go`**：`corsMiddleware` 补 `Vary: Origin` 且仅对 loopback origin 发送 `Access-Control-Allow-Credentials: true`；`core.LoadConfig` 在 `config.json` JSON 损坏时返回解析错误（fail-closed，防止静默关闭 App Password）；`validateRequestAuth` 在无凭据请求上跳过 `LoadConfig` 磁盘读取、对 64 位 hex session token 跳过 100k 轮 PBKDF2、常量时间比对、惰性及创建时清理过期 `sessionTokens`；清理 `pkg/webgui` 死代码与 `staticcheck` 告警。（注意：`pkg/core/config.go` 被 `gofmt` 做了 CRLF→LF 转换，提交前需还原未改动行的行尾。）
+  3. **W3 (`bb43096f-57d3-43ed-b643-78d261ffe469`) — `pkg/{quota,keyring,custommodels,github,gui,system,importer,process}/**`**：`newLanguageServerHTTPClient` 改为 `sync.Once` 共享连接池（`IdleConnTimeout: 30s`, `MaxIdleConnsPerHost: 4`，消除每次轮询泄露 Transport/goroutine）；`exchangeGoogleCode` 改用 30s 超时客户端；清理 8 个包的全部非 ST1005 `staticcheck` 告警（`strings.Title`、`SA4006`、`SA4016`、`S1017`、`S1039`、`U1000`、`filepath.HasPrefix`）。8 个包单测与 `staticcheck` 全绿。
+  4. **W4 (`10ed428b-3ecd-4a7b-922c-4edb5bf014cd`) — `frontend/src/**` + `electron/**`**：`electron/main.js` 新增并导出 `isTrustedSender(event, targetWindow)`（校验窗口存活、`event.sender === targetWindow.webContents` 及 `isTrustedDaemonOrigin(event.senderFrame?.url)`），覆盖全部 15 个 `ipcMain.handle`；修复 `AccountDetailModal.tsx` 直接修改 `account` prop、`GitHubWorkspacePage.tsx` 渲染期写 `window.*`、`QuotaDashboardPage.tsx` 渲染期写 ref；清理 `oxlint` 告警（97 → 55，消除全部 `no-unused-vars`、`no-children-prop`、`no-useless-escape`、`immutability`、`refs`）。Electron 59/59、Frontend 735/735 单测全绿。
+  5. **W5 (`51251ff3-47b6-4afb-8907-554938c6a61a`) — `pkg/acpmesh/**`**：定位并修复 `TestProbeAgentHandshakeRealPi` 失败根因（`probePiRPC` 原先硬编码 4s 超时覆盖了调用方 10s deadline，Node 冷启动加载 21 个 MCP 服务超 4s 触发回退至 `pi-acp`）；新增 `probeContext(ctx)` 尊重上层更长 deadline 并将默认超时提至 8s，回退时在 `Summary` 保留 `(pi-rpc fallback: ...)` 诊断；移除 `v24.16.0` 硬编码路径，改为按 semver 降序扫描 nvm 目录。25 个测试套件全绿。
+- **接续 Agent 收尾步骤**：
+  1. 确认 5 个 subagent 的 `DeepCoderImprovementWorker` 复核轮全部返回并更新本节。
+  2. 还原 `pkg/core/config.go` 的 CRLF 行尾噪音，对齐 `.github/workflows/{race,release}.yml` 的 `go-version-file: 'go.mod'`。
+  3. 跑全量构建与测试（`npm run build && npm test`），按 `AGENTS.md` §6 重启运行中的 `swiss` daemon / 桌面实例，并按 `AGENTS.md` §3 走分支 + PR 同步至 `origin/main`。

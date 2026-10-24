@@ -25,20 +25,20 @@ func TestMatchWorkspaceProject(t *testing.T) {
 
 	// 1. Exact match
 	pid, pName, status := MatchWorkspaceProject("/workspace/app", projects)
-	if pid != "proj-app" || status != "exact" {
-		t.Errorf("Expected exact match to proj-app, got pid=%s, status=%s", pid, status)
+	if pid != "proj-app" || pName != "App Workspace" || status != "exact" {
+		t.Errorf("Expected exact match to proj-app/App Workspace, got pid=%s, pName=%s, status=%s", pid, pName, status)
 	}
 
 	// 2. Subpath match
 	pid, pName, status = MatchWorkspaceProject("/workspace/app/frontend/src", projects)
-	if pid != "proj-app" || status != "heuristic" {
-		t.Errorf("Expected subpath match to proj-app, got pid=%s, status=%s", pid, status)
+	if pid != "proj-app" || pName != "App Workspace" || status != "heuristic" {
+		t.Errorf("Expected subpath match to proj-app/App Workspace, got pid=%s, pName=%s, status=%s", pid, pName, status)
 	}
 
 	// 3. Basename match
 	pid, pName, status = MatchWorkspaceProject("/tmp/Notes", projects)
-	if pid != "proj-notes" || status != "heuristic" {
-		t.Errorf("Expected basename match to proj-notes, got pid=%s, status=%s", pid, status)
+	if pid != "proj-notes" || pName != "Notes" || status != "heuristic" {
+		t.Errorf("Expected basename match to proj-notes/Notes, got pid=%s, pName=%s, status=%s", pid, pName, status)
 	}
 
 	// 4. Empty/Fallback match
@@ -46,7 +46,6 @@ func TestMatchWorkspaceProject(t *testing.T) {
 	if pid != "proj-app" || status != "fallback" {
 		t.Errorf("Expected fallback match to first project, got pid=%s, status=%s", pid, status)
 	}
-	_ = pName
 }
 
 func TestWriteConversationDBAndSummary(t *testing.T) {

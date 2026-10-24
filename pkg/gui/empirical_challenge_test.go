@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -307,7 +308,8 @@ func TestChallenge_RealUserConfigIsolation(t *testing.T) {
 	// 1. Verify GetConfigDir() in test environment
 	configDir := core.GetConfigDir()
 	expectedPrefix := filepath.Clean(os.TempDir())
-	if !filepath.IsAbs(configDir) || !filepath.HasPrefix(configDir, expectedPrefix) {
+	prefixWithSep := expectedPrefix + string(filepath.Separator)
+	if !filepath.IsAbs(configDir) || (configDir != expectedPrefix && !strings.HasPrefix(configDir, prefixWithSep)) {
 		t.Fatalf("GetConfigDir() returned non-isolated path %q, expected prefix %q", configDir, expectedPrefix)
 	}
 

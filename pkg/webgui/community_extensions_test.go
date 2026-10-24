@@ -167,7 +167,7 @@ func TestCommunityExtensions_HTTPAPI(t *testing.T) {
 	}
 
 	// 7. DELETE nonexistent -> 400 Bad Request
-	resp, res = doReq(http.MethodDelete, "/api/extensions/community?id=nonexistent", nil)
+	resp, _ = doReq(http.MethodDelete, "/api/extensions/community?id=nonexistent", nil)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 Bad Request for deleting non-existent extension, got %d", resp.StatusCode)
 	}
@@ -180,6 +180,9 @@ func TestCommunityExtensions_HTTPAPI(t *testing.T) {
 
 	// Verify final count via GET
 	resp, res = doReq(http.MethodGet, "/api/extensions/community", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET returned %d, want 200", resp.StatusCode)
+	}
 	finalExts, _ := res["extensions"].([]interface{})
 	// We started with initialCount, added grafana-dashboards, metrics-gadget, tool-a, tool-b, then deleted tool-a
 	expectedCount := initialCount + 3

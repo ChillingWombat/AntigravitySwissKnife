@@ -10,13 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	handshakeTimeout  = 4 * time.Second
+	handshakeTimeout  = 8 * time.Second
 	promptTimeout     = 2 * time.Minute
 	TransportStdioACP = "stdio-acp"
 	TransportPiRPC    = "pi-rpc"
@@ -25,6 +26,19 @@ const (
 
 	acpInitializeRequest = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"antigravity-swiss-knife","version":"0.2.0"}}}` + "\n"
 )
+
+func probeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	timeout := handshakeTimeout
+	if d, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(d); remaining > timeout {
+			timeout = remaining
+		}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
 
 var piRPCTools = []string{"read", "bash", "edit", "write", "grep", "find", "ls"}
 
@@ -146,7 +160,11 @@ func ProbeAgentHandshake(ctx context.Context, agent Resolved, expandedBin string
 func probePiHandshake(ctx context.Context, agent Resolved, expandedBin string) HandshakeResult {
 	var piErr error
 	if isPiACPName(expandedBin) || isPiACPName(agent.BinaryPath) {
-		if acpBin := resolvePiACPExecutable(expandedBin); acpBin != "" {
+		targetACP := expandedBin
+		if !isPiACPName(targetACP) {
+			targetACP = agent.BinaryPath
+		}
+		if acpBin := resolvePiACPExecutable(targetACP); acpBin != "" {
 			result := probeACPBin(ctx, agent, acpBin, nil, TransportStdioACP)
 			if result.Verified {
 				return result
@@ -167,6 +185,13 @@ func probePiHandshake(ctx context.Context, agent Resolved, expandedBin string) H
 	if acpBin := resolvePiACPExecutable(expandedBin); acpBin != "" {
 		result := probeACPBin(ctx, agent, acpBin, nil, TransportStdioACP)
 		if result.Verified {
+			if piErr != nil {
+				if result.Summary != "" {
+					result.Summary = fmt.Sprintf("%s (pi-rpc fallback: %v)", result.Summary, piErr)
+				} else {
+					result.Summary = fmt.Sprintf("pi-rpc fallback: %v", piErr)
+				}
+			}
 			return result
 		}
 		if piErr == nil {
@@ -196,7 +221,7 @@ func probeACPBin(ctx context.Context, agent Resolved, bin string, args []string,
 		return failHandshake(&result, errors.New("ACP executable not found"))
 	}
 
-	probeCtx, cancel := context.WithTimeout(ctx, handshakeTimeout)
+	probeCtx, cancel := probeContext(ctx)
 	defer cancel()
 
 	cmd := exec.CommandContext(probeCtx, bin, args...)
@@ -277,14 +302,28 @@ func probeACPBin(ctx context.Context, agent Resolved, bin string, args []string,
 }
 
 func probePiRPC(ctx context.Context, agent Resolved, bin string) HandshakeResult {
+	fastArgs := []string{"--offline", "--no-session", "--no-themes", "--no-extensions", "--no-mcp", "--no-skills", "--mode", "rpc"}
+	res := probePiRPCOnce(ctx, agent, bin, fastArgs)
+	if res.Verified {
+		return res
+	}
+	errLower := strings.ToLower(res.Error)
+	if strings.Contains(errLower, "unknown option") || strings.Contains(errLower, "unknown flag") {
+		basicArgs := []string{"--offline", "--no-session", "--no-themes", "--mode", "rpc"}
+		return probePiRPCOnce(ctx, agent, bin, basicArgs)
+	}
+	return res
+}
+
+func probePiRPCOnce(ctx context.Context, agent Resolved, bin string, args []string) HandshakeResult {
 	result := newHandshakeResult(agent, TransportPiRPC)
 	result.Protocol = piRPCProtocol
 	result.Endpoint = bin
 
-	probeCtx, cancel := context.WithTimeout(ctx, handshakeTimeout)
+	probeCtx, cancel := probeContext(ctx)
 	defer cancel()
 
-	cmd := exec.CommandContext(probeCtx, bin, "--offline", "--no-session", "--no-themes", "--mode", "rpc")
+	cmd := exec.CommandContext(probeCtx, bin, args...)
 	cmd.Env = append(os.Environ(), "PI_OFFLINE=1")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -862,11 +901,161 @@ func resolvePiACPExecutable(expandedBin string) string {
 	if err != nil || home == "" {
 		return ""
 	}
-	candidate := filepath.Join(home, ".config", "nvm", "versions", "node", "v24.16.0", "bin", "pi-acp")
-	if isFile(candidate) {
-		return candidate
+	patterns := []string{
+		filepath.Join(home, ".config", "nvm", "versions", "node", "*", "bin", "pi-acp"),
+		filepath.Join(home, ".nvm", "versions", "node", "*", "bin", "pi-acp"),
 	}
-	return ""
+	if nvmDir := strings.TrimSpace(os.Getenv("NVM_DIR")); nvmDir != "" {
+		patterns = append(patterns, filepath.Join(nvmDir, "versions", "node", "*", "bin", "pi-acp"))
+	}
+	var matches []string
+	for _, pattern := range patterns {
+		found, err := filepath.Glob(pattern)
+		if err == nil {
+			matches = append(matches, found...)
+		}
+	}
+	seen := make(map[string]bool)
+	var valid []string
+	for _, m := range matches {
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+		if isFile(m) {
+			valid = append(valid, m)
+		}
+	}
+	if len(valid) == 0 {
+		return ""
+	}
+	sort.SliceStable(valid, func(i, j int) bool {
+		vi := filepath.Base(filepath.Dir(filepath.Dir(valid[i])))
+		vj := filepath.Base(filepath.Dir(filepath.Dir(valid[j])))
+		return compareVersions(vi, vj) > 0
+	})
+	return valid[0]
+}
+
+func parseNumericParts(s string) []int {
+	parts := strings.Split(s, ".")
+	res := make([]int, 0, len(parts))
+	for _, p := range parts {
+		var num int
+		for i := 0; i < len(p); i++ {
+			if p[i] < '0' || p[i] > '9' {
+				break
+			}
+			num = num*10 + int(p[i]-'0')
+		}
+		res = append(res, num)
+	}
+	return res
+}
+
+func parseVersionParts(s string) []int {
+	return parseNumericParts(s)
+}
+
+func parseIdentifier(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	num := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
+		}
+		num = num*10 + int(s[i]-'0')
+	}
+	return num, true
+}
+
+func splitPrerelease(s string) (base string, pre string, hasPre bool) {
+	if idx := strings.IndexByte(s, '-'); idx != -1 {
+		return s[:idx], s[idx+1:], true
+	}
+	return s, "", false
+}
+
+func comparePrereleases(a, b string) int {
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	n := len(aParts)
+	if len(bParts) > n {
+		n = len(bParts)
+	}
+	for i := 0; i < n; i++ {
+		if i >= len(aParts) {
+			return -1
+		}
+		if i >= len(bParts) {
+			return 1
+		}
+		ap, bp := aParts[i], bParts[i]
+		aNum, aIsNum := parseIdentifier(ap)
+		bNum, bIsNum := parseIdentifier(bp)
+		if aIsNum && bIsNum {
+			if aNum != bNum {
+				return aNum - bNum
+			}
+		} else if aIsNum && !bIsNum {
+			return -1
+		} else if !aIsNum && bIsNum {
+			return 1
+		} else {
+			if cmp := strings.Compare(ap, bp); cmp != 0 {
+				return cmp
+			}
+		}
+	}
+	return 0
+}
+
+func compareVersions(a, b string) int {
+	aClean := strings.TrimLeft(strings.TrimSpace(a), "vV")
+	bClean := strings.TrimLeft(strings.TrimSpace(b), "vV")
+
+	if idx := strings.IndexByte(aClean, '+'); idx != -1 {
+		aClean = aClean[:idx]
+	}
+	if idx := strings.IndexByte(bClean, '+'); idx != -1 {
+		bClean = bClean[:idx]
+	}
+
+	aBase, aPre, aHasPre := splitPrerelease(aClean)
+	bBase, bPre, bHasPre := splitPrerelease(bClean)
+
+	pa := parseNumericParts(aBase)
+	pb := parseNumericParts(bBase)
+
+	n := len(pa)
+	if len(pb) > n {
+		n = len(pb)
+	}
+	for i := 0; i < n; i++ {
+		va, vb := 0, 0
+		if i < len(pa) {
+			va = pa[i]
+		}
+		if i < len(pb) {
+			vb = pb[i]
+		}
+		if va != vb {
+			return va - vb
+		}
+	}
+
+	if !aHasPre && bHasPre {
+		return 1
+	}
+	if aHasPre && !bHasPre {
+		return -1
+	}
+	if aHasPre && bHasPre {
+		return comparePrereleases(aPre, bPre)
+	}
+	return 0
 }
 
 func isPiACPName(path string) bool {

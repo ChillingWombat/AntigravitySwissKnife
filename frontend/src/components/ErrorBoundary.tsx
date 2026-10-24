@@ -2,7 +2,7 @@ import React, { type ErrorInfo, type ReactNode } from 'react'
 import { AlertTriangle, RotateCw } from 'lucide-react'
 
 interface Props {
-  children: ReactNode
+  children?: ReactNode
   fallbackTitle?: string
 }
 

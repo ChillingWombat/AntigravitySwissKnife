@@ -56,7 +56,7 @@ export const App: React.FC = () => {
         try {
           const injected = await electronAPI.getSessionToken()
           if (injected) setSessionToken(injected)
-        } catch (_) {}
+        } catch {}
       }
       const res = await api.getAuthStatus()
       if (res.password_required) {

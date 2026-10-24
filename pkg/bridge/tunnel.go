@@ -289,10 +289,6 @@ func (tm *TunnelManager) appendLog(msg string) {
 	}
 }
 
-func (tm *TunnelManager) appendLogLocked(msg string) {
-	tm.appendLog(msg)
-}
-
 // Start begins a remote tunnel with zero configuration.
 func (tm *TunnelManager) Start(tunnelType string, customURL string) (TunnelStatus, error) {
 	if tunnelType == "" || tunnelType == "quick" {

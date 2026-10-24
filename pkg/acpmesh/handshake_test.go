@@ -268,8 +268,8 @@ func TestProbeAgentHandshakeRealPi(t *testing.T) {
 }
 
 func TestProbeAgentHandshakeInstalledPiACP(t *testing.T) {
-	const piACPPath = "/home/david/.config/nvm/versions/node/v24.16.0/bin/pi-acp"
-	if _, err := os.Stat(piACPPath); err != nil {
+	piACPPath := resolvePiACPExecutable("")
+	if piACPPath == "" {
 		t.Skip("installed pi-acp binary is not present")
 	}
 
@@ -351,5 +351,70 @@ func TestProbeAgentHandshakeSocket(t *testing.T) {
 	}
 	if result.Transport != "socket" || result.LatencyMs <= 0 {
 		t.Fatalf("unexpected socket handshake result: %+v", result)
+	}
+}
+
+func TestCompareVersions(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want int // >0 if a>b, <0 if a<b, 0 if a==b
+	}{
+		{"v24.16.0", "v24.16.0", 0},
+		{"v24.16.0", "v20.5.1", 1},
+		{"v20.5.1", "v24.16.0", -1},
+		{"v24.9.0", "v24.16.0", -1},
+		{"v24.16.1", "v24.16.0", 1},
+		{"24.16.0", "v24.16.0", 0},
+		{"v24.16.0", "v24.16.0-rc.1", 1},
+		{"v24.16.0-rc.1", "v24.16.0", -1},
+		{"v24.16.0-rc.2", "v24.16.0-rc.1", 1},
+		{"v25.0.0-rc.1", "v24.16.0", 1},
+		{"v24.16.0+build.1", "v24.16.0", 0},
+	}
+	for _, tc := range tests {
+		got := compareVersions(tc.a, tc.b)
+		if (tc.want > 0 && got <= 0) || (tc.want < 0 && got >= 0) || (tc.want == 0 && got != 0) {
+			t.Errorf("compareVersions(%q, %q) = %d, want sign of %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+func TestProbePiHandshakeFallbackDiagnostics(t *testing.T) {
+	// Mock a failing pi executable that exits immediately
+	failingPi := writeACPTestScript(t, `exit 1`)
+	// Mock a working pi-acp executable
+	workingACP := writeACPTestScriptNamed(t, "pi-acp", `
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo":{"name":"pi-acp","version":"1.0.0"}}}'
+      ;;
+  esac
+done
+`)
+
+	// Agent pointing to failingPi as binary path, with workingACP on PATH or resolved
+	agent := Resolved{
+		ID:         PresetPi,
+		Name:       "Pi",
+		BinaryPath: failingPi,
+	}
+
+	// Put directory of workingACP in front of PATH
+	acpDir := filepath.Dir(workingACP)
+	t.Setenv("PATH", acpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result := ProbeAgentHandshake(ctx, agent, failingPi)
+	if !result.Verified {
+		t.Fatalf("expected fallback to verify, got %+v", result)
+	}
+	if result.Transport != TransportStdioACP {
+		t.Fatalf("transport = %q, want %q", result.Transport, TransportStdioACP)
+	}
+	if !strings.Contains(result.Summary, "pi-rpc fallback:") {
+		t.Fatalf("summary %q missing fallback diagnostic note", result.Summary)
 	}
 }

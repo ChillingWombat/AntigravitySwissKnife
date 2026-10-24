@@ -2,6 +2,7 @@ package webgui
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -50,13 +51,23 @@ func GenerateLocalSessionToken() (string, error) {
 	return token, nil
 }
 
-// isValidSessionToken accepts the 64-character hex tokens this generator produces.
-func isValidSessionToken(tok string) bool {
+// isSessionTokenShaped checks whether tok is exactly 64 lowercase hex characters.
+func isSessionTokenShaped(tok string) bool {
 	if len(tok) != 64 {
 		return false
 	}
-	_, err := hex.DecodeString(tok)
-	return err == nil
+	for i := 0; i < len(tok); i++ {
+		c := tok[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidSessionToken accepts the 64-character hex tokens this generator produces.
+func isValidSessionToken(tok string) bool {
+	return isSessionTokenShaped(tok)
 }
 
 // GetLocalSessionToken reads the current session token from the configuration directory.
@@ -190,21 +201,28 @@ func (s *Server) validateRequestAuth(r *http.Request) bool {
 	if candidate != "" {
 		s.authMu.RLock()
 		daemonTok := s.daemonSessionToken
+		expiry, exists := s.sessionTokens[candidate]
 		s.authMu.RUnlock()
-		if daemonTok != "" && candidate == daemonTok {
+
+		if daemonTok != "" && subtle.ConstantTimeCompare([]byte(candidate), []byte(daemonTok)) == 1 {
 			return true
 		}
 
 		// Check against active sessionTokens cache
-		s.authMu.RLock()
-		expiry, exists := s.sessionTokens[candidate]
-		s.authMu.RUnlock()
-		if exists && time.Now().Before(expiry) {
-			return true
+		if exists {
+			now := time.Now()
+			if now.Before(expiry) {
+				return true
+			}
+			s.authMu.Lock()
+			if exp, ok := s.sessionTokens[candidate]; ok && !now.Before(exp) {
+				delete(s.sessionTokens, candidate)
+			}
+			s.authMu.Unlock()
 		}
 
 		// Check against session.token file on disk
-		if diskToken, err := GetLocalSessionToken(); err == nil && diskToken != "" && candidate == diskToken {
+		if diskToken, err := GetLocalSessionToken(); err == nil && diskToken != "" && subtle.ConstantTimeCompare([]byte(candidate), []byte(diskToken)) == 1 {
 			s.authMu.Lock()
 			if s.sessionTokens == nil {
 				s.sessionTokens = make(map[string]time.Time)
@@ -215,13 +233,17 @@ func (s *Server) validateRequestAuth(r *http.Request) bool {
 		}
 	}
 
+	if appPasswordCandidate == "" && (candidate == "" || isSessionTokenShaped(candidate)) {
+		return false
+	}
+
 	// Check App Password verification if AppPasswordEnabled is configured
 	cfg, err := core.LoadConfig()
 	if err == nil && cfg != nil && cfg.AppPasswordEnabled {
 		if appPasswordCandidate != "" && cfg.VerifyAppPassword(appPasswordCandidate) {
 			return true
 		}
-		if candidate != "" && cfg.VerifyAppPassword(candidate) {
+		if candidate != "" && !isSessionTokenShaped(candidate) && cfg.VerifyAppPassword(candidate) {
 			return true
 		}
 	}

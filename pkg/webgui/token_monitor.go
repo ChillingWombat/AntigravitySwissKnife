@@ -142,45 +142,6 @@ var (
 	convModelCacheMap  = make(map[string]cachedConvModel)
 )
 
-// knownNativePlaceholderMap maps Antigravity's internal protobuf model_enum placeholders
-// in ~/.gemini/antigravity/conversations/*.db to their canonical model IDs and display names
-// (unified across thinking levels for token monitoring and pricing).
-var knownNativePlaceholderMap = []struct {
-	marker      string
-	modelID     string
-	displayName string
-	provider    string
-}{
-	{marker: "MODEL_PLACEHOLDER_M318", modelID: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", provider: "gemini"},
-	{marker: "MODEL_PLACEHOLDER_M322", modelID: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", provider: "gemini"},
-	{marker: "MODEL_PLACEHOLDER_M319", modelID: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", provider: "gemini"},
-	{marker: "MODEL_PLACEHOLDER_M320", modelID: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", provider: "gemini"},
-	{marker: "MODEL_PLACEHOLDER_M16", modelID: "gemini-3.1-pro", displayName: "Gemini 3.1 Pro", provider: "gemini"},
-	{marker: "MODEL_PLACEHOLDER_M37", modelID: "gemini-3.1-pro", displayName: "Gemini 3.1 Pro", provider: "gemini"},
-	{marker: "gpt-oss-120b-medium", modelID: "gpt-oss-120b", displayName: "GPT-OSS 120B", provider: "openai"},
-	{marker: "gpt-oss-120b", modelID: "gpt-oss-120b", displayName: "GPT-OSS 120B", provider: "openai"},
-	{marker: "gemini-3.8-flash-high", modelID: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", provider: "gemini"},
-	{marker: "gemini-3.8-flash-medium", modelID: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", provider: "gemini"},
-	{marker: "gemini-3.8-flash-low", modelID: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", provider: "gemini"},
-	{marker: "gemini-3.8-flash-tiered", modelID: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", provider: "gemini"},
-	{marker: "gemini-3.8-flash", modelID: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash", provider: "gemini"},
-	{marker: "gemini-3.7-flash-high", modelID: "gemini-3.7-flash", displayName: "Gemini 3.7 Flash", provider: "gemini"},
-	{marker: "gemini-3.7-flash-medium", modelID: "gemini-3.7-flash", displayName: "Gemini 3.7 Flash", provider: "gemini"},
-	{marker: "gemini-3.7-flash-low", modelID: "gemini-3.7-flash", displayName: "Gemini 3.7 Flash", provider: "gemini"},
-	{marker: "gemini-3.7-flash", modelID: "gemini-3.7-flash", displayName: "Gemini 3.7 Flash", provider: "gemini"},
-	{marker: "gemini-3.6-flash-high", modelID: "gemini-3.6-flash", displayName: "Gemini 3.6 Flash", provider: "gemini"},
-	{marker: "gemini-3.6-flash-medium", modelID: "gemini-3.6-flash", displayName: "Gemini 3.6 Flash", provider: "gemini"},
-	{marker: "gemini-3.6-flash-low", modelID: "gemini-3.6-flash", displayName: "Gemini 3.6 Flash", provider: "gemini"},
-	{marker: "gemini-3.6-flash", modelID: "gemini-3.6-flash", displayName: "Gemini 3.6 Flash", provider: "gemini"},
-	{marker: "gemini-3-flash-agent", modelID: "gemini-3-flash", displayName: "Gemini 3 Flash", provider: "gemini"},
-	{marker: "gemini-pro-agent", modelID: "gemini-3.1-pro", displayName: "Gemini 3.1 Pro", provider: "gemini"},
-	{marker: "gemini-3.1-pro-low", modelID: "gemini-3.1-pro", displayName: "Gemini 3.1 Pro", provider: "gemini"},
-	{marker: "gemini-3.1-pro-high", modelID: "gemini-3.1-pro", displayName: "Gemini 3.1 Pro", provider: "gemini"},
-	{marker: "gemini-3.1-pro", modelID: "gemini-3.1-pro", displayName: "Gemini 3.1 Pro", provider: "gemini"},
-	{marker: "gemini-2.5-pro", modelID: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", provider: "gemini"},
-	{marker: "gemini-2.5-flash", modelID: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", provider: "gemini"},
-}
-
 // SetCustomModelsStore replaces the customModelsStore on the server (useful for isolated tests).
 func (s *Server) SetCustomModelsStore(store *custommodels.Store) {
 	s.customModelsStore = store
@@ -792,15 +753,6 @@ func readConversationMetadataMap(summariesDB string) map[string]conversationSumm
 			nestingDepth:  nestingDepth,
 			agentName:     agentName,
 		}
-	}
-	return out
-}
-
-func readConversationWorkspaceMap(summariesDB string) map[string][]string {
-	meta := readConversationMetadataMap(summariesDB)
-	out := make(map[string][]string, len(meta))
-	for k, v := range meta {
-		out[k] = v.workspaceURIs
 	}
 	return out
 }
@@ -2328,7 +2280,7 @@ func (s *Server) computeModelLifetimeCosts(ctx context.Context) map[string]float
 
 		cost := (float64(tStats.freshInput)*inRate + float64(tStats.cachedInput)*cacheRate + float64(tStats.outputTokens)*outRate) / 1_000_000.0
 		costs[strings.ToLower(mID)] += cost
-		if mDisplayName != "" && strings.ToLower(mDisplayName) != strings.ToLower(mID) {
+		if mDisplayName != "" && !strings.EqualFold(mDisplayName, mID) {
 			costs[strings.ToLower(mDisplayName)] += cost
 		}
 	}

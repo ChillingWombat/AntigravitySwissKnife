@@ -41,10 +41,11 @@ describe('Adversarial Stress: ErrorBoundary Exception Handling & Recovery', () =
         }
 
         const { querySelector, unmount } = await mount(
-          React.createElement(ErrorBoundary, {
-            fallbackTitle: 'Hostile Crash Caught',
-            children: React.createElement(HostileChild),
-          })
+          React.createElement(
+            ErrorBoundary,
+            { fallbackTitle: 'Hostile Crash Caught' },
+            React.createElement(HostileChild)
+          )
         )
 
         const title = querySelector('h3')
@@ -78,9 +79,11 @@ describe('Adversarial Stress: ErrorBoundary Exception Handling & Recovery', () =
       }
 
       const { querySelector, click, unmount } = await mount(
-        React.createElement(ErrorBoundary, {
-          children: React.createElement(DynamicChild),
-        })
+        React.createElement(
+          ErrorBoundary,
+          null,
+          React.createElement(DynamicChild)
+        )
       )
 
       // Initial crash state
