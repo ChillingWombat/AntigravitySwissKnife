@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +11,68 @@ import (
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
+
+func TestAuthManager_ValidateRequestAcceptsHeaderAndQueryCredentials(t *testing.T) {
+	tests := []struct {
+		name  string
+		url   string
+		setup func(*http.Request)
+	}{
+		{
+			name: "X-Bridge-Token with empty PIN header and invalid authorization",
+			url:  "/api/bridge/mcp",
+			setup: func(req *http.Request) {
+				req.Header.Set("Authorization", "Bearer unrelated-token")
+				req.Header.Set("X-Bridge-PIN", "")
+				req.Header.Set("X-Bridge-Token", "test-token-123")
+			},
+		},
+		{
+			name: "auth query with invalid authorization",
+			url:  "/api/bridge/mcp?auth=test-token-123",
+			setup: func(req *http.Request) {
+				req.Header.Set("Authorization", "Bearer unrelated-token")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			am := NewAuthManager("test-token-123", "654321", nil)
+			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
+			tc.setup(req)
+			if granted, reason := am.ValidateRequest(req); !granted {
+				t.Fatalf("expected request to be granted, got reason %q", reason)
+			}
+		})
+	}
+}
+
+func TestAuthManager_LockoutTrackingIsCapped(t *testing.T) {
+	am := NewAuthManager("test-token-123", "654321", nil)
+	start := time.Now()
+
+	am.mu.Lock()
+	for i := 0; i < maxTrackedLockoutIPs; i++ {
+		ip := fmt.Sprintf("198.51.%d.%d", i/256, i%256)
+		am.failedAttempts[ip] = []time.Time{start.Add(time.Duration(i) * time.Microsecond)}
+	}
+	am.recordFailureLocked("203.0.113.200")
+	_, oldestTracked := am.failedAttempts["198.51.0.0"]
+	_, newestTracked := am.failedAttempts["203.0.113.200"]
+	tracked := len(am.failedAttempts)
+	am.mu.Unlock()
+
+	if tracked != maxTrackedLockoutIPs {
+		t.Fatalf("expected failure tracking to cap at %d IPs, got %d", maxTrackedLockoutIPs, tracked)
+	}
+	if oldestTracked {
+		t.Fatal("expected oldest failed IP to be evicted")
+	}
+	if !newestTracked {
+		t.Fatal("expected newly failed IP to remain tracked")
+	}
+}
 
 // TestAuthManager_BruteForceLockout verifies that 5 failed attempts within 5 minutes
 // triggers an automatic 15-minute IP lockout.

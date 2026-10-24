@@ -404,11 +404,27 @@ func (am *AuthManager) verifyCandidate(r *http.Request, candidate string, allowT
 }
 
 func (am *AuthManager) verifyCandidateState(r *http.Request, candidate string, allowToken bool) (ok bool, locked bool, alreadyLocked bool) {
+	return am.verifyCandidatesState(r, []string{candidate}, allowToken)
+}
+
+func (am *AuthManager) verifyCandidatesState(r *http.Request, candidates []string, allowToken bool) (ok bool, locked bool, alreadyLocked bool) {
 	if am == nil {
 		return false, false, false
 	}
 	clientIP := getClientIP(r)
-	candidate = strings.TrimSpace(candidate)
+	uniqueCandidates := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		uniqueCandidates = append(uniqueCandidates, candidate)
+	}
 
 	am.mu.Lock()
 	am.sweepLockoutStateLocked(time.Now())
@@ -421,13 +437,24 @@ func (am *AuthManager) verifyCandidateState(r *http.Request, candidate string, a
 	useAppPassword := am.useAppPassword
 	am.mu.Unlock()
 
-	if candidate == "" {
+	if len(uniqueCandidates) == 0 {
 		return false, false, false
 	}
 
-	valid := allowToken && token != "" && secureCompare(candidate, token)
-	if !valid {
-		valid = VerifyCandidatePIN(candidate, pin, useAppPassword)
+	valid := false
+	for _, candidate := range uniqueCandidates {
+		if (allowToken && secureCompare(candidate, token)) || secureCompare(candidate, pin) {
+			valid = true
+			break
+		}
+	}
+	if !valid && useAppPassword {
+		for _, candidate := range uniqueCandidates {
+			if VerifyCandidatePIN(candidate, pin, useAppPassword) {
+				valid = true
+				break
+			}
+		}
 	}
 
 	am.mu.Lock()
@@ -446,30 +473,39 @@ func (am *AuthManager) verifyCandidateState(r *http.Request, candidate string, a
 // ValidateRequest checks HTTP request headers and query parameters for valid credentials.
 // It enforces brute-force protection: 5 failed PIN attempts within 5 minutes locks the client IP for 15 minutes.
 func (am *AuthManager) ValidateRequest(r *http.Request) (bool, string) {
-	candidate := ""
+	candidates := make([]string, 0, 8)
+	seen := make(map[string]struct{}, 8)
+	addCandidate := func(raw string) {
+		candidate := strings.TrimSpace(raw)
+		if candidate == "" {
+			return
+		}
+		if _, exists := seen[candidate]; exists {
+			return
+		}
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+
 	if auth := strings.TrimSpace(r.Header.Get("Authorization")); auth != "" {
 		fields := strings.Fields(auth)
 		if len(fields) == 2 && strings.EqualFold(fields[0], "Bearer") {
-			candidate = fields[1]
+			addCandidate(fields[1])
 		} else if _, password, ok := r.BasicAuth(); ok {
-			candidate = strings.TrimSpace(password)
+			addCandidate(password)
 		}
 	}
-	if candidate == "" {
-		candidate = strings.TrimSpace(r.Header.Get("X-Pairing-PIN"))
-	}
-	if candidate == "" {
-		_ = r.ParseForm()
-		candidate = strings.TrimSpace(r.FormValue("pin"))
-		if candidate == "" {
-			candidate = strings.TrimSpace(r.FormValue("password"))
-		}
-		if candidate == "" {
-			candidate = strings.TrimSpace(r.FormValue("token"))
-		}
-	}
+	addCandidate(r.Header.Get("X-Bridge-Token"))
+	addCandidate(r.Header.Get("X-Bridge-PIN"))
+	addCandidate(r.Header.Get("X-Pairing-PIN"))
+	_ = r.ParseForm()
+	addCandidate(r.URL.Query().Get("token"))
+	addCandidate(r.URL.Query().Get("auth"))
+	addCandidate(r.FormValue("pin"))
+	addCandidate(r.FormValue("password"))
+	addCandidate(r.FormValue("token"))
 
-	ok, locked, alreadyLocked := am.verifyCandidateState(r, candidate, true)
+	ok, locked, alreadyLocked := am.verifyCandidatesState(r, candidates, true)
 	if ok {
 		return true, ""
 	}
