@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 
 export interface ToggleSwitchProps {
   checked: boolean
@@ -21,6 +21,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   ariaLabel,
   style,
 }) => {
+  const [focused, setFocused] = useState(false)
   const isSm = size === 'sm'
   const width = isSm ? 32 : 40
   const height = isSm ? 16 : 20
@@ -51,7 +52,9 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
         name={name}
         role="switch"
         aria-checked={checked}
-        aria-label={ariaLabel}
+        aria-label={ariaLabel || name || id || 'Toggle'}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
@@ -77,7 +80,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
           boxSizing: 'border-box',
           flexShrink: 0,
           opacity: disabled ? 0.6 : 1,
-          boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.05)',
+          boxShadow: focused ? '0 0 0 2px var(--primary, #0b57d0)' : 'inset 0 1px 2px rgba(0, 0, 0, 0.05)',
         }}
       >
         <span
