@@ -1,9 +1,10 @@
-import { describe, it } from 'node:test'
+import { afterEach, describe, it } from 'node:test'
 import assert from 'node:assert'
 import {
   getAccountTableDisplay,
   getAccountHeaderDisplay,
   resolveDefaultAlias,
+  copyTextWithFallback,
   normalizeMfaSecret,
   parseAccountErrorAlert,
   ACCOUNT_SETUP_TEXTS,
@@ -12,7 +13,136 @@ import {
   createRequestGate,
 } from './accountPresentation.ts'
 
+const originalBrowserGlobals = {
+  window: Object.getOwnPropertyDescriptor(globalThis, 'window'),
+  navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'),
+  document: Object.getOwnPropertyDescriptor(globalThis, 'document'),
+}
+
+function installBrowserGlobals(
+  windowValue: unknown,
+  navigatorValue: unknown,
+  documentValue: unknown
+) {
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: windowValue })
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: navigatorValue })
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: documentValue })
+}
+
+afterEach(() => {
+  for (const [key, descriptor] of Object.entries(originalBrowserGlobals)) {
+    if (descriptor) {
+      Object.defineProperty(globalThis, key, descriptor)
+    } else {
+      delete (globalThis as any)[key]
+    }
+  }
+})
+
 describe('accountPresentation utility', () => {
+  describe('copyTextWithFallback', () => {
+    it('uses window.electronAPI.copyToClipboard when present', async () => {
+      let copiedText = ''
+      const copyToClipboard = async (text: string) => {
+        copiedText = text
+        return true
+      }
+      installBrowserGlobals(
+        { electronAPI: { copyToClipboard, writeClipboard: copyToClipboard } },
+        { clipboard: { writeText: async () => assert.fail('navigator fallback used') } },
+        {}
+      )
+
+      assert.strictEqual(await copyTextWithFallback('electron-copy'), true)
+      assert.strictEqual(copiedText, 'electron-copy')
+    })
+
+    it('falls back to navigator.clipboard.writeText', async () => {
+      let copiedText = ''
+      let execCommandCalls = 0
+      installBrowserGlobals(
+        {},
+        {
+          clipboard: {
+            writeText: async (text: string) => {
+              copiedText = text
+            },
+          },
+        },
+        {
+          execCommand: () => {
+            execCommandCalls += 1
+            return true
+          },
+        }
+      )
+
+      assert.strictEqual(await copyTextWithFallback('navigator-copy'), true)
+      assert.strictEqual(copiedText, 'navigator-copy')
+      assert.strictEqual(execCommandCalls, 0)
+    })
+
+    it('succeeds with document.execCommand when navigator.clipboard.writeText rejects', async () => {
+      const textArea = {
+        value: '',
+        style: {},
+        focus() {},
+        select() {},
+        remove() {},
+      }
+      let copiedText = ''
+      installBrowserGlobals(
+        {},
+        {
+          clipboard: {
+            writeText: async () => {
+              throw new Error('clipboard denied')
+            },
+          },
+        },
+        {
+          body: { appendChild() {}, removeChild() {} },
+          createElement: () => textArea,
+          execCommand: (command: string) => {
+            assert.strictEqual(command, 'copy')
+            copiedText = textArea.value
+            return true
+          },
+        }
+      )
+
+      assert.strictEqual(await copyTextWithFallback('exec-copy'), true)
+      assert.strictEqual(copiedText, 'exec-copy')
+    })
+
+    it('returns false when document.execCommand returns false', async () => {
+      const textArea = {
+        value: '',
+        style: {},
+        focus() {},
+        select() {},
+        remove() {},
+      }
+      installBrowserGlobals(
+        {},
+        {
+          clipboard: {
+            writeText: async () => {
+              throw new Error('clipboard denied')
+            },
+          },
+        },
+        {
+          body: { appendChild() {}, removeChild() {} },
+          createElement: () => textArea,
+          execCommand: () => false,
+        }
+      )
+
+      assert.strictEqual(await copyTextWithFallback('123456'), false)
+    })
+  })
+
   describe('getAccountTableDisplay', () => {
     it('shows only the account alias and hides the id when alias equals account id', () => {
       const res = getAccountTableDisplay('alice@example.com', 'alice@example.com')

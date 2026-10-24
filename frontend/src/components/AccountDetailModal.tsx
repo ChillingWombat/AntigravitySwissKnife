@@ -262,23 +262,59 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     return updatedAlert.verificationUrl
   }
 
+  const initialHydrationStateRef = useRef({
+    isNewAccount,
+    accountStatus: account.status,
+    hasCredentials: Boolean(account.refresh_token || account.access_token),
+    resetHorizonText: account.reset_horizon_text,
+    liveQuota5h,
+  })
+  const applyQuotaSummaryUpdateRef = useRef(applyQuotaSummaryUpdate)
+  const handleRefreshLiveQuotaRef = useRef(handleRefreshLiveQuota)
+
+  useEffect(() => {
+    initialHydrationStateRef.current = {
+      isNewAccount,
+      accountStatus: account.status,
+      hasCredentials: Boolean(account.refresh_token || account.access_token),
+      resetHorizonText: account.reset_horizon_text,
+      liveQuota5h,
+    }
+  }, [
+    isNewAccount,
+    account.status,
+    account.refresh_token,
+    account.access_token,
+    account.reset_horizon_text,
+    liveQuota5h,
+  ])
+
+  useEffect(() => {
+    applyQuotaSummaryUpdateRef.current = applyQuotaSummaryUpdate
+  }, [applyQuotaSummaryUpdate])
+
+  useEffect(() => {
+    handleRefreshLiveQuotaRef.current = handleRefreshLiveQuota
+  }, [handleRefreshLiveQuota])
+
   useEffect(() => {
     const accountEmail = account.email
     const requestId = quotaRequestGate.begin()
-    if (!isNewAccount && account.email && (account.refresh_token || account.access_token)) {
-      if (account.status?.toUpperCase() === 'ERROR') {
-        handleRefreshLiveQuota(accountEmail)
+    const hydration = initialHydrationStateRef.current
+    if (!hydration.isNewAccount && account.email && hydration.hasCredentials) {
+      if (hydration.accountStatus?.toUpperCase() === 'ERROR') {
+        handleRefreshLiveQuotaRef.current(accountEmail)
       } else if (
-        account.reset_horizon_text === 'Not Polled' ||
-        liveQuota5h === null ||
-        (account.status?.toUpperCase() === 'BANNED' && !account.error_message)
+        hydration.resetHorizonText === 'Not Polled' ||
+        hydration.liveQuota5h === null ||
+        (hydration.accountStatus?.toUpperCase() === 'BANNED' && !account.error_message)
       ) {
         void commitLatest(
           quotaRequestGate,
           requestId,
           api.getQuotaSummary(accountEmail),
           (q) => {
-            if (q) applyQuotaSummaryUpdate(q, false)
+            if (q) applyQuotaSummaryUpdateRef.current(q, false)
           }
         ).catch(() => {})
       }
@@ -344,7 +380,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     if (isNewAccount || (currentStatus || '').toUpperCase() !== 'ERROR') return
     const checkRecovery = () => {
       if (document.visibilityState !== 'hidden' && !isRefreshingQuota) {
-        handleRefreshLiveQuota()
+        handleRefreshLiveQuotaRef.current()
       }
     }
     const onVisibilityChange = () => {
@@ -398,7 +434,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       totpRequestGate.begin()
       if (timer) clearInterval(timer)
     }
-  }, [totpSecret])
+  }, [totpSecret, totpRequestGate])
 
   const handleCopyTotpCode = async () => {
     if (!derivedCode) return
