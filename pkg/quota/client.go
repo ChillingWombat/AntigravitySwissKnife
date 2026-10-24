@@ -642,6 +642,18 @@ func parseResetTime(raw string) time.Time {
 	return time.Time{}
 }
 
+func isWeeklyQuotaLabel(label string) bool {
+	label = strings.ToLower(label)
+	return label == "weekly" || strings.Contains(label, "week") || strings.Contains(label, "7d")
+}
+
+func isFiveHourQuotaLabel(label string) bool {
+	label = strings.ToLower(label)
+	return label == "5h" || strings.Contains(label, "5h") ||
+		strings.Contains(label, "fivehour") || strings.Contains(label, "five_hour") ||
+		strings.Contains(label, "five-hour")
+}
+
 func classifyQuotaWindow(window, bucketID, modelName string, rTime time.Time, now time.Time) string {
 	w := strings.ToLower(window)
 	bid := strings.ToLower(bucketID)
@@ -1249,6 +1261,15 @@ func extractArgonFromModelCatalog(root any, now time.Time) *languageServerArgonQ
 				if remaining, ok := numericJSONField(typed, "remainingFraction"); ok {
 					resetAt := parseResetTime(stringJSONField(typed, "resetTime"))
 					window := stringJSONField(typed, "window", "quotaId", "bucketId", "displayName")
+					if isWeeklyQuotaLabel(window) {
+						window = "weekly"
+					} else if isFiveHourQuotaLabel(window) {
+						window = "5h"
+					} else if isWeeklyQuotaLabel(context) {
+						window = "weekly"
+					} else if isFiveHourQuotaLabel(context) {
+						window = "5h"
+					}
 					setParsedArgonQuota(result, remaining, resetAt, window, "", "", now)
 				}
 			}

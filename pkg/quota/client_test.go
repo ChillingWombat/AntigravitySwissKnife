@@ -1384,10 +1384,57 @@ func TestIssue293FetchLiveQuotaBreakdownExtractsDirectArgon(t *testing.T) {
 	}
 }
 
+func TestIssue293FetchLiveQuotaBreakdownFallsThroughToAvailableModels(t *testing.T) {
+	ResetQuotaBackoffForTesting()
+	now := time.Now()
+	nearReset := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	var modelCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1internal:retrieveUserQuotaSummary":
+			issue293JSONResponse(w, fmt.Sprintf(`{"subscriptionTier":"Pro","models":{"claude-sonnet":{"displayName":"Claude Sonnet"}},"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.8,"resetTime":%q}]}]}`, nearReset))
+		case "/v1internal:retrieveUserQuota":
+			issue293JSONResponse(w, fmt.Sprintf(`{"buckets":[{"modelId":"claude-sonnet","displayName":"Claude Sonnet","window":"5h","remainingFraction":0.7,"resetTime":%q}]}`, nearReset))
+		case "/v1internal:fetchAvailableModels":
+			modelCalls++
+			issue293JSONResponse(w, fmt.Sprintf(`{"models":{"claude-sonnet":{"displayName":"Claude Sonnet"},"MODEL_GOOGLE_GEMINI_4_ARGON":{"quotaInfo":{"fiveHour":{"remainingFraction":0.44,"resetTime":%q},"weekly":{"remainingFraction":0.41,"resetTime":%q}}}}}`, nearReset, nearReset))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldQuota, oldModels, oldDirect := CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs
+	oldDirectFetcher := directArgonQuotaFetcher
+	defer func() {
+		CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs = oldQuota, oldModels, oldDirect
+		directArgonQuotaFetcher = oldDirectFetcher
+		ResetQuotaBackoffForTesting()
+	}()
+	CloudCodeRetrieveQuotaURLs = []string{server.URL + "/v1internal:retrieveUserQuotaSummary", server.URL + "/v1internal:retrieveUserQuota"}
+	CloudCodeDirectQuotaURLs = []string{server.URL + "/v1internal:retrieveUserQuotaSummary", server.URL + "/v1internal:retrieveUserQuota"}
+	CloudCodeModelsURLs = []string{server.URL + "/v1internal:fetchAvailableModels"}
+	directArgonQuotaFetcher = fetchDirectArgonQuota
+
+	breakdown, err := FetchLiveQuotaBreakdown("token", "project-1")
+	if err != nil {
+		t.Fatalf("FetchLiveQuotaBreakdown() error = %v", err)
+	}
+	if modelCalls == 0 {
+		t.Fatal("fetchAvailableModels was not called")
+	}
+	if breakdown.Quota5hArgon == nil || *breakdown.Quota5hArgon != 0.44 {
+		t.Fatalf("catalog 5H Argon = %v, want 0.44", breakdown.Quota5hArgon)
+	}
+	if breakdown.QuotaWeeklyArgon == nil || *breakdown.QuotaWeeklyArgon != 0.41 {
+		t.Fatalf("catalog weekly Argon = %v, want 0.41", breakdown.QuotaWeeklyArgon)
+	}
+}
+
 func TestIssue293ExtractArgonFromModelCatalog(t *testing.T) {
 	now := time.Now()
 	reset5h := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
-	resetWeekly := now.Add(72 * time.Hour).UTC().Format(time.RFC3339Nano)
+	resetWeekly := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
 	response := map[string]any{"models": map[string]any{"MODEL_GOOGLE_GEMINI_4_ARGON": map[string]any{
 		"quotaInfo": map[string]any{
 			"fiveHour": map[string]any{"remainingFraction": 0.22, "resetTime": reset5h},
