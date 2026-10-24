@@ -2,6 +2,7 @@ package quota
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -1204,5 +1205,244 @@ func TestIssue59_ClampFraction(t *testing.T) {
 	}
 	if got := ClampFraction(0.75); got != 0.75 {
 		t.Errorf("expected 0.75 for 0.75, got %f", got)
+	}
+}
+
+func issue293JSONResponse(w http.ResponseWriter, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(body))
+}
+
+func TestIssue293InactiveAccountUsesLanguageServerArgon(t *testing.T) {
+	ResetQuotaBackoffForTesting()
+	now := time.Now()
+	reset5h := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/load":
+			issue293JSONResponse(w, `{"cloudaicompanionProject":"project-1","currentTier":{"id":"Pro"}}`)
+		case "/summary":
+			issue293JSONResponse(w, fmt.Sprintf(`{"subscriptionTier":"Pro","models":{"claude-sonnet":{"displayName":"Claude Sonnet"}},"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.9,"resetTime":%q}]}]}`, reset5h))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldLoad, oldQuota, oldModels, oldDirect := CloudCodeLoadProjectURLs, CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs
+	oldArgonFetcher, oldCacheLoader := languageServerArgonFetcher, quotaCacheLoader
+	defer func() {
+		CloudCodeLoadProjectURLs, CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs = oldLoad, oldQuota, oldModels, oldDirect
+		languageServerArgonFetcher, quotaCacheLoader = oldArgonFetcher, oldCacheLoader
+	}()
+	CloudCodeLoadProjectURLs = []string{server.URL + "/load"}
+	CloudCodeRetrieveQuotaURLs = []string{server.URL + "/summary"}
+	CloudCodeModelsURLs = nil
+	CloudCodeDirectQuotaURLs = nil
+	quotaCacheLoader = func() map[string]*QuotaSummary { return map[string]*QuotaSummary{} }
+	called := false
+	languageServerArgonFetcher = func(email string, fetchNow time.Time) (*languageServerArgonQuota, error) {
+		called = true
+		if email != "inactive@example.com" {
+			return nil, fmt.Errorf("unexpected email %q", email)
+		}
+		fiveHour, weekly := 0.61, 0.72
+		return &languageServerArgonQuota{FiveHour: &fiveHour, FiveHourResetTime: fetchNow.Add(2 * time.Hour), Weekly: &weekly, WeeklyResetTime: fetchNow.Add(72 * time.Hour)}, nil
+	}
+
+	account := &keyring.Account{Email: "inactive@example.com", PlanTier: PlanTierPro, AccessToken: "token", IsActive: false, Status: "STANDBY"}
+	summary, err := PollAccountLiveQuota(account)
+	if err != nil {
+		t.Fatalf("PollAccountLiveQuota() error = %v", err)
+	}
+	if !called {
+		t.Fatal("inactive account did not reach the language server quota fetcher")
+	}
+	if summary.Quota5hArgon == nil || *summary.Quota5hArgon != 0.61 {
+		t.Fatalf("5H Argon = %v, want 0.61", summary.Quota5hArgon)
+	}
+	if summary.QuotaWeeklyArgon == nil || *summary.QuotaWeeklyArgon != 0.72 {
+		t.Fatalf("weekly Argon = %v, want 0.72", summary.QuotaWeeklyArgon)
+	}
+	if account.IsActive {
+		t.Fatal("test account unexpectedly became active")
+	}
+}
+
+func TestIssue293PollPreservesUnexpiredCachedArgon(t *testing.T) {
+	ResetQuotaBackoffForTesting()
+	now := time.Now()
+	reset := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/load":
+			issue293JSONResponse(w, `{"cloudaicompanionProject":"project-1","currentTier":{"id":"Pro"}}`)
+		case "/summary":
+			issue293JSONResponse(w, fmt.Sprintf(`{"subscriptionTier":"Pro","models":{"claude-sonnet":{"displayName":"Claude Sonnet"}},"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.9,"resetTime":%q}]}]}`, reset))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldLoad, oldQuota, oldModels, oldDirect := CloudCodeLoadProjectURLs, CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs
+	oldArgonFetcher, oldCacheLoader := languageServerArgonFetcher, quotaCacheLoader
+	defer func() {
+		CloudCodeLoadProjectURLs, CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs = oldLoad, oldQuota, oldModels, oldDirect
+		languageServerArgonFetcher, quotaCacheLoader = oldArgonFetcher, oldCacheLoader
+	}()
+	CloudCodeLoadProjectURLs = []string{server.URL + "/load"}
+	CloudCodeRetrieveQuotaURLs = []string{server.URL + "/summary"}
+	CloudCodeModelsURLs = nil
+	CloudCodeDirectQuotaURLs = nil
+	languageServerArgonFetcher = func(string, time.Time) (*languageServerArgonQuota, error) {
+		return nil, fmt.Errorf("language server unavailable")
+	}
+	fiveHour, weekly := 0.31, 0.55
+	quotaCacheLoader = func() map[string]*QuotaSummary {
+		return map[string]*QuotaSummary{"cached@example.com": {
+			Quota5hArgon:            &fiveHour,
+			QuotaWeeklyArgon:        &weekly,
+			ResetSeconds5hArgon:     (4 * time.Hour).Seconds(),
+			ResetSecondsWeeklyArgon: (5 * 24 * time.Hour).Seconds(),
+			LastPolled:              now.Add(-time.Hour),
+		}}
+	}
+
+	summary, err := PollAccountLiveQuota(&keyring.Account{Email: "cached@example.com", PlanTier: PlanTierPro, AccessToken: "token"})
+	if err != nil {
+		t.Fatalf("PollAccountLiveQuota() error = %v", err)
+	}
+	if summary.Quota5hArgon == nil || *summary.Quota5hArgon != 0.31 {
+		t.Fatalf("cached 5H Argon = %v, want 0.31", summary.Quota5hArgon)
+	}
+	if summary.QuotaWeeklyArgon == nil || *summary.QuotaWeeklyArgon != 0.55 {
+		t.Fatalf("cached weekly Argon = %v, want 0.55", summary.QuotaWeeklyArgon)
+	}
+	if summary.ResetSeconds5hArgon < (2*time.Hour).Seconds() || summary.ResetSeconds5hArgon > (3*time.Hour).Seconds() {
+		t.Fatalf("5H reset seconds = %v, want remaining cache horizon", summary.ResetSeconds5hArgon)
+	}
+	if summary.ResetHorizon5hArgonText == "" || summary.ResetHorizonWeeklyArgonText == "" {
+		t.Fatal("cached Argon reset horizons were not restored")
+	}
+}
+
+func TestIssue293CachedArgonExpiresAtReset(t *testing.T) {
+	now := time.Now()
+	fiveHour, weekly := 0.4, 0.6
+	cached := &QuotaSummary{
+		Quota5hArgon:            &fiveHour,
+		QuotaWeeklyArgon:        &weekly,
+		ResetSeconds5hArgon:     (time.Hour).Seconds(),
+		ResetSecondsWeeklyArgon: (2 * time.Hour).Seconds(),
+		LastPolled:              now.Add(-3 * time.Hour),
+	}
+	breakdown := &LiveQuotaBreakdown{}
+	restoreCachedArgon(breakdown, cached, now)
+	if breakdown.Quota5hArgon != nil || breakdown.QuotaWeeklyArgon != nil {
+		t.Fatalf("expired cached Argon survived: 5h=%v weekly=%v", breakdown.Quota5hArgon, breakdown.QuotaWeeklyArgon)
+	}
+}
+
+func TestIssue293FetchLiveQuotaBreakdownExtractsDirectArgon(t *testing.T) {
+	ResetQuotaBackoffForTesting()
+	now := time.Now()
+	reset5h := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	resetWeekly := now.Add(72 * time.Hour).UTC().Format(time.RFC3339Nano)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/summary":
+			issue293JSONResponse(w, fmt.Sprintf(`{"subscriptionTier":"Pro","models":{"claude-sonnet":{"displayName":"Claude Sonnet"}},"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.8,"resetTime":%q}]}]}`, reset5h))
+		case "/quota":
+			issue293JSONResponse(w, fmt.Sprintf(`{"buckets":[{"modelId":"MODEL_GOOGLE_GEMINI_4_ARGON","remainingFraction":0.44,"resetTime":%q},{"modelId":"MODEL_GOOGLE_GEMINI_4_ARGON","remainingFraction":0.77,"resetTime":%q}]}`, reset5h, resetWeekly))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldQuota, oldModels, oldDirect := CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs
+	oldDirectFetcher := directArgonQuotaFetcher
+	defer func() {
+		CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs = oldQuota, oldModels, oldDirect
+		directArgonQuotaFetcher = oldDirectFetcher
+	}()
+	CloudCodeRetrieveQuotaURLs = []string{server.URL + "/summary"}
+	CloudCodeModelsURLs = nil
+	CloudCodeDirectQuotaURLs = []string{server.URL + "/quota"}
+	directArgonQuotaFetcher = fetchDirectArgonQuota
+
+	breakdown, err := FetchLiveQuotaBreakdown("token", "project-1")
+	if err != nil {
+		t.Fatalf("FetchLiveQuotaBreakdown() error = %v", err)
+	}
+	if breakdown.Quota5hArgon == nil || *breakdown.Quota5hArgon != 0.44 {
+		t.Fatalf("direct 5H Argon = %v, want 0.44", breakdown.Quota5hArgon)
+	}
+	if breakdown.QuotaWeeklyArgon == nil || *breakdown.QuotaWeeklyArgon != 0.77 {
+		t.Fatalf("direct weekly Argon = %v, want 0.77", breakdown.QuotaWeeklyArgon)
+	}
+}
+
+func TestIssue293FetchLiveQuotaBreakdownFallsThroughToAvailableModels(t *testing.T) {
+	ResetQuotaBackoffForTesting()
+	now := time.Now()
+	nearReset := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	var modelCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1internal:retrieveUserQuotaSummary":
+			issue293JSONResponse(w, fmt.Sprintf(`{"subscriptionTier":"Pro","models":{"claude-sonnet":{"displayName":"Claude Sonnet"}},"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.8,"resetTime":%q}]}]}`, nearReset))
+		case "/v1internal:retrieveUserQuota":
+			issue293JSONResponse(w, fmt.Sprintf(`{"buckets":[{"modelId":"claude-sonnet","displayName":"Claude Sonnet","window":"5h","remainingFraction":0.7,"resetTime":%q}]}`, nearReset))
+		case "/v1internal:fetchAvailableModels":
+			modelCalls++
+			issue293JSONResponse(w, fmt.Sprintf(`{"models":{"claude-sonnet":{"displayName":"Claude Sonnet"},"MODEL_GOOGLE_GEMINI_4_ARGON":{"quotaInfo":{"fiveHour":{"remainingFraction":0.44,"resetTime":%q},"weekly":{"remainingFraction":0.41,"resetTime":%q}}}}}`, nearReset, nearReset))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldQuota, oldModels, oldDirect := CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs
+	oldDirectFetcher := directArgonQuotaFetcher
+	defer func() {
+		CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs = oldQuota, oldModels, oldDirect
+		directArgonQuotaFetcher = oldDirectFetcher
+		ResetQuotaBackoffForTesting()
+	}()
+	CloudCodeRetrieveQuotaURLs = []string{server.URL + "/v1internal:retrieveUserQuotaSummary", server.URL + "/v1internal:retrieveUserQuota"}
+	CloudCodeDirectQuotaURLs = []string{server.URL + "/v1internal:retrieveUserQuotaSummary", server.URL + "/v1internal:retrieveUserQuota"}
+	CloudCodeModelsURLs = []string{server.URL + "/v1internal:fetchAvailableModels"}
+	directArgonQuotaFetcher = fetchDirectArgonQuota
+
+	breakdown, err := FetchLiveQuotaBreakdown("token", "project-1")
+	if err != nil {
+		t.Fatalf("FetchLiveQuotaBreakdown() error = %v", err)
+	}
+	if modelCalls == 0 {
+		t.Fatal("fetchAvailableModels was not called")
+	}
+	if breakdown.Quota5hArgon == nil || *breakdown.Quota5hArgon != 0.44 {
+		t.Fatalf("catalog 5H Argon = %v, want 0.44", breakdown.Quota5hArgon)
+	}
+	if breakdown.QuotaWeeklyArgon == nil || *breakdown.QuotaWeeklyArgon != 0.41 {
+		t.Fatalf("catalog weekly Argon = %v, want 0.41", breakdown.QuotaWeeklyArgon)
+	}
+}
+
+func TestIssue293ExtractArgonFromModelCatalog(t *testing.T) {
+	now := time.Now()
+	reset5h := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	resetWeekly := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	response := map[string]any{"models": map[string]any{"MODEL_GOOGLE_GEMINI_4_ARGON": map[string]any{
+		"quotaInfo": map[string]any{
+			"fiveHour": map[string]any{"remainingFraction": 0.22, "resetTime": reset5h},
+			"weekly":   map[string]any{"remainingFraction": 0.66, "resetTime": resetWeekly},
+		},
+	}}}
+	result := extractArgonFromModelCatalog(response, now)
+	if result == nil || result.FiveHour == nil || *result.FiveHour != 0.22 || result.Weekly == nil || *result.Weekly != 0.66 {
+		t.Fatalf("model catalog Argon = %+v", result)
 	}
 }
