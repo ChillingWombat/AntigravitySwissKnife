@@ -163,6 +163,29 @@ export function cancelAllInFlightRequests(): void {
   inFlightControllers.clear()
 }
 
+export function shouldRunBackgroundPoll(
+  visibilityState: DocumentVisibilityState | string = typeof document !== 'undefined' ? document.visibilityState : 'visible',
+): boolean {
+  return visibilityState !== 'hidden'
+}
+
+/**
+ * Runs a polling task once at a time so interval ticks cannot cancel the task
+ * already in flight.
+ */
+export async function runSingleFlightPoll(
+  isPollingRef: { current: boolean },
+  pollStatus: () => Promise<void>,
+): Promise<void> {
+  if (isPollingRef.current) return
+  isPollingRef.current = true
+  try {
+    await pollStatus()
+  } finally {
+    isPollingRef.current = false
+  }
+}
+
 /**
  * Checks whether an error was caused by request abort/cancellation.
  */
@@ -205,13 +228,14 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
   }
 
   // Chain external signal if caller provided one
-  if (options?.signal) {
-    if (options.signal.aborted) {
-      controller.abort(options.signal.reason)
+  const callerSignal = options?.signal
+  let onCallerAbort: (() => void) | undefined
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort(callerSignal.reason)
     } else {
-      options.signal.addEventListener('abort', () => {
-        controller.abort(options.signal?.reason)
-      })
+      onCallerAbort = () => controller.abort(callerSignal.reason)
+      callerSignal.addEventListener('abort', onCallerAbort, { once: true })
     }
   }
 
@@ -281,6 +305,9 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
     }
     if (shouldCancelPrevious && inFlightControllers.get(cancelKey) === controller) {
       inFlightControllers.delete(cancelKey)
+    }
+    if (callerSignal && onCallerAbort) {
+      callerSignal.removeEventListener('abort', onCallerAbort)
     }
   }
 }

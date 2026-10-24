@@ -1,11 +1,14 @@
 import { describe, it, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { getEventListeners } from 'node:events'
 import {
   api,
   request,
   isAbortError,
   cancelInFlightRequest,
   cancelAllInFlightRequests,
+  runSingleFlightPoll,
+  shouldRunBackgroundPoll,
   setSessionToken,
   getSessionToken,
 } from '../api.ts'
@@ -756,5 +759,118 @@ describe('Adversarial Stress Suite: Frontend API Client Auth & Concurrency (Mile
     const res = runUrlTokenExtraction('not a valid url')
     assert.equal(res.extractedToken, null)
     assert.equal(res.cleanUrl, 'not a valid url')
+  })
+
+  // =========================================================================
+  // SECTION 5: Polling Cancellation and Listener Lifecycle
+  // =========================================================================
+
+  it('5.1: Long-lived caller AbortSignal has its abort listener removed after request resolution', async () => {
+    const callerController = new AbortController()
+    let listenerWasAttached = false
+
+    globalThis.fetch = (async () => {
+      listenerWasAttached = getEventListeners(callerController.signal, 'abort').length === 1
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true }),
+      }
+    }) as any
+
+    assert.equal(getEventListeners(callerController.signal, 'abort').length, 0)
+
+    await request('/api/listener-cleanup', { signal: callerController.signal })
+
+    assert.equal(listenerWasAttached, true, 'The request must chain the caller signal while in flight')
+    assert.equal(
+      getEventListeners(callerController.signal, 'abort').length,
+      0,
+      'Completed requests must not leave listeners on caller signals',
+    )
+  })
+
+  it('5.2: Overlapping interval polls skip the busy cycle instead of aborting the slow request', async () => {
+    let fetchCount = 0
+    let requestSignal: AbortSignal | null = null
+
+    globalThis.fetch = (async (_url: any, opts: any) => {
+      fetchCount++
+      requestSignal = opts?.signal ?? null
+      await new Promise((resolve) => setTimeout(resolve, 80))
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true }),
+      } as any
+    }) as any
+
+    const isPollingRef = { current: false }
+    const pollStatus = () =>
+      runSingleFlightPoll(isPollingRef, async () => {
+        await api.getStatus()
+      })
+
+    const interval = setInterval(() => { void pollStatus() }, 10)
+    const slowPoll = pollStatus()
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      const overlappingPoll = pollStatus()
+      await overlappingPoll
+
+      assert.equal(fetchCount, 1, 'An overlapping interval tick must not start another request')
+      assert.equal(isPollingRef.current, true, 'The original poll must still be in flight')
+      assert.equal((requestSignal as AbortSignal | null)?.aborted, false, 'The original request must not be self-aborted')
+    } finally {
+      clearInterval(interval)
+    }
+
+    await slowPoll
+    assert.equal(isPollingRef.current, false, 'The polling guard must reset after completion')
+  })
+
+  it('5.3: Skips interval polls while hidden and resumes immediately when visible', async () => {
+    const originalDocument = (globalThis as any).document
+    let visibilityState: DocumentVisibilityState = 'hidden'
+    let pollCount = 0
+    const isPollingRef = { current: false }
+    const pollStatus = () =>
+      runSingleFlightPoll(isPollingRef, async () => {
+        pollCount++
+      })
+
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        get visibilityState() {
+          return visibilityState
+        },
+      },
+    })
+
+    try {
+      const intervalTick = () => {
+        if (!shouldRunBackgroundPoll()) return
+        void pollStatus()
+      }
+      const handleVisibilityChange = () => {
+        if (shouldRunBackgroundPoll()) void pollStatus()
+      }
+
+      intervalTick()
+      await Promise.resolve()
+      assert.equal(pollCount, 0, 'A hidden document must skip the background interval poll')
+
+      visibilityState = 'visible'
+      handleVisibilityChange()
+      await Promise.resolve()
+      assert.equal(pollCount, 1, 'Becoming visible must trigger an immediate single-flight poll')
+      assert.equal(isPollingRef.current, false)
+    } finally {
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        value: originalDocument,
+      })
+    }
   })
 })
