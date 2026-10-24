@@ -63,6 +63,19 @@ function buildGoBinary(goos, goarch, outputPath) {
   }
 }
 
+function buildAcpBinary(goos, goarch, outputPath) {
+  log(`Cross-compiling ACP binary for ${goos}/${goarch} -> ${path.relative(rootDir, outputPath)}`);
+  ensureDir(path.dirname(outputPath));
+  run(
+    `go build -ldflags="-s -w" -o "${outputPath}" ./cmd/antigravity-acp`,
+    path.join(rootDir, 'antigravity-acp'),
+    { CGO_ENABLED: '0', GOOS: goos, GOARCH: goarch }
+  );
+  if (goos !== 'windows') {
+    try { fs.chmodSync(outputPath, 0o755); } catch {}
+  }
+}
+
 function createSymlinkOrCopy(src, dest) {
   try {
     if (fs.existsSync(dest) || fs.lstatSync(dest).isSymbolicLink()) {
@@ -121,9 +134,14 @@ function buildLinux(options = {}) {
   // 1. Build Linux Go binary in bin/ and release/linux/
   const goBin = path.join(binDir, 'swiss');
   const releaseGoBin = path.join(linuxReleaseDir, 'swiss');
+  const acpBin = path.join(binDir, 'antigravity-acp');
+  const releaseAcpBin = path.join(linuxReleaseDir, 'antigravity-acp');
   buildGoBinary('linux', 'amd64', goBin);
+  buildAcpBinary('linux', 'amd64', acpBin);
   fs.copyFileSync(goBin, releaseGoBin);
+  fs.copyFileSync(acpBin, releaseAcpBin);
   fs.chmodSync(releaseGoBin, 0o755);
+  fs.chmodSync(releaseAcpBin, 0o755);
 
   // 2. Package Electron App
   log('Packaging Electron application for Linux...');
@@ -141,9 +159,13 @@ function buildLinux(options = {}) {
     createSymlinkOrCopy('linux-unpacked', appSymlink);
 
     const packagedSwiss = path.join(unpackedDir, 'resources', 'bin', 'swiss');
+    const packagedAcp = path.join(unpackedDir, 'resources', 'bin', 'antigravity-acp');
+    ensureDir(path.dirname(packagedAcp));
+    fs.copyFileSync(acpBin, packagedAcp);
     if (fs.existsSync(packagedSwiss)) {
       fs.chmodSync(packagedSwiss, 0o755);
     }
+    fs.chmodSync(packagedAcp, 0o755);
   }
 
   // 3. Generate launcher script
@@ -204,8 +226,12 @@ function buildWindows(options = {}) {
   // 1. Cross-compile Windows Go binary
   const goBinWin = path.join(binDir, 'swiss.exe');
   const releaseGoBinWin = path.join(winReleaseDir, 'swiss.exe');
+  const acpBinWin = path.join(binDir, 'antigravity-acp.exe');
+  const releaseAcpBinWin = path.join(winReleaseDir, 'antigravity-acp.exe');
   buildGoBinary('windows', 'amd64', goBinWin);
+  buildAcpBinary('windows', 'amd64', acpBinWin);
   fs.copyFileSync(goBinWin, releaseGoBinWin);
+  fs.copyFileSync(acpBinWin, releaseAcpBinWin);
 
   // Keep a copy of bin/swiss for Linux host sanity
   const fallbackSwiss = path.join(binDir, 'swiss');
@@ -231,6 +257,7 @@ function buildWindows(options = {}) {
     const packagedWinBinDir = path.join(winUnpackedDir, 'resources', 'bin');
     ensureDir(packagedWinBinDir);
     fs.copyFileSync(goBinWin, path.join(packagedWinBinDir, 'swiss.exe'));
+    fs.copyFileSync(acpBinWin, path.join(packagedWinBinDir, 'antigravity-acp.exe'));
   }
 
   // 3. Generate launcher batch file
@@ -267,8 +294,12 @@ function buildMacOS(options = {}) {
   // 1. Cross-compile macOS Go binaries
   const releaseGoArm = path.join(macReleaseDir, 'swiss-darwin-arm64');
   const releaseGoIntel = path.join(macReleaseDir, 'swiss-darwin-amd64');
+  const releaseAcpArm = path.join(macReleaseDir, 'antigravity-acp-darwin-arm64');
+  const releaseAcpIntel = path.join(macReleaseDir, 'antigravity-acp-darwin-amd64');
   buildGoBinary('darwin', 'arm64', releaseGoArm);
   buildGoBinary('darwin', 'amd64', releaseGoIntel);
+  buildAcpBinary('darwin', 'arm64', releaseAcpArm);
+  buildAcpBinary('darwin', 'amd64', releaseAcpIntel);
 
   const goBinMac = path.join(binDir, 'darwin-arm64', 'swiss');
   ensureDir(path.dirname(goBinMac));
@@ -306,9 +337,19 @@ function buildMacOS(options = {}) {
     'bin',
     'swiss'
   );
+  const armAcpBin = path.join(
+    macArmDir,
+    'Antigravity Swiss Knife.app',
+    'Contents',
+    'Resources',
+    'bin',
+    'antigravity-acp'
+  );
   if (fs.existsSync(path.dirname(armAppBin))) {
     fs.copyFileSync(releaseGoArm, armAppBin);
+    fs.copyFileSync(releaseAcpArm, armAcpBin);
     fs.chmodSync(armAppBin, 0o755);
+    fs.chmodSync(armAcpBin, 0o755);
   }
 
   const intelAppBin = path.join(
@@ -319,9 +360,19 @@ function buildMacOS(options = {}) {
     'bin',
     'swiss'
   );
+  const intelAcpBin = path.join(
+    macIntelDir,
+    'Antigravity Swiss Knife.app',
+    'Contents',
+    'Resources',
+    'bin',
+    'antigravity-acp'
+  );
   if (fs.existsSync(path.dirname(intelAppBin))) {
     fs.copyFileSync(releaseGoIntel, intelAppBin);
+    fs.copyFileSync(releaseAcpIntel, intelAcpBin);
     fs.chmodSync(intelAppBin, 0o755);
+    fs.chmodSync(intelAcpBin, 0o755);
   }
 
   // 3. Generate launcher script

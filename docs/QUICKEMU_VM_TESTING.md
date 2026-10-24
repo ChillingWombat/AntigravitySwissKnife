@@ -90,7 +90,8 @@ node scripts/build-release.js windows
 node scripts/build-release.js macos --unpacked
 
 # 3. Stage files to transfer docroot
-cp "release/windows/Antigravity Swiss Knife.exe" ~/VMs/transfer/ASK-Setup.exe
+# AppVersion 0.2.0 produces this NSIS artifact name
+cp "release/windows/Antigravity-Swiss-Knife-Setup-0.2.0.exe" ~/VMs/transfer/ASK-Setup.exe
 cp "bin/swiss.exe" ~/VMs/transfer/swiss.exe
 (cd release/macos/mac && zip -rq ~/VMs/transfer/ASK-mac-x64.zip "Antigravity Swiss Knife.app")
 cp "bin/swiss-darwin-amd64" ~/VMs/transfer/swiss-mac
@@ -134,7 +135,8 @@ The script executes 6 automated steps:
 4. **Verify installation tree**: Asserts existence of:
    - `%LOCALAPPDATA%\Programs\Antigravity Swiss Knife\Antigravity Swiss Knife.exe`
    - `%LOCALAPPDATA%\Programs\Antigravity Swiss Knife\resources\bin\swiss.exe` (>10 MB)
-5. **Launch application**: Starts `Antigravity Swiss Knife.exe`, sleeps 5 seconds, and polls Go daemon health endpoint `http://127.0.0.1:8765/api/status` for `{"daemon_running": true}`.
+   - `%LOCALAPPDATA%\Programs\Antigravity Swiss Knife\resources\bin\antigravity-acp.exe`
+5. **Launch application**: Starts `Antigravity Swiss Knife.exe`, sleeps 5 seconds, and polls Go daemon health endpoint `http://127.0.0.1:8765/api/status` for `{"daemon_running": true}` or HTTP 401 `Unauthorized` from the authenticated daemon.
 6. **Verify config paths**: Checks `%APPDATA%\antigravity-swiss` and `%USERPROFILE%\.gemini`.
 
 ### 4.4 Screenshot Capture & VM Shutdown
@@ -174,7 +176,8 @@ The script executes 6 automated steps:
 4. **Verify bundle integrity**: Asserts existence of:
    - `/Applications/Antigravity Swiss Knife.app/Contents/MacOS/Antigravity Swiss Knife`
    - `/Applications/Antigravity Swiss Knife.app/Contents/Resources/bin/swiss` (executable, >10 MB)
-5. **Launch application**: Runs `open "$APP"`, sleeps 5 seconds, and probes `http://127.0.0.1:8765/api/status` for `{"daemon_running": true}`.
+   - `/Applications/Antigravity Swiss Knife.app/Contents/Resources/bin/antigravity-acp`
+5. **Launch application**: Runs `open "$APP"`, sleeps 5 seconds, and probes `/api/status` and `/healthz` for a healthy daemon response or HTTP 401 `Unauthorized`.
 6. **Verify config paths**: Checks `~/Library/Application Support/antigravity-swiss`.
 
 ### 5.4 Screenshot Capture & VM Shutdown
@@ -278,6 +281,6 @@ bin/swiss-darwin-arm64:                                                         
 bin/swiss.exe:                                                                        PE32+ executable for MS Windows (console), x86-64
 release/linux/Antigravity-Swiss-Knife-0.2.0-x86_64.deb:                               Debian binary package (format 2.0)
 release/linux/Antigravity-Swiss-Knife-0.2.0-x86_64.AppImage:                          ELF 64-bit LSB executable, x86-64
-release/windows/Antigravity Swiss Knife.exe:                                          PE32 executable Nullsoft Installer self-extracting archive
+release/windows/Antigravity-Swiss-Knife-Setup-0.2.0.exe:                             PE32 executable Nullsoft Installer self-extracting archive
 release/macos/mac/Antigravity Swiss Knife.app/Contents/MacOS/Antigravity Swiss Knife: Mach-O 64-bit x86_64 executable
 ```

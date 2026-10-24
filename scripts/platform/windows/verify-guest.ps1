@@ -66,24 +66,44 @@ Start-Sleep -Seconds 5
 Write-Host "Probing Go daemon health endpoint (http://127.0.0.1:8765/api/status)..."
 $retries = 5
 $status = $null
+$daemonHealthy = $false
+$healthMode = $null
 while ($retries -gt 0) {
+    $status = $null
     try {
         $status = Invoke-RestMethod -Uri "http://127.0.0.1:8765/api/status" -TimeoutSec 3
         if ($status.daemon_running -eq $true) {
+            $daemonHealthy = $true
+            $healthMode = "status"
             break
         }
     } catch {
+        $statusCode = 0
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+        $errorText = "$($_.ErrorDetails.Message) $($_.Exception.Message)"
+        if ($statusCode -eq 401 -or $errorText -match "Unauthorized") {
+            $daemonHealthy = $true
+            $healthMode = "auth"
+            break
+        }
+    }
+
+    $retries--
+    if ($retries -gt 0) {
         Start-Sleep -Seconds 2
-        $retries--
     }
 }
 
-if ($status -and $status.daemon_running -eq $true) {
+if ($daemonHealthy -and $healthMode -eq "status") {
     Write-Host "  ✓ Daemon health check PASSED!"
     Write-Host "    Version: $($status.version)"
     Write-Host "    Daemon running: $($status.daemon_running)"
+} elseif ($daemonHealthy -and $healthMode -eq "auth") {
+    Write-Host "  ✓ Authenticated daemon health check PASSED (HTTP 401 Unauthorized)"
 } else {
-    Write-Warning "Daemon endpoint did not respond with daemon_running: true (may require credentials)"
+    throw "Daemon health check failed: no daemon_running: true or HTTP 401 response within the retry window."
 }
 
 # 6. Verify config and token directories

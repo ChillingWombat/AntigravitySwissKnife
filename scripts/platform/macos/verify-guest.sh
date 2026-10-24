@@ -63,22 +63,50 @@ echo -e "\n[5/6] Launching application bundle..."
 open "$APP"
 sleep 5
 
-echo "Probing Go daemon health endpoint (http://127.0.0.1:8765/api/status)..."
-STATUS_JSON=""
+echo "Probing Go daemon health endpoints (http://127.0.0.1:8765/api/status and /healthz)..."
+HEALTH_DETAIL=""
+
+probe_daemon() {
+    local url="$1"
+    local response http_code body compact
+    response=$(curl -sS -m 3 -w $'\n%{http_code}' "$url" 2>&1) || true
+    http_code="${response##*$'\n'}"
+    body="${response%$'\n'*}"
+    compact=$(printf '%s' "$body" | tr -d '[:space:]')
+
+    if [[ "$http_code" == "200" && "$url" == */api/status && "$compact" == *'"daemon_running":true'* ]]; then
+        HEALTH_DETAIL="HTTP 200 $url $body"
+        return 0
+    fi
+    if [[ "$http_code" == "200" && "$url" == */healthz && "$compact" == *'"status":"ok"'* ]]; then
+        HEALTH_DETAIL="HTTP 200 $url $body"
+        return 0
+    fi
+    if [[ "$http_code" == "401" && "$body" == *"Unauthorized"* ]]; then
+        HEALTH_DETAIL="HTTP 401 Unauthorized $url $body"
+        return 0
+    fi
+
+    HEALTH_DETAIL="HTTP $http_code $url $body"
+    return 1
+}
+
+DAEMON_HEALTHY=false
 for i in {1..5}; do
-    if STATUS_JSON=$(curl -s -m 3 http://127.0.0.1:8765/api/status 2>/dev/null); then
-        if [[ "$STATUS_JSON" == *'"daemon_running":true'* ]]; then
-            break
-        fi
+    if probe_daemon "http://127.0.0.1:8765/api/status" || probe_daemon "http://127.0.0.1:8765/healthz"; then
+        DAEMON_HEALTHY=true
+        break
     fi
     sleep 2
 done
 
-if [[ "$STATUS_JSON" == *'"daemon_running":true'* ]]; then
+if [[ "$DAEMON_HEALTHY" == "true" ]]; then
     echo "  ✓ Daemon health check PASSED!"
-    echo "    Status response: $STATUS_JSON"
+    echo "    $HEALTH_DETAIL"
 else
-    echo "  WARNING: Daemon status endpoint did not report daemon_running:true"
+    echo "ERROR: Daemon did not report healthy within the retry window."
+    echo "  Last response: $HEALTH_DETAIL"
+    exit 1
 fi
 
 # 6. Verify config directory
