@@ -3136,8 +3136,11 @@ document.body.appendChild(inputBox);
   assert.strictEqual(editable.innerText, "/compact", "must inject /compact into contenteditable element");
   assert.strictEqual(sendBtn.clicks, 1, "must click send button");
 
-  // Wait full cycle (>850ms)
-  await new Promise(r => setTimeout(r, 950));
+  // Poll through timer-resolution jitter after the 850ms minimum cycle.
+  const compactingDeadline = Date.now() + 2500;
+  while (ring.getAttribute("data-swiss-compacting") !== null && Date.now() < compactingDeadline) {
+    await new Promise(r => setTimeout(r, 50));
+  }
   assert.strictEqual(ring.getAttribute("data-swiss-compacting"), null, "data-swiss-compacting must be cleared after completion");
 
   console.log("dom fallback compact OK");

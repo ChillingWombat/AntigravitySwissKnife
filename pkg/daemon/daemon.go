@@ -249,7 +249,9 @@ func (d *Daemon) triggerQuotaRefreshAsync() {
 	d.isPollingFleet = true
 	d.pollingMu.Unlock()
 
+	d.wg.Add(1)
 	go func() {
+		defer d.wg.Done()
 		defer func() {
 			d.pollingMu.Lock()
 			d.isPollingFleet = false
