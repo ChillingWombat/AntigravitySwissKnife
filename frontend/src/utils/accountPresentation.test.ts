@@ -7,41 +7,10 @@ import {
   normalizeMfaSecret,
   parseAccountErrorAlert,
   ACCOUNT_SETUP_TEXTS,
+  commitLatest,
+  copyWithStatus,
+  createRequestGate,
 } from './accountPresentation.ts'
-
-function createRequestGate() {
-  let currentRequest = 0
-  return {
-    begin: () => ++currentRequest,
-    isCurrent: (requestId: number) => requestId === currentRequest,
-  }
-}
-
-async function commitLatest<T>(
-  gate: ReturnType<typeof createRequestGate>,
-  requestId: number,
-  result: Promise<T>,
-  commit: (value: T) => void
-) {
-  const value = await result
-  if (!gate.isCurrent(requestId)) return false
-  commit(value)
-  return true
-}
-
-async function copyWithStatus(
-  write: () => Promise<void>,
-  setCopied: (copied: boolean) => void
-) {
-  try {
-    await write()
-    setCopied(true)
-    return true
-  } catch {
-    setCopied(false)
-    return false
-  }
-}
 
 describe('accountPresentation utility', () => {
   describe('getAccountTableDisplay', () => {
