@@ -768,10 +768,14 @@ func ReportAgentTask(workspacePath string, task SelfReportedTask) error {
 	}
 
 	targetDir := ""
-	cleanWs := filepath.Clean(strings.TrimSpace(workspacePath))
+	cleanWs := canonicalPath(filepath.Clean(strings.TrimSpace(workspacePath)))
 	isSafeWs := false
 	if cleanWs != "" && cleanWs != "." && cleanWs != "GLOBAL" && !strings.Contains(cleanWs, "\x00") {
 		lowerWs := strings.ToLower(cleanWs)
+		allowedRoots := []string{canonicalPath(os.TempDir())}
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			allowedRoots = append(allowedRoots, canonicalPath(homeDir))
+		}
 		isSystem := false
 		for _, sysPrefix := range []string{"/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/var", "/bin", "/sbin", "/usr", "c:\\windows", "c:\\program files", "c:\\program files (x86)"} {
 			if lowerWs == sysPrefix || strings.HasPrefix(lowerWs, sysPrefix+string(filepath.Separator)) {
@@ -781,6 +785,14 @@ func ReportAgentTask(workspacePath string, task SelfReportedTask) error {
 		}
 		if cleanWs == "/" || cleanWs == "\\" || (len(cleanWs) == 3 && cleanWs[1] == ':' && (cleanWs[2] == '\\' || cleanWs[2] == '/')) {
 			isSystem = true
+		}
+		if isSystem {
+			for _, root := range allowedRoots {
+				if cleanWs == root || strings.HasPrefix(cleanWs, root+string(filepath.Separator)) {
+					isSystem = false
+					break
+				}
+			}
 		}
 		if !isSystem {
 			if fi, err := os.Stat(cleanWs); err == nil && fi.IsDir() {

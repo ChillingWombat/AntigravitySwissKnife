@@ -89,16 +89,6 @@ func (s *Surface) Start(ctx context.Context, opts surface.SessionOptions) (strin
 	if workspace == "" {
 		workspace = "."
 	}
-	// The server rejects a relative or doubled path ("invalid path: //"), so the
-	// workspace must be absolute before it becomes a file URI.
-	// Keep slash-rooted paths as POSIX paths on Windows so their file URIs do
-	// not acquire the current drive letter.
-	posixRooted := strings.HasPrefix(workspace, "/") && !strings.HasPrefix(workspace, "//")
-	if runtime.GOOS != "windows" || !posixRooted {
-		if abs, err := filepath.Abs(workspace); err == nil {
-			workspace = abs
-		}
-	}
 	var reply struct {
 		CascadeID string `json:"cascadeId"`
 	}
@@ -497,8 +487,14 @@ func (s *Surface) isIdle(ctx context.Context, sessionID string) (bool, error) {
 	return status.Status == "CASCADE_RUN_STATUS_IDLE", nil
 }
 
-func workspaceURI(workspace string) string {
-	slashed := strings.ReplaceAll(strings.TrimSpace(workspace), `\`, "/")
+func workspaceURI(cwd string) string {
+	cwd = strings.TrimSpace(cwd)
+	if strings.HasPrefix(cwd, "/") && !strings.HasPrefix(cwd, "//") {
+		if abs, err := filepath.Abs(cwd); err == nil {
+			cwd = abs
+		}
+	}
+	slashed := strings.ReplaceAll(cwd, `\`, "/")
 	if strings.HasPrefix(slashed, "//") {
 		trimmed := strings.TrimPrefix(slashed, "//")
 		parts := strings.SplitN(trimmed, "/", 2)

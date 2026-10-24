@@ -306,3 +306,18 @@ func TestStartEncodesWorkspaceURISpaces(t *testing.T) {
 		t.Errorf("workspaceUris = %v", (*bodies)[0]["workspaceUris"])
 	}
 }
+
+func TestWorkspaceURIProducesFileURIs(t *testing.T) {
+	tests := []struct {
+		cwd  string
+		want string
+	}{
+		{"/tmp/work", "file:///tmp/work"},
+		{"/tmp/work with spaces", "file:///tmp/work%20with%20spaces"},
+	}
+	for _, tt := range tests {
+		if got := workspaceURI(tt.cwd); got != tt.want {
+			t.Errorf("workspaceURI(%q) = %q, want %q", tt.cwd, got, tt.want)
+		}
+	}
+}
