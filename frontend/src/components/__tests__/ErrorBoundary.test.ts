@@ -28,9 +28,11 @@ const Bomb: React.FC<BombProps> = ({ shouldExplode, message = 'Crash test payloa
 describe('Component DOM: ErrorBoundary (<ErrorBoundary />)', () => {
   it('renders healthy child components seamlessly when no error occurs', async () => {
     const { querySelector, unmount } = await mount(
-      React.createElement(ErrorBoundary, {
-        children: React.createElement(Bomb, { shouldExplode: false }),
-      })
+      React.createElement(
+        ErrorBoundary,
+        null,
+        React.createElement(Bomb, { shouldExplode: false })
+      )
     )
 
     const child = querySelector('#safeChild')
@@ -51,10 +53,11 @@ describe('Component DOM: ErrorBoundary (<ErrorBoundary />)', () => {
 
     try {
       const { querySelector, unmount } = await mount(
-        React.createElement(ErrorBoundary, {
-          fallbackTitle: 'Quota Card Crash',
-          children: React.createElement(Bomb, { shouldExplode: true, message: 'Fatal simulated render fault' }),
-        })
+        React.createElement(
+          ErrorBoundary,
+          { fallbackTitle: 'Quota Card Crash' },
+          React.createElement(Bomb, { shouldExplode: true, message: 'Fatal simulated render fault' })
+        )
       )
 
       // Title heading
@@ -96,9 +99,11 @@ describe('Component DOM: ErrorBoundary (<ErrorBoundary />)', () => {
       }
 
       const { querySelector, click, unmount } = await mount(
-        React.createElement(ErrorBoundary, {
-          children: React.createElement(DynamicChild),
-        })
+        React.createElement(
+          ErrorBoundary,
+          null,
+          React.createElement(DynamicChild)
+        )
       )
 
       const heading = querySelector('h3')

@@ -124,11 +124,37 @@ async function teardownDaemonForAppExit() {
 const DAEMON_PORT = 8765;
 const DAEMON_HOST = '127.0.0.1';
 const DAEMON_URL = `http://${DAEMON_HOST}:${DAEMON_PORT}`;
+let trustedConnectingFallbackUrl = null;
 
 // Helper: verify that target URL belongs strictly to the local daemon origin (P1-16)
+// Helper: verify that an IPC event originates from our active main window and trusted daemon origin
+function isTrustedSender(event, targetWindow = mainWindow) {
+  if (!targetWindow || (typeof targetWindow.isDestroyed === 'function' && targetWindow.isDestroyed())) {
+    return false;
+  }
+  if (!event || !event.sender || event.sender !== targetWindow.webContents) {
+    return false;
+  }
+  if (event.senderFrame) {
+    if (event.senderFrame.parent) return false;
+    const mainFrame = event.sender.mainFrame;
+    if (mainFrame && (
+      event.senderFrame !== mainFrame ||
+      event.senderFrame.routingId !== mainFrame.routingId
+    )) {
+      return false;
+    }
+  }
+  return isTrustedDaemonOrigin(event.senderFrame?.url);
+}
+
+function isTrustedConnectingFallbackUrl(targetUrl) {
+  return Boolean(trustedConnectingFallbackUrl) && targetUrl === trustedConnectingFallbackUrl;
+}
+
 function isTrustedDaemonOrigin(targetUrl, daemonBase = DAEMON_URL) {
   if (!targetUrl || typeof targetUrl !== 'string') return false;
-  if (targetUrl.startsWith('data:text/html')) return true;
+  if (isTrustedConnectingFallbackUrl(targetUrl)) return true;
   try {
     const parsed = new URL(targetUrl);
     const expected = new URL(daemonBase);
@@ -235,6 +261,12 @@ const daemonManager = new DaemonManager({
 // Liveness probe helper
 function probeDaemonStatus(timeoutMs = 1500) {
   return daemonManager.checkStatus(timeoutMs);
+}
+
+function loadConnectingFallback(win) {
+  const fallbackUrl = `data:text/html;charset=utf-8,${encodeURIComponent(buildConnectingFallbackHtml())}`;
+  trustedConnectingFallbackUrl = fallbackUrl;
+  return win.loadURL(fallbackUrl).catch(() => {});
 }
 
 function buildConnectingFallbackHtml() {
@@ -722,8 +754,7 @@ async function createWindow() {
 
   const showConnectingFallback = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
-    const html = buildConnectingFallbackHtml();
-    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => {});
+    loadConnectingFallback(mainWindow);
   };
 
   let backgroundRetryTimer = null;
@@ -835,7 +866,10 @@ X-GNOME-Autostart-enabled=true
 
 // Setup IPC handlers
 function registerIpcHandlers() {
-  ipcMain.handle('desktop:get-startup-setting', async () => {
+  ipcMain.handle('desktop:get-startup-setting', async (event) => {
+    if (!isTrustedSender(event)) {
+      return { openAtLogin: false, openAsHidden: false, platform: process.platform };
+    }
     try {
       if (process.platform === 'linux') {
         const enabled = getLinuxAutostartEnabled();
@@ -857,7 +891,10 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('desktop:set-startup-setting', async (_event, enabled) => {
+  ipcMain.handle('desktop:set-startup-setting', async (event, enabled) => {
+    if (!isTrustedSender(event)) {
+      return { success: false, error: 'Untrusted IPC sender' };
+    }
     try {
       const isEnabled = typeof enabled === 'object' && enabled !== null
         ? Boolean(enabled.enabled)
@@ -881,11 +918,17 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('desktop:get-close-to-tray-setting', async () => {
+  ipcMain.handle('desktop:get-close-to-tray-setting', async (event) => {
+    if (!isTrustedSender(event)) {
+      return { closeToTray: false };
+    }
     return { closeToTray: getCloseToTraySetting() };
   });
 
-  ipcMain.handle('desktop:set-close-to-tray-setting', async (_event, enabled) => {
+  ipcMain.handle('desktop:set-close-to-tray-setting', async (event, enabled) => {
+    if (!isTrustedSender(event)) {
+      return { success: false, closeToTray: false };
+    }
     const isEnabled = typeof enabled === 'object' && enabled !== null
       ? Boolean(enabled.enabled)
       : Boolean(enabled);
@@ -893,11 +936,17 @@ function registerIpcHandlers() {
     return { success, closeToTray: isEnabled };
   });
 
-  ipcMain.handle('desktop:get-runtime-mode-setting', async () => {
+  ipcMain.handle('desktop:get-runtime-mode-setting', async (event) => {
+    if (!isTrustedSender(event)) {
+      return { runtimeMode: 'app' };
+    }
     return { runtimeMode: getRuntimeModeSetting() };
   });
 
-  ipcMain.handle('desktop:set-runtime-mode-setting', async (_event, mode) => {
+  ipcMain.handle('desktop:set-runtime-mode-setting', async (event, mode) => {
+    if (!isTrustedSender(event)) {
+      return { success: false, runtimeMode: 'app' };
+    }
     const targetMode = typeof mode === 'object' && mode !== null
       ? (mode.runtimeMode || mode.runtime_mode || 'app')
       : (mode === 'daemon' ? 'daemon' : 'app');
@@ -905,7 +954,10 @@ function registerIpcHandlers() {
     return { success, runtimeMode: targetMode };
   });
 
-  ipcMain.handle('desktop:start-daemon', async () => {
+  ipcMain.handle('desktop:start-daemon', async (event) => {
+    if (!isTrustedSender(event)) {
+      return { success: false, error: 'Untrusted IPC sender' };
+    }
     try {
       console.log('[IPC] Manual Start Daemon requested...');
       await daemonManager.start();
@@ -919,18 +971,24 @@ function registerIpcHandlers() {
 
   // Expose the local daemon session token so the renderer can authenticate
   // directly (bypasses the need for the App Password lock screen in desktop mode).
-  ipcMain.handle('desktop:get-session-token', async () => {
+  ipcMain.handle('desktop:get-session-token', async (event) => {
+    if (!isTrustedSender(event)) {
+      return null;
+    }
     return getDaemonSessionToken();
   });
 
   ipcMain.handle('desktop:retry-daemon-connection', async (event) => {
-    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+    if (!isTrustedSender(event)) {
       return { success: false, error: 'Untrusted recovery request' };
     }
     return recoverDaemonConnection();
   });
 
-  ipcMain.handle('desktop:notify', async (_event, params) => {
+  ipcMain.handle('desktop:notify', async (event, params) => {
+    if (!isTrustedSender(event)) {
+      return false;
+    }
     if (Notification.isSupported()) {
       const rawTitle = typeof params?.title === 'string' ? params.title.trim() : '';
       const rawBody = typeof params?.body === 'string' ? params.body.trim() : '';
@@ -942,7 +1000,10 @@ function registerIpcHandlers() {
     return false;
   });
 
-  ipcMain.handle('desktop:open-external', async (_event, url) => {
+  ipcMain.handle('desktop:open-external', async (event, url) => {
+    if (!isTrustedSender(event)) {
+      return false;
+    }
     try {
       if (typeof url !== 'string') return false;
       const parsed = new URL(url);
@@ -958,7 +1019,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('desktop:write-clipboard', async (event, text) => {
-    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+    if (!isTrustedSender(event)) {
       return false;
     }
     if (typeof text !== 'string' || text.length === 0 || text.length > 16384) {
@@ -973,7 +1034,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('desktop:focus-window', async (event) => {
-    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+    if (!isTrustedSender(event)) {
       return false;
     }
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -982,7 +1043,10 @@ function registerIpcHandlers() {
     return true;
   });
 
-  ipcMain.handle('desktop:select-path', async (_event, options) => {
+  ipcMain.handle('desktop:select-path', async (event, options) => {
+    if (!isTrustedSender(event)) {
+      return null;
+    }
     try {
       const { dialog } = require('electron');
       const win = mainWindow || null;
@@ -1000,7 +1064,10 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('desktop:launch-antigravity', async () => {
+  ipcMain.handle('desktop:launch-antigravity', async (event) => {
+    if (!isTrustedSender(event)) {
+      return { success: false, error: 'Untrusted IPC sender' };
+    }
     try {
       let res = await fetch(`${DAEMON_URL}/api/desktop/launch`, {
         method: 'POST',
@@ -1281,4 +1348,6 @@ module.exports = {
   DAEMON_HOST,
   isTrustedDaemonOrigin,
   isSafeExternalUrl,
+  isTrustedSender,
+  loadConnectingFallback,
 };

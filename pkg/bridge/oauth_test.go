@@ -638,3 +638,279 @@ func TestOAuthAuthorize_AntigravityEntranceStyle(t *testing.T) {
 		t.Errorf("expected preserved response_type hidden input in error page")
 	}
 }
+
+func TestOAuth_TokenBruteForceLockout(t *testing.T) {
+	svc := setupTestBridgeService(t)
+	clientIP := "192.168.1.55:1234"
+
+	// 1. GET /oauth/authorize without pin does not increment failed attempts
+	getReq := httptest.NewRequest("GET", "/oauth/authorize?client_id=antigravity-gemini-bridge&redirect_uri=http://localhost:3000/callback&response_type=code", nil)
+	getReq.RemoteAddr = clientIP
+	getW := httptest.NewRecorder()
+	svc.ServeOAuthAuthorize(getW, getReq)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for GET authorize without pin, got %d", getW.Code)
+	}
+	if svc.authMgr.IsIPLocked("192.168.1.55") {
+		t.Fatalf("IP locked prematurely from GET authorize without pin")
+	}
+
+	// 2. 5 bad PINs to /oauth/token client_credentials
+	for i := 1; i <= 5; i++ {
+		form := url.Values{
+			"grant_type":    {"client_credentials"},
+			"client_secret": {"badpin99"},
+		}
+		req := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.RemoteAddr = clientIP
+		w := httptest.NewRecorder()
+		svc.ServeOAuthToken(w, req)
+
+		if i < 5 {
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("attempt %d: expected 401 Unauthorized, got %d", i, w.Code)
+			}
+		} else {
+			// 5th failed attempt triggers the lockout
+			if w.Code != http.StatusTooManyRequests {
+				t.Fatalf("attempt 5: expected 429 Too Many Requests, got %d", w.Code)
+			}
+		}
+	}
+
+	if !svc.authMgr.IsIPLocked("192.168.1.55") {
+		t.Fatalf("expected IP 192.168.1.55 to be locked after 5 failed attempts")
+	}
+
+	// 3. 6th attempt with CORRECT PIN is rejected with 429
+	correctForm := url.Values{
+		"grant_type":    {"client_credentials"},
+		"client_secret": {svc.GetRawPairingPIN()},
+	}
+	req6 := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(correctForm.Encode()))
+	req6.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req6.RemoteAddr = clientIP
+	w6 := httptest.NewRecorder()
+	svc.ServeOAuthToken(w6, req6)
+
+	if w6.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests for 6th attempt with correct PIN, got %d", w6.Code)
+	}
+
+	var errResp map[string]interface{}
+	if err := json.Unmarshal(w6.Body.Bytes(), &errResp); err != nil {
+		t.Fatalf("failed to parse JSON error: %v", err)
+	}
+	if errResp["error"] != "invalid_grant" {
+		t.Errorf("expected error 'invalid_grant', got %v", errResp["error"])
+	}
+
+	// 4. Authorize page also returns 429 when IP is locked:
+	// 4a. GET /oauth/authorize without pin must return 429
+	authGetReq := httptest.NewRequest("GET", "/oauth/authorize?client_id=antigravity-gemini-bridge&redirect_uri=http://localhost:3000/callback&response_type=code", nil)
+	authGetReq.RemoteAddr = clientIP
+	authGetW := httptest.NewRecorder()
+	svc.ServeOAuthAuthorize(authGetW, authGetReq)
+	if authGetW.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests on GET authorize without pin for locked IP, got %d", authGetW.Code)
+	}
+
+	// 4b. GET /oauth/authorize with pin must return 429
+	authGetPinReq := httptest.NewRequest("GET", "/oauth/authorize?client_id=antigravity-gemini-bridge&redirect_uri=http://localhost:3000/callback&response_type=code&pin="+svc.GetRawPairingPIN(), nil)
+	authGetPinReq.RemoteAddr = clientIP
+	authGetPinW := httptest.NewRecorder()
+	svc.ServeOAuthAuthorize(authGetPinW, authGetPinReq)
+	if authGetPinW.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests on GET authorize with pin for locked IP, got %d", authGetPinW.Code)
+	}
+
+	// 4c. POST /oauth/authorize must return 429
+	authForm := url.Values{
+		"client_id":     {"antigravity-gemini-bridge"},
+		"redirect_uri":  {"http://localhost:3000/callback"},
+		"response_type": {"code"},
+		"pin":           {svc.GetRawPairingPIN()},
+	}
+	authReq := httptest.NewRequest("POST", "/oauth/authorize", strings.NewReader(authForm.Encode()))
+	authReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	authReq.RemoteAddr = clientIP
+	authW := httptest.NewRecorder()
+	svc.ServeOAuthAuthorize(authW, authReq)
+	if authW.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests on POST authorize page for locked IP, got %d", authW.Code)
+	}
+}
+
+func TestOAuth_AuthorizationCodeValidation(t *testing.T) {
+	svc := setupTestBridgeService(t)
+	redirectURI := "http://localhost:3000/callback"
+	clientID := "antigravity-gemini-bridge"
+
+	issueCode := func(cid, ruri, challenge, method string) string {
+		form := url.Values{
+			"client_id":             {cid},
+			"redirect_uri":          {ruri},
+			"state":                 {"state123"},
+			"response_type":         {"code"},
+			"pin":                   {svc.GetRawPairingPIN()},
+			"code_challenge":        {challenge},
+			"code_challenge_method": {method},
+		}
+		req := httptest.NewRequest("POST", "/oauth/authorize", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		svc.ServeOAuthAuthorize(w, req)
+		if w.Code != http.StatusFound {
+			t.Fatalf("authorize failed: code=%d", w.Code)
+		}
+		loc, _ := url.Parse(w.Header().Get("Location"))
+		return loc.Query().Get("code")
+	}
+
+	// (a) Client ID mismatch -> 400 invalid_grant "client_id mismatch"
+	code1 := issueCode(clientID, redirectURI, "", "")
+	form1 := url.Values{
+		"grant_type":   {"authorization_code"},
+		"code":         {code1},
+		"client_id":    {"wrong-client-id"},
+		"redirect_uri": {redirectURI},
+	}
+	req1 := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(form1.Encode()))
+	req1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w1 := httptest.NewRecorder()
+	svc.ServeOAuthToken(w1, req1)
+	if w1.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request on client_id mismatch, got %d", w1.Code)
+	}
+	if !strings.Contains(w1.Body.String(), "client_id mismatch") {
+		t.Errorf("expected 'client_id mismatch' error, got %s", w1.Body.String())
+	}
+
+	// (b) Redirect URI mismatch or omitted -> 400 invalid_grant "redirect_uri mismatch"
+	code2 := issueCode(clientID, redirectURI, "", "")
+	form2 := url.Values{
+		"grant_type": {"authorization_code"},
+		"code":       {code2},
+		"client_id":  {clientID},
+	}
+	req2 := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(form2.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w2 := httptest.NewRecorder()
+	svc.ServeOAuthToken(w2, req2)
+	if w2.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request when redirect_uri omitted, got %d", w2.Code)
+	}
+	if !strings.Contains(w2.Body.String(), "redirect_uri mismatch") {
+		t.Errorf("expected 'redirect_uri mismatch', got %s", w2.Body.String())
+	}
+
+	// (c) PKCE unsupported method -> 400 invalid_request
+	code3 := issueCode(clientID, redirectURI, "some-challenge", "MD5")
+	form3 := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code3},
+		"client_id":     {clientID},
+		"redirect_uri":  {redirectURI},
+		"code_verifier": {"some-verifier"},
+	}
+	req3 := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(form3.Encode()))
+	req3.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w3 := httptest.NewRecorder()
+	svc.ServeOAuthToken(w3, req3)
+	if w3.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for unsupported PKCE method, got %d", w3.Code)
+	}
+	if !strings.Contains(w3.Body.String(), "invalid_request") {
+		t.Errorf("expected 'invalid_request', got %s", w3.Body.String())
+	}
+
+	// (d) PKCE plain method: valid and invalid
+	codePlain := issueCode(clientID, redirectURI, "my-secret-plain-verifier", "plain")
+	formPlainFail := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {codePlain},
+		"client_id":     {clientID},
+		"redirect_uri":  {redirectURI},
+		"code_verifier": {"wrong-verifier"},
+	}
+	reqPFail := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(formPlainFail.Encode()))
+	reqPFail.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	wPFail := httptest.NewRecorder()
+	svc.ServeOAuthToken(wPFail, reqPFail)
+	if wPFail.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for wrong plain verifier, got %d", wPFail.Code)
+	}
+
+	codePlain2 := issueCode(clientID, redirectURI, "my-secret-plain-verifier", "plain")
+	formPlainOK := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {codePlain2},
+		"client_id":     {clientID},
+		"redirect_uri":  {redirectURI},
+		"code_verifier": {"my-secret-plain-verifier"},
+	}
+	reqPOK := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(formPlainOK.Encode()))
+	reqPOK.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	wPOK := httptest.NewRecorder()
+	svc.ServeOAuthToken(wPOK, reqPOK)
+	if wPOK.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid plain verifier, got %d", wPOK.Code)
+	}
+
+	// (e) Basic Auth fallback for client_id
+	codeBasic := issueCode(clientID, redirectURI, "", "")
+	formBasic := url.Values{
+		"grant_type":   {"authorization_code"},
+		"code":         {codeBasic},
+		"redirect_uri": {redirectURI},
+	}
+	reqBasic := httptest.NewRequest("POST", "/oauth/token", strings.NewReader(formBasic.Encode()))
+	reqBasic.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqBasic.SetBasicAuth(clientID, "any-password")
+	wBasic := httptest.NewRecorder()
+	svc.ServeOAuthToken(wBasic, reqBasic)
+	if wBasic.Code != http.StatusOK {
+		t.Fatalf("expected 200 with Basic Auth client_id fallback, got %d: %s", wBasic.Code, wBasic.Body.String())
+	}
+}
+
+func TestOAuthAuthorize_RejectsRawTokenButRefreshAccepts(t *testing.T) {
+	svc := setupTestBridgeService(t)
+	rawToken := svc.GetRawAuthToken()
+
+	params := url.Values{
+		"client_id":    {"antigravity-gemini-bridge"},
+		"redirect_uri": {"http://localhost/callback"},
+		"pin":          {rawToken},
+	}
+	getReq := httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+params.Encode(), nil)
+	getReq.RemoteAddr = "198.51.100.77:4321"
+	getW := httptest.NewRecorder()
+	svc.ServeOAuthAuthorize(getW, getReq)
+	if getW.Code == http.StatusFound || getW.Header().Get("Location") != "" {
+		t.Fatal("expected raw token in authorize query to be rejected")
+	}
+
+	postReq := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(params.Encode()))
+	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	postReq.RemoteAddr = "198.51.100.77:4321"
+	postW := httptest.NewRecorder()
+	svc.ServeOAuthAuthorize(postW, postReq)
+	if postW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected raw token in authorize form to return 401, got %d", postW.Code)
+	}
+
+	refreshForm := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {rawToken},
+	}
+	refreshReq := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(refreshForm.Encode()))
+	refreshReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	refreshReq.RemoteAddr = "198.51.100.77:4321"
+	refreshW := httptest.NewRecorder()
+	svc.ServeOAuthToken(refreshW, refreshReq)
+	if refreshW.Code != http.StatusOK {
+		t.Fatalf("expected refresh_token to accept raw token, got %d: %s", refreshW.Code, refreshW.Body.String())
+	}
+}

@@ -158,14 +158,14 @@ func TestChallenger_BruteForceLockout_SuccessResetsCounter(t *testing.T) {
 func TestChallenger_BruteForceLockout_ProxyHeaderExtraction(t *testing.T) {
 	am := NewAuthManager("test-token", "654321", nil)
 
-	// Client behind proxy with X-Forwarded-For: "203.0.113.195, 10.0.0.1"
+	// Client behind proxy with X-Forwarded-For: "10.0.0.1, 203.0.113.195" (rightmost entry is real client)
 	clientHost := "203.0.113.195"
 	proxyAddr := "127.0.0.1:8080"
 
 	for i := 1; i <= 5; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/api/bridge/mcp?pin=wrong", nil)
 		req.RemoteAddr = proxyAddr
-		req.Header.Set("X-Forwarded-For", "203.0.113.195, 10.0.0.1")
+		req.Header.Set("X-Forwarded-For", "10.0.0.1, 203.0.113.195")
 		am.ValidateRequest(req)
 	}
 

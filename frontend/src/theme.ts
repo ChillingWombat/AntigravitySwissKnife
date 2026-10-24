@@ -45,7 +45,7 @@ export function getStoredThemeMode(): ThemeMode {
     if (typeof window !== 'undefined' && window.localStorage) {
       return normalizeThemeMode(window.localStorage.getItem(THEME_STORAGE_KEY))
     }
-  } catch (_) {}
+  } catch {}
   return DEFAULT_THEME_MODE
 }
 
@@ -60,7 +60,7 @@ export function applyTheme(mode: ThemeMode): EffectiveTheme {
     if (typeof window !== 'undefined' && window.localStorage) {
       window.localStorage.setItem(THEME_STORAGE_KEY, normalized)
     }
-  } catch (_) {}
+  } catch {}
   if (typeof document !== 'undefined') {
     document.documentElement.dataset.theme = resolved
   }
@@ -106,6 +106,6 @@ export async function initTheme(loadFromApi?: () => Promise<ThemeMode | null>): 
       applyTheme(mode)
       return mode
     }
-  } catch (_) {}
+  } catch {}
   return stored
 }

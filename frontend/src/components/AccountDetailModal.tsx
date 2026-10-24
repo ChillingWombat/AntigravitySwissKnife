@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, Link, ExternalLink } from 'lucide-react'
 import type { AccountState } from '../types'
 import { isProOrAbovePlan } from '../types'
@@ -14,6 +14,9 @@ import {
   normalizeMfaSecret,
   parseAccountErrorAlert,
   ACCOUNT_SETUP_TEXTS,
+  createRequestGate,
+  commitLatest,
+  copyTextWithFallback,
 } from '../utils/accountPresentation'
 
 interface AccountDetailModalProps {
@@ -96,6 +99,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     password: false,
     totpSecret: false,
   })
+  const quotaRequestGateRef = useRef(createRequestGate())
 
   const [liveQuota5h, setLiveQuota5h] = useState<number | null>(
     account.quota_5h_available ?? account.quota_5h_current ?? null
@@ -131,10 +135,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     currentStatus?.toUpperCase() === 'ERROR' ||
     currentStatus?.toUpperCase() === 'BANNED' ||
     currentStatus?.toUpperCase() === 'NEEDS_REAUTH' ||
-    account.status?.toUpperCase() === 'ERROR' ||
-    account.status?.toUpperCase() === 'BANNED' ||
-    account.status?.toUpperCase() === 'NEEDS_REAUTH' ||
-    Boolean(account.error_message) ||
     Boolean(liveErrorMessage) ||
     (!isNewAccount && !account.refresh_token?.trim() && !refreshToken?.trim())
   )
@@ -145,7 +145,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         (!isNewAccount &&
           (account.is_active ||
             currentStatus === 'ACTIVE' ||
-            account.status === 'ACTIVE' ||
             Boolean(account.refresh_token?.trim()) ||
             Boolean(refreshToken?.trim()) ||
             (Boolean(account.reset_horizon_text?.trim()) &&
@@ -154,13 +153,13 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         Boolean(oauthSuccessMsg))
   )
 
-  const headerDisplay = getAccountHeaderDisplay(isNewAccount, label, email)
+  const displayAccountName = getAccountHeaderDisplay(isNewAccount, label, email)
 
   const lastVerificationUrlFetchedAtRef = useRef<number>(0)
   const [isWaitingForVerification, setIsWaitingForVerification] = useState(false)
   const isWaitingForVerificationRef = useRef<boolean>(false)
 
-  const applyQuotaSummaryUpdate = (q: any, isLiveRefresh: boolean = false) => {
+  const applyQuotaSummaryUpdate = useCallback((q: any, isLiveRefresh: boolean = false) => {
     if (!q) return
     if (q.quota_5h_fraction !== undefined) setLiveQuota5h(q.quota_5h_fraction)
     if (q.quota_weekly_fraction !== undefined) setLiveQuotaWeekly(q.quota_weekly_fraction)
@@ -171,22 +170,18 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     if (q.reset_horizon_weekly_text) setLiveResetHorizonWeekly(q.reset_horizon_weekly_text)
     if (q.reset_horizon_weekly_argon_text) setLiveResetHorizonWeeklyArgon(q.reset_horizon_weekly_argon_text)
     if (q.plan_tier) {
-      account.plan_tier = q.plan_tier
       setCurrentPlanTier(q.plan_tier)
     }
     if (q.error_message) {
       setLiveErrorMessage(q.error_message)
-      account.error_message = q.error_message
       if (isLiveRefresh) {
         lastVerificationUrlFetchedAtRef.current = Date.now()
       }
     } else {
       setLiveErrorMessage(null)
-      account.error_message = ''
     }
     if (q.error_status) {
       setCurrentStatus(q.error_status)
-      account.status = q.error_status
     } else if (
       (currentStatus === 'ERROR' || currentStatus === 'BANNED') &&
       (!q.reset_horizon_text ||
@@ -194,49 +189,63 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     ) {
       const nextSt = account.is_active ? 'ACTIVE' : 'STANDBY'
       setCurrentStatus(nextSt)
-      account.status = nextSt
     }
-  }
+  }, [account.is_active, currentStatus])
 
-  const handleRefreshLiveQuota = async (): Promise<any> => {
-    const targetEmail = email.trim() || account.email
-    if (!targetEmail) return null
+  const handleRefreshLiveQuota = useCallback(async (
+    targetEmail?: string | React.MouseEvent
+  ): Promise<any> => {
+    const normalizedEmail = typeof targetEmail === 'string' ? targetEmail.trim() : ''
+    const effectiveEmail = normalizedEmail || email.trim() || account.email
+    if (!effectiveEmail) return null
+    const requestId = quotaRequestGateRef.current.begin()
     setIsRefreshingQuota(true)
     setError(null)
+    let q: any = null
     try {
-      const q = await api.refreshAccountQuota(targetEmail)
-      if (q) {
-        const hadError = (currentStatus || '').toUpperCase() === 'ERROR' || (account.status || '').toUpperCase() === 'ERROR'
-        const isRecovered =
-          !q.error_status &&
-          !q.error_message &&
-          q.reset_horizon_text !== 'Not Polled' &&
-          !q.reset_horizon_text?.startsWith('Error')
-        applyQuotaSummaryUpdate(q, true)
-        if (hadError || !q.error_message) {
-          onSaved()
-        }
-        if (hadError && isRecovered) {
-          setIsWaitingForVerification(false)
-          if (isWaitingForVerificationRef.current) {
-            isWaitingForVerificationRef.current = false
-            onClose()
+      const committed = await commitLatest(
+        quotaRequestGateRef.current,
+        requestId,
+        api.refreshAccountQuota(effectiveEmail),
+        (result) => {
+          q = result
+          if (!result) return
+          const hadError = (currentStatus || '').toUpperCase() === 'ERROR'
+          const isRecovered =
+            !result.error_status &&
+            !result.error_message &&
+            result.reset_horizon_text !== 'Not Polled' &&
+            !result.reset_horizon_text?.startsWith('Error')
+          applyQuotaSummaryUpdate(result, true)
+          if (hadError || !result.error_message) {
+            onSaved()
+          }
+          if (hadError && isRecovered) {
+            setIsWaitingForVerification(false)
+            if (isWaitingForVerificationRef.current) {
+              isWaitingForVerificationRef.current = false
+              onClose()
+            }
           }
         }
-      }
-      return q
+      )
+      return committed ? q : null
     } catch (err: any) {
-      console.warn('Quota refresh warning:', err)
+      if (quotaRequestGateRef.current.isCurrent(requestId)) {
+        console.warn('Quota refresh warning:', err)
+      }
       return null
     } finally {
-      setIsRefreshingQuota(false)
+      if (quotaRequestGateRef.current.isCurrent(requestId)) {
+        setIsRefreshingQuota(false)
+      }
     }
-  }
+  }, [account.email, email, currentStatus, applyQuotaSummaryUpdate, onSaved, onClose])
 
   const resolveFreshVerificationUrl = async (): Promise<string | null> => {
     const targetEmail = email.trim() || account.email
     const currentAlert = parseAccountErrorAlert(
-      liveErrorMessage || account.error_message || account.status_reason,
+      liveErrorMessage || account.status_reason,
       targetEmail
     )
     if (Date.now() - lastVerificationUrlFetchedAtRef.current <= 45_000 && currentAlert.verificationUrl) {
@@ -247,29 +256,74 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       return null
     }
     const updatedAlert = parseAccountErrorAlert(
-      (q as any)?.error_message || liveErrorMessage || account.error_message || account.status_reason,
+      (q as any)?.error_message || liveErrorMessage || account.status_reason,
       targetEmail
     )
     return updatedAlert.verificationUrl
   }
 
+  const initialHydrationStateRef = useRef({
+    isNewAccount,
+    accountStatus: account.status,
+    hasCredentials: Boolean(account.refresh_token || account.access_token),
+    resetHorizonText: account.reset_horizon_text,
+    liveQuota5h,
+  })
+  const applyQuotaSummaryUpdateRef = useRef(applyQuotaSummaryUpdate)
+  const handleRefreshLiveQuotaRef = useRef(handleRefreshLiveQuota)
+
   useEffect(() => {
-    if (!isNewAccount && account.email && (account.refresh_token || account.access_token)) {
-      if (account.status?.toUpperCase() === 'ERROR') {
-        handleRefreshLiveQuota()
+    initialHydrationStateRef.current = {
+      isNewAccount,
+      accountStatus: account.status,
+      hasCredentials: Boolean(account.refresh_token || account.access_token),
+      resetHorizonText: account.reset_horizon_text,
+      liveQuota5h,
+    }
+  }, [
+    isNewAccount,
+    account.status,
+    account.refresh_token,
+    account.access_token,
+    account.reset_horizon_text,
+    liveQuota5h,
+  ])
+
+  useEffect(() => {
+    applyQuotaSummaryUpdateRef.current = applyQuotaSummaryUpdate
+  }, [applyQuotaSummaryUpdate])
+
+  useEffect(() => {
+    handleRefreshLiveQuotaRef.current = handleRefreshLiveQuota
+  }, [handleRefreshLiveQuota])
+
+  useEffect(() => {
+    const accountEmail = account.email
+    const requestId = quotaRequestGateRef.current.begin()
+    const hydration = initialHydrationStateRef.current
+    if (!hydration.isNewAccount && account.email && hydration.hasCredentials) {
+      if (hydration.accountStatus?.toUpperCase() === 'ERROR') {
+        handleRefreshLiveQuotaRef.current(accountEmail)
       } else if (
-        account.reset_horizon_text === 'Not Polled' ||
-        liveQuota5h === null ||
-        (account.status?.toUpperCase() === 'BANNED' && !account.error_message)
+        hydration.resetHorizonText === 'Not Polled' ||
+        hydration.liveQuota5h === null ||
+        (hydration.accountStatus?.toUpperCase() === 'BANNED' && !account.error_message)
       ) {
-        api.getQuotaSummary(account.email).then((q) => {
-          if (q) {
-            applyQuotaSummaryUpdate(q, false)
+        void commitLatest(
+          quotaRequestGateRef.current,
+          requestId,
+          api.getQuotaSummary(accountEmail),
+          (q) => {
+            if (q) applyQuotaSummaryUpdateRef.current(q, false)
           }
-        }).catch(() => {})
+        ).catch(() => {})
       }
     }
-  }, [account.email])
+
+    return () => {
+      quotaRequestGateRef.current.begin()
+    }
+  }, [account.email, account.error_message])
 
   useEffect(() => {
     const hasRedactedCredentials =
@@ -325,8 +379,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   useEffect(() => {
     if (isNewAccount || (currentStatus || '').toUpperCase() !== 'ERROR') return
     const checkRecovery = () => {
-      if (!isRefreshingQuota) {
-        handleRefreshLiveQuota()
+      if (document.visibilityState !== 'hidden' && !isRefreshingQuota) {
+        handleRefreshLiveQuotaRef.current()
       }
     }
     const onVisibilityChange = () => {
@@ -349,51 +403,49 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [formattedCode, setFormattedCode] = useState<string>('--- ---')
   const [remainingSeconds, setRemainingSeconds] = useState<number>(30)
   const [copiedTotp, setCopiedTotp] = useState(false)
+  const totpRequestGateRef = useRef(createRequestGate())
 
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval>
+    let timer: ReturnType<typeof setInterval> | null = null
     const updateCode = async () => {
       const clean = totpSecret?.trim()
       if (!clean) {
+        totpRequestGateRef.current.begin()
         setDerivedCode(null)
         setFormattedCode('--- ---')
         return
       }
-      const res = await generateTOTP(clean)
-      if (res) {
-        setDerivedCode(res.code)
-        setFormattedCode(res.formattedCode)
-        setRemainingSeconds(res.remainingSeconds)
-      } else {
-        setDerivedCode(null)
-        setFormattedCode('--- ---')
-      }
+      const requestId = totpRequestGateRef.current.begin()
+      await commitLatest(totpRequestGateRef.current, requestId, generateTOTP(clean), (res) => {
+        if (res) {
+          setDerivedCode(res.code)
+          setFormattedCode(res.formattedCode)
+          setRemainingSeconds(res.remainingSeconds)
+        } else {
+          setDerivedCode(null)
+          setFormattedCode('--- ---')
+        }
+      })
     }
 
     updateCode()
     timer = setInterval(updateCode, 1000)
-    return () => clearInterval(timer)
+    return () => {
+      totpRequestGateRef.current.begin()
+      if (timer) clearInterval(timer)
+    }
   }, [totpSecret])
 
-  const handleCopyTotpCode = () => {
+  const handleCopyTotpCode = async () => {
     if (!derivedCode) return
-    if (navigator?.clipboard?.writeText) {
-      navigator.clipboard.writeText(derivedCode).catch(() => {
-        try {
-          const textArea = document.createElement('textarea')
-          textArea.value = derivedCode
-          textArea.style.position = 'fixed'
-          textArea.style.opacity = '0'
-          document.body.appendChild(textArea)
-          textArea.focus()
-          textArea.select()
-          document.execCommand('copy')
-          document.body.removeChild(textArea)
-        } catch (_) {}
-      })
+    try {
+      if (await copyTextWithFallback(derivedCode)) {
+        setCopiedTotp(true)
+        setTimeout(() => setCopiedTotp(false), 1500)
+      }
+    } catch {
+      setCopiedTotp(false)
     }
-    setCopiedTotp(true)
-    setTimeout(() => setCopiedTotp(false), 1500)
   }
 
   useEffect(() => {
@@ -469,12 +521,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       } else {
         if ((updateRes as any)?.status) {
           setCurrentStatus((updateRes as any).status)
-          account.status = (updateRes as any).status
         }
         if ((updateRes as any)?.error_message !== undefined) {
           const msg = (updateRes as any).error_message || null
           setLiveErrorMessage(msg)
-          account.error_message = msg || ''
         }
       }
       onSaved()
@@ -633,7 +683,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       if (res && res.quota) {
         applyQuotaSummaryUpdate(res.quota)
       } else if (res && res.plan_tier) {
-        account.plan_tier = res.plan_tier
         setCurrentPlanTier(res.plan_tier)
       }
       await onSaved()
@@ -666,7 +715,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   }
 
   const st = (
-    currentStatus?.toUpperCase() === 'BANNED' || account.status?.toUpperCase() === 'BANNED'
+    currentStatus?.toUpperCase() === 'BANNED'
       ? 'BANNED'
       : isAccountInError
       ? 'ERROR'
@@ -674,7 +723,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   ).toUpperCase()
 
   const errorAlert = parseAccountErrorAlert(
-    liveErrorMessage || account.error_message || account.status_reason || (isAccountInError ? 'Missing credentials / re-authentication required' : ''),
+    liveErrorMessage || account.status_reason || (isAccountInError ? 'Missing credentials / re-authentication required' : ''),
     email.trim() || account.email
   )
 
@@ -713,12 +762,12 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 style={{
                   fontSize: '18px',
                   fontWeight: 700,
-                  color: headerDisplay.isPlaceholder ? 'var(--text-muted)' : 'var(--text)',
+                  color: displayAccountName.isPlaceholder ? 'var(--text-muted)' : 'var(--text)',
                 }}
               >
-                {headerDisplay.text}
+                {displayAccountName.text}
               </h2>
-              {headerDisplay.showStatusBadge && (
+              {displayAccountName.showStatusBadge && (
                 <>
                   <span
                     className={`badge-chip ${
@@ -735,7 +784,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   >
                     {st === 'BANNED' ? 'BANNED' : st === 'ERROR' ? 'ERROR' : account.is_active ? 'ACTIVE' : (st === 'COOLDOWN' || st === 'COOLING') ? 'COOLING' : st}
                   </span>
-                  {renderPlanTierBadge(account.plan_tier)}
+                  {renderPlanTierBadge(currentPlanTier)}
                   {account.credits !== undefined && account.credits !== null && account.credits > 0 && (
                     <span
                       className="badge-chip badge-neutral"
@@ -783,7 +832,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               <span>Account Suspended Upstream (Banned)</span>
             </div>
             <div style={{ fontSize: '11px', opacity: 0.95, paddingLeft: '24px', lineHeight: 1.4, wordBreak: 'break-word', fontFamily: 'monospace' }}>
-              {liveErrorMessage || account.error_message || account.status_reason || 'This account has been flagged or disabled upstream by Google (e.g. TOS_VIOLATION). Quota requests cannot be serviced.'}
+              {liveErrorMessage || account.status_reason || 'This account has been flagged or disabled upstream by Google (e.g. TOS_VIOLATION). Quota requests cannot be serviced.'}
             </div>
           </div>
         )}

@@ -525,7 +525,6 @@ func (g *Gateway) runAnthropic(r *http.Request, model *CustomModel, req *geminiR
 		kind  string
 		name  string
 		id    string
-		text  strings.Builder
 		input strings.Builder
 	}
 	blocks := map[int]*block{}

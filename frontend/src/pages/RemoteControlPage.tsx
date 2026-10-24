@@ -576,9 +576,6 @@ export const RemoteControlPage: React.FC = () => {
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
               8-Character Security PIN & App Password Mode
             </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Remote sessions authenticate with an 8-character alphanumeric Security PIN by default, or with your master App Access Password when Use App Password is enabled. Click <em>Rotate PIN</em> at any time to generate a fresh 8-character code and revoke active remote browser sessions immediately.
-            </div>
           </div>
         </div>
       </div>

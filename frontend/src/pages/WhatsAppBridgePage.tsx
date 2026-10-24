@@ -47,7 +47,7 @@ export const WhatsAppBridgePage: React.FC = () => {
       let cfgRes: any = null
       try {
         cfgRes = await api.getChannelsConfig(true)
-      } catch (_) {
+      } catch {
         cfgRes = await api.getChannelsConfig()
       }
       if (cfgRes && cfgRes.config) {
@@ -235,9 +235,6 @@ export const WhatsAppBridgePage: React.FC = () => {
             <div>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
                 Integration Mode
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Select transport architecture for inbound and outbound messages.
               </div>
               <select
                 value={config.whatsapp.mode}

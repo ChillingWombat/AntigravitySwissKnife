@@ -1019,9 +1019,7 @@ func DetectAndFetchQuota(model CustomModel) QuotaResult {
 
 	// 2. Probe common quota and billing proxy endpoints
 	cleanBase := strings.TrimRight(rawBase, "/")
-	if strings.HasSuffix(cleanBase, "/v1") {
-		cleanBase = strings.TrimSuffix(cleanBase, "/v1")
-	}
+	cleanBase = strings.TrimSuffix(cleanBase, "/v1")
 
 	suffixes := []string{
 		"/v1/usage",

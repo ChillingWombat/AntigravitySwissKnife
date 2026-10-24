@@ -31,6 +31,8 @@ const (
 	GoogleUserInfoURL         = "https://www.googleapis.com/oauth2/v3/userinfo"
 )
 
+var googleOAuthHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
 // GoogleOAuthResult holds credentials extracted from a Google OAuth flow.
 type GoogleOAuthResult struct {
 	Email        string `json:"email"`
@@ -532,7 +534,7 @@ func exchangeGoogleCode(clientID, clientSecret, code, redirectURI string) (*Goog
 		"redirect_uri":  {redirectURI},
 	}
 
-	resp, err := http.PostForm(GoogleOAuthTokenURL, form)
+	resp, err := googleOAuthHTTPClient.PostForm(GoogleOAuthTokenURL, form)
 	if err != nil {
 		return nil, fmt.Errorf("token request failed: %w", err)
 	}

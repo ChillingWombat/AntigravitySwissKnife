@@ -12,7 +12,7 @@ export async function auditModelSecurity(model: CustomModel): Promise<SecurityAu
     if (backendReport && backendReport.probes && backendReport.probes.length > 0) {
       return backendReport as SecurityAuditReport
     }
-  } catch (_backendErr) {
+  } catch {
     // Fall back to client-side evaluation if backend is unreachable
   }
 

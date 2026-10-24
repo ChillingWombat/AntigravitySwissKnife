@@ -351,7 +351,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
           })
         }
       }
-    } catch (_) {
+    } catch {
       // Keep baseline models active
     } finally {
       setIsFetchingModels(false)
@@ -391,7 +391,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         setCustomModelOptions([])
         setDefaultCustom('')
       }
-    } catch (_) {
+    } catch {
       // Keep existing custom models
     }
   }

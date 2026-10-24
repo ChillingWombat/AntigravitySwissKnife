@@ -1,15 +1,148 @@
-import { describe, it } from 'node:test'
+import { afterEach, describe, it } from 'node:test'
 import assert from 'node:assert'
 import {
   getAccountTableDisplay,
   getAccountHeaderDisplay,
   resolveDefaultAlias,
+  copyTextWithFallback,
   normalizeMfaSecret,
   parseAccountErrorAlert,
   ACCOUNT_SETUP_TEXTS,
+  commitLatest,
+  copyWithStatus,
+  createRequestGate,
 } from './accountPresentation.ts'
 
+const originalBrowserGlobals = {
+  window: Object.getOwnPropertyDescriptor(globalThis, 'window'),
+  navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'),
+  document: Object.getOwnPropertyDescriptor(globalThis, 'document'),
+}
+
+function installBrowserGlobals(
+  windowValue: unknown,
+  navigatorValue: unknown,
+  documentValue: unknown
+) {
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: windowValue })
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: navigatorValue })
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: documentValue })
+}
+
+afterEach(() => {
+  for (const [key, descriptor] of Object.entries(originalBrowserGlobals)) {
+    if (descriptor) {
+      Object.defineProperty(globalThis, key, descriptor)
+    } else {
+      delete (globalThis as any)[key]
+    }
+  }
+})
+
 describe('accountPresentation utility', () => {
+  describe('copyTextWithFallback', () => {
+    it('uses window.electronAPI.copyToClipboard when present', async () => {
+      let copiedText = ''
+      const copyToClipboard = async (text: string) => {
+        copiedText = text
+        return true
+      }
+      installBrowserGlobals(
+        { electronAPI: { copyToClipboard, writeClipboard: copyToClipboard } },
+        { clipboard: { writeText: async () => assert.fail('navigator fallback used') } },
+        {}
+      )
+
+      assert.strictEqual(await copyTextWithFallback('electron-copy'), true)
+      assert.strictEqual(copiedText, 'electron-copy')
+    })
+
+    it('falls back to navigator.clipboard.writeText', async () => {
+      let copiedText = ''
+      let execCommandCalls = 0
+      installBrowserGlobals(
+        {},
+        {
+          clipboard: {
+            writeText: async (text: string) => {
+              copiedText = text
+            },
+          },
+        },
+        {
+          execCommand: () => {
+            execCommandCalls += 1
+            return true
+          },
+        }
+      )
+
+      assert.strictEqual(await copyTextWithFallback('navigator-copy'), true)
+      assert.strictEqual(copiedText, 'navigator-copy')
+      assert.strictEqual(execCommandCalls, 0)
+    })
+
+    it('succeeds with document.execCommand when navigator.clipboard.writeText rejects', async () => {
+      const textArea = {
+        value: '',
+        style: {},
+        focus() {},
+        select() {},
+        remove() {},
+      }
+      let copiedText = ''
+      installBrowserGlobals(
+        {},
+        {
+          clipboard: {
+            writeText: async () => {
+              throw new Error('clipboard denied')
+            },
+          },
+        },
+        {
+          body: { appendChild() {}, removeChild() {} },
+          createElement: () => textArea,
+          execCommand: (command: string) => {
+            assert.strictEqual(command, 'copy')
+            copiedText = textArea.value
+            return true
+          },
+        }
+      )
+
+      assert.strictEqual(await copyTextWithFallback('exec-copy'), true)
+      assert.strictEqual(copiedText, 'exec-copy')
+    })
+
+    it('returns false when document.execCommand returns false', async () => {
+      const textArea = {
+        value: '',
+        style: {},
+        focus() {},
+        select() {},
+        remove() {},
+      }
+      installBrowserGlobals(
+        {},
+        {
+          clipboard: {
+            writeText: async () => {
+              throw new Error('clipboard denied')
+            },
+          },
+        },
+        {
+          body: { appendChild() {}, removeChild() {} },
+          createElement: () => textArea,
+          execCommand: () => false,
+        }
+      )
+
+      assert.strictEqual(await copyTextWithFallback('123456'), false)
+    })
+  })
+
   describe('getAccountTableDisplay', () => {
     it('shows only the account alias and hides the id when alias equals account id', () => {
       const res = getAccountTableDisplay('alice@example.com', 'alice@example.com')
@@ -188,6 +321,77 @@ describe('accountPresentation utility', () => {
     })
   })
 
+  describe('Account async race protection', () => {
+    it('ignores stale quota and TOTP results after account and secret switches', async () => {
+      const quotaGate = createRequestGate()
+      const totpGate = createRequestGate()
+      let resolveStaleQuota!: (value: string) => void
+      let resolveStaleTotp!: (value: string) => void
+      const staleQuota = new Promise<string>((resolve) => {
+        resolveStaleQuota = resolve
+      })
+      const staleTotp = new Promise<string>((resolve) => {
+        resolveStaleTotp = resolve
+      })
+      const staleQuotaRequest = quotaGate.begin()
+      const staleTotpRequest = totpGate.begin()
+      const currentQuotaRequest = quotaGate.begin()
+      const currentTotpRequest = totpGate.begin()
+      const rendered = { account: 'second@example.com', quota: '', totp: '' }
+
+      assert.strictEqual(
+        await commitLatest(quotaGate, currentQuotaRequest, Promise.resolve('87%'), (value) => {
+          rendered.quota = value
+        }),
+        true
+      )
+      assert.strictEqual(
+        await commitLatest(totpGate, currentTotpRequest, Promise.resolve('654321'), (value) => {
+          rendered.totp = value
+        }),
+        true
+      )
+
+      resolveStaleQuota('13%')
+      resolveStaleTotp('123456')
+      assert.strictEqual(
+        await commitLatest(quotaGate, staleQuotaRequest, staleQuota, (value) => {
+          rendered.quota = value
+        }),
+        false
+      )
+      assert.strictEqual(
+        await commitLatest(totpGate, staleTotpRequest, staleTotp, (value) => {
+          rendered.totp = value
+        }),
+        false
+      )
+      assert.deepStrictEqual(rendered, {
+        account: 'second@example.com',
+        quota: '87%',
+        totp: '654321',
+      })
+    })
+
+    it('leaves copied false when the clipboard write rejects', async () => {
+      const copiedStates: boolean[] = []
+      let copied = false
+      const result = await copyWithStatus(
+        async () => {
+          throw new Error('clipboard denied')
+        },
+        (nextCopied) => {
+          copied = nextCopied
+          copiedStates.push(nextCopied)
+        }
+      )
+
+      assert.strictEqual(result, false)
+      assert.strictEqual(copied, false)
+      assert.deepStrictEqual(copiedStates, [false])
+    })
+  })
+
   describe('AccountDetailModal presentation integrity', () => {
     it('verifies Gemini Quota grey-out, weekly reset time, aligned right-column controls, and dual toggle layout', async () => {
       const fs = await import('node:fs')
@@ -206,9 +410,17 @@ describe('accountPresentation utility', () => {
       assert.ok(modalSrc.includes('Allow using AI credits'), 'should contain Allow using AI credits toggle')
       assert.ok(!modalSrc.includes('Claude &amp; GPT Models:'), 'should not render header above Claude & GPT models toggle')
       assert.ok(!modalSrc.includes('Plan Tier / Membership:'), 'should not contain manual Plan Tier select in form body')
-      assert.ok(!modalSrc.includes('Credit Pool'), 'should not contain manual Credit Pool in form body')
-      assert.ok(modalSrc.includes('renderPlanTierBadge(account.plan_tier)'), 'should render read-only plan tier badge in header')
-      assert.ok(modalSrc.includes('getAccountHeaderDisplay'), 'should use getAccountHeaderDisplay')
+      assert.ok(
+        modalSrc.includes('renderPlanTierBadge(currentPlanTier)'),
+        'should render read-only plan tier badge in header'
+      )
+      assert.ok(
+        modalSrc.includes('getAccountHeaderDisplay(isNewAccount, label, email)'),
+        'should derive account header presentation through getAccountHeaderDisplay'
+      )
+      assert.ok(modalSrc.includes('displayAccountName'), 'should use the derived display account name')
+      assert.ok(!modalSrc.includes('account.name ='), 'should not mutate account.name')
+      assert.ok(!modalSrc.includes('account.plan_tier ='), 'should not mutate account.plan_tier')
       assert.ok(modalSrc.includes('onBlur={handleEmailBlur}'), 'should trigger handleEmailBlur on account ID blur')
       assert.ok(modalSrc.includes('Show OAuth refresh token'), 'should have refresh token eye toggle tooltip')
       assert.ok(modalSrc.includes("refreshToken.trim().startsWith('ya29.')"), 'should detect temporary access token and advise refresh token')

@@ -139,7 +139,7 @@ func (dm *DesktopManager) InstallDesktopLoader() (*ApplyResult, error) {
 	if !fileExists(preloadPath) {
 		return &ApplyResult{
 			Success: false,
-			Message: fmt.Sprintf("dist/preload.js not found in extracted app"),
+			Message: "dist/preload.js not found in extracted app",
 		}, fmt.Errorf("dist/preload.js not found in extracted app")
 	}
 

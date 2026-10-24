@@ -679,7 +679,7 @@ func TestSyncStateVscdb(t *testing.T) {
 	}
 
 	// Mint token with picture claim
-	claimsWithPic := fmt.Sprintf(`{"email":"switched_user@gmail.com","picture":"https://lh3.googleusercontent.com/a/test_avatar_123"}`)
+	claimsWithPic := `{"email":"switched_user@gmail.com","picture":"https://lh3.googleusercontent.com/a/test_avatar_123"}`
 	idTokenWithPic := fmt.Sprintf("header.%s.sig", base64.RawURLEncoding.EncodeToString([]byte(claimsWithPic)))
 
 	testAcc := &Account{

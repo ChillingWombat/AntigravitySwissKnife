@@ -78,6 +78,7 @@ func isLoopbackHost(host string) bool {
 	if splitHost, _, err := net.SplitHostPort(h); err == nil {
 		h = splitHost
 	}
+	h = strings.Trim(h, "[]")
 	if h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "0.0.0.0" {
 		return true
 	}
@@ -720,8 +721,13 @@ func (s *Service) ServeOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Fast-path: if ?pin= is already valid, immediately issue code and redirect 302
-		if pin != "" && VerifyCandidatePIN(pin, s.GetRawPairingPIN(), s.config.UseAppPassword) {
+		// Fast-path / Lockout check: verify pin (or check existing lockout if pin is empty)
+		ok, locked := s.authMgr.VerifyInteractivePIN(r, pin)
+		if locked {
+			s.renderAuthorizePage(w, r, http.StatusTooManyRequests, "Too many failed attempts. Access temporarily locked.")
+			return
+		}
+		if pin != "" && ok {
 			s.issueCodeAndRedirect(w, r, redirectURI, clientID, state, codeChallenge, codeChallengeMethod, scope)
 			return
 		}
@@ -749,7 +755,12 @@ func (s *Service) ServeOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if VerifyCandidatePIN(pin, s.GetRawPairingPIN(), s.config.UseAppPassword) {
+		ok, locked := s.authMgr.VerifyInteractivePIN(r, pin)
+		if locked {
+			s.renderAuthorizePage(w, r, http.StatusTooManyRequests, "Too many failed attempts. Access temporarily locked.")
+			return
+		}
+		if ok {
 			s.issueCodeAndRedirect(w, r, redirectURI, clientID, state, codeChallenge, codeChallengeMethod, scope)
 			return
 		}
@@ -866,7 +877,16 @@ func (s *Service) ServeOAuthToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if entry.RedirectURI != "" && redirectURI != "" && entry.RedirectURI != redirectURI {
+		if entry.ClientID != "" && clientID != entry.ClientID {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":             "invalid_grant",
+				"error_description": "client_id mismatch",
+			})
+			return
+		}
+
+		if entry.RedirectURI != "" && entry.RedirectURI != redirectURI {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error":             "invalid_grant",
@@ -885,10 +905,12 @@ func (s *Service) ServeOAuthToken(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
-			if strings.EqualFold(entry.CodeChallengeMethod, "S256") {
+			method := strings.ToUpper(strings.TrimSpace(entry.CodeChallengeMethod))
+			switch method {
+			case "S256":
 				h := sha256.Sum256([]byte(codeVerifier))
 				calculated := base64.RawURLEncoding.EncodeToString(h[:])
-				if calculated != entry.CodeChallenge {
+				if !secureCompare(calculated, entry.CodeChallenge) {
 					w.WriteHeader(http.StatusBadRequest)
 					_ = json.NewEncoder(w).Encode(map[string]interface{}{
 						"error":             "invalid_grant",
@@ -896,8 +918,8 @@ func (s *Service) ServeOAuthToken(w http.ResponseWriter, r *http.Request) {
 					})
 					return
 				}
-			} else {
-				if codeVerifier != entry.CodeChallenge {
+			case "PLAIN", "":
+				if !secureCompare(codeVerifier, entry.CodeChallenge) {
 					w.WriteHeader(http.StatusBadRequest)
 					_ = json.NewEncoder(w).Encode(map[string]interface{}{
 						"error":             "invalid_grant",
@@ -905,6 +927,13 @@ func (s *Service) ServeOAuthToken(w http.ResponseWriter, r *http.Request) {
 					})
 					return
 				}
+			default:
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"error":             "invalid_request",
+					"error_description": "unsupported code_challenge_method",
+				})
+				return
 			}
 		}
 
@@ -924,8 +953,16 @@ func (s *Service) ServeOAuthToken(w http.ResponseWriter, r *http.Request) {
 		}
 		candidate = strings.TrimSpace(candidate)
 
-		valid := candidate != "" && (candidate == s.GetRawAuthToken() || VerifyCandidatePIN(candidate, s.GetRawPairingPIN(), s.config.UseAppPassword))
-		if !valid {
+		ok, locked := s.authMgr.VerifyPIN(r, candidate)
+		if locked {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":             "invalid_grant",
+				"error_description": "IP temporarily locked due to excessive failed attempts",
+			})
+			return
+		}
+		if !ok {
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error":             "invalid_grant",

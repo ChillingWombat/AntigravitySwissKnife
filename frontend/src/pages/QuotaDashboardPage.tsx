@@ -147,7 +147,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const [errorDetailAccount, setErrorDetailAccount] = useState<AccountState | null>(null)
   const [isVerifyingErrorAccount, setIsVerifyingErrorAccount] = useState(false)
   const isVerifyingRef = React.useRef<boolean>(false)
-  isVerifyingRef.current = isVerifyingErrorAccount
+  useEffect(() => {
+    isVerifyingRef.current = isVerifyingErrorAccount
+  }, [isVerifyingErrorAccount])
   const errorDetailFetchedAtRef = React.useRef<number>(0)
   const errorDetailPollingRef = React.useRef<boolean>(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; account: AccountState } | null>(null)

@@ -272,7 +272,7 @@ func RunIssueDiagnosis(
 
 	var sb strings.Builder
 	sb.WriteString("=== ANTIGRAVITY SWISS KNIFE SYSTEM DIAGNOSTICS ===\n")
-	sb.WriteString(fmt.Sprintf("Timestamp: Current Runtime Session\n"))
+	sb.WriteString("Timestamp: Current Runtime Session\n")
 	sb.WriteString(fmt.Sprintf("OS / Platform: %s (%s)\n", runtime.GOOS, runtime.GOARCH))
 	sb.WriteString(fmt.Sprintf("Go Version: %s\n", runtime.Version()))
 	sb.WriteString(fmt.Sprintf("App Version: %s\n", core.AppVersion))

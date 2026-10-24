@@ -23,7 +23,7 @@ func TestLoadConfig_PreservesZeroValues(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 
 	raw := map[string]interface{}{
-		"auto_prune_enabled":       true,
+		"auto_prune_enabled":      true,
 		"auto_prune_max_age_days": 0.0,
 		"auto_prune_max_size_gb":  0.0,
 	}
@@ -234,8 +234,6 @@ func TestLoadConfig_QuotaRefreshModePersistence(t *testing.T) {
 		t.Errorf("expected IsDynamicQuotaRefreshEnabled to be true after setting dynamic")
 	}
 }
-
-
 
 func TestDefaultConfig_VSCodeEnhancements(t *testing.T) {
 	cfg := DefaultConfig()
@@ -451,5 +449,34 @@ func TestMemoConfig_JSONFieldNames(t *testing.T) {
 		if !strings.Contains(string(data), key) {
 			t.Errorf("memo config JSON %s is missing %s", data, key)
 		}
+	}
+}
+
+func TestLoadConfig_CorruptJSON_ReturnsError(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	cfgPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(cfgPath, []byte(`{corrupt json...`), 0600); err != nil {
+		t.Fatalf("failed to write corrupt config: %v", err)
+	}
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected non-nil error when config.json is corrupt, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse") {
+		t.Errorf("expected error to contain %q, got %q", "parse", err.Error())
+	}
+
+	// Empty file test
+	if err := os.WriteFile(cfgPath, []byte(""), 0600); err != nil {
+		t.Fatalf("failed to write empty config: %v", err)
+	}
+	_, err = LoadConfig()
+	if err == nil {
+		t.Fatal("expected non-nil error when config.json is empty, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse") {
+		t.Errorf("expected error to contain %q, got %q", "parse", err.Error())
 	}
 }

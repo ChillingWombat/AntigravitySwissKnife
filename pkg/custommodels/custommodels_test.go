@@ -717,7 +717,7 @@ func TestFetchModelPricing_HierarchyAndNullFallback(t *testing.T) {
 	}
 
 	// 2. 3rd-Party Backup when not in provider
-	inP, cacheP, outP, src = FetchModelPricing(t.Context(), "qwen-2.5-coder-32b", "custom", "", "")
+	inP, _, outP, src = FetchModelPricing(t.Context(), "qwen-2.5-coder-32b", "custom", "", "")
 	if src != PriceSourceThirdParty {
 		t.Fatalf("expected source %q from 3rd-party backup, got %q", PriceSourceThirdParty, src)
 	}
@@ -797,14 +797,14 @@ func TestFetchModelPricing_DynamicGoogleGeminiPricing(t *testing.T) {
 
 	// 2. Verify thinking / tiered alias: gemini-3.8-flash-high maps to dynamic gemini-3.8-flash
 	inP, cacheP, outP, src = FetchModelPricing(t.Context(), "gemini-3.8-flash-high", "gemini", "", "")
-	if src != PriceSourceProvider || inP == nil || *inP != 0.75 || outP == nil || *outP != 3.75 {
-		t.Fatalf("unexpected dynamic prices for gemini-3.8-flash-high: in=%v out=%v", inP, outP)
+	if src != PriceSourceProvider || inP == nil || *inP != 0.75 || cacheP == nil || *cacheP != 0.075 || outP == nil || *outP != 3.75 {
+		t.Fatalf("unexpected dynamic prices for gemini-3.8-flash-high: in=%v cache=%v out=%v", inP, cacheP, outP)
 	}
 
 	// 3. Verify Gemini 3.1 Pro
 	inP, cacheP, outP, src = FetchModelPricing(t.Context(), "gemini-3.1-pro", "gemini", "", "")
-	if src != PriceSourceProvider || inP == nil || *inP != 2.00 || outP == nil || *outP != 12.00 {
-		t.Fatalf("unexpected dynamic prices for gemini-3.1-pro: in=%v out=%v", inP, outP)
+	if src != PriceSourceProvider || inP == nil || *inP != 2.00 || cacheP == nil || *cacheP != 0.20 || outP == nil || *outP != 12.00 {
+		t.Fatalf("unexpected dynamic prices for gemini-3.1-pro: in=%v cache=%v out=%v", inP, cacheP, outP)
 	}
 
 	// 4. Test offline fallback to official specifications.
@@ -832,8 +832,8 @@ func TestFetchModelPricing_DynamicGoogleGeminiPricing(t *testing.T) {
 	if src != PriceSourceProvider {
 		t.Fatalf("expected PriceSourceProvider on fallback, got %q", src)
 	}
-	if inP == nil || *inP != 0.75 || outP == nil || *outP != 3.75 {
-		t.Fatalf("unexpected fallback prices for gemini-3.8-flash: in=%v out=%v", inP, outP)
+	if inP == nil || *inP != 0.75 || cacheP == nil || *cacheP != 0.075 || outP == nil || *outP != 3.75 {
+		t.Fatalf("unexpected fallback prices for gemini-3.8-flash: in=%v cache=%v out=%v", inP, cacheP, outP)
 	}
 }
 

@@ -253,7 +253,6 @@ const antigravityFaviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="
   </defs>
 </svg>`
 
-const antigravityFaviconDataURI = "data:image/svg+xml," + antigravityFaviconSVG
 const antigravityFaviconLink = `<link rel="icon" type="image/svg+xml" href="/favicon.svg">`
 
 var (
@@ -343,6 +342,61 @@ const remoteLiveAccountSyncScript = `<script id="swiss-remote-account-sync">
 })();
 </script>`
 
+var (
+	remoteLoopbackTransport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+	}
+
+	remoteVerifiedTransport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	remoteLoopbackCSRFClient = &http.Client{
+		Timeout:   2 * time.Second,
+		Transport: remoteLoopbackTransport,
+	}
+
+	remoteVerifiedCSRFClient = &http.Client{
+		Timeout:   2 * time.Second,
+		Transport: remoteVerifiedTransport,
+	}
+)
+
+func getRemoteTransport(host string) *http.Transport {
+	if isLoopbackHost(host) {
+		return remoteLoopbackTransport
+	}
+	return remoteVerifiedTransport
+}
+
+func getCSRFClient(host string) *http.Client {
+	if isLoopbackHost(host) {
+		return remoteLoopbackCSRFClient
+	}
+	return remoteVerifiedCSRFClient
+}
+
 func (rm *RemoteManager) resolveUpstreamCSRF(origin string) string {
 	rm.webOriginMu.RLock()
 	if rm.lastCSRFOrigin == origin && rm.lastCSRFToken != "" {
@@ -352,18 +406,19 @@ func (rm *RemoteManager) resolveUpstreamCSRF(origin string) string {
 	}
 	rm.webOriginMu.RUnlock()
 
-	client := &http.Client{
-		Timeout: 2 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
+	host := origin
+	if u, err := url.Parse(origin); err == nil && u.Host != "" {
+		host = u.Host
 	}
+
+	client := getCSRFClient(host)
 	resp, err := client.Get(strings.TrimRight(origin, "/") + "/")
 	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
+	_, _ = io.Copy(io.Discard, resp.Body)
 	if err != nil {
 		return ""
 	}
@@ -388,20 +443,17 @@ func (rm *RemoteManager) proxyToAntigravityWebApp(w http.ResponseWriter, r *http
 
 	proxy := &httputil.ReverseProxy{
 		FlushInterval: -1,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-		Director: func(req *http.Request) {
-			req.URL.Scheme = targetURL.Scheme
-			req.URL.Host = targetURL.Host
-			req.Host = targetURL.Host
-			req.Header.Set("Origin", targetURL.Scheme+"://"+targetURL.Host)
-			req.Header.Set("Referer", targetURL.Scheme+"://"+targetURL.Host+"/")
+		Transport:     getRemoteTransport(targetURL.Host),
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(targetURL)
+			pr.Out.Host = targetURL.Host
+			pr.Out.Header.Set("Origin", targetURL.Scheme+"://"+targetURL.Host)
+			pr.Out.Header.Set("Referer", targetURL.Scheme+"://"+targetURL.Host+"/")
 			if upstreamCSRF != "" {
-				req.Header.Set("x-codeium-csrf-token", upstreamCSRF)
+				pr.Out.Header.Set("x-codeium-csrf-token", upstreamCSRF)
 			}
-			if req.Method == http.MethodGet && (req.URL.Path == "/" || req.URL.Path == "/index.html" || strings.HasPrefix(req.URL.Path, "/c/")) {
-				req.Header.Del("Accept-Encoding")
+			if pr.Out.Method == http.MethodGet && (pr.Out.URL.Path == "/" || pr.Out.URL.Path == "/index.html" || strings.HasPrefix(pr.Out.URL.Path, "/c/")) {
+				pr.Out.Header.Del("Accept-Encoding")
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
@@ -966,11 +1018,13 @@ func (rm *RemoteManager) handleAuth(w http.ResponseWriter, r *http.Request) {
 
 	rm.recordRemotePINSuccess(clientIP)
 
+	secure := r.TLS != nil || strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 	http.SetCookie(w, &http.Cookie{
 		Name:     "swiss_remote_pin",
 		Value:    rm.remoteSessionCookieValue(expectedPIN),
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 	origin, activePath := rm.findAntigravityWebOrigin()
@@ -988,12 +1042,14 @@ func (rm *RemoteManager) handleAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (rm *RemoteManager) handleLogout(w http.ResponseWriter, r *http.Request) {
+	secure := r.TLS != nil || strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 	http.SetCookie(w, &http.Cookie{
 		Name:     "swiss_remote_pin",
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 	w.Header().Set("Content-Type", "application/json")
