@@ -1656,7 +1656,7 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 			accountMutationMu.Unlock()
 			var tierErr error
 			pCtx, tierErr = quotaPollFetchProjectAndTier(accessToken)
-			if pCtx == nil && tierErr != nil {
+			if tierErr != nil {
 				lastTokenRefreshErr = tierErr
 			}
 		}

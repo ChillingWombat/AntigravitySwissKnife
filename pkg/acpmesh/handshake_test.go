@@ -413,6 +413,22 @@ func TestBoundPiHandshakeContextAddsDeadline(t *testing.T) {
 	}
 }
 
+func TestBoundPiHandshakeContextCapsLongParentDeadline(t *testing.T) {
+	parent, parentCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer parentCancel()
+	ctx, cancel := boundPiHandshakeContext(parent)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected an overall Pi handshake deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining > piHandshakeTimeout {
+		t.Fatalf("Pi handshake deadline remaining = %v, want <= %v", remaining, piHandshakeTimeout)
+	}
+}
+
 func TestProbePiHandshakeHonorsParentDeadline(t *testing.T) {
 	hangingPi := writeACPTestScriptNamed(t, "pi", `while :; do sleep 1; done`)
 	agent := Resolved{ID: PresetPi, Name: "Pi", BinaryPath: hangingPi}

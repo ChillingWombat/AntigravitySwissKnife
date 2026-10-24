@@ -45,9 +45,6 @@ func boundPiHandshakeContext(ctx context.Context) (context.Context, context.Canc
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if _, ok := ctx.Deadline(); ok {
-		return context.WithCancel(ctx)
-	}
 	return context.WithTimeout(ctx, piHandshakeTimeout)
 }
 
