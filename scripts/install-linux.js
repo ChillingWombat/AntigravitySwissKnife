@@ -82,7 +82,9 @@ function ensureBuildExists(forceRebuild = false) {
         'package.json',
         'electron/main.js',
         'electron/daemon-manager.js',
+        'scripts/build-release.js',
         'cmd/swiss/main.go',
+        'antigravity-acp/cmd/antigravity-acp/main.go',
         'frontend/src/App.tsx',
         'frontend/src/pages/CustomModelsPage.tsx',
         'pkg/webgui/server.go'
@@ -155,6 +157,17 @@ function stageAndInstallApp(targetPaths) {
   // Copy unpacked tree
   fs.cpSync(unpackedDir, stagingDir, { recursive: true, dereference: false });
 
+  // Older unpacked bundles may not contain the ACP sidecar. Install the
+  // standalone build output when it is available so the preset works.
+  const stagingAcp = path.join(stagingDir, 'resources', 'bin', 'antigravity-acp');
+  if (!fs.existsSync(stagingAcp)) {
+    const builtAcp = path.join(rootDir, 'bin', 'antigravity-acp');
+    if (fs.existsSync(builtAcp)) {
+      ensureDir(path.dirname(stagingAcp));
+      fs.copyFileSync(builtAcp, stagingAcp);
+    }
+  }
+
   // Copy assets into staging resources/assets and staging assets
   const sourceAssetsDir = path.join(rootDir, 'assets');
   if (fs.existsSync(sourceAssetsDir)) {
@@ -171,7 +184,8 @@ function stageAndInstallApp(targetPaths) {
     path.join(stagingDir, 'antigravity-swiss-knife'),
     path.join(stagingDir, 'antigravity-swiss-knife.bin'),
     path.join(stagingDir, 'chrome_crashpad_handler'),
-    path.join(stagingDir, 'resources', 'bin', 'swiss')
+    path.join(stagingDir, 'resources', 'bin', 'swiss'),
+    path.join(stagingDir, 'resources', 'bin', 'antigravity-acp')
   ];
 
   for (const bin of executables) {
@@ -214,7 +228,8 @@ function stageAndInstallApp(targetPaths) {
     path.join(appDir, 'antigravity-swiss-knife'),
     path.join(appDir, 'antigravity-swiss-knife.bin'),
     path.join(appDir, 'chrome_crashpad_handler'),
-    path.join(appDir, 'resources', 'bin', 'swiss')
+    path.join(appDir, 'resources', 'bin', 'swiss'),
+    path.join(appDir, 'resources', 'bin', 'antigravity-acp')
   ];
 
   for (const bin of destExecutables) {
@@ -323,6 +338,37 @@ function installCliSymlink(targetPaths) {
   log(`✓ CLI launcher symlink updated: ${symlinkPath} -> ${targetExe}`);
 }
 
+function findInstalledAcpBinary(appDir) {
+  const candidates = [
+    path.join(appDir, 'resources', 'bin', 'antigravity-acp'),
+    path.join(appDir, 'bin', 'antigravity-acp')
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
+function installAcpCliSymlink(targetPaths) {
+  const { appDir, binDir } = targetPaths;
+  const targetAcp = findInstalledAcpBinary(appDir);
+  if (!targetAcp) {
+    log('Bundled antigravity-acp not found; skipping ACP CLI symlink.');
+    return null;
+  }
+
+  ensureDir(binDir);
+  try { fs.chmodSync(targetAcp, 0o755); } catch {}
+
+  const symlinkPath = path.join(binDir, 'antigravity-acp');
+  try {
+    if (fs.existsSync(symlinkPath) || fs.lstatSync(symlinkPath).isSymbolicLink()) {
+      fs.unlinkSync(symlinkPath);
+    }
+  } catch {}
+
+  fs.symlinkSync(targetAcp, symlinkPath);
+  log(`✓ ACP CLI symlink updated: ${symlinkPath} -> ${targetAcp}`);
+  return symlinkPath;
+}
+
 function verifyInstallation(targetPaths) {
   log('====================================================');
   log('Verifying out-of-tree installation integrity...');
@@ -332,7 +378,9 @@ function verifyInstallation(targetPaths) {
   const desktopFile = path.join(desktopDir, 'antigravity-swiss-knife.desktop');
   const launcherBin = path.join(appDir, 'antigravity-swiss-knife');
   const daemonBin = path.join(appDir, 'resources', 'bin', 'swiss');
+  const bundledAcp = findInstalledAcpBinary(appDir);
   const cliSymlink = path.join(binDir, 'antigravity-swiss-knife');
+  const acpCliSymlink = path.join(binDir, 'antigravity-acp');
   const iconFile = path.join(appDir, 'resources', 'assets', 'logo.png');
 
   let passed = true;
@@ -396,6 +444,29 @@ function verifyInstallation(targetPaths) {
   } else {
     console.error(`[Verify] CLI symlink missing: ${cliSymlink}`);
     passed = false;
+  }
+
+  if (bundledAcp) {
+    if (fs.existsSync(acpCliSymlink)) {
+      try {
+        const realTarget = fs.realpathSync(acpCliSymlink);
+        const realAcp = fs.realpathSync(bundledAcp);
+        if (realTarget === realAcp) {
+          log(`[Verify] ACP CLI symlink resolution: PASS (${acpCliSymlink} -> ${realTarget})`);
+        } else {
+          console.error(`[Verify] ACP CLI symlink resolution mismatch: ${realTarget} != ${realAcp}`);
+          passed = false;
+        }
+      } catch (err) {
+        console.error(`[Verify] ACP CLI symlink error: ${err.message}`);
+        passed = false;
+      }
+    } else {
+      console.error(`[Verify] ACP CLI symlink missing: ${acpCliSymlink}`);
+      passed = false;
+    }
+  } else {
+    log('[Verify] Bundled antigravity-acp not present; ACP CLI symlink check skipped.');
   }
 
   if (fs.existsSync(iconFile)) {
@@ -479,6 +550,7 @@ function main() {
   installIcons(targetPaths);
   installDesktopEntry(targetPaths);
   installCliSymlink(targetPaths);
+  installAcpCliSymlink(targetPaths);
   verifyInstallation(targetPaths);
 
   log('Installation completed successfully.');
@@ -499,5 +571,7 @@ module.exports = {
   installIcons,
   installDesktopEntry,
   installCliSymlink,
+  installAcpCliSymlink,
+  findInstalledAcpBinary,
   verifyInstallation
 };

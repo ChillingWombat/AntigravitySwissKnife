@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
@@ -62,7 +63,7 @@ type ProjectInfo struct {
 func DefaultPaths() (antigravityBase, appStoragePath string) {
 	home, _ := os.UserHomeDir()
 	antigravityBase = filepath.Join(home, ".gemini", "antigravity")
-	appStoragePath = filepath.Join(home, ".config", "Antigravity", "app_storage.json")
+	appStoragePath = filepath.Join(core.GetAntigravityHostConfigDir(), "app_storage.json")
 	return
 }
 
