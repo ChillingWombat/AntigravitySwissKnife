@@ -1292,7 +1292,7 @@ func (s *Store) UpdateAccountFull(email, label, planTier, status, priority, note
 	if cleanPassword == "[CLEAR]" || cleanPassword == "CLEAR" {
 		acc.Password = ""
 	} else if cleanPassword != "" && !isRedactionPlaceholder(cleanPassword) {
-		acc.Password = cleanPassword
+		acc.Password = password
 	}
 	cleanTOTP := strings.TrimSpace(totpSecret)
 	if cleanTOTP == "[CLEAR]" || cleanTOTP == "CLEAR" {
