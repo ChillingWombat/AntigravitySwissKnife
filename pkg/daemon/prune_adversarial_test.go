@@ -23,7 +23,7 @@ func TestAdversarial_ConfigEdgeCases(t *testing.T) {
 
 	// Scenario 1: User explicitly saves 0.0 to disk
 	rawZero := map[string]interface{}{
-		"auto_prune_enabled":     true,
+		"auto_prune_enabled":      true,
 		"auto_prune_max_age_days": 0.0,
 		"auto_prune_max_size_gb":  0.0,
 	}
@@ -199,7 +199,7 @@ func TestAdversarial_DaemonIPC_CacheMethods(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-	sockPath := filepath.Join(tmpDir, "daemon_test.sock")
+	sockPath := testSocketPath(t, tmpDir, "daemon_test.sock")
 	cfg := core.DefaultConfig()
 
 	d, err := NewDaemon(cfg, sockPath)
@@ -230,8 +230,8 @@ func TestAdversarial_DaemonIPC_CacheMethods(t *testing.T) {
 	enabled := true
 	setReq := map[string]interface{}{
 		"auto_prune_enabled": &enabled,
-		"prune_days":        &zeroVal,
-		"max_size_gb":       &zeroVal,
+		"prune_days":         &zeroVal,
+		"max_size_gb":        &zeroVal,
 	}
 	var setResp map[string]interface{}
 	if err := client.Call("swiss.setCacheConfig", setReq, &setResp); err != nil {

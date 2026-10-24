@@ -112,6 +112,7 @@ func TestDefaultBinaryPathPerOS(t *testing.T) {
 		{"antigravity darwin", "darwin", PresetAntigravity, "/Applications/Antigravity.app/Contents/MacOS/Antigravity"},
 		{"agy windows", "windows", PresetAntigravityCLI, "/home/tester/.local/bin/agy.exe"},
 		{"agy linux", "linux", PresetAntigravityCLI, "/home/tester/.local/bin/agy"},
+		{"antigravity vscode linux", "linux", PresetAntigravityVSCode, "/home/tester/.local/bin/antigravity-acp"},
 		{"devin windows falls back to historical path", "windows", PresetDevin, "/usr/bin/devin-desktop"},
 		{"cursor windows", "windows", PresetCursor, "C:/Users/tester/AppData/Local/Programs/cursor/Cursor.exe"},
 	}
@@ -123,6 +124,29 @@ func TestDefaultBinaryPathPerOS(t *testing.T) {
 				t.Fatalf("DefaultBinaryPath(%s) = %q, want %q", tc.goos, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAntigravityVSCodePreset(t *testing.T) {
+	presets := Presets()
+	index := make(map[string]int, len(presets))
+	for i, preset := range presets {
+		index[preset.ID] = i
+	}
+	if !(index[PresetAntigravity] < index[PresetAntigravityCLI] &&
+		index[PresetAntigravityCLI] < index[PresetAntigravityVSCode]) {
+		t.Fatalf("Antigravity presets are out of order: %+v", index)
+	}
+
+	preset, ok := PresetByID(PresetAntigravityVSCode)
+	if !ok {
+		t.Fatal("Antigravity VS Code Extension preset is missing")
+	}
+	if preset.Name != "Antigravity VS Code Extension" {
+		t.Fatalf("preset name = %q", preset.Name)
+	}
+	if preset.BinaryLinux != "~/.local/bin/antigravity-acp" {
+		t.Fatalf("preset binary = %q", preset.BinaryLinux)
 	}
 }
 

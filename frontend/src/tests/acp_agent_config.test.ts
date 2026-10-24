@@ -158,27 +158,29 @@ describe('ACP Agent Mesh page configurability', () => {
     return rendered
   }
 
-  it('renders the one-click OS setup and Add Agent controls', async () => {
+  it('renders Add Agent without the removed OS setup action', async () => {
     const { querySelector, unmount } = await mountPage()
 
     const addButton = querySelector('#btnAcpAddAgent')
-    assert.ok(addButton, 'Add Agent button must exist')
+    assert.ok(addButton, 'Add Agent button must exist as the inline fallback')
     assert.match(addButton?.textContent || '', /Add Agent/)
-
-    const setupButton = querySelector('#btnAcpSetupForOS')
-    assert.ok(setupButton, 'Set up ACP for this OS button must exist')
-    assert.match(setupButton?.textContent || '', /Set up ACP for this OS/)
+    assert.equal(querySelector('#btnAcpSetupForOS'), null)
 
     unmount()
   })
 
-  it('wraps discovered daemons in a gadget card', async () => {
+  it('renders agent cards without the removed discovered-daemons banner', async () => {
     const { querySelectorAll, unmount } = await mountPage()
 
     const gadgetCards = querySelectorAll('.google-card')
+    assert.ok(gadgetCards.length > 0, 'ACP mesh gadget must render')
     assert.ok(
-      gadgetCards.some((card) => (card.textContent || '').includes('Discovered Daemons')),
-      'Discovered Daemons must render inside a google-card gadget'
+      !gadgetCards.some((card) => (card.textContent || '').includes('Discovered Daemons')),
+      'Discovered Daemons banner must not render'
+    )
+    assert.ok(
+      gadgetCards.some((card) => (card.textContent || '').includes('Google Antigravity 2.0')),
+      'agent cards must still render'
     )
 
     unmount()

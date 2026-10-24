@@ -1,6 +1,6 @@
 {
   "name": "antigravity-swiss-knife",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Native standalone desktop application companion and daemon for Google Antigravity 2.0",
   "main": "electron/main.js",
   "scripts": {

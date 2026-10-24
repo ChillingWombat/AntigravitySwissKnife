@@ -299,7 +299,11 @@ func TestProbeAgentHandshakeBuiltAntigravityACP(t *testing.T) {
 		t.Skipf("antigravity-acp source is unavailable: %v", err)
 	}
 
-	bin := filepath.Join(t.TempDir(), "antigravity-acp")
+	binName := "antigravity-acp"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	bin := filepath.Join(t.TempDir(), binName)
 	build := exec.Command("go", "build", "-o", bin, "./cmd/antigravity-acp")
 	build.Dir = adapterDir
 	if output, err := build.CombinedOutput(); err != nil {

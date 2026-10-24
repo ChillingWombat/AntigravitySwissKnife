@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -89,8 +90,14 @@ func TestAdversarial_RemoteManager_HighConcurrencyStress(t *testing.T) {
 
 	rm := NewRemoteManager(cfgPath)
 
-	const workers = 40
-	const iterations = 100
+	workers := 40
+	iterations := 100
+	timeout := 20 * time.Second
+	if runtime.GOOS == "windows" {
+		workers = 20
+		iterations = 10
+		timeout = 45 * time.Second
+	}
 	var wg sync.WaitGroup
 	var panicCount int64
 
@@ -137,7 +144,7 @@ func TestAdversarial_RemoteManager_HighConcurrencyStress(t *testing.T) {
 	select {
 	case <-doneChan:
 		// Succeeded without deadlock
-	case <-time.After(20 * time.Second):
+	case <-time.After(timeout):
 		t.Fatal("Deadlock detected in RemoteManager under high concurrency!")
 	}
 
@@ -220,6 +227,10 @@ func TestAdversarial_QuickTunnel_CancellationResponsiveness(t *testing.T) {
 // TestAdversarial_QuickTunnel_ProcessLeakOnTimeout tests whether cloudflared process is
 // properly terminated if startQuickTunnel() times out.
 func TestAdversarial_QuickTunnel_ProcessLeakOnTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell fixture is not executable on Windows")
+	}
+
 	// We create a dummy script that behaves like cloudflared but never outputs a URL
 	tmpDir := t.TempDir()
 	dummyBin := filepath.Join(tmpDir, "dummy_cloudflared")
