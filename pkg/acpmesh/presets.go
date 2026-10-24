@@ -28,8 +28,9 @@ import (
 // Preset identifiers. They are stable because persisted overrides are keyed by
 // them.
 const (
-	PresetAntigravity    = "agent-antigravity"
-	PresetAntigravityCLI = "agent-antigravity-cli"
+	PresetAntigravity       = "agent-antigravity"
+	PresetAntigravityCLI    = "agent-antigravity-cli"
+	PresetAntigravityVSCode = "agent-antigravity-vscode"
 	// PresetAntigravityACP is this project's own adapter. It speaks ACP over stdio,
 	// so it has no endpoint to probe: presence of the binary is the whole state.
 	PresetAntigravityACP = "agent-antigravity-acp"
@@ -132,6 +133,17 @@ func Presets() []Preset {
 			TCPAddr:           "127.0.0.1:35779",
 			BinaryLinux:       "~/.local/bin/agy",
 			BinaryWindows:     "~/.local/bin/agy.exe",
+			StatusWhenRunning: "connected",
+		},
+		{
+			ID:                PresetAntigravityVSCode,
+			Name:              "Antigravity VS Code Extension",
+			Type:              "VS Code Extension Agent",
+			Version:           "v1.2.0-draft",
+			Tools:             []string{"terminal", "bash", "file_ops", "headless_prompt", "subagent_mesh"},
+			BinaryLinux:       "~/.local/bin/antigravity-acp",
+			BinaryDarwin:      "~/.local/bin/antigravity-acp",
+			BinaryWindows:     "%USERPROFILE%/bin/antigravity-acp.exe",
 			StatusWhenRunning: "connected",
 		},
 		{

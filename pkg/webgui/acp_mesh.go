@@ -73,6 +73,12 @@ func matchACPAgent(id string, p process.ProcEntry) bool {
 			return false
 		}
 		return !strings.Contains(cmdLower, "swiss") && !strings.Contains(cmdLower, "antigravity-swiss-knife")
+	case acpmesh.PresetAntigravityVSCode:
+		if !(commLower == "antigravity-acp" || commLower == "antigravity-vscode" ||
+			(commLower == "code" && strings.Contains(cmdLower, "antigravity"))) {
+			return false
+		}
+		return !strings.Contains(cmdLower, "swiss")
 	case acpmesh.PresetDevin:
 		if !(commLower == "devin" || commLower == "devin-desktop" || commLower == "windsurf" ||
 			strings.Contains(cmdLower, "devin-desktop") || strings.Contains(cmdLower, "bin/devin") ||
@@ -144,24 +150,26 @@ func pgrepACPAgent(id string) (bool, int) {
 	}
 
 	exact := map[string][]string{
-		acpmesh.PresetAntigravity:    {"antigravity"},
-		acpmesh.PresetAntigravityCLI: {"agy", "agy-run", "agy_acp_server"},
-		acpmesh.PresetDevin:          {"devin", "devin-desktop", "windsurf"},
-		acpmesh.PresetOpenCode:       {"opencode"},
-		acpmesh.PresetDeepSeek:       {"dsh", "deepseek-harness"},
-		acpmesh.PresetPi:             {"pi", "pi-acp"},
-		acpmesh.PresetCodex:          {"codex"},
-		acpmesh.PresetClaudeCode:     {"claude"},
-		acpmesh.PresetCursor:         {"cursor"},
+		acpmesh.PresetAntigravity:       {"antigravity"},
+		acpmesh.PresetAntigravityCLI:    {"agy", "agy-run", "agy_acp_server"},
+		acpmesh.PresetAntigravityVSCode: {"antigravity-acp", "antigravity-vscode"},
+		acpmesh.PresetDevin:             {"devin", "devin-desktop", "windsurf"},
+		acpmesh.PresetOpenCode:          {"opencode"},
+		acpmesh.PresetDeepSeek:          {"dsh", "deepseek-harness"},
+		acpmesh.PresetPi:                {"pi", "pi-acp"},
+		acpmesh.PresetCodex:             {"codex"},
+		acpmesh.PresetClaudeCode:        {"claude"},
+		acpmesh.PresetCursor:            {"cursor"},
 	}
 	patterns := map[string][]string{
-		acpmesh.PresetAntigravityCLI: {"/bin/agy", "agy_acp_server"},
-		acpmesh.PresetDevin:          {"devin-desktop", "bin/devin", "bin/windsurf"},
-		acpmesh.PresetOpenCode:       {"bin/opencode", "opencode acp"},
-		acpmesh.PresetDeepSeek:       {"deepseek-harness", "bin/dsh"},
-		acpmesh.PresetCodex:          {"bin/codex", "codex app-server"},
-		acpmesh.PresetClaudeCode:     {"bin/claude"},
-		acpmesh.PresetCursor:         {"/opt/Cursor/cursor"},
+		acpmesh.PresetAntigravityCLI:    {"/bin/agy", "agy_acp_server"},
+		acpmesh.PresetAntigravityVSCode: {"antigravity-acp --surface vscode", "antigravity-vscode"},
+		acpmesh.PresetDevin:             {"devin-desktop", "bin/devin", "bin/windsurf"},
+		acpmesh.PresetOpenCode:          {"bin/opencode", "opencode acp"},
+		acpmesh.PresetDeepSeek:          {"deepseek-harness", "bin/dsh"},
+		acpmesh.PresetCodex:             {"bin/codex", "codex app-server"},
+		acpmesh.PresetClaudeCode:        {"bin/claude"},
+		acpmesh.PresetCursor:            {"/opt/Cursor/cursor"},
 	}
 
 	for _, name := range exact[id] {
@@ -246,7 +254,7 @@ func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndp
 	}
 
 	binaryPath := agent.BinaryPath
-	if agent.ID == acpmesh.PresetAntigravityACP {
+	if agent.ID == acpmesh.PresetAntigravityACP || agent.ID == acpmesh.PresetAntigravityVSCode {
 		binaryPath = resolveAntigravityACPPath(binaryPath)
 	}
 

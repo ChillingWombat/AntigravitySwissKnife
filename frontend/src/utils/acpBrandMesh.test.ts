@@ -14,15 +14,16 @@ import {
 describe('ACP Agent Mesh & Official Brand SVG Icons (Requirement 3.1)', () => {
   const rootSrcDir = path.resolve(import.meta.dirname, '..')
   const acpPagePath = path.join(rootSrcDir, 'pages', 'ACPAgentMeshPage.tsx')
-  const utilsPagePath = path.join(rootSrcDir, 'pages', 'UtilitiesPage.tsx')
+  const appPath = path.join(rootSrcDir, 'App.tsx')
   const brandIconsPath = path.join(rootSrcDir, 'components', 'AcpBrandIcons.tsx')
 
-  it('verifies all 9 canonical ACP mesh node IDs have official product names and IDs', () => {
-    assert.equal(ACP_NODE_IDS.length, 9)
+  it('verifies all 10 canonical ACP mesh node IDs have official product names and IDs', () => {
+    assert.equal(ACP_NODE_IDS.length, 10)
 
     const expectedNodes = [
       { id: 'agent-antigravity', name: 'Antigravity 2.0', compName: 'AntigravityLogoIcon' },
       { id: 'agent-antigravity-cli', name: 'Antigravity CLI', compName: 'AntigravityCliIcon' },
+      { id: 'agent-antigravity-vscode', name: 'Antigravity VS Code Extension', compName: 'AntigravityVSCodeIcon' },
       { id: 'agent-devin', name: 'Devin', compName: 'DevinLogoIcon' },
       { id: 'agent-opencode', name: 'OpenCode', compName: 'OpenCodeLogoIcon' },
       { id: 'agent-deepseek-harness', name: 'DeepSeek Harness', compName: 'DeepSeekLogoIcon' },
@@ -54,6 +55,7 @@ describe('ACP Agent Mesh & Official Brand SVG Icons (Requirement 3.1)', () => {
     assert.ok(brandContent.includes('assets/logo/'), 'AcpBrandIcons.tsx must reference real logos from assets folder')
     assert.ok(brandContent.includes('AntigravityLogoIcon'))
     assert.ok(brandContent.includes('AntigravityCliIcon'))
+    assert.ok(brandContent.includes('AntigravityVSCodeIcon'))
     assert.ok(brandContent.includes('DevinLogoIcon'))
     assert.ok(brandContent.includes('OpenCodeLogoIcon'))
     assert.ok(brandContent.includes('DeepSeekLogoIcon'))
@@ -91,17 +93,17 @@ describe('ACP Agent Mesh & Official Brand SVG Icons (Requirement 3.1)', () => {
     assert.ok(isAcpGridAligned(ACP_CARD_LAYOUT_TOKENS.avatarSize))
   })
 
-  it('verifies UtilitiesPage.tsx renders ACPAgentMeshPage in Tab 1', () => {
-    assert.ok(fs.existsSync(utilsPagePath), 'UtilitiesPage.tsx must exist')
-    const utilsContent = fs.readFileSync(utilsPagePath, 'utf8')
+  it('verifies App.tsx renders ACPAgentMeshPage for tool 11', () => {
+    assert.ok(fs.existsSync(appPath), 'App.tsx must exist')
+    const appContent = fs.readFileSync(appPath, 'utf8')
 
     assert.ok(
-      utilsContent.includes("import { ACPAgentMeshPage } from './ACPAgentMeshPage'"),
-      'UtilitiesPage must import ACPAgentMeshPage'
+      appContent.includes("import { ACPAgentMeshPage } from './pages/ACPAgentMeshPage'"),
+      'App must import ACPAgentMeshPage'
     )
     assert.ok(
-      utilsContent.includes('<ACPAgentMeshPage />'),
-      'UtilitiesPage must render <ACPAgentMeshPage /> under activeTab === 1'
+      appContent.includes('currentTool === 11') && appContent.includes('<ACPAgentMeshPage />'),
+      'App must render <ACPAgentMeshPage /> for tool 11'
     )
   })
 

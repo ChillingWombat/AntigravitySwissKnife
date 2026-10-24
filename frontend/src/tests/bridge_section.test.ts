@@ -41,11 +41,17 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(appContent.includes('<BridgePage'))
   })
 
-  it('UtilitiesPage contains 3 tabs: Storage Manager, ACP Agent Mesh, Chat & Project Importer', () => {
-    assert.ok(appContent.includes("['Storage Manager', 'ACP Agent Mesh', 'Chat & Project Importer']"))
+  it('promotes ACP Agent Mesh and keeps Utilities tabs in the required order', () => {
+    assert.ok(appContent.includes('currentTool === 11'))
+    assert.ok(appContent.includes('id="acp-mesh-top-bar-portal"'))
+    assert.ok(appContent.includes('<ACPAgentMeshPage />'))
+    assert.ok(appContent.includes("id: 'cache' as const, label: 'Storage Manager', Icon: HardDrive"))
+    assert.ok(appContent.includes("id: 'archives' as const, label: 'Archived Projects', Icon: FolderArchive"))
+    assert.ok(appContent.includes("id: 'import' as const, label: 'Chat & Project Importer', Icon: ArrowRightLeft"))
     assert.ok(!utilsContent.includes('GeminiBridgePage'))
     assert.ok(utilsContent.includes('<BrainCachePage />'))
-    assert.ok(utilsContent.includes('<ACPAgentMeshPage />'))
+    assert.ok(utilsContent.includes('<ArchivedProjectsPage />'))
+    assert.ok(!utilsContent.includes('<ACPAgentMeshPage />'))
   })
 
   it('BridgePage integrates all 5 sub-pages', () => {

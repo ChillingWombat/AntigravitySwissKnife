@@ -50,6 +50,18 @@ export const AntigravityCliIcon: React.FC<AcpBrandIconProps> = ({ size = 18, cla
   />
 )
 
+/** Antigravity VS Code Extension Logo */
+export const AntigravityVSCodeIcon: React.FC<AcpBrandIconProps> = ({ size = 18, className, style }) => (
+  <img
+    src={antigravityLogo}
+    alt="Antigravity VS Code Extension"
+    width={size}
+    height={size}
+    className={className}
+    style={{ objectFit: 'contain', width: size, height: size, display: 'inline-block', verticalAlign: 'middle', ...style }}
+  />
+)
+
 /** Cognition Devin Official Logo */
 export const DevinLogoIcon: React.FC<AcpBrandIconProps> = ({ size = 18, className, style }) => (
   <img
@@ -156,6 +168,8 @@ export function getAcpBrandIcon(nodeId: string, size = 18): React.ReactNode {
       return <AntigravityLogoIcon size={size} />
     case 'agent-antigravity-cli':
       return <AntigravityCliIcon size={size} />
+    case 'agent-antigravity-vscode':
+      return <AntigravityVSCodeIcon size={size} />
     case 'agent-devin':
       return <DevinLogoIcon size={size} />
     case 'agent-opencode':
