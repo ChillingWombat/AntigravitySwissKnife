@@ -1304,17 +1304,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                 title={tooltip5hGemini}
                               />
                             </div>
-                            {hasArgon5hQuota && (
-                              <div>
-                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
-                                  <span>Argon</span>
-                                </div>
-                                <HorizontalQuotaBar
-                                  fraction={acc.quota_5h_argon ?? (isProAccount ? current5h : null)}
-                                  title={acc.reset_horizon_5h_argon_text || (isProAccount ? tooltip5hGemini : 'Gemini 4 Argon 5H cycle')}
-                                />
-                              </div>
-                            )}
                             <div>
                               <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                                 <span>Non-Gemini</span>
@@ -1339,17 +1328,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                 title={tooltip5hGemini}
                               />
                             </div>
-                            {hasArgon5hQuota && (
-                              <div>
-                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
-                                  <span>Argon</span>
-                                </div>
-                                <HorizontalQuotaBar
-                                  fraction={acc.quota_5h_argon ?? (isProAccount ? current5h : null)}
-                                  title={acc.reset_horizon_5h_argon_text || (isProAccount ? tooltip5hGemini : 'Gemini 4 Argon 5H cycle')}
-                                />
-                              </div>
-                            )}
                           </div>
                         )
                       }
