@@ -245,6 +245,12 @@ export const App: React.FC = () => {
             }}
           >
             <div id="top-bar-left" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {currentTool === 3 && (
+                <div
+                  id="custom-models-top-bar-portal"
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
+                />
+              )}
               {currentTool === 11 && (
                 <span style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                   ACP Agent Mesh
@@ -488,12 +494,6 @@ export const App: React.FC = () => {
             </div>
 
             <div id="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {currentTool === 3 && (
-                <div
-                  id="custom-models-top-bar-portal"
-                  style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
-                />
-              )}
               {currentTool === 11 && (
                 <div
                   id="acp-mesh-top-bar-portal"

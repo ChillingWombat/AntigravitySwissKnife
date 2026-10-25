@@ -135,9 +135,6 @@ export const TelegramBridgePage: React.FC = () => {
                 Telegram Agent Chat Bridge
               </h2>
             </div>
-            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Direct bidirectional chat channel between Telegram bots and local Antigravity autonomous agents.
-            </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -357,41 +354,6 @@ export const TelegramBridgePage: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Architecture & Guidance */}
-      <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
-          Architecture & Guidance
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Bot Token Setup
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Open Telegram and search for <code>@BotFather</code>. Send <code>/newbot</code>, follow the prompts to choose a name and username, and paste the generated API token into Bot Token above.
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Zero-Port Long Polling
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Long Polling opens an outbound connection to Telegram's cloud servers. It requires zero router port-forwarding, zero dynamic DNS, and zero reverse proxy configuration.
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Chat Whitelisting & Privacy
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Add your numerical Telegram user ID to Allowed Chat IDs to prevent unauthorized queries. Send <code>/start</code> to your bot in Telegram to begin chatting with Antigravity agents.
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

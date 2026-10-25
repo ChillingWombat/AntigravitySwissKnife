@@ -84,7 +84,7 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.strictEqual(remoteContent.includes('Listening Port'), false, 'Listening Port setting must be removed')
     assert.strictEqual(remoteContent.includes('Stream Quality'), false, 'Stream Quality setting must be removed')
     assert.strictEqual(remoteContent.includes('Remote Configuration'), false, 'Remote Configuration card must be removed')
-    assert.ok(remoteContent.includes('tunnel runs in the Swiss daemon'))
+    assert.strictEqual(remoteContent.includes('Architecture & Guidance'), false, 'Architecture & Guidance card must be removed')
     assert.strictEqual(remoteContent.includes('Host Antigravity PID'), false, 'developer PID gadget must be removed')
     assert.strictEqual(remoteContent.includes('Survives account rotations'), false, 'duplicate resilience gadget must be removed')
     assert.ok(remoteContent.includes('Remote Endpoint'))
@@ -144,6 +144,38 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(geminiContent.includes('Streamable HTTPS'))
     assert.strictEqual(geminiContent.includes('Verify Bridge'), false, 'verify button must be replaced by the header toggle')
     assert.strictEqual(geminiContent.includes('Enable Bridge'), false, 'duplicate top-level enable toggle must be removed')
+  })
+
+  it('bridge headers use Info tooltips instead of static descriptions', () => {
+    const headers = [
+      {
+        name: 'GeminiBridgePage',
+        content: geminiContent,
+        tooltip: 'Streamable HTTPS MCP gateway for Gemini App and Web orchestration.',
+        removedCopy: 'Exposes a live Streamable HTTPS Model Context Protocol (MCP) gateway',
+      },
+      {
+        name: 'RemoteControlPage',
+        content: remoteContent,
+        tooltip: 'Authenticated reverse proxy streaming the Antigravity web UI.',
+        removedCopy: 'Streams the live Antigravity 2.0 web interface over an authenticated reverse proxy',
+      },
+    ]
+
+    for (const header of headers) {
+      assert.match(
+        header.content,
+        /import\s*\{[\s\S]*?\bInfo\b[\s\S]*?\}\s*from 'lucide-react'/,
+        `${header.name} must import the Lucide Info icon`
+      )
+      assert.ok(header.content.includes('<Info size={15} aria-hidden="true" />'), `${header.name} must render the Info icon`)
+      assert.ok(header.content.includes(`title="${header.tooltip}"`), `${header.name} must expose the Info tooltip`)
+      assert.strictEqual(
+        header.content.includes(header.removedCopy),
+        false,
+        `${header.name} must not retain the static header paragraph`
+      )
+    }
   })
 
   it('RemoteControlPage includes tunnel diagnostics log viewer and action feedback banner', () => {

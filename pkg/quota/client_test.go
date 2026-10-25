@@ -1506,3 +1506,130 @@ func TestIssue293ExtractArgonFromModelCatalog(t *testing.T) {
 		t.Fatalf("model catalog Argon = %+v", result)
 	}
 }
+
+func TestFetchDirectArgonQuotaMergesDirectFiveHourWithCatalogWeekly(t *testing.T) {
+	now := time.Now()
+	reset5h := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	resetWeekly := now.Add(72 * time.Hour).UTC().Format(time.RFC3339Nano)
+	modelCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/quota":
+			issue293JSONResponse(w, fmt.Sprintf(`{"buckets":[{"modelId":"MODEL_GOOGLE_GEMINI_4_ARGON","quotaId":"5h","remainingFraction":0.52,"resetTime":%q}]}`, reset5h))
+		case "/models":
+			modelCalls++
+			issue293JSONResponse(w, fmt.Sprintf(`{"models":{"MODEL_GOOGLE_GEMINI_4_ARGON":{"quotaInfo":{"weekly":{"remainingFraction":0.37,"resetTime":%q}}}}}`, resetWeekly))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldDirect, oldModels := CloudCodeDirectQuotaURLs, CloudCodeModelsURLs
+	defer func() {
+		CloudCodeDirectQuotaURLs, CloudCodeModelsURLs = oldDirect, oldModels
+	}()
+	CloudCodeDirectQuotaURLs = []string{server.URL + "/quota"}
+	CloudCodeModelsURLs = []string{server.URL + "/models"}
+
+	result, err := fetchDirectArgonQuota("token", "project-1", now)
+	if err != nil {
+		t.Fatalf("fetchDirectArgonQuota() error = %v", err)
+	}
+	if modelCalls != 1 {
+		t.Fatalf("catalog calls = %d, want 1", modelCalls)
+	}
+	if result.FiveHour == nil || *result.FiveHour != 0.52 {
+		t.Fatalf("direct 5H Argon = %v, want 0.52", result.FiveHour)
+	}
+	if result.Weekly == nil || *result.Weekly != 0.37 {
+		t.Fatalf("catalog weekly Argon = %v, want 0.37", result.Weekly)
+	}
+}
+
+func TestExtractArgonFromQuotaBucketsUsesQuotaIDBeforeShortReset(t *testing.T) {
+	now := time.Now()
+	reset := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	var response struct {
+		Buckets []cloudCodeQuotaBucket `json:"buckets"`
+	}
+	if err := json.Unmarshal([]byte(fmt.Sprintf(`{"buckets":[{"modelId":"MODEL_GOOGLE_GEMINI_4_ARGON","quotaId":"weekly","remainingFraction":0.64,"resetTime":%q}]}`, reset)), &response); err != nil {
+		t.Fatalf("unmarshal quota response: %v", err)
+	}
+
+	result := extractArgonFromQuotaBuckets(response.Buckets, now)
+	if result == nil || result.Weekly == nil || *result.Weekly != 0.64 {
+		t.Fatalf("quotaId weekly Argon = %+v", result)
+	}
+	if result.FiveHour != nil {
+		t.Fatalf("short-reset weekly bucket was classified as 5H: %+v", result)
+	}
+}
+
+func TestExtractArgonFromQuotaBucketsOrdersUnlabelledByResetTime(t *testing.T) {
+	now := time.Now()
+	earlyReset := now.Add(time.Hour).UTC().Format(time.RFC3339Nano)
+	lateReset := now.Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	early, late := 0.71, 0.43
+
+	result := extractArgonFromQuotaBuckets([]cloudCodeQuotaBucket{
+		{ModelID: "MODEL_GOOGLE_GEMINI_4_ARGON", RemainingFraction: &late, ResetTime: lateReset},
+		{ModelID: "MODEL_GOOGLE_GEMINI_4_ARGON", RemainingFraction: &early, ResetTime: earlyReset},
+	}, now)
+	if result == nil || result.FiveHour == nil || *result.FiveHour != 0.71 {
+		t.Fatalf("5H Argon = %+v, want earlier reset bucket", result)
+	}
+	if result.Weekly == nil || *result.Weekly != 0.43 {
+		t.Fatalf("weekly Argon = %+v, want later reset bucket", result)
+	}
+}
+
+func TestIsArgonModelMatchesGeminiFourVariants(t *testing.T) {
+	for _, model := range []string{"gemini-4", "gemini_4", "GEMINI 4", "gemini4", "gemini-4-argon", "GEMINI_4_ARGON"} {
+		if !isArgonModel(model) {
+			t.Errorf("isArgonModel(%q) = false, want true", model)
+		}
+	}
+	if isArgonModel("gemini-3-pro") {
+		t.Error("isArgonModel matched Gemini 3")
+	}
+}
+
+func TestExtractArgonFromGroupedCloudCodeResponse(t *testing.T) {
+	now := time.Now()
+	reset := now.Add(72 * time.Hour).UTC().Format(time.RFC3339Nano)
+	var response cloudCodeQuotaResponse
+	if err := json.Unmarshal([]byte(fmt.Sprintf(`{
+		"groups": [{
+			"displayName": "Gemini 4 Argon",
+			"buckets": [{
+				"bucketId": "gemini-argon-wtu-weekly",
+				"displayName": "Weekly Limit Remaining",
+				"remainingFraction": 0.51,
+				"resetTime": %q
+			}]
+		}]
+	}`, reset)), &response); err != nil {
+		t.Fatalf("unmarshal grouped quota response: %v", err)
+	}
+
+	var buckets []cloudCodeQuotaBucket
+	for _, group := range response.Groups {
+		groupName := strings.TrimSpace(group.DisplayName)
+		if groupName == "" {
+			groupName = strings.TrimSpace(group.Name)
+		}
+		for _, bucket := range group.Buckets {
+			bucket.GroupName = groupName
+			buckets = append(buckets, bucket)
+		}
+	}
+
+	result := extractArgonFromQuotaBuckets(buckets, now)
+	if result == nil || result.Weekly == nil || *result.Weekly != 0.51 {
+		t.Fatalf("grouped weekly Argon quota = %+v, want 0.51", result)
+	}
+	if result.FiveHour != nil {
+		t.Fatalf("grouped weekly bucket was classified as 5H: %+v", result)
+	}
+}

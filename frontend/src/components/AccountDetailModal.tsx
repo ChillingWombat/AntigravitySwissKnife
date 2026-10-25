@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, Link, ExternalLink } from 'lucide-react'
 import type { AccountState } from '../types'
-import { isProOrAbovePlan } from '../types'
 import { renderPlanTierBadge } from '../pages/QuotaDashboardPage'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
 import { ToggleSwitch } from './ToggleSwitch'
@@ -1148,7 +1147,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               </div>
             )}
 
-            {(isProOrAbovePlan(currentPlanTier) || liveQuotaWeeklyArgon !== null) && (
+            {liveQuotaWeeklyArgon !== null && (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
                   <span style={{ fontWeight: 500, color: 'var(--text)' }}>Gemini 4 Argon 7D Quota:</span>

@@ -15,6 +15,7 @@ import {
   Ban,
   Plus,
   X,
+  Info,
 } from 'lucide-react'
 import { api, isAbortError } from '../api'
 import { ToggleSwitch } from '../components/ToggleSwitch'
@@ -333,16 +334,19 @@ export const GeminiBridgePage: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* 1. Overview, Live Status, Endpoint & Pairing */}
       <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 Gemini Agent Chat Bridge
               </h2>
+              <span
+                title="Streamable HTTPS MCP gateway for Gemini App and Web orchestration."
+                style={{ display: 'inline-flex', color: 'var(--text-muted)', cursor: 'default' }}
+              >
+                <Info size={15} aria-hidden="true" />
+              </span>
             </div>
-            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Exposes a live Streamable HTTPS Model Context Protocol (MCP) gateway so Google Gemini App and Web can orchestrate your local Antigravity 2.0 Desktop, CLI, and workspace across account switches.
-            </p>
           </div>
 
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>

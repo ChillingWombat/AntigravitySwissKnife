@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Info,
 } from 'lucide-react'
 import { api, isAbortError } from '../api'
 import { ToggleSwitch } from '../components/ToggleSwitch'
@@ -185,16 +186,19 @@ export const RemoteControlPage: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* 1. Remote Control Wrapper, Status, Endpoint & Pairing Security */}
       <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                 Antigravity Remote Control Wrapper
               </h2>
+              <span
+                title="Authenticated reverse proxy streaming the Antigravity web UI."
+                style={{ display: 'inline-flex', color: 'var(--text-muted)', cursor: 'default' }}
+              >
+                <Info size={15} aria-hidden="true" />
+              </span>
             </div>
-            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Streams the live Antigravity 2.0 web interface over an authenticated reverse proxy with persistent session and CSRF re-binding across Google account switches.
-            </p>
           </div>
 
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>
@@ -547,38 +551,6 @@ export const RemoteControlPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Architecture & Guidance */}
-      <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
-          Architecture & Guidance
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Zero Invalidation & Live Account Sync
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              The tunnel runs in the Swiss daemon, not inside Antigravity. It stays up while Antigravity restarts for a Google account switch, automatically re-binding the upstream port, CSRF token, and active account profile in your remote browser.
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Tunnel Modes & 4-Minute Keep-Alive
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Use Cloudflare Quick Tunnel or Tailscale Funnel for public HTTPS access from any device, Tailscale Private Tailnet for restricted VPN-only access, or Custom Domain for a fixed hostname. Background probes ping the active endpoint every 4 minutes to prevent idle timeouts and automatically stop Remote Access if a tunnel drops.
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              8-Character Security PIN & App Password Mode
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

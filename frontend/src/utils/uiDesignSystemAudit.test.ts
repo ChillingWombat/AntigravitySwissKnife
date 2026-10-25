@@ -189,7 +189,6 @@ describe('UI Design System Audit & Voice Invariants (Milestone 16)', () => {
         ['AppEnhancementsPage.tsx', 'Click Ring To Compact'],
         ['ExtensionsPage.tsx', 'Left Panel Extensions Access Mode'],
         ['ACPAgentMeshPage.tsx', 'Ping All ACP Nodes'],
-        ['RemoteControlPage.tsx', '8-Character Security PIN & App Password Mode'],
         ['WhatsAppBridgePage.tsx', 'Integration Mode'],
       ] as const
 

@@ -21,7 +21,7 @@ import {
   Layers,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount, TargetApp } from '../types'
-import { isProOrAbovePlan, normalizePlanTier, toAccountState } from '../types'
+import { normalizePlanTier, toAccountState } from '../types'
 import { TABLE_MIN_WIDTH } from '../utils/layoutTokens'
 import { useContextMenuPlacement } from '../utils/useContextMenuPlacement'
 import { getAccountTableDisplay, parseAccountErrorAlert } from '../utils/accountPresentation'
@@ -1217,8 +1217,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               const claudeWeekly = hasClaudeWeekly ? (acc.quota_weekly_claude_gpt as number) : 0
               const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > thresholdWeekly || hasCredits
               const hasNonGeminiHealthy = Boolean(rules?.allow_non_gemini_native_models) && claude5h > threshold && isClaudeWeeklyHealthy
-              const showArgonQuota = isProOrAbovePlan(acc.plan_tier) || typeof acc.quota_weekly_argon === 'number'
               const hasArgon5hQuota = typeof acc.quota_5h_argon === 'number'
+              const hasArgonWeeklyQuota = typeof acc.quota_weekly_argon === 'number'
+              const showArgonQuota = hasArgon5hQuota || hasArgonWeeklyQuota
               const isHealthy = (hasGeminiHealthy || hasNonGeminiHealthy) && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('BANNED') && Boolean(acc.refresh_token?.trim())
               const isNextSwitch = Boolean(nextSwitchCandidate && acc.email.toLowerCase() === nextSwitchCandidate.toLowerCase())
               return (
@@ -1373,13 +1374,13 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
                         />
                       </div>
-                      {showArgonQuota && (
+                      {hasArgonWeeklyQuota && (
                         <div>
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                             <span>Argon</span>
                           </div>
                           <HorizontalQuotaBar
-                            fraction={acc.quota_weekly_argon ?? null}
+                            fraction={acc.quota_weekly_argon}
                             title={acc.reset_horizon_weekly_argon_text || 'Gemini 4 Argon 7D cycle'}
                           />
                         </div>

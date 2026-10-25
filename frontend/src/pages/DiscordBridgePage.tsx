@@ -164,9 +164,6 @@ export const DiscordBridgePage: React.FC = () => {
                 Discord Agent Chat Bridge
               </h2>
             </div>
-            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Direct bidirectional chat channel between Discord bots and local Antigravity autonomous agents.
-            </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -378,41 +375,6 @@ export const DiscordBridgePage: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Architecture & Guidance */}
-      <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
-          Architecture & Guidance
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Create Application & Bot
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Visit the Discord Developer Portal, click <em>New Application</em>, navigate to the <em>Bot</em> section, reset and copy your Bot Token into Discord Bot Token above.
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Privileged Gateway Intents
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Under the Bot tab in the Developer Portal, enable <em>Message Content Intent</em> so the bot can read instructions in whitelisted channels and direct messages.
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              OAuth2 Invite & Permissions
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Under OAuth2 URL Generator, select <code>bot</code> scope with <code>Send Messages</code> and <code>Read Message History</code>. Invite the bot to your server, mention it or DM it, and command Antigravity from Discord.
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

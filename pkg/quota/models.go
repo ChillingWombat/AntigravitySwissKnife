@@ -17,11 +17,17 @@ type ModelQuota struct {
 	HealthStatus string    `json:"health_status"`
 }
 
-func isArgonQuotaIdentifier(values ...string) bool {
+func isArgonModel(values ...string) bool {
 	value := strings.ToLower(strings.Join(values, " "))
 	return strings.Contains(value, "argon") ||
 		strings.Contains(value, "gemini-4") ||
-		strings.Contains(value, "gemini 4")
+		strings.Contains(value, "gemini_4") ||
+		strings.Contains(value, "gemini 4") ||
+		strings.Contains(value, "gemini4")
+}
+
+func isArgonQuotaIdentifier(values ...string) bool {
+	return isArgonModel(values...)
 }
 
 func isWeeklyQuota(model ModelQuota, now time.Time) bool {

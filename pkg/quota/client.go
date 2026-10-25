@@ -186,8 +186,8 @@ var (
 		"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
 	}
 	CloudCodeModelsURLs = []string{
-		"https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
 		"https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+		"https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
 		"https://cloudcodeassist-pa.googleapis.com/v1internal:fetchAvailableModels",
 		"https://cloudaicompanion.googleapis.com/v1internal:fetchAvailableModels",
 		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels",
@@ -1188,11 +1188,23 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 }
 
 type cloudCodeQuotaBucket struct {
+	BucketID          string   `json:"bucketId"`
+	QuotaID           string   `json:"quotaId"`
 	ModelID           string   `json:"modelId"`
 	DisplayName       string   `json:"displayName"`
 	Window            string   `json:"window"`
 	RemainingFraction *float64 `json:"remainingFraction"`
 	ResetTime         string   `json:"resetTime"`
+	GroupName         string   `json:"-"`
+}
+
+type cloudCodeQuotaResponse struct {
+	Buckets []cloudCodeQuotaBucket `json:"buckets"`
+	Groups  []struct {
+		Name        string                 `json:"name"`
+		DisplayName string                 `json:"displayName"`
+		Buckets     []cloudCodeQuotaBucket `json:"buckets"`
+	} `json:"groups"`
 }
 
 func setParsedArgonQuota(result *languageServerArgonQuota, remaining float64, resetAt time.Time, window, bucketID, displayName string, now time.Time) {
@@ -1207,13 +1219,76 @@ func setParsedArgonQuota(result *languageServerArgonQuota, remaining float64, re
 	}
 }
 
+func argonQuotaComplete(quota *languageServerArgonQuota) bool {
+	return quota != nil && quota.FiveHour != nil && quota.Weekly != nil
+}
+
+func mergeArgonQuota(dst, src *languageServerArgonQuota) *languageServerArgonQuota {
+	if dst == nil {
+		return src
+	}
+	if src == nil {
+		return dst
+	}
+	if dst.FiveHour == nil && src.FiveHour != nil {
+		remaining := *src.FiveHour
+		dst.FiveHour = &remaining
+		dst.FiveHourResetTime = src.FiveHourResetTime
+	}
+	if dst.Weekly == nil && src.Weekly != nil {
+		remaining := *src.Weekly
+		dst.Weekly = &remaining
+		dst.WeeklyResetTime = src.WeeklyResetTime
+	}
+	return dst
+}
+
 func extractArgonFromQuotaBuckets(buckets []cloudCodeQuotaBucket, now time.Time) *languageServerArgonQuota {
 	result := &languageServerArgonQuota{}
+	type candidate struct {
+		bucket     cloudCodeQuotaBucket
+		remaining  float64
+		resetAt    time.Time
+		windowHint string
+		labelled   bool
+	}
+	candidates := make([]candidate, 0, len(buckets))
 	for _, bucket := range buckets {
-		if bucket.RemainingFraction == nil || !isArgonQuotaIdentifier(bucket.ModelID, bucket.DisplayName) {
+		if bucket.RemainingFraction == nil ||
+			(!isArgonQuotaIdentifier(bucket.ModelID) &&
+				!isArgonQuotaIdentifier(bucket.BucketID) &&
+				!isArgonQuotaIdentifier(bucket.QuotaID) &&
+				!isArgonQuotaIdentifier(bucket.DisplayName) &&
+				!isArgonQuotaIdentifier(bucket.GroupName)) {
 			continue
 		}
-		setParsedArgonQuota(result, *bucket.RemainingFraction, parseResetTime(bucket.ResetTime), bucket.Window, bucket.ModelID, bucket.DisplayName, now)
+		windowHint := strings.TrimSpace(bucket.Window + " " + bucket.QuotaID)
+		label := strings.TrimSpace(windowHint + " " + bucket.ModelID + " " + bucket.DisplayName)
+		candidates = append(candidates, candidate{
+			bucket:     bucket,
+			remaining:  *bucket.RemainingFraction,
+			resetAt:    parseResetTime(bucket.ResetTime),
+			windowHint: windowHint,
+			labelled:   isWeeklyQuotaLabel(label) || isFiveHourQuotaLabel(label),
+		})
+	}
+	if len(candidates) == 2 && !candidates[0].labelled && !candidates[1].labelled {
+		earlier, later := candidates[0], candidates[1]
+		if earlier.resetAt.After(later.resetAt) {
+			earlier, later = later, earlier
+		}
+		if !earlier.resetAt.IsZero() && earlier.resetAt.Before(later.resetAt) {
+			fiveHour := ClampFraction(earlier.remaining)
+			weekly := ClampFraction(later.remaining)
+			result.FiveHour = &fiveHour
+			result.FiveHourResetTime = earlier.resetAt
+			result.Weekly = &weekly
+			result.WeeklyResetTime = later.resetAt
+			return result
+		}
+	}
+	for _, candidate := range candidates {
+		setParsedArgonQuota(result, candidate.remaining, candidate.resetAt, candidate.windowHint, candidate.bucket.ModelID, candidate.bucket.DisplayName, now)
 	}
 	if result.FiveHour == nil && result.Weekly == nil {
 		return nil
@@ -1298,6 +1373,7 @@ func fetchDirectArgonQuota(accessToken, project string, now time.Time) (*languag
 	}
 	client := &http.Client{Timeout: 8 * time.Second}
 	payload, _ := json.Marshal(map[string]string{"project": project})
+	var result *languageServerArgonQuota
 
 	for _, endpoint := range CloudCodeDirectQuotaURLs {
 		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
@@ -1316,13 +1392,25 @@ func fetchDirectArgonQuota(accessToken, project string, now time.Time) (*languag
 		if resp.StatusCode != http.StatusOK {
 			continue
 		}
-		var response struct {
-			Buckets []cloudCodeQuotaBucket `json:"buckets"`
+		var response cloudCodeQuotaResponse
+		if err := json.Unmarshal(body, &response); err != nil {
+			continue
 		}
-		if json.Unmarshal(body, &response) == nil {
-			if result := extractArgonFromQuotaBuckets(response.Buckets, now); result != nil {
-				return result, nil
+		buckets := append([]cloudCodeQuotaBucket(nil), response.Buckets...)
+		for _, group := range response.Groups {
+			groupName := strings.TrimSpace(group.DisplayName)
+			if groupName == "" {
+				groupName = strings.TrimSpace(group.Name)
 			}
+			for _, bucket := range group.Buckets {
+				bucket.GroupName = groupName
+				buckets = append(buckets, bucket)
+			}
+		}
+		extracted := extractArgonFromQuotaBuckets(buckets, now)
+		result = mergeArgonQuota(result, extracted)
+		if argonQuotaComplete(result) {
+			return result, nil
 		}
 	}
 
@@ -1344,11 +1432,17 @@ func fetchDirectArgonQuota(accessToken, project string, now time.Time) (*languag
 			continue
 		}
 		var response any
-		if json.Unmarshal(body, &response) == nil {
-			if result := extractArgonFromModelCatalog(response, now); result != nil {
-				return result, nil
-			}
+		if err := json.Unmarshal(body, &response); err != nil {
+			continue
 		}
+		extracted := extractArgonFromModelCatalog(response, now)
+		result = mergeArgonQuota(result, extracted)
+		if argonQuotaComplete(result) {
+			return result, nil
+		}
+	}
+	if result != nil {
+		return result, nil
 	}
 	return nil, fmt.Errorf("Gemini 4 Argon quota not present in CloudCode responses")
 }

@@ -136,9 +136,6 @@ export const WhatsAppBridgePage: React.FC = () => {
                 WhatsApp Agent Chat Bridge
               </h2>
             </div>
-            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Direct bidirectional chat channel between WhatsApp and local Antigravity autonomous agents.
-            </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -392,41 +389,6 @@ export const WhatsAppBridgePage: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Architecture & Guidance */}
-      <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
-          Architecture & Guidance
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Integration Architecture
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              The default Local MCP Server connects through a persistent WhatsApp Web session stored securely in your OS keyring. Meta Cloud API connects directly to Meta's Business Platform for high-volume automated routing.
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Access Control & Whitelisting
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Specify trusted international phone numbers in Allowed Phone Numbers to restrict access. Messages from non-whitelisted numbers are ignored without launching agent tasks.
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '2px' }}>
-              Autonomous Agent Execution
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Inbound messages initiate local Antigravity sessions across configured tools. Step outputs and conversational responses are routed back to your WhatsApp chat in real time.
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
