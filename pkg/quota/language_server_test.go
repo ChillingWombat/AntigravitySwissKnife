@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"strings"
 	"time"
 )
 
@@ -80,13 +81,12 @@ func TestFetchArgonQuotaFromLanguageServer(t *testing.T) {
 			t.Errorf("csrf header = %q, want %q", got, csrfToken)
 		}
 		requestPayload := readGRPCWebRequest(t, r)
-		if string(requestPayload) != `{}` {
-			t.Errorf("request payload = %q, want {}", requestPayload)
-		}
-
 		w.Header().Set("Content-Type", "application/grpc-web+json")
 		switch r.URL.Path {
 		case languageServerUserStatusMethod:
+			if string(requestPayload) != `{}` {
+				t.Errorf("request payload = %q, want {}", requestPayload)
+			}
 			writeGRPCWebJSON(t, w, map[string]any{
 				"userStatus": map[string]any{"email": "active@example.com"},
 			})
@@ -213,5 +213,71 @@ func TestIssue293LanguageServerEndpointsCoverHTTPAndHTTPS(t *testing.T) {
 	}
 	if endpoints[0].csrfToken != "csrf" || endpoints[1].csrfToken != "csrf" {
 		t.Fatal("language server CSRF token was not retained")
+	}
+}
+
+func TestFetchArgonQuotaFromLanguageServerWithProjectAndSnakeCase(t *testing.T) {
+	const csrfToken = "test-local-csrf-token"
+	resetTime := "2026-10-28T07:58:15Z"
+	projectSeen := false
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPayload := readGRPCWebRequest(t, r)
+		w.Header().Set("Content-Type", "application/grpc-web+json")
+		switch r.URL.Path {
+		case languageServerUserStatusMethod:
+			writeGRPCWebJSON(t, w, map[string]any{
+				"user_status": map[string]any{"email": "active@example.com"},
+			})
+		case languageServerQuotaSummaryMethod:
+			if strings.Contains(string(requestPayload), "my-gcp-project") {
+				projectSeen = true
+			}
+			writeGRPCWebJSON(t, w, map[string]any{
+				"response": map[string]any{
+					"groups": []any{
+						map[string]any{
+							"display_name": "Gemini 4 Argon",
+							"buckets": []any{
+								map[string]any{
+									"bucket_id":          "gemini-argon-5h",
+									"display_name":       "Gemini 4 Argon Five Hour Limit",
+									"window":            "5h",
+									"remaining_fraction": 0.64,
+									"reset_time":         "2026-10-21T16:00:00Z",
+								},
+								map[string]any{
+									"bucket_id":          "gemini-argon-wtu-weekly",
+									"display_name":       "Gemini 4 Argon Weekly Limit",
+									"window":            "weekly",
+									"remaining_fraction": 0.7717351,
+									"reset_time":         resetTime,
+								},
+							},
+						},
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	got, err := fetchArgonQuotaFromEndpointWithProject(languageServerEndpoint{
+		origin:    server.URL,
+		csrfToken: csrfToken,
+	}, "active@example.com", "my-gcp-project", time.Now())
+	if err != nil {
+		t.Fatalf("fetchArgonQuotaFromEndpointWithProject() error = %v", err)
+	}
+	if !projectSeen {
+		t.Error("expected project to be included in language server request payload")
+	}
+	if got.FiveHour == nil || *got.FiveHour != 0.64 {
+		t.Errorf("5H fraction = %v, want 0.64", got.FiveHour)
+	}
+	if got.Weekly == nil || *got.Weekly != 0.7717351 {
+		t.Errorf("weekly fraction = %v, want 0.7717351", got.Weekly)
 	}
 }

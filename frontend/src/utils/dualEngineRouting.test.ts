@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { toAccountState } from '../types.ts'
+import { toAccountState, isProOrAbovePlan } from '../types.ts'
 import type { AccountState } from '../types.ts'
 import {
   rankStandbyAccounts,
@@ -42,6 +42,48 @@ describe('Dual-Engine Model Routing & Quota Cooldown Switchability (R1)', () => 
       assert.strictEqual(state.quota_weekly_argon, 0.31)
       assert.strictEqual(state.reset_horizon_5h_argon_text, 'Resets in 3h 20m')
       assert.strictEqual(state.reset_horizon_weekly_argon_text, 'Resets in 4d 8h')
+    })
+
+    it('falls back to Gemini pool for Pro accounts when Argon is null', () => {
+      const raw = {
+        email: 'pro@example.com',
+        plan_tier: 'Pro',
+        quota_5h_available: 1.0,
+        quota_weekly: 0.51,
+        status: 'STANDBY',
+      }
+      const state = toAccountState(raw)
+      assert.strictEqual(state.quota_5h_argon, 1.0, 'Pro account should inherit 5h quota for Argon')
+      assert.strictEqual(state.quota_weekly_argon, 0.51, 'Pro account should inherit weekly quota for Argon')
+    })
+
+    it('keeps Argon null for Free accounts when Argon is null', () => {
+      const raw = {
+        email: 'free@example.com',
+        plan_tier: 'Free',
+        quota_5h_available: 1.0,
+        quota_weekly: 0.51,
+        status: 'STANDBY',
+      }
+      const state = toAccountState(raw)
+      assert.strictEqual(state.quota_5h_argon, null, 'Free account must not inherit Argon quota')
+      assert.strictEqual(state.quota_weekly_argon, null, 'Free account must not inherit Argon quota')
+    })
+
+    it('validates isProOrAbovePlan tier classifications', () => {
+      assert.strictEqual(isProOrAbovePlan('Pro'), true)
+      assert.strictEqual(isProOrAbovePlan('pro'), true)
+      assert.strictEqual(isProOrAbovePlan('Google AI Pro'), true)
+      assert.strictEqual(isProOrAbovePlan('Pro - Trial'), true)
+      assert.strictEqual(isProOrAbovePlan('trial'), true)
+      assert.strictEqual(isProOrAbovePlan('Ultra 5X'), true)
+      assert.strictEqual(isProOrAbovePlan('Ultra 10X'), true)
+      assert.strictEqual(isProOrAbovePlan('Ultra 20X'), true)
+      assert.strictEqual(isProOrAbovePlan('Enterprise'), true)
+      assert.strictEqual(isProOrAbovePlan('Free'), false)
+      assert.strictEqual(isProOrAbovePlan('free'), false)
+      assert.strictEqual(isProOrAbovePlan('Plus'), false)
+      assert.strictEqual(isProOrAbovePlan('Edu'), false)
     })
 
     it('falls back to quota_5h_claude and quota_weekly_claude aliases', () => {

@@ -21,7 +21,7 @@ import {
   Layers,
 } from 'lucide-react'
 import type { AccountState, FleetQuotaSummary, RuleConfig, DiscoveredAccount, TargetApp } from '../types'
-import { normalizePlanTier, toAccountState } from '../types'
+import { isProOrAbovePlan, normalizePlanTier, toAccountState } from '../types'
 import { TABLE_MIN_WIDTH } from '../utils/layoutTokens'
 import { useContextMenuPlacement } from '../utils/useContextMenuPlacement'
 import { getAccountTableDisplay, parseAccountErrorAlert } from '../utils/accountPresentation'
@@ -429,14 +429,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const polledAccounts5h = accounts.filter((a) => typeof a.quota_5h_available === 'number')
   const fallback5h = polledAccounts5h.length > 0 ? (polledAccounts5h.reduce((sum, a) => sum + (a.quota_5h_available as number), 0) / polledAccounts5h.length) : null
 
-  const polledAccounts5hArgon = accounts.filter((a) => typeof a.quota_5h_argon === 'number')
-  const fallback5hArgon = polledAccounts5hArgon.length > 0 ? (polledAccounts5hArgon.reduce((sum, a) => sum + (a.quota_5h_argon as number), 0) / polledAccounts5hArgon.length) : null
+  const polledAccounts5hArgon = accounts.filter((a) => typeof a.quota_5h_argon === 'number' || (isProOrAbovePlan(a.plan_tier) && typeof a.quota_5h_available === 'number'))
+  const fallback5hArgon = polledAccounts5hArgon.length > 0 ? (polledAccounts5hArgon.reduce((sum, a) => sum + ((typeof a.quota_5h_argon === 'number' ? a.quota_5h_argon : a.quota_5h_available) as number), 0) / polledAccounts5hArgon.length) : null
 
   const polledAccountsWeekly = accounts.filter((a) => typeof a.quota_weekly === 'number')
   const fallbackWeekly = polledAccountsWeekly.length > 0 ? (polledAccountsWeekly.reduce((sum, a) => sum + (a.quota_weekly as number), 0) / polledAccountsWeekly.length) : null
 
-  const polledAccountsWeeklyArgon = accounts.filter((a) => typeof a.quota_weekly_argon === 'number')
-  const fallbackWeeklyArgon = polledAccountsWeeklyArgon.length > 0 ? (polledAccountsWeeklyArgon.reduce((sum, a) => sum + (a.quota_weekly_argon as number), 0) / polledAccountsWeeklyArgon.length) : null
+  const polledAccountsWeeklyArgon = accounts.filter((a) => typeof a.quota_weekly_argon === 'number' || (isProOrAbovePlan(a.plan_tier) && typeof a.quota_weekly === 'number'))
+  const fallbackWeeklyArgon = polledAccountsWeeklyArgon.length > 0 ? (polledAccountsWeeklyArgon.reduce((sum, a) => sum + ((typeof a.quota_weekly_argon === 'number' ? a.quota_weekly_argon : a.quota_weekly) as number), 0) / polledAccountsWeeklyArgon.length) : null
 
   const polledAccountsClaude5h = accounts.filter((a) => typeof a.quota_5h_claude_gpt === 'number')
   const fallback5hClaude = polledAccountsClaude5h.length > 0 ? (polledAccountsClaude5h.reduce((sum, a) => sum + (a.quota_5h_claude_gpt as number), 0) / polledAccountsClaude5h.length) : null
@@ -1217,8 +1217,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               const claudeWeekly = hasClaudeWeekly ? (acc.quota_weekly_claude_gpt as number) : 0
               const isClaudeWeeklyHealthy = !hasClaudeWeekly || claudeWeekly > thresholdWeekly || hasCredits
               const hasNonGeminiHealthy = Boolean(rules?.allow_non_gemini_native_models) && claude5h > threshold && isClaudeWeeklyHealthy
-              const hasArgon5hQuota = typeof acc.quota_5h_argon === 'number'
-              const hasArgonWeeklyQuota = typeof acc.quota_weekly_argon === 'number'
+              const isProAccount = isProOrAbovePlan(acc.plan_tier)
+              const hasArgon5hQuota = typeof acc.quota_5h_argon === 'number' || (isProAccount && typeof acc.quota_5h_available === 'number')
+              const hasArgonWeeklyQuota = typeof acc.quota_weekly_argon === 'number' || (isProAccount && typeof acc.quota_weekly === 'number')
               const showArgonQuota = hasArgon5hQuota || hasArgonWeeklyQuota
               const isHealthy = (hasGeminiHealthy || hasNonGeminiHealthy) && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('BANNED') && Boolean(acc.refresh_token?.trim())
               const isNextSwitch = Boolean(nextSwitchCandidate && acc.email.toLowerCase() === nextSwitchCandidate.toLowerCase())
@@ -1309,8 +1310,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                   <span>Argon</span>
                                 </div>
                                 <HorizontalQuotaBar
-                                  fraction={acc.quota_5h_argon ?? null}
-                                  title={acc.reset_horizon_5h_argon_text || 'Gemini 4 Argon 5H cycle'}
+                                  fraction={acc.quota_5h_argon ?? (isProAccount ? current5h : null)}
+                                  title={acc.reset_horizon_5h_argon_text || (isProAccount ? tooltip5hGemini : 'Gemini 4 Argon 5H cycle')}
                                 />
                               </div>
                             )}
@@ -1344,8 +1345,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                   <span>Argon</span>
                                 </div>
                                 <HorizontalQuotaBar
-                                  fraction={acc.quota_5h_argon ?? null}
-                                  title={acc.reset_horizon_5h_argon_text || 'Gemini 4 Argon 5H cycle'}
+                                  fraction={acc.quota_5h_argon ?? (isProAccount ? current5h : null)}
+                                  title={acc.reset_horizon_5h_argon_text || (isProAccount ? tooltip5hGemini : 'Gemini 4 Argon 5H cycle')}
                                 />
                               </div>
                             )}
@@ -1380,8 +1381,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                             <span>Argon</span>
                           </div>
                           <HorizontalQuotaBar
-                            fraction={acc.quota_weekly_argon}
-                            title={acc.reset_horizon_weekly_argon_text || 'Gemini 4 Argon 7D cycle'}
+                            fraction={acc.quota_weekly_argon ?? (isProAccount ? acc.quota_weekly : null)}
+                            title={acc.reset_horizon_weekly_argon_text || (isProAccount ? (acc.reset_horizon_weekly_text || 'Gemini 7D cycle') : 'Gemini 4 Argon 7D cycle')}
                           />
                         </div>
                       )}

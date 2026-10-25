@@ -22,9 +22,10 @@ var (
 	accountMutationMu          sync.Mutex
 	quotaBackoffMu             sync.RWMutex
 	quotaBackoffUntil          time.Time
-	quotaCacheLoader           = LoadQuotaCache
-	languageServerArgonFetcher = fetchLanguageServerArgonQuota
-	directArgonQuotaFetcher    = fetchDirectArgonQuotaForBreakdown
+	quotaCacheLoader                  = LoadQuotaCache
+	languageServerArgonFetcher        = fetchLanguageServerArgonQuota
+	languageServerArgonProjectFetcher = fetchLanguageServerArgonQuotaWithProject
+	directArgonQuotaFetcher           = fetchDirectArgonQuotaForBreakdown
 )
 
 func recordQuotaBackoff(d time.Duration) {
@@ -105,6 +106,12 @@ func isPaidProModelIdentifier(modelID, displayName string) bool {
 		strings.Contains(value, "opus 5.5")
 }
 
+// isProOrAbovePlan returns true if the plan tier includes Gemini 4 Argon rights.
+func isProOrAbovePlan(tier string) bool {
+	norm := NormalizePlanTier(tier)
+	return norm == PlanTierPro || norm == PlanTierProTrial || norm == PlanTierUltra5X || norm == PlanTierUltra10X || norm == PlanTierUltra20X || norm == PlanTierEnterprise
+}
+
 // NormalizePlanTier maps any API response or legacy label into canonical tier representation.
 func NormalizePlanTier(raw string) string {
 	trimmed := strings.TrimSpace(raw)
@@ -182,6 +189,8 @@ var (
 		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
 	}
 	CloudCodeDirectQuotaURLs = []string{
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+		"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 		"https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
 		"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
 	}
@@ -1189,22 +1198,118 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 
 type cloudCodeQuotaBucket struct {
 	BucketID          string   `json:"bucketId"`
+	BucketIDSnake     string   `json:"bucket_id"`
 	QuotaID           string   `json:"quotaId"`
+	QuotaIDSnake      string   `json:"quota_id"`
 	ModelID           string   `json:"modelId"`
+	ModelIDSnake      string   `json:"model_id"`
 	DisplayName       string   `json:"displayName"`
+	DisplayNameSnake  string   `json:"display_name"`
 	Window            string   `json:"window"`
 	RemainingFraction *float64 `json:"remainingFraction"`
+	RemainingFractAlt *float64 `json:"remaining_fraction"`
+	RemainingAmount   *int64   `json:"remainingAmount"`
+	RemainingAmtAlt   *int64   `json:"remaining_amount"`
 	ResetTime         string   `json:"resetTime"`
+	ResetTimeSnake    string   `json:"reset_time"`
 	GroupName         string   `json:"-"`
 }
 
-type cloudCodeQuotaResponse struct {
+func (b cloudCodeQuotaBucket) bucketID() string {
+	if b.BucketID != "" {
+		return b.BucketID
+	}
+	if b.BucketIDSnake != "" {
+		return b.BucketIDSnake
+	}
+	if b.QuotaID != "" {
+		return b.QuotaID
+	}
+	if b.QuotaIDSnake != "" {
+		return b.QuotaIDSnake
+	}
+	if b.ModelID != "" {
+		return b.ModelID
+	}
+	return b.ModelIDSnake
+}
+
+func (b cloudCodeQuotaBucket) displayName() string {
+	if b.DisplayName != "" {
+		return b.DisplayName
+	}
+	return b.DisplayNameSnake
+}
+
+func (b cloudCodeQuotaBucket) resetTime() string {
+	if b.ResetTime != "" {
+		return b.ResetTime
+	}
+	return b.ResetTimeSnake
+}
+
+func (b cloudCodeQuotaBucket) fraction() (float64, bool) {
+	if b.RemainingFraction != nil {
+		return *b.RemainingFraction, true
+	}
+	if b.RemainingFractAlt != nil {
+		return *b.RemainingFractAlt, true
+	}
+	if b.RemainingAmount != nil {
+		return float64(*b.RemainingAmount) / 100.0, true
+	}
+	if b.RemainingAmtAlt != nil {
+		return float64(*b.RemainingAmtAlt) / 100.0, true
+	}
+	return 0, false
+}
+
+type cloudCodeQuotaGroup struct {
+	Name             string                 `json:"name"`
+	DisplayName      string                 `json:"displayName"`
+	DisplayNameSnake string                 `json:"display_name"`
+	Buckets          []cloudCodeQuotaBucket `json:"buckets"`
+}
+
+func (g cloudCodeQuotaGroup) displayName() string {
+	if g.DisplayName != "" {
+		return g.DisplayName
+	}
+	if g.DisplayNameSnake != "" {
+		return g.DisplayNameSnake
+	}
+	return g.Name
+}
+
+type cloudCodeQuotaPayload struct {
 	Buckets []cloudCodeQuotaBucket `json:"buckets"`
-	Groups  []struct {
-		Name        string                 `json:"name"`
-		DisplayName string                 `json:"displayName"`
-		Buckets     []cloudCodeQuotaBucket `json:"buckets"`
-	} `json:"groups"`
+	Groups  []cloudCodeQuotaGroup  `json:"groups"`
+}
+
+type cloudCodeQuotaResponse struct {
+	Response *cloudCodeQuotaPayload `json:"response"`
+	Buckets  []cloudCodeQuotaBucket `json:"buckets"`
+	Groups   []cloudCodeQuotaGroup  `json:"groups"`
+}
+
+func (r *cloudCodeQuotaResponse) allBuckets() []cloudCodeQuotaBucket {
+	if r == nil {
+		return nil
+	}
+	if r.Response != nil && len(r.Response.Buckets) > 0 {
+		return r.Response.Buckets
+	}
+	return r.Buckets
+}
+
+func (r *cloudCodeQuotaResponse) allGroups() []cloudCodeQuotaGroup {
+	if r == nil {
+		return nil
+	}
+	if r.Response != nil && len(r.Response.Groups) > 0 {
+		return r.Response.Groups
+	}
+	return r.Groups
 }
 
 func setParsedArgonQuota(result *languageServerArgonQuota, remaining float64, resetAt time.Time, window, bucketID, displayName string, now time.Time) {
@@ -1254,20 +1359,25 @@ func extractArgonFromQuotaBuckets(buckets []cloudCodeQuotaBucket, now time.Time)
 	}
 	candidates := make([]candidate, 0, len(buckets))
 	for _, bucket := range buckets {
-		if bucket.RemainingFraction == nil ||
+		fract, ok := bucket.fraction()
+		bucketID := bucket.bucketID()
+		displayName := bucket.displayName()
+		if !ok ||
 			(!isArgonQuotaIdentifier(bucket.ModelID) &&
-				!isArgonQuotaIdentifier(bucket.BucketID) &&
+				!isArgonQuotaIdentifier(bucket.ModelIDSnake) &&
+				!isArgonQuotaIdentifier(bucketID) &&
 				!isArgonQuotaIdentifier(bucket.QuotaID) &&
-				!isArgonQuotaIdentifier(bucket.DisplayName) &&
+				!isArgonQuotaIdentifier(bucket.QuotaIDSnake) &&
+				!isArgonQuotaIdentifier(displayName) &&
 				!isArgonQuotaIdentifier(bucket.GroupName)) {
 			continue
 		}
-		windowHint := strings.TrimSpace(bucket.Window + " " + bucket.QuotaID)
-		label := strings.TrimSpace(windowHint + " " + bucket.ModelID + " " + bucket.DisplayName)
+		windowHint := strings.TrimSpace(bucket.Window + " " + bucket.QuotaID + " " + bucket.QuotaIDSnake)
+		label := strings.TrimSpace(windowHint + " " + bucket.ModelID + " " + bucket.ModelIDSnake + " " + displayName)
 		candidates = append(candidates, candidate{
 			bucket:     bucket,
-			remaining:  *bucket.RemainingFraction,
-			resetAt:    parseResetTime(bucket.ResetTime),
+			remaining:  fract,
+			resetAt:    parseResetTime(bucket.resetTime()),
 			windowHint: windowHint,
 			labelled:   isWeeklyQuotaLabel(label) || isFiveHourQuotaLabel(label),
 		})
@@ -1288,7 +1398,7 @@ func extractArgonFromQuotaBuckets(buckets []cloudCodeQuotaBucket, now time.Time)
 		}
 	}
 	for _, candidate := range candidates {
-		setParsedArgonQuota(result, candidate.remaining, candidate.resetAt, candidate.windowHint, candidate.bucket.ModelID, candidate.bucket.DisplayName, now)
+		setParsedArgonQuota(result, candidate.remaining, candidate.resetAt, candidate.windowHint, candidate.bucket.bucketID(), candidate.bucket.displayName(), now)
 	}
 	if result.FiveHour == nil && result.Weekly == nil {
 		return nil
@@ -1396,9 +1506,12 @@ func fetchDirectArgonQuota(accessToken, project string, now time.Time) (*languag
 		if err := json.Unmarshal(body, &response); err != nil {
 			continue
 		}
-		buckets := append([]cloudCodeQuotaBucket(nil), response.Buckets...)
-		for _, group := range response.Groups {
+		buckets := append([]cloudCodeQuotaBucket(nil), response.allBuckets()...)
+		for _, group := range response.allGroups() {
 			groupName := strings.TrimSpace(group.DisplayName)
+			if groupName == "" {
+				groupName = strings.TrimSpace(group.DisplayNameSnake)
+			}
 			if groupName == "" {
 				groupName = strings.TrimSpace(group.Name)
 			}
@@ -1799,8 +1912,15 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 
 	if breakdown != nil && (breakdown.Quota5hArgon == nil || breakdown.QuotaWeeklyArgon == nil) {
 		// The local server has the Argon buckets even when another Swiss account is active.
-		if argonQuota, err := languageServerArgonFetcher(acc.Email, now); err == nil {
-			applyLanguageServerArgon(breakdown, argonQuota, now)
+		if languageServerArgonProjectFetcher != nil {
+			if argonQuota, err := languageServerArgonProjectFetcher(acc.Email, project, now); err == nil {
+				applyLanguageServerArgon(breakdown, argonQuota, now)
+			}
+		}
+		if breakdown.Quota5hArgon == nil || breakdown.QuotaWeeklyArgon == nil {
+			if argonQuota, err := languageServerArgonFetcher(acc.Email, now); err == nil {
+				applyLanguageServerArgon(breakdown, argonQuota, now)
+			}
 		}
 		if cached := quotaCacheLoader()[strings.ToLower(strings.TrimSpace(acc.Email))]; cached != nil {
 			restoreCachedArgon(breakdown, cached, now)
@@ -1894,6 +2014,25 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	accountMutationMu.Unlock()
 
 	if breakdown != nil {
+		if isProOrAbovePlan(tier) {
+			if breakdown.QuotaWeeklyArgon == nil {
+				w := breakdown.QuotaWeeklyGemini
+				breakdown.QuotaWeeklyArgon = &w
+				breakdown.ResetTimeWeeklyArgon = breakdown.ResetTimeWeekly
+				breakdown.ResetSecondsWeeklyArgon = breakdown.ResetSecondsWeekly
+				breakdown.ResetHorizonWeeklyArgonText = breakdown.ResetHorizonWeeklyText
+				updateArgonModel(breakdown, "Gemini 4 Argon Weekly", w, breakdown.ResetTimeWeekly, now)
+			}
+			if breakdown.Quota5hArgon == nil {
+				h := breakdown.Quota5hGemini
+				breakdown.Quota5hArgon = &h
+				breakdown.ResetTime5hArgon = breakdown.ResetTime5h
+				breakdown.ResetSeconds5hArgon = breakdown.ResetSeconds5h
+				breakdown.ResetHorizon5hArgonText = breakdown.ResetHorizonText
+				updateArgonModel(breakdown, "Gemini 4 Argon 5H", h, breakdown.ResetTime5h, now)
+			}
+		}
+
 		accountMutationMu.Lock()
 		acc.ErrorMessage = ""
 		if strings.EqualFold(acc.Status, "ERROR") {

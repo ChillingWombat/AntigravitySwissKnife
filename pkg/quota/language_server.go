@@ -36,24 +36,112 @@ type languageServerUserStatusResponse struct {
 	UserStatus struct {
 		Email string `json:"email"`
 	} `json:"userStatus"`
+	UserStatusSnake struct {
+		Email string `json:"email"`
+	} `json:"user_status"`
+}
+
+func (s languageServerUserStatusResponse) email() string {
+	if s.UserStatus.Email != "" {
+		return s.UserStatus.Email
+	}
+	return s.UserStatusSnake.Email
 }
 
 type languageServerQuotaBucket struct {
-	BucketID          string  `json:"bucketId"`
-	DisplayName       string  `json:"displayName"`
-	Window            string  `json:"window"`
-	RemainingFraction float64 `json:"remainingFraction"`
-	ResetTime         string  `json:"resetTime"`
+	BucketID          string   `json:"bucketId"`
+	BucketIDSnake     string   `json:"bucket_id"`
+	DisplayName       string   `json:"displayName"`
+	DisplayNameSnake  string   `json:"display_name"`
+	Window            string   `json:"window"`
+	RemainingFraction *float64 `json:"remainingFraction"`
+	RemainingFractAlt *float64 `json:"remaining_fraction"`
+	RemainingAmount   *int64   `json:"remainingAmount"`
+	RemainingAmtAlt   *int64   `json:"remaining_amount"`
+	ResetTime         string   `json:"resetTime"`
+	ResetTimeSnake    string   `json:"reset_time"`
+}
+
+func (b languageServerQuotaBucket) bucketID() string {
+	if b.BucketID != "" {
+		return b.BucketID
+	}
+	return b.BucketIDSnake
+}
+
+func (b languageServerQuotaBucket) displayName() string {
+	if b.DisplayName != "" {
+		return b.DisplayName
+	}
+	return b.DisplayNameSnake
+}
+
+func (b languageServerQuotaBucket) resetTime() string {
+	if b.ResetTime != "" {
+		return b.ResetTime
+	}
+	return b.ResetTimeSnake
+}
+
+func (b languageServerQuotaBucket) fraction() (float64, bool) {
+	if b.RemainingFraction != nil {
+		return *b.RemainingFraction, true
+	}
+	if b.RemainingFractAlt != nil {
+		return *b.RemainingFractAlt, true
+	}
+	if b.RemainingAmount != nil {
+		return float64(*b.RemainingAmount) / 100.0, true
+	}
+	if b.RemainingAmtAlt != nil {
+		return float64(*b.RemainingAmtAlt) / 100.0, true
+	}
+	return 0, false
 }
 
 type languageServerQuotaGroup struct {
-	DisplayName string                      `json:"displayName"`
-	Description string                      `json:"description"`
-	Buckets     []languageServerQuotaBucket `json:"buckets"`
+	DisplayName      string                      `json:"displayName"`
+	DisplayNameSnake string                      `json:"display_name"`
+	Description      string                      `json:"description"`
+	Buckets          []languageServerQuotaBucket `json:"buckets"`
+}
+
+func (g languageServerQuotaGroup) displayName() string {
+	if g.DisplayName != "" {
+		return g.DisplayName
+	}
+	return g.DisplayNameSnake
+}
+
+type languageServerQuotaPayload struct {
+	Groups  []languageServerQuotaGroup  `json:"groups"`
+	Buckets []languageServerQuotaBucket `json:"buckets"`
 }
 
 type languageServerQuotaResponse struct {
-	Groups []languageServerQuotaGroup `json:"groups"`
+	Response *languageServerQuotaPayload `json:"response"`
+	Groups   []languageServerQuotaGroup  `json:"groups"`
+	Buckets  []languageServerQuotaBucket `json:"buckets"`
+}
+
+func (r *languageServerQuotaResponse) allGroups() []languageServerQuotaGroup {
+	if r == nil {
+		return nil
+	}
+	if r.Response != nil && len(r.Response.Groups) > 0 {
+		return r.Response.Groups
+	}
+	return r.Groups
+}
+
+func (r *languageServerQuotaResponse) allBuckets() []languageServerQuotaBucket {
+	if r == nil {
+		return nil
+	}
+	if r.Response != nil && len(r.Response.Buckets) > 0 {
+		return r.Response.Buckets
+	}
+	return r.Buckets
 }
 
 type languageServerArgonQuota struct {
@@ -66,12 +154,16 @@ type languageServerArgonQuota struct {
 // fetchLanguageServerArgonQuota reads the quota group that Antigravity's local
 // language server exposes but the public CloudCode summary endpoint omits.
 func fetchLanguageServerArgonQuota(expectedEmail string, now time.Time) (*languageServerArgonQuota, error) {
+	return fetchLanguageServerArgonQuotaWithProject(expectedEmail, "", now)
+}
+
+func fetchLanguageServerArgonQuotaWithProject(expectedEmail, project string, now time.Time) (*languageServerArgonQuota, error) {
 	if core.IsRunningTests() {
 		return nil, fmt.Errorf("local language server lookup disabled during tests")
 	}
 
 	for _, endpoint := range discoverLanguageServerEndpoints() {
-		quotaResult, err := fetchArgonQuotaFromEndpoint(endpoint, expectedEmail, now)
+		quotaResult, err := fetchArgonQuotaFromEndpointWithProject(endpoint, expectedEmail, project, now)
 		if err == nil {
 			return quotaResult, nil
 		}
@@ -80,37 +172,66 @@ func fetchLanguageServerArgonQuota(expectedEmail string, now time.Time) (*langua
 }
 
 func fetchArgonQuotaFromEndpoint(endpoint languageServerEndpoint, expectedEmail string, now time.Time) (*languageServerArgonQuota, error) {
+	return fetchArgonQuotaFromEndpointWithProject(endpoint, expectedEmail, "", now)
+}
+
+func fetchArgonQuotaFromEndpointWithProject(endpoint languageServerEndpoint, expectedEmail, project string, now time.Time) (*languageServerArgonQuota, error) {
 	var status languageServerUserStatusResponse
 	if err := postLanguageServerRPC(endpoint, languageServerUserStatusMethod, map[string]any{}, &status); err != nil {
 		return nil, err
 	}
-	if expectedEmail != "" && !strings.EqualFold(strings.TrimSpace(status.UserStatus.Email), strings.TrimSpace(expectedEmail)) {
+	if expectedEmail != "" && !strings.EqualFold(strings.TrimSpace(status.email()), strings.TrimSpace(expectedEmail)) {
 		return nil, fmt.Errorf("local language server account does not match")
 	}
 
+	payload := map[string]any{
+		"forceRefresh":  true,
+		"force_refresh": true,
+	}
+	if project != "" {
+		payload["project"] = project
+		payload["request"] = map[string]any{
+			"project": project,
+		}
+	}
+
 	var summary languageServerQuotaResponse
-	if err := postLanguageServerRPC(endpoint, languageServerQuotaSummaryMethod, map[string]any{}, &summary); err != nil {
+	if err := postLanguageServerRPC(endpoint, languageServerQuotaSummaryMethod, payload, &summary); err != nil {
 		return nil, err
 	}
 
 	result := &languageServerArgonQuota{}
-	for _, group := range summary.Groups {
-		for _, bucket := range group.Buckets {
-			if !isArgonQuotaIdentifier(group.DisplayName, bucket.BucketID, bucket.DisplayName) {
-				continue
-			}
-			resetTime := parseResetTime(bucket.ResetTime)
-			remaining := ClampFraction(bucket.RemainingFraction)
-			switch classifyQuotaWindow(bucket.Window, bucket.BucketID, bucket.DisplayName, resetTime, now) {
-			case "weekly":
-				result.Weekly = &remaining
-				result.WeeklyResetTime = resetTime
-			case "5h":
-				result.FiveHour = &remaining
-				result.FiveHourResetTime = resetTime
-			}
+	processBucket := func(groupName string, bucket languageServerQuotaBucket) {
+		bucketID := bucket.bucketID()
+		displayName := bucket.displayName()
+		if !isArgonQuotaIdentifier(groupName, bucketID, displayName) {
+			return
+		}
+		fract, ok := bucket.fraction()
+		if !ok {
+			return
+		}
+		resetTime := parseResetTime(bucket.resetTime())
+		remaining := ClampFraction(fract)
+		switch classifyQuotaWindow(bucket.Window, bucketID, displayName, resetTime, now) {
+		case "weekly":
+			result.Weekly = &remaining
+			result.WeeklyResetTime = resetTime
+		case "5h":
+			result.FiveHour = &remaining
+			result.FiveHourResetTime = resetTime
 		}
 	}
+
+	for _, group := range summary.allGroups() {
+		for _, bucket := range group.Buckets {
+			processBucket(group.displayName(), bucket)
+		}
+	}
+	for _, bucket := range summary.allBuckets() {
+		processBucket("", bucket)
+	}
+
 	if result.FiveHour == nil && result.Weekly == nil {
 		return nil, fmt.Errorf("Gemini 4 Argon quota buckets not found")
 	}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { X, Trash2, Save, KeyRound, Tag, RefreshCw, Eye, EyeOff, Lock, LogIn, FileText, ShieldAlert, Copy, Check, Mail, Link, ExternalLink } from 'lucide-react'
 import type { AccountState } from '../types'
+import { isProOrAbovePlan } from '../types'
 import { renderPlanTierBadge } from '../pages/QuotaDashboardPage'
 import { HorizontalQuotaBar } from './HorizontalQuotaBar'
 import { ToggleSwitch } from './ToggleSwitch'
@@ -106,17 +107,16 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const credentialHydrationRef = useRef({ completedFor: '' })
   const quotaRequestGateRef = useRef(createRequestGate())
 
-  const [liveQuota5h, setLiveQuota5h] = useState<number | null>(
-    account.quota_5h_available ?? account.quota_5h_current ?? null
-  )
-  const [liveQuotaWeekly, setLiveQuotaWeekly] = useState<number | null>(
-    account.quota_weekly ?? null
-  )
+  const isProAccount = isProOrAbovePlan(account.plan_tier)
+  const initial5h = account.quota_5h_available ?? account.quota_5h_current ?? null
+  const initialWeekly = account.quota_weekly ?? null
+  const [liveQuota5h, setLiveQuota5h] = useState<number | null>(initial5h)
+  const [liveQuotaWeekly, setLiveQuotaWeekly] = useState<number | null>(initialWeekly)
   const [liveQuota5hArgon, setLiveQuota5hArgon] = useState<number | null>(
-    account.quota_5h_argon ?? null
+    account.quota_5h_argon ?? (isProAccount ? initial5h : null)
   )
   const [liveQuotaWeeklyArgon, setLiveQuotaWeeklyArgon] = useState<number | null>(
-    account.quota_weekly_argon ?? null
+    account.quota_weekly_argon ?? (isProAccount ? initialWeekly : null)
   )
   const [liveResetHorizon, setLiveResetHorizon] = useState<string | null>(
     account.reset_horizon_text || null
@@ -166,10 +166,21 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
   const applyQuotaSummaryUpdate = useCallback((q: any, isLiveRefresh: boolean = false) => {
     if (!q) return
-    if (q.quota_5h_fraction !== undefined) setLiveQuota5h(q.quota_5h_fraction)
-    if (q.quota_weekly_fraction !== undefined) setLiveQuotaWeekly(q.quota_weekly_fraction)
-    if (q.quota_5h_argon !== undefined) setLiveQuota5hArgon(q.quota_5h_argon)
-    if (q.quota_weekly_argon !== undefined) setLiveQuotaWeeklyArgon(q.quota_weekly_argon)
+    const isProTier = isProOrAbovePlan(q.plan_tier || currentPlanTier)
+    if (q.quota_5h_fraction !== undefined) {
+      setLiveQuota5h(q.quota_5h_fraction)
+      if (isProTier && (q.quota_5h_argon === undefined || q.quota_5h_argon === null)) {
+        setLiveQuota5hArgon(q.quota_5h_fraction)
+      }
+    }
+    if (q.quota_weekly_fraction !== undefined) {
+      setLiveQuotaWeekly(q.quota_weekly_fraction)
+      if (isProTier && (q.quota_weekly_argon === undefined || q.quota_weekly_argon === null)) {
+        setLiveQuotaWeeklyArgon(q.quota_weekly_fraction)
+      }
+    }
+    if (q.quota_5h_argon !== undefined && q.quota_5h_argon !== null) setLiveQuota5hArgon(q.quota_5h_argon)
+    if (q.quota_weekly_argon !== undefined && q.quota_weekly_argon !== null) setLiveQuotaWeeklyArgon(q.quota_weekly_argon)
     if (q.reset_horizon_text) setLiveResetHorizon(q.reset_horizon_text)
     if (q.reset_horizon_5h_argon_text) setLiveResetHorizon5hArgon(q.reset_horizon_5h_argon_text)
     if (q.reset_horizon_weekly_text) setLiveResetHorizonWeekly(q.reset_horizon_weekly_text)

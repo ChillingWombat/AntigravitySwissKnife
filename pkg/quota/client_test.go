@@ -1633,3 +1633,163 @@ func TestExtractArgonFromGroupedCloudCodeResponse(t *testing.T) {
 		t.Fatalf("grouped weekly bucket was classified as 5H: %+v", result)
 	}
 }
+
+
+func TestExtractArgonFromResponseEnvelopeAndSnakeCase(t *testing.T) {
+	now := time.Now()
+	resetWeekly := now.Add(72 * time.Hour).UTC().Format(time.RFC3339Nano)
+	reset5h := now.Add(3 * time.Hour).UTC().Format(time.RFC3339Nano)
+
+	raw := fmt.Sprintf(`{
+		"response": {
+			"groups": [{
+				"display_name": "Gemini 4 Argon",
+				"buckets": [{
+					"bucket_id": "gemini-argon-wtu-weekly",
+					"display_name": "Weekly Limit Remaining",
+					"remaining_fraction": 0.51,
+					"reset_time": %q
+				}, {
+					"bucket_id": "gemini-argon-5h",
+					"display_name": "Five Hour Limit Remaining",
+					"remaining_fraction": 1.0,
+					"reset_time": %q
+				}]
+			}]
+		}
+	}`, resetWeekly, reset5h)
+
+	var response cloudCodeQuotaResponse
+	if err := json.Unmarshal([]byte(raw), &response); err != nil {
+		t.Fatalf("unmarshal response envelope: %v", err)
+	}
+
+	buckets := append([]cloudCodeQuotaBucket(nil), response.allBuckets()...)
+	for _, group := range response.allGroups() {
+		gName := group.displayName()
+		for _, b := range group.Buckets {
+			b.GroupName = gName
+			buckets = append(buckets, b)
+		}
+	}
+
+	extracted := extractArgonFromQuotaBuckets(buckets, now)
+	if extracted == nil {
+		t.Fatal("expected extracted argon quota, got nil")
+	}
+	if extracted.Weekly == nil || *extracted.Weekly != 0.51 {
+		t.Fatalf("extracted weekly = %v, want 0.51", extracted.Weekly)
+	}
+	if extracted.FiveHour == nil || *extracted.FiveHour != 1.0 {
+		t.Fatalf("extracted 5h = %v, want 1.0", extracted.FiveHour)
+	}
+}
+
+func TestPollAccountLiveQuotaProFallbackArgon(t *testing.T) {
+	now := time.Now()
+	resetWeekly := now.Add(72 * time.Hour).UTC().Format(time.RFC3339Nano)
+	reset5h := now.Add(3 * time.Hour).UTC().Format(time.RFC3339Nano)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/load":
+			_, _ = w.Write([]byte(`{"project": "test-project", "tier": "Pro"}`))
+		case "/summary":
+			_, _ = w.Write([]byte(fmt.Sprintf(`{
+				"groups": [{
+					"displayName": "Gemini Models",
+					"buckets": [{
+						"bucketId": "gemini-weekly",
+						"displayName": "Weekly Limit Remaining",
+						"remainingFraction": 0.51,
+						"resetTime": %q
+					}, {
+						"bucketId": "gemini-5h",
+						"displayName": "Five Hour Limit Remaining",
+						"remainingFraction": 1.0,
+						"resetTime": %q
+					}]
+				}]
+			}`, resetWeekly, reset5h)))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldLoad, oldQuota, oldModels, oldDirect := CloudCodeLoadProjectURLs, CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs
+	defer func() {
+		CloudCodeLoadProjectURLs, CloudCodeRetrieveQuotaURLs, CloudCodeModelsURLs, CloudCodeDirectQuotaURLs = oldLoad, oldQuota, oldModels, oldDirect
+	}()
+	CloudCodeLoadProjectURLs = []string{server.URL + "/load"}
+	CloudCodeRetrieveQuotaURLs = []string{server.URL + "/summary"}
+	CloudCodeModelsURLs = nil
+	CloudCodeDirectQuotaURLs = nil
+
+	oldArgonFetcher := languageServerArgonFetcher
+	defer func() { languageServerArgonFetcher = oldArgonFetcher }()
+	languageServerArgonFetcher = func(string, time.Time) (*languageServerArgonQuota, error) {
+		return nil, fmt.Errorf("no language server")
+	}
+
+	proSummary, err := PollAccountLiveQuota(&keyring.Account{
+		Email:       "pro-user@example.com",
+		PlanTier:    PlanTierPro,
+		AccessToken: "token",
+	})
+	if err != nil {
+		t.Fatalf("PollAccountLiveQuota(Pro) error: %v", err)
+	}
+	if proSummary.QuotaWeeklyArgon == nil || *proSummary.QuotaWeeklyArgon != 0.51 {
+		t.Fatalf("Pro weekly Argon = %v, want 0.51", proSummary.QuotaWeeklyArgon)
+	}
+	if proSummary.Quota5hArgon == nil || *proSummary.Quota5hArgon != 1.0 {
+		t.Fatalf("Pro 5h Argon = %v, want 1.0", proSummary.Quota5hArgon)
+	}
+
+	freeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/load":
+			_, _ = w.Write([]byte(`{"project": "test-project", "tier": "Free"}`))
+		case "/summary":
+			_, _ = w.Write([]byte(fmt.Sprintf(`{
+				"groups": [{
+					"displayName": "Gemini Models",
+					"buckets": [{
+						"bucketId": "gemini-weekly",
+						"displayName": "Weekly Limit Remaining",
+						"remainingFraction": 0.51,
+						"resetTime": %q
+					}, {
+						"bucketId": "gemini-5h",
+						"displayName": "Five Hour Limit Remaining",
+						"remainingFraction": 1.0,
+						"resetTime": %q
+					}]
+				}]
+			}`, resetWeekly, reset5h)))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer freeServer.Close()
+	CloudCodeLoadProjectURLs = []string{freeServer.URL + "/load"}
+	CloudCodeRetrieveQuotaURLs = []string{freeServer.URL + "/summary"}
+
+	freeSummary, err := PollAccountLiveQuota(&keyring.Account{
+		Email:       "free-user@example.com",
+		PlanTier:    PlanTierFree,
+		AccessToken: "token",
+	})
+	if err != nil {
+		t.Fatalf("PollAccountLiveQuota(Free) error: %v", err)
+	}
+	if freeSummary.QuotaWeeklyArgon != nil {
+		t.Fatalf("Free weekly Argon = %v, want nil", freeSummary.QuotaWeeklyArgon)
+	}
+	if freeSummary.Quota5hArgon != nil {
+		t.Fatalf("Free 5h Argon = %v, want nil", freeSummary.Quota5hArgon)
+	}
+}

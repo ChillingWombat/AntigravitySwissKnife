@@ -728,6 +728,21 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 			resWeeklyText = "Ready"
 		}
 
+		if isProOrAbovePlan(tier) {
+			if cur5hArgon == nil {
+				value := cur5h
+				cur5hArgon = &value
+				curSec5hArgon = curSec
+				res5hArgonText = resText
+			}
+			if curWeeklyArgon == nil {
+				value := curWeekly
+				curWeeklyArgon = &value
+				curSecWeeklyArgon = curSecWeekly
+				resWeeklyArgonText = resWeeklyText
+			}
+		}
+
 		prio := acc.Priority
 		if prio == "" {
 			prio = "High"
