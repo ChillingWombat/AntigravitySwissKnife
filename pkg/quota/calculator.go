@@ -709,6 +709,14 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 		if (tier == PlanTierPro || tier == PlanTierFree || tier == "") && (IsTrialWarningText(acc.Notes) || IsTrialWarningText(acc.Label) || IsTrialWarningText(acc.PlanTier)) {
 			tier = PlanTierProTrial
 		}
+		if tier == PlanTierProTrial {
+			cur5hArgon = nil
+			curWeeklyArgon = nil
+			curSec5hArgon = 0
+			curSecWeeklyArgon = 0
+			res5hArgonText = ""
+			resWeeklyArgonText = ""
+		}
 
 		avail5h := ComputeEffective5hAvailable(cur5h, curSec)
 		hasCreditOverages := acc.EnableCreditOverages && credits > 0
@@ -728,20 +736,6 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 			resWeeklyText = "Ready"
 		}
 
-		if isProOrAbovePlan(tier) {
-			if cur5hArgon == nil {
-				value := cur5h
-				cur5hArgon = &value
-				curSec5hArgon = curSec
-				res5hArgonText = resText
-			}
-			if curWeeklyArgon == nil {
-				value := curWeekly
-				curWeeklyArgon = &value
-				curSecWeeklyArgon = curSecWeekly
-				resWeeklyArgonText = resWeeklyText
-			}
-		}
 
 		prio := acc.Priority
 		if prio == "" {

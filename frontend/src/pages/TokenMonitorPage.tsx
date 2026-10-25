@@ -1287,22 +1287,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                       <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)', textAlign: 'left' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                           <span>{pr.model_name || pr.name}</span>
-                          {pr.is_outdated_native && (
-                            <span
-                              style={{
-                                fontSize: '10px',
-                                fontWeight: 600,
-                                padding: '1px 6px',
-                                borderRadius: '6px',
-                                backgroundColor: '#fef3c7',
-                                color: '#b45309',
-                                whiteSpace: 'nowrap',
-                              }}
-                              title="Previously fetched from Antigravity; no longer in active catalog. Reclassified as custom so it can be manually deleted."
-                            >
-                              Outdated Native
-                            </span>
-                          )}
                         </div>
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>

@@ -32,6 +32,72 @@ interface SwitcherSettingsPageProps {
   onSaved: () => void
 }
 
+interface GeminiBaseModel {
+  id: string
+  displayName: string
+  supportsThinking: boolean
+  thinkingLevels: string[]
+  modelIds: string[]
+}
+
+const THINKING_LEVEL_ORDER = ['off', 'low', 'medium', 'high']
+const THINKING_SUFFIX_RE = /\s*\((?:none|off|low|medium|high)\)\s*$/i
+const MODEL_LEVEL_SUFFIX_RE = /-(?:none|off|low|medium|high)$/i
+
+const normalizeThinkingLevels = (model: AvailableModelItem): string[] => {
+  const levels = (model.thinking_levels || []).map((level) => level.toLowerCase())
+  if (levels.length > 0) return levels
+  return model.supports_thinking ? ['off', 'low', 'medium', 'high'] : ['off']
+}
+
+const buildGeminiBaseModels = (models: AvailableModelItem[]): GeminiBaseModel[] => {
+  const grouped = new Map<string, GeminiBaseModel>()
+  const levelsById = new Map<string, Set<string>>()
+
+  for (const model of models) {
+    const displayName = model.display_name.replace(THINKING_SUFFIX_RE, '').trim()
+    const id = displayName
+      .toLowerCase()
+      .replace(/[^a-z0-9.]+/g, '-')
+      .replace(/^-+|-+$/g, '') || model.id.replace(MODEL_LEVEL_SUFFIX_RE, '')
+    if (!id) continue
+
+    const levels = normalizeThinkingLevels(model)
+    const existing = grouped.get(id)
+    if (existing) {
+      existing.supportsThinking = existing.supportsThinking || Boolean(model.supports_thinking)
+      existing.modelIds.push(model.id)
+      levels.forEach((level) => levelsById.get(id)?.add(level))
+      continue
+    }
+
+    grouped.set(id, {
+      id,
+      displayName: displayName || model.id,
+      supportsThinking: Boolean(model.supports_thinking),
+      thinkingLevels: [],
+      modelIds: [model.id],
+    })
+    levelsById.set(id, new Set(levels))
+  }
+
+  return Array.from(grouped.values()).map((model) => {
+    const levels = levelsById.get(model.id) || new Set<string>()
+    return {
+      ...model,
+      thinkingLevels: [
+        ...THINKING_LEVEL_ORDER.filter((level) => levels.has(level)),
+        ...Array.from(levels).filter((level) => !THINKING_LEVEL_ORDER.includes(level)),
+      ],
+    }
+  })
+}
+
+const formatThinkingLevel = (level: string): string => {
+  if (level === 'off') return 'Off'
+  return level.charAt(0).toUpperCase() + level.slice(1)
+}
+
 export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   initialRules,
   onSaved,
@@ -72,6 +138,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     normalizeModelSourceHierarchy(initialRules?.model_source_hierarchy)
   )
   const [defaultGemini, setDefaultGemini] = useState<string>(initialRules?.default_gemini_model || 'gemini-3.8-flash-high')
+  const [defaultGeminiReasoningLevel, setDefaultGeminiReasoningLevel] = useState<string>(
+    initialRules?.default_gemini_reasoning_level || 'high'
+  )
   const [defaultCustom, setDefaultCustom] = useState<string>(initialRules?.default_custom_model || '')
   const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-opus-4-6-thinking')
   const [subagentCustomModelsEnabled, setSubagentCustomModelsEnabled] = useState<boolean>(
@@ -92,6 +161,12 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [customModelOptions, setCustomModelOptions] = useState<{ id: string; name: string; model_name?: string }[]>([])
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
+  const geminiBaseModels = buildGeminiBaseModels(geminiModelOptions)
+  const selectedGeminiBaseModel =
+    geminiBaseModels.find((model) => model.id === defaultGemini) ||
+    geminiBaseModels.find((model) => model.modelIds.includes(defaultGemini))
+  const selectedGeminiThinkingLevels =
+    selectedGeminiBaseModel?.supportsThinking ? selectedGeminiBaseModel.thinkingLevels : ['off']
 
   const [feedback, setFeedback] = useState<string | null>(null)
   const hydratedRef = useRef(false)
@@ -281,6 +356,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     if (initialRules.default_gemini_model) {
       setDefaultGemini(initialRules.default_gemini_model)
     }
+    if (initialRules.default_gemini_reasoning_level) {
+      setDefaultGeminiReasoningLevel(initialRules.default_gemini_reasoning_level)
+    }
     if (initialRules.default_custom_model) {
       setDefaultCustom(initialRules.default_custom_model)
     }
@@ -327,15 +405,22 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       const res = await api.getAvailableModels(force)
       if (res && res.success) {
         if (res.gemini_models && res.gemini_models.length > 0) {
+          const baseModels = buildGeminiBaseModels(res.gemini_models)
           setGeminiModelOptions(res.gemini_models)
           setDefaultGemini((prev) => {
-            if (prev && res.gemini_models.some((opt) => opt.id === prev)) {
-              return prev
+            const currentBase = baseModels.find(
+              (model) => model.id === prev || model.modelIds.includes(prev)
+            )
+            if (currentBase) {
+              return currentBase.id
             }
-            if (res.default_gemini && res.gemini_models.some((opt) => opt.id === res.default_gemini)) {
-              return res.default_gemini
+            const catalogDefault = baseModels.find(
+              (model) => model.id === res.default_gemini || model.modelIds.includes(res.default_gemini || '')
+            )
+            if (catalogDefault) {
+              return catalogDefault.id
             }
-            return res.gemini_models[0].id
+            return baseModels[0]?.id || res.gemini_models[0].id
           })
         }
         if (res.non_gemini_models && res.non_gemini_models.length > 0) {
@@ -454,6 +539,13 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   }
 
   useEffect(() => {
+    if (!selectedGeminiBaseModel) return
+    if (!selectedGeminiThinkingLevels.includes(defaultGeminiReasoningLevel)) {
+      setDefaultGeminiReasoningLevel(selectedGeminiThinkingLevels[0] || 'off')
+    }
+  }, [defaultGeminiReasoningLevel, selectedGeminiBaseModel?.id, selectedGeminiThinkingLevels.join(',')])
+
+  useEffect(() => {
     if (!hydratedRef.current) return
     const payload = {
       auto_switch_threshold: threshold,
@@ -472,6 +564,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       allow_non_gemini_native_models: allowNonGemini,
       model_source_hierarchy: hierarchy,
       default_gemini_model: defaultGemini,
+      default_gemini_reasoning_level: defaultGeminiReasoningLevel,
       default_custom_model: effectiveCustomModel,
       default_non_gemini_model: defaultNonGemini,
       auto_import_active_account: autoImportActive,
@@ -513,6 +606,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     allowNonGemini,
     hierarchy,
     defaultGemini,
+    defaultGeminiReasoningLevel,
     effectiveCustomModel,
     defaultNonGemini,
     autoImportActive,
@@ -1131,33 +1225,57 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Default Gemini Model */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Default Gemini Model:
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                The preferred Google Gemini model assigned for new conversations and default execution.
-              </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+              Default Gemini Model:
             </div>
-            <select
-              value={defaultGemini}
-              onChange={(e) => setDefaultGemini(e.target.value)}
-              style={{ width: '180px', minWidth: '180px', maxWidth: '180px', boxSizing: 'border-box', flexShrink: 0 }}
-              aria-label="Default Gemini Model"
-            >
-              {geminiModelOptions.length === 0 ? (
-                <option value={defaultGemini}>
-                  {isFetchingModels ? 'Fetching live models...' : (defaultGemini || 'No Gemini models found')}
-                </option>
-              ) : (
-                geminiModelOptions.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.display_name}
-                  </option>
-                ))
-              )}
-            </select>
+            <div style={{ display: 'flex', alignItems: 'flex-end', flexWrap: 'wrap', gap: '8px' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                Model
+                <select
+                  value={defaultGemini}
+                  onChange={(e) => setDefaultGemini(e.target.value)}
+                  style={{ width: '190px', boxSizing: 'border-box', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border)' }}
+                  aria-label="Default Gemini Model"
+                >
+                  {geminiBaseModels.length === 0 ? (
+                    <option value={defaultGemini}>
+                      {isFetchingModels ? 'Fetching live models...' : 'No Gemini models found'}
+                    </option>
+                  ) : (
+                    geminiBaseModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.displayName}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                Thinking
+                <select
+                  value={defaultGeminiReasoningLevel}
+                  onChange={(e) => setDefaultGeminiReasoningLevel(e.target.value)}
+                  disabled={!selectedGeminiBaseModel || !selectedGeminiBaseModel.supportsThinking}
+                  style={{
+                    width: '120px',
+                    boxSizing: 'border-box',
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
+                    borderColor: 'var(--border)',
+                    cursor: !selectedGeminiBaseModel || !selectedGeminiBaseModel.supportsThinking ? 'not-allowed' : 'pointer',
+                    opacity: !selectedGeminiBaseModel || !selectedGeminiBaseModel.supportsThinking ? 0.6 : 1,
+                  }}
+                  aria-label="Default Gemini Thinking Level"
+                >
+                  {selectedGeminiThinkingLevels.map((level) => (
+                    <option key={level} value={level}>
+                      {selectedGeminiBaseModel?.supportsThinking ? formatThinkingLevel(level) : 'None'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
 
           {/* Default Custom Model */}

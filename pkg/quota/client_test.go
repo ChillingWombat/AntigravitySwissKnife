@@ -1282,7 +1282,7 @@ func TestIssue293InactiveAccountUsesLanguageServerArgon(t *testing.T) {
 		case "/load":
 			issue293JSONResponse(w, `{"cloudaicompanionProject":"project-1","currentTier":{"id":"Pro"}}`)
 		case "/summary":
-			issue293JSONResponse(w, fmt.Sprintf(`{"subscriptionTier":"Pro","models":{"claude-sonnet":{"displayName":"Claude Sonnet"}},"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.9,"resetTime":%q}]}]}`, reset5h))
+			issue293JSONResponse(w, fmt.Sprintf(`{"subscriptionTier":"Pro","models":{"claude-sonnet-5-5":{"displayName":"Claude Sonnet 5.5 (Thinking)"}},"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.9,"resetTime":%q}]}]}`, reset5h))
 		default:
 			http.NotFound(w, r)
 		}
@@ -1338,7 +1338,7 @@ func TestIssue293PollPreservesUnexpiredCachedArgon(t *testing.T) {
 		case "/load":
 			issue293JSONResponse(w, `{"cloudaicompanionProject":"project-1","currentTier":{"id":"Pro"}}`)
 		case "/summary":
-			issue293JSONResponse(w, fmt.Sprintf(`{"subscriptionTier":"Pro","models":{"claude-sonnet":{"displayName":"Claude Sonnet"}},"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.9,"resetTime":%q}]}]}`, reset))
+			issue293JSONResponse(w, fmt.Sprintf(`{"subscriptionTier":"Pro","models":{"claude-sonnet-5-5":{"displayName":"Claude Sonnet 5.5 (Thinking)"}},"groups":[{"displayName":"Gemini","buckets":[{"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.9,"resetTime":%q}]}]}`, reset))
 		default:
 			http.NotFound(w, r)
 		}
@@ -1741,11 +1741,11 @@ func TestPollAccountLiveQuotaProFallbackArgon(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PollAccountLiveQuota(Pro) error: %v", err)
 	}
-	if proSummary.QuotaWeeklyArgon == nil || *proSummary.QuotaWeeklyArgon != 0.51 {
-		t.Fatalf("Pro weekly Argon = %v, want 0.51", proSummary.QuotaWeeklyArgon)
+	if proSummary.QuotaWeeklyArgon != nil {
+		t.Fatalf("Pro weekly Argon = %v, want nil", proSummary.QuotaWeeklyArgon)
 	}
-	if proSummary.Quota5hArgon == nil || *proSummary.Quota5hArgon != 1.0 {
-		t.Fatalf("Pro 5h Argon = %v, want 1.0", proSummary.Quota5hArgon)
+	if proSummary.Quota5hArgon != nil {
+		t.Fatalf("Pro 5h Argon = %v, want nil", proSummary.Quota5hArgon)
 	}
 
 	freeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

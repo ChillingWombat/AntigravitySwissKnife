@@ -44,7 +44,7 @@ describe('Dual-Engine Model Routing & Quota Cooldown Switchability (R1)', () => 
       assert.strictEqual(state.reset_horizon_weekly_argon_text, 'Resets in 4d 8h')
     })
 
-    it('falls back to Gemini pool for Pro accounts when Argon is null', () => {
+    it('keeps Argon null for Pro accounts when the API omits Argon buckets', () => {
       const raw = {
         email: 'pro@example.com',
         plan_tier: 'Pro',
@@ -53,8 +53,8 @@ describe('Dual-Engine Model Routing & Quota Cooldown Switchability (R1)', () => 
         status: 'STANDBY',
       }
       const state = toAccountState(raw)
-      assert.strictEqual(state.quota_5h_argon, 1.0, 'Pro account should inherit 5h quota for Argon')
-      assert.strictEqual(state.quota_weekly_argon, 0.51, 'Pro account should inherit weekly quota for Argon')
+      assert.strictEqual(state.quota_5h_argon, null, 'Pro account must not synthesize Argon 5H quota')
+      assert.strictEqual(state.quota_weekly_argon, null, 'Pro account must not synthesize Argon 7D quota')
     })
 
     it('keeps Argon null for Free accounts when Argon is null', () => {

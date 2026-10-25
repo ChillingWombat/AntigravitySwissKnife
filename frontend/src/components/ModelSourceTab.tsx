@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { AlertCircle, AlertTriangle, Copy, Check, Play, RefreshCw } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Copy, Check, Play, RefreshCw, Terminal } from 'lucide-react'
 import { api } from '../api'
 
 type AppKey = 'antigravity' | 'vscode'
@@ -184,11 +184,11 @@ export const ModelSourceTab: React.FC = () => {
     }
   }
 
-  const appRow = (app: AppKey, label: string) => {
+  const appRow = (app: AppKey, label: string, showDivider = true) => {
     const profile = integration.apps[app]
     const isCustom = profile.source === 'custom'
     return (
-      <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
+      <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: showDivider ? '10px' : 0, borderTop: showDivider ? '1px solid var(--border)' : undefined }}>
         <div style={{ ...wrappingTextStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
           <span style={{ ...wrappingTextStyle, fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>{label}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -250,9 +250,9 @@ export const ModelSourceTab: React.FC = () => {
               cursor: 'pointer',
             }}
           >
-            <div style={{ ...wrappingTextStyle, fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Profile Isolation</div>
+            <div style={{ ...wrappingTextStyle, fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Profile Isolation: One Catalog per Window</div>
             <p style={{ ...wrappingTextStyle, margin: '4px 0 0', fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Each app runs on its own profile with a single catalog. Native windows stay untouched; custom-model windows run separately.
+              Each app window runs on one catalog with either Native models or Custom models, never both. Launch separate windows to use each source.
             </p>
           </button>
           <button
@@ -274,7 +274,7 @@ export const ModelSourceTab: React.FC = () => {
               </span>
             </div>
             <p style={{ ...wrappingTextStyle, margin: '4px 0 0', fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Routes Antigravity through the local proxy so one catalog can serve both model types. Native model traffic passes through the daemon.
+              Routes Antigravity traffic through the local proxy, so one catalog per window can serve both Native and Custom models at the same time. Proxied traffic carries a potential ban risk.
             </p>
           </button>
         </div>
@@ -282,8 +282,10 @@ export const ModelSourceTab: React.FC = () => {
 
       {!isProxy && (
         <div style={cardStyle}>
-          <span style={sectionLabelStyle}>Apps</span>
-          {appRow('antigravity', 'Antigravity 2.0')}
+          <div style={{ ...wrappingTextStyle, paddingBottom: '10px', borderBottom: '1px solid var(--border)' }}>
+            <span style={{ ...sectionLabelStyle, textTransform: 'none' }}>Antigravity Apps</span>
+          </div>
+          {appRow('antigravity', 'Antigravity 2.0', false)}
           {appRow('vscode', 'VS Code')}
         </div>
       )}
@@ -354,6 +356,19 @@ export const ModelSourceTab: React.FC = () => {
           )}
         </div>
       )}
+
+      <div
+        role="note"
+        style={{ ...cardStyle, flexDirection: 'row', alignItems: 'flex-start', gap: '12px', padding: '14px 16px' }}
+      >
+        <Terminal size={18} aria-hidden="true" style={{ flexShrink: 0, marginTop: '1px', color: 'var(--text-muted)' }} />
+        <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>AGY CLI</span>
+          <span style={{ ...wrappingTextStyle, fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Runs independently and can use Native and Custom models at the same time in one session, without API Proxy mode or window profile isolation.
+          </span>
+        </div>
+      </div>
     </div>
   )
 }

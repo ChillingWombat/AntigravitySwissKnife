@@ -19,9 +19,9 @@ import (
 )
 
 var (
-	accountMutationMu          sync.Mutex
-	quotaBackoffMu             sync.RWMutex
-	quotaBackoffUntil          time.Time
+	accountMutationMu                 sync.Mutex
+	quotaBackoffMu                    sync.RWMutex
+	quotaBackoffUntil                 time.Time
 	quotaCacheLoader                  = LoadQuotaCache
 	languageServerArgonFetcher        = fetchLanguageServerArgonQuota
 	languageServerArgonProjectFetcher = fetchLanguageServerArgonQuotaWithProject
@@ -109,7 +109,7 @@ func isPaidProModelIdentifier(modelID, displayName string) bool {
 // isProOrAbovePlan returns true if the plan tier includes Gemini 4 Argon rights.
 func isProOrAbovePlan(tier string) bool {
 	norm := NormalizePlanTier(tier)
-	return norm == PlanTierPro || norm == PlanTierProTrial || norm == PlanTierUltra5X || norm == PlanTierUltra10X || norm == PlanTierUltra20X || norm == PlanTierEnterprise
+	return norm == PlanTierPro || norm == PlanTierUltra5X || norm == PlanTierUltra10X || norm == PlanTierUltra20X || norm == PlanTierEnterprise
 }
 
 // NormalizePlanTier maps any API response or legacy label into canonical tier representation.
@@ -2014,23 +2014,22 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 	accountMutationMu.Unlock()
 
 	if breakdown != nil {
-		if isProOrAbovePlan(tier) {
-			if breakdown.QuotaWeeklyArgon == nil {
-				w := breakdown.QuotaWeeklyGemini
-				breakdown.QuotaWeeklyArgon = &w
-				breakdown.ResetTimeWeeklyArgon = breakdown.ResetTimeWeekly
-				breakdown.ResetSecondsWeeklyArgon = breakdown.ResetSecondsWeekly
-				breakdown.ResetHorizonWeeklyArgonText = breakdown.ResetHorizonWeeklyText
-				updateArgonModel(breakdown, "Gemini 4 Argon Weekly", w, breakdown.ResetTimeWeekly, now)
+		if NormalizePlanTier(tier) == PlanTierProTrial {
+			breakdown.Quota5hArgon = nil
+			breakdown.QuotaWeeklyArgon = nil
+			breakdown.ResetTime5hArgon = time.Time{}
+			breakdown.ResetTimeWeeklyArgon = time.Time{}
+			breakdown.ResetSeconds5hArgon = 0
+			breakdown.ResetSecondsWeeklyArgon = 0
+			breakdown.ResetHorizon5hArgonText = ""
+			breakdown.ResetHorizonWeeklyArgonText = ""
+			models := breakdown.Models[:0]
+			for _, model := range breakdown.Models {
+				if !isArgonQuotaIdentifier(model.ModelName) {
+					models = append(models, model)
+				}
 			}
-			if breakdown.Quota5hArgon == nil {
-				h := breakdown.Quota5hGemini
-				breakdown.Quota5hArgon = &h
-				breakdown.ResetTime5hArgon = breakdown.ResetTime5h
-				breakdown.ResetSeconds5hArgon = breakdown.ResetSeconds5h
-				breakdown.ResetHorizon5hArgonText = breakdown.ResetHorizonText
-				updateArgonModel(breakdown, "Gemini 4 Argon 5H", h, breakdown.ResetTime5h, now)
-			}
+			breakdown.Models = models
 		}
 
 		accountMutationMu.Lock()

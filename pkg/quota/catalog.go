@@ -58,7 +58,7 @@ func DefaultBaseGeminiModels() []ModelOption {
 		{ID: "gemini-3.6-flash-low", DisplayName: "Gemini 3.6 Flash (Low)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
 		{ID: "gemini-pro-agent", DisplayName: "Gemini 3.1 Pro (High)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
 		{ID: "gemini-3.1-pro-low", DisplayName: "Gemini 3.1 Pro (Low)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
-		{ID: "gemini-4-argon", DisplayName: "Gemini 4 Argon", ThinkingLevels: []string{"low", "medium", "high"}},
+		{ID: "gemini-4-argon", DisplayName: "Gemini 4 Argon", SupportsThinking: true, ThinkingLevels: []string{"low", "medium", "high"}},
 	}
 }
 
