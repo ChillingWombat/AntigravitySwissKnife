@@ -215,10 +215,6 @@ describe('Extensions top tab switcher & Community Extensions UI (#203)', () => {
       'Community Extensions header card must render'
     )
     assert.ok(
-      content.includes('Create, import, and manage custom web or HTML/JS extensions'),
-      'Community subtitle must render'
-    )
-    assert.ok(
       content.includes('No community extensions installed. Click Create Extension or Import JSON to add your first custom extension.'),
       'Empty state card must render when communityExtensions is empty'
     )

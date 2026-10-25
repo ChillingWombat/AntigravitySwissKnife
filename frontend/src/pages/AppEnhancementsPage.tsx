@@ -2214,9 +2214,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 Extension Tab Switchers Format
               </h2>
             </div>
-            <p style={{ margin: '6px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-              Choose between icon-only or icon with label for auxiliary panel extension tabs.
-            </p>
           </div>
         </div>
 
@@ -2248,10 +2245,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 onChange={() => handleAuxTabsFormatChange('icon')}
                 style={{ accentColor: '#0b57d0', cursor: 'pointer' }}
               />
-            </div>
-
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-              Displays clean monochrome stroke icons matching Antigravity's native tabs without text. Hovering displays the tab name tooltip.
             </div>
 
             {/* Visual Demo of Icon Only Tabs */}
@@ -2360,10 +2353,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 onChange={() => handleAuxTabsFormatChange('icon_and_name')}
                 style={{ accentColor: '#0b57d0', cursor: 'pointer' }}
               />
-            </div>
-
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-              Displays clean monochrome stroke icons accompanied by full tab names for immediate text navigation.
             </div>
 
             {/* Visual Demo of Icon and Name Tabs */}

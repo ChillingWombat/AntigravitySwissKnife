@@ -1417,11 +1417,8 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
         <>
           {/* Privacy & Telemetry Settings Card */}
           <div className="google-card">
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
               Privacy & Error Reporting
-            </div>
-            <div style={{ fontSize: '13px', color: 'var(--text)', marginBottom: '16px' }}>
-              Configure anonymous error reporting and telemetry data collection preferences.
             </div>
 
             {privacyFeedback && (
@@ -1506,9 +1503,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
                   Agent Diagnostics & GitHub Issue Reporter
                 </div>
-                <div style={{ fontSize: '13px', color: 'var(--text)', marginTop: '4px' }}>
-                  Describe an issue and let your Antigravity agent diagnose runtime state and prepare an issue on our public GitHub repository.
-                </div>
               </div>
             </div>
 
@@ -1520,7 +1514,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
               <textarea
                 value={issueDescription}
                 onChange={(e) => setIssueDescription(e.target.value)}
-                placeholder="e.g., Encountered daemon socket timeout when switching quota accounts, or custom model response delayed..."
+                placeholder="Describe an issue and let your Antigravity agent diagnose runtime state and prepare an issue on our public GitHub repository (e.g., daemon socket timeout when switching quota accounts)..."
                 rows={3}
                 style={{
                   width: '100%',

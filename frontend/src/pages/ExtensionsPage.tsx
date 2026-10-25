@@ -990,9 +990,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
                   Auxiliary File Explorer
                 </h3>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
-                Lightweight in-panel file browser and editor allowing instant workspace navigation, file reveal, terminal launch, and code inspection.
-              </p>
             </div>
             {renderExtSwitches('files', 'Auxiliary File Explorer')}
           </div>
@@ -1086,9 +1083,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
                   Quick Memos
                 </h3>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
-                Rapid notepad for ephemeral text and speech-to-text audio memos with instant drag-and-drop into active Antigravity agent conversations.
-              </p>
             </div>
             {renderExtSwitches('memos', 'Quick Memos')}
           </div>
@@ -1292,9 +1286,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
                 <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
                   Community Extensions
                 </h3>
-                <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
-                  Create, import, and manage custom web or HTML/JS extensions for the IDE auxiliary panel and main stage.
-                </p>
               </div>
             </div>
 
