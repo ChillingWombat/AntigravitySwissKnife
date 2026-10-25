@@ -1222,9 +1222,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
               Token Price (USD per 1M Tokens)
             </h3>
-            <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Auto-fetched from model provider first, then 3rd-party backup (OpenRouter/LiteLLM), or null for manual entry. Thinking-level variants share one canonical model entry.
-            </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {fetchFeedback && (
@@ -1814,9 +1811,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                 <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                   Recent Agent Session Telemetry Log
                 </h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Real-time audit log of executed chat turns extracted from local session transcripts.
-                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {/* Switch button filter: All, Main Agent, Sub-Agents */}

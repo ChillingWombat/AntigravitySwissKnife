@@ -795,9 +795,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
                   GitHub Workspace
                 </h3>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
-                Manage repository issues, pull requests, agent tasks, and Kanban boards with one-click direct jump into Antigravity conversations.
-              </p>
             </div>
             {renderExtSwitches('github', 'GitHub Workspace')}
           </div>
@@ -887,9 +884,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
                   Preview Browser
                 </h3>
               </div>
-              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.45, maxWidth: '780px' }}>
-                Embeds a lightweight development browser inside Antigravity's auxiliary panel with port shortcuts (:8765, :5173, :3000, :8080) and live visual annotation.
-              </p>
             </div>
             {renderExtSwitches('browser', 'Preview Browser')}
           </div>

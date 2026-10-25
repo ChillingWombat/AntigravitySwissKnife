@@ -1157,7 +1157,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               const hasNonGeminiHealthy = Boolean(rules?.allow_non_gemini_native_models) && claude5h > threshold && isClaudeWeeklyHealthy
               const hasArgon5hQuota = typeof acc.quota_5h_argon === 'number'
               const hasArgonWeeklyQuota = typeof acc.quota_weekly_argon === 'number'
-              const showArgonQuota = hasArgon5h || hasArgon7d
               const isHealthy = (hasGeminiHealthy || hasNonGeminiHealthy) && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('BANNED') && Boolean(acc.refresh_token?.trim())
               const isNextSwitch = Boolean(nextSwitchCandidate && acc.email.toLowerCase() === nextSwitchCandidate.toLowerCase())
               return (
@@ -1241,19 +1240,15 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                 title={tooltip5hGemini}
                               />
                             </div>
-                            {hasArgon5h && (
+                            {hasArgon5hQuota && (
                               <div>
                                 <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                                   <span>Argon</span>
                                 </div>
-                                {hasArgon5hQuota ? (
-                                  <HorizontalQuotaBar
-                                    fraction={acc.quota_5h_argon}
-                                    title={acc.reset_horizon_5h_argon_text || 'Gemini 4 Argon 5H cycle'}
-                                  />
-                                ) : (
-                                  <span style={{ fontSize: '12px', color: 'var(--text-subtle)' }}>N/A</span>
-                                )}
+                                <HorizontalQuotaBar
+                                  fraction={acc.quota_5h_argon}
+                                  title={acc.reset_horizon_5h_argon_text || 'Gemini 4 Argon 5H cycle'}
+                                />
                               </div>
                             )}
                             <div>
@@ -1268,7 +1263,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           </div>
                         )
                       }
-                      if (hasArgon5h) {
+                      if (hasArgon5hQuota) {
                         return (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                             <div>
@@ -1284,14 +1279,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                               <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                                 <span>Argon</span>
                               </div>
-                              {hasArgon5hQuota ? (
-                                <HorizontalQuotaBar
-                                  fraction={acc.quota_5h_argon}
-                                  title={acc.reset_horizon_5h_argon_text || 'Gemini 4 Argon 5H cycle'}
-                                />
-                              ) : (
-                                <span style={{ fontSize: '12px', color: 'var(--text-subtle)' }}>N/A</span>
-                              )}
+                              <HorizontalQuotaBar
+                                fraction={acc.quota_5h_argon}
+                                title={acc.reset_horizon_5h_argon_text || 'Gemini 4 Argon 5H cycle'}
+                              />
                             </div>
                           </div>
                         )
@@ -1307,31 +1298,30 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
                   <td style={{ padding: '12px', verticalAlign: 'top' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                      <div>
-                        {showArgonQuota && (
+                      {hasArgonWeeklyQuota ? (
+                        <>
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                             <span>Gemini</span>
                           </div>
-                        )}
-                        <HorizontalQuotaBar
-                          fraction={acc.quota_weekly ?? 0}
-                          title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
-                        />
-                      </div>
-                      {hasArgon7d && (
+                          <HorizontalQuotaBar
+                            fraction={acc.quota_weekly ?? 0}
+                            title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
+                          />
                         <div>
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
                             <span>Argon</span>
                           </div>
-                          {hasArgonWeeklyQuota ? (
-                            <HorizontalQuotaBar
-                              fraction={acc.quota_weekly_argon}
-                              title={acc.reset_horizon_weekly_argon_text || 'Gemini 4 Argon 7D cycle'}
-                            />
-                          ) : (
-                            <span style={{ fontSize: '12px', color: 'var(--text-subtle)' }}>N/A</span>
-                          )}
+                          <HorizontalQuotaBar
+                            fraction={acc.quota_weekly_argon}
+                            title={acc.reset_horizon_weekly_argon_text || 'Gemini 4 Argon 7D cycle'}
+                          />
                         </div>
+                        </>
+                      ) : (
+                        <HorizontalQuotaBar
+                          fraction={acc.quota_weekly ?? 0}
+                          title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
+                        />
                       )}
                       {rules?.allow_non_gemini_native_models && (
                         <div>

@@ -777,10 +777,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                5H Quota Threshold Trigger:
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Triggers proactive rotation when the active account 5H quota drops to or below this threshold.
+                5H Quota Threshold:
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
@@ -792,7 +789,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 value={thresholdText}
                 onChange={(e) => handleThresholdTextChange(e.target.value, setThreshold, setThresholdText)}
                 onBlur={() => commitThresholdPercent(thresholdText, threshold, setThreshold, setThresholdText)}
-                style={{ width: '80px', textAlign: 'center' }}
+                style={{ width: '60px', textAlign: 'center' }}
                 aria-label="5H Quota Threshold Percent"
               />
               <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }}>%</span>
@@ -803,10 +800,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                7-Day (Weekly) Quota Threshold Trigger:
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Triggers auto-rotation when the active account 7D quota drops to or below this threshold, preventing lockouts when 5H quota remains high.
+                7-Day Quota Threshold:
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
@@ -818,7 +812,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
                 value={weeklyThresholdText}
                 onChange={(e) => handleThresholdTextChange(e.target.value, setWeeklyThreshold, setWeeklyThresholdText)}
                 onBlur={() => commitThresholdPercent(weeklyThresholdText, weeklyThreshold, setWeeklyThreshold, setWeeklyThresholdText)}
-                style={{ width: '80px', textAlign: 'center' }}
+                style={{ width: '60px', textAlign: 'center' }}
                 aria-label="7D Quota Threshold Percent"
               />
               <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }}>%</span>
@@ -834,14 +828,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                 Account Quota Refresh Frequency:
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Controls how often account quota levels are checked. Dynamic mode adapts frequency to remaining 5H quota.
-              </div>
             </div>
             <select
               value={quotaRefreshMode}
               onChange={(e) => setQuotaRefreshMode(e.target.value as QuotaRefreshMode)}
-              style={{ width: '190px' }}
+              style={{ width: '240px', minWidth: '240px' }}
               aria-label="Account Quota Refresh Frequency Mode"
             >
               <option value="dynamic">Dynamic Adaptive Refresh</option>

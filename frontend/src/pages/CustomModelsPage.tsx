@@ -1336,7 +1336,7 @@ export const CustomModelsPage: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {topBarActions}
 
       <div
@@ -1348,7 +1348,6 @@ export const CustomModelsPage: React.FC = () => {
           gap: '16px',
           flexWrap: 'wrap',
           padding: '14px 18px',
-          marginBottom: '20px',
           backgroundColor: 'var(--surface)',
           border: '1px solid var(--border)',
           borderRadius: '14px',
