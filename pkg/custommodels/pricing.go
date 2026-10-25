@@ -157,15 +157,15 @@ func NormalizePricingProvider(provider, modelID string) string {
 }
 
 // FetchModelPricing resolves token pricing (USD per 1M tokens) using a strict hierarchy:
-// 1. Live dynamic sources: model provider endpoint, then the Google pricing page,
-//    then the third-party catalogs (OpenRouter / LiteLLM).
-// 2. Official provider specification — a bundled, offline LAST-RESORT fallback.
-//    It must stay BELOW the live catalogs: a hard-coded rate that happens to match
-//    short-circuits the lookup and pins a stale price (this is how gemini-4-argon
-//    kept the retired Flash-tier rate while every live catalog already carried the
-//    current one).
-// 3. If nothing matched, returns (nil, nil, nil, "unconfigured") so the UI displays
-//    null and requires manual entry.
+//  1. Live dynamic sources: model provider endpoint, then the Google pricing page,
+//     then the third-party catalogs (OpenRouter / LiteLLM).
+//  2. Official provider specification — a bundled, offline LAST-RESORT fallback.
+//     It must stay BELOW the live catalogs: a hard-coded rate that happens to match
+//     short-circuits the lookup and pins a stale price (this is how gemini-4-argon
+//     kept the retired Flash-tier rate while every live catalog already carried the
+//     current one).
+//  3. If nothing matched, returns (nil, nil, nil, "unconfigured") so the UI displays
+//     null and requires manual entry.
 func FetchModelPricing(ctx context.Context, modelID, provider, baseURL, apiKey string) (inPrice, cachedPrice, outPrice *float64, source string) {
 	cleanID := strings.TrimSpace(modelID)
 	if cleanID == "" {
@@ -404,16 +404,18 @@ func lookupOfficialProviderPricing(modelID, provider string) (*float64, *float64
 		"gemini-3-flash-low":      {0.50, 0.05, 3.00},
 		"gemini-3-flash-agent":    {0.50, 0.05, 3.00},
 		// Google Gemini 3.1 Pro / 2.5 Pro / 2.5 Flash
-		"gemini-pro-agent":        {2.00, 0.20, 12.00},
-		"gemini-3.1-pro-high":     {2.00, 0.20, 12.00},
-		"gemini-3.1-pro-low":      {2.00, 0.20, 12.00},
-		"gemini-3.1-pro":          {2.00, 0.20, 12.00},
-		"gemini-2.5-pro":          {1.25, 0.125, 10.00},
-		"gemini-2.5-flash":        {0.30, 0.03, 2.50},
-		"gemini-2.5-flash-lite":   {0.10, 0.01, 0.40},
-		"gemini-2.0-flash":        {0.10, 0.025, 0.40},
+		"gemini-pro-agent":      {2.00, 0.20, 12.00},
+		"gemini-3.1-pro-high":   {2.00, 0.20, 12.00},
+		"gemini-3.1-pro-low":    {2.00, 0.20, 12.00},
+		"gemini-3.1-pro":        {2.00, 0.20, 12.00},
+		"gemini-2.5-pro":        {1.25, 0.125, 10.00},
+		"gemini-2.5-flash":      {0.30, 0.03, 2.50},
+		"gemini-2.5-flash-lite": {0.10, 0.01, 0.40},
+		"gemini-2.0-flash":      {0.10, 0.025, 0.40},
 		// Anthropic Claude 4.6 / 3.7 / 3.5 / 3
 		"claude-sonnet-4-6":             {3.00, 0.30, 15.00},
+		"claude-opus-5-5-thinking":      {15.00, 1.50, 75.00},
+		"claude-opus-5-5":               {15.00, 1.50, 75.00},
 		"claude-opus-4-6-thinking":      {15.00, 1.50, 75.00},
 		"claude-opus-4-6":               {15.00, 1.50, 75.00},
 		"claude-3-7-sonnet":             {3.00, 0.30, 15.00},
@@ -844,6 +846,11 @@ func NormalizeCanonicalNativeModel(modelID, displayName string) (canonicalID, ca
 			lowID = lowID[:len(lowID)-len(suffix)]
 			break
 		}
+	}
+
+	switch lowID {
+	case "claude-opus-5-5", "claude-opus-5.5":
+		return "claude-opus-5-5", "Claude Opus 5.5"
 	}
 
 	if name == "" {
@@ -1365,4 +1372,3 @@ func (s *Store) EnsureHistoricalNativeModels(ctx context.Context, models []Catal
 		_ = s.saveLocked()
 	}
 }
-

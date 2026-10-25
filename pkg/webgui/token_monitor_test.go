@@ -70,6 +70,13 @@ func TestModelDetectionFromTranscriptStep0(t *testing.T) {
 			expectedProv: "anthropic",
 		},
 		{
+			name:         "Claude Opus 5.5 Genuine Selection",
+			settingsText: "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Claude Opus 5.5.\n</USER_SETTINGS_CHANGE>",
+			expectedID:   "claude-opus-5-5",
+			expectedName: "Claude Opus 5.5",
+			expectedProv: "anthropic",
+		},
+		{
 			name:         "Custom Model Selection",
 			settingsText: "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to deepseek-chat.\n</USER_SETTINGS_CHANGE>",
 			expectedID:   "deepseek-chat",
@@ -109,6 +116,32 @@ func TestModelDetectionFromTranscriptStep0(t *testing.T) {
 			}
 			if mProv != tc.expectedProv {
 				t.Errorf("expected provider %q, got %q", tc.expectedProv, mProv)
+			}
+		})
+	}
+}
+
+func TestMapModelNameToMetadata_ClaudeOpus55Aliases(t *testing.T) {
+	aliases := []string{
+		"Claude Opus 5.5",
+		"claude-opus-5-5",
+		"claude-opus-5.5",
+		"claude opus 5-5",
+		"opus 5.5",
+		"opus-5-5",
+		"opus5.5",
+	}
+	for _, alias := range aliases {
+		t.Run(alias, func(t *testing.T) {
+			modelID, displayName, provider := mapModelNameToMetadata(alias, nil, nil)
+			if modelID != "claude-opus-5-5" {
+				t.Errorf("expected modelID %q, got %q", "claude-opus-5-5", modelID)
+			}
+			if displayName != "Claude Opus 5.5" {
+				t.Errorf("expected displayName %q, got %q", "Claude Opus 5.5", displayName)
+			}
+			if provider != "anthropic" {
+				t.Errorf("expected provider %q, got %q", "anthropic", provider)
 			}
 		})
 	}

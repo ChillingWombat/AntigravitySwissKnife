@@ -2233,15 +2233,17 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAvailableModels(w http.ResponseWriter, r *http.Request) {
 	store, _ := keyring.NewStore("")
+	var accounts []*keyring.Account
 	var acc *keyring.Account
 	if store != nil {
+		accounts = store.ListAccounts()
 		active := store.ActiveAccount()
 		if active != "" {
 			acc, _ = store.GetAccount(active)
 		}
 	}
 	force := r.URL.Query().Get("force") == "true" || r.URL.Query().Get("refresh") == "true"
-	catalog := quota.GetAvailableModelCatalog(acc, force)
+	catalog := quota.GetAvailableModelCatalogFleet(accounts, acc, force)
 	writeJSON(w, catalog)
 }
 

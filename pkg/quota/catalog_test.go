@@ -10,6 +10,35 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
 
+func catalogModelIDs(models []ModelOption) []string {
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.ID)
+	}
+	return ids
+}
+
+func assertCatalogModelIDs(t *testing.T, name string, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s length mismatch: want %v, got %v", name, want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s order mismatch at %d: want %v, got %v", name, i, want, got)
+		}
+	}
+}
+
+func containsCatalogModel(models []ModelOption, id string) bool {
+	for _, model := range models {
+		if model.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func TestGetAvailableModelCatalog_Defaults(t *testing.T) {
 	cat := GetAvailableModelCatalog(nil, true)
 	if cat == nil {
@@ -24,11 +53,17 @@ func TestGetAvailableModelCatalog_Defaults(t *testing.T) {
 	if cat.DefaultNonGemini != "claude-opus-4-6-thinking" {
 		t.Errorf("expected default non-gemini 'claude-opus-4-6-thinking', got '%s'", cat.DefaultNonGemini)
 	}
-	if len(cat.GeminiModels) != 11 {
-		t.Errorf("expected 11 baseline Gemini models, got %d", len(cat.GeminiModels))
+	if len(cat.GeminiModels) != 12 {
+		t.Errorf("expected 12 baseline Gemini models, got %d", len(cat.GeminiModels))
 	}
-	if len(cat.NonGeminiModels) != 3 {
-		t.Errorf("expected 3 baseline Non-Gemini models, got %d", len(cat.NonGeminiModels))
+	if len(cat.NonGeminiModels) != 4 {
+		t.Errorf("expected 4 baseline Non-Gemini models, got %d", len(cat.NonGeminiModels))
+	}
+	if !containsCatalogModel(cat.GeminiModels, "gemini-4-argon") {
+		t.Errorf("expected gemini-4-argon in baseline Gemini models")
+	}
+	if !containsCatalogModel(cat.NonGeminiModels, "claude-opus-5-5") {
+		t.Errorf("expected claude-opus-5-5 in baseline Non-Gemini models")
 	}
 
 	// Verify first item of Gemini models is gemini-3.8-flash-high
@@ -42,9 +77,8 @@ func TestGetAvailableModelCatalog_Defaults(t *testing.T) {
 	}
 }
 
-// TestGetAvailableModelCatalog_LiveMock verifies a successful live fetch fully
-// replaces the baseline lists: models-map-only and tiered ids are not added,
-// and stale baseline ids are not re-added.
+// TestGetAvailableModelCatalog_LiveMock verifies live picker models are merged
+// into the baseline while models-map-only and tiered ids stay excluded.
 func TestGetAvailableModelCatalog_LiveMock(t *testing.T) {
 	origModelsURLs := CloudCodeModelsURLs
 	defer func() { CloudCodeModelsURLs = origModelsURLs }()
@@ -111,21 +145,10 @@ func TestGetAvailableModelCatalog_LiveMock(t *testing.T) {
 		t.Errorf("expected default non-gemini 'claude-opus-4-6-thinking', got '%s'", cat.DefaultNonGemini)
 	}
 
-	// Live picker lists replace the baseline entirely.
-	if len(cat.GeminiModels) != 1 || cat.GeminiModels[0].ID != "gemini-3.8-flash-medium" {
-		ids := make([]string, 0, len(cat.GeminiModels))
-		for _, m := range cat.GeminiModels {
-			ids = append(ids, m.ID)
-		}
-		t.Errorf("expected GeminiModels replaced by picker list [gemini-3.8-flash-medium], got %v", ids)
-	}
-	if len(cat.NonGeminiModels) != 1 || cat.NonGeminiModels[0].ID != "claude-experimental-preview" {
-		ids := make([]string, 0, len(cat.NonGeminiModels))
-		for _, m := range cat.NonGeminiModels {
-			ids = append(ids, m.ID)
-		}
-		t.Errorf("expected NonGeminiModels replaced by picker list [claude-experimental-preview], got %v", ids)
-	}
+	// Live picker models are unioned with the baseline and deduplicated by ID.
+	assertCatalogModelIDs(t, "GeminiModels", catalogModelIDs(cat.GeminiModels), catalogModelIDs(DefaultBaseGeminiModels()))
+	wantNonGemini := append(catalogModelIDs(DefaultBaseNonGeminiModels()), "claude-experimental-preview")
+	assertCatalogModelIDs(t, "NonGeminiModels", catalogModelIDs(cat.NonGeminiModels), wantNonGemini)
 
 	// Stale baseline ids and non-picker ids must not leak back in.
 	for _, m := range cat.GeminiModels {
@@ -170,9 +193,9 @@ func TestGetAvailableModelCatalog_ExcludeInternalSubsystemsAndCategorize(t *test
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"defaultAgentModelId": "gemini-3.8-flash-high",
-			"tabModelIds":         []string{"chat_20706", "chat_23310"},
-			"commandModelIds":     []string{"gemini-3-flash"},
+			"defaultAgentModelId":     "gemini-3.8-flash-high",
+			"tabModelIds":             []string{"chat_20706", "chat_23310"},
+			"commandModelIds":         []string{"gemini-3-flash"},
 			"imageGenerationModelIds": []string{"gemini-3.1-flash-image"},
 			"commitMessageModelIds":   []string{"gemini-3.5-flash-lite"},
 			"deprecatedModelIds": map[string]interface{}{
@@ -375,11 +398,13 @@ func TestGetAvailableModelCatalog_CloudCodePickerFixture(t *testing.T) {
 		"gemini-3.6-flash-low",
 		"gemini-pro-agent",
 		"gemini-3.1-pro-low",
+		"gemini-4-argon",
 	}
 	wantNonGemini := []string{
 		"claude-sonnet-4-6",
 		"claude-opus-4-6-thinking",
 		"gpt-oss-120b-medium",
+		"claude-opus-5-5",
 	}
 
 	gotGemini := make([]string, 0, len(cat.GeminiModels))
@@ -454,4 +479,97 @@ func TestGetAvailableModelCatalog_CloudCodePickerFixture(t *testing.T) {
 	}
 }
 
+func TestGetAvailableModelCatalogFleet(t *testing.T) {
+	origModelsURLs := CloudCodeModelsURLs
+	defer func() { CloudCodeModelsURLs = origModelsURLs }()
 
+	writePickerResponse := func(w http.ResponseWriter, defaultID string, modelIDs []string, models map[string]interface{}) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"defaultAgentModelId": defaultID,
+			"agentModelSorts": []map[string]interface{}{
+				{
+					"groups": []map[string]interface{}{
+						{"modelIds": modelIDs},
+					},
+				},
+			},
+			"models": models,
+		})
+	}
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Header.Get("Authorization") {
+		case "Bearer plus-token":
+			writePickerResponse(w, "gemini-fleet-plus",
+				[]string{"gemini-fleet-plus", "gemini-fleet-shared", "claude-fleet-plus"},
+				map[string]interface{}{
+					"gemini-fleet-plus": map[string]interface{}{
+						"displayName":   "Gemini Fleet Plus",
+						"modelProvider": "MODEL_PROVIDER_GOOGLE",
+					},
+					"gemini-fleet-shared": map[string]interface{}{
+						"displayName":   "Gemini Fleet Shared (Plus)",
+						"modelProvider": "MODEL_PROVIDER_GOOGLE",
+					},
+					"claude-fleet-plus": map[string]interface{}{
+						"displayName":   "Claude Fleet Plus",
+						"modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+					},
+				})
+		case "Bearer pro-token":
+			writePickerResponse(w, "gemini-fleet-pro",
+				[]string{"gemini-fleet-pro", "gpt-fleet-pro", "gemini-fleet-shared"},
+				map[string]interface{}{
+					"gemini-fleet-pro": map[string]interface{}{
+						"displayName":   "Gemini Fleet Pro",
+						"modelProvider": "MODEL_PROVIDER_GOOGLE",
+					},
+					"gpt-fleet-pro": map[string]interface{}{
+						"displayName":   "GPT Fleet Pro",
+						"modelProvider": "MODEL_PROVIDER_OPENAI",
+					},
+					"gemini-fleet-shared": map[string]interface{}{
+						"displayName":   "Gemini Fleet Shared (Pro)",
+						"modelProvider": "MODEL_PROVIDER_GOOGLE",
+					},
+				})
+		default:
+			http.Error(w, "unexpected authorization", http.StatusUnauthorized)
+		}
+	}))
+	defer mockServer.Close()
+	CloudCodeModelsURLs = []string{mockServer.URL}
+
+	plus := &keyring.Account{
+		Email:       "plus@example.com",
+		PlanTier:    PlanTierPlus,
+		AccessToken: "plus-token",
+	}
+	pro := &keyring.Account{
+		Email:       "pro@example.com",
+		PlanTier:    PlanTierPro,
+		AccessToken: "pro-token",
+	}
+
+	cat := GetAvailableModelCatalogFleet([]*keyring.Account{plus, pro}, pro, true)
+	if cat == nil || !cat.Success {
+		t.Fatalf("expected successful fleet catalog")
+	}
+
+	wantGemini := append(catalogModelIDs(DefaultBaseGeminiModels()),
+		"gemini-fleet-plus", "gemini-fleet-shared", "gemini-fleet-pro")
+	wantNonGemini := append(catalogModelIDs(DefaultBaseNonGeminiModels()),
+		"claude-fleet-plus", "gpt-fleet-pro")
+	assertCatalogModelIDs(t, "fleet GeminiModels", catalogModelIDs(cat.GeminiModels), wantGemini)
+	assertCatalogModelIDs(t, "fleet NonGeminiModels", catalogModelIDs(cat.NonGeminiModels), wantNonGemini)
+
+	if cat.DefaultGemini != "gemini-fleet-pro" {
+		t.Errorf("expected active account default gemini 'gemini-fleet-pro', got '%s'", cat.DefaultGemini)
+	}
+	for _, model := range cat.GeminiModels {
+		if model.ID == "gemini-fleet-shared" && model.DisplayName != "Gemini Fleet Shared (Pro)" {
+			t.Errorf("expected active fleet metadata for shared model, got '%s'", model.DisplayName)
+		}
+	}
+}

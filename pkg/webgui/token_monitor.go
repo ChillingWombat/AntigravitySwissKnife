@@ -512,7 +512,22 @@ func mapModelNameToMetadata(rawName string, customModels []custommodels.CustomMo
 	}
 
 	// 4. Anthropic models - strictly only when genuinely selected in settings
-	if strings.Contains(lower, "claude opus 4.6") || strings.Contains(lower, "claude-opus-4-6") || strings.Contains(lower, "claude opus") {
+	if strings.Contains(lower, "claude opus 5.5") ||
+		strings.Contains(lower, "claude-opus-5-5") ||
+		strings.Contains(lower, "claude-opus-5.5") ||
+		strings.Contains(lower, "claude opus 5-5") ||
+		strings.Contains(lower, "opus 5.5") ||
+		strings.Contains(lower, "opus-5-5") ||
+		strings.Contains(lower, "opus5.5") {
+		return "claude-opus-5-5", "Claude Opus 5.5", "anthropic"
+	}
+	if strings.Contains(lower, "claude opus 4.6") || strings.Contains(lower, "claude-opus-4-6") ||
+		strings.Contains(lower, "claude opus 4-6") || strings.Contains(lower, "claude-opus-4.6") {
+		return "claude-opus-4-6", "Claude Opus 4.6", "anthropic"
+	}
+	// Legacy unversioned Opus selections were treated as 4.6, but 5.5 must not fall through here.
+	if strings.Contains(lower, "claude opus") &&
+		!strings.Contains(lower, "5.5") && !strings.Contains(lower, "5-5") {
 		return "claude-opus-4-6", "Claude Opus 4.6", "anthropic"
 	}
 	if strings.Contains(lower, "claude 3.7 sonnet") || strings.Contains(lower, "claude-3-7-sonnet") || strings.Contains(lower, "claude sonnet") {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -35,10 +36,10 @@ type AvailableModelsCatalog struct {
 }
 
 var (
-	catalogMu         sync.RWMutex
-	cachedCatalog     *AvailableModelsCatalog
-	cachedAt          time.Time
-	cachedWithAccount bool
+	catalogMu        sync.RWMutex
+	cachedCatalog    *AvailableModelsCatalog
+	cachedAt         time.Time
+	cachedCatalogKey string
 )
 
 // DefaultBaseGeminiModels returns the base up-to-date Gemini models list,
@@ -57,6 +58,7 @@ func DefaultBaseGeminiModels() []ModelOption {
 		{ID: "gemini-3.6-flash-low", DisplayName: "Gemini 3.6 Flash (Low)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
 		{ID: "gemini-pro-agent", DisplayName: "Gemini 3.1 Pro (High)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
 		{ID: "gemini-3.1-pro-low", DisplayName: "Gemini 3.1 Pro (Low)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
+		{ID: "gemini-4-argon", DisplayName: "Gemini 4 Argon", ThinkingLevels: []string{"low", "medium", "high"}},
 	}
 }
 
@@ -68,65 +70,188 @@ func DefaultBaseNonGeminiModels() []ModelOption {
 		{ID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6 (Thinking)", SupportsThinking: true, ThinkingLevels: think, Recommended: true, Provider: "Anthropic"},
 		{ID: "claude-opus-4-6-thinking", DisplayName: "Claude Opus 4.6 (Thinking)", SupportsThinking: true, ThinkingLevels: think, Recommended: true, Provider: "Anthropic"},
 		{ID: "gpt-oss-120b-medium", DisplayName: "GPT-OSS 120B (Medium)", SupportsThinking: true, ThinkingLevels: think, Provider: "OpenAI"},
+		{ID: "claude-opus-5-5", DisplayName: "Claude Opus 5.5", ThinkingLevels: []string{"low", "medium", "high"}},
 	}
 }
 
 // GetAvailableModelCatalog returns available models, fetching live models if possible.
 func GetAvailableModelCatalog(acc *keyring.Account, force bool) *AvailableModelsCatalog {
-	hasAcc := acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "")
+	var accounts []*keyring.Account
+	if acc != nil {
+		accounts = []*keyring.Account{acc}
+	}
+	return GetAvailableModelCatalogFleet(accounts, acc, force)
+}
+
+// GetAvailableModelCatalogFleet returns the union of live picker models from
+// every credentialed account, with the base catalog as the offline floor.
+func GetAvailableModelCatalogFleet(accounts []*keyring.Account, activeAccount *keyring.Account, force bool) *AvailableModelsCatalog {
+	fleet := normalizeFleetAccounts(accounts, activeAccount)
+	cacheKey := fleetCatalogCacheKey(fleet, activeAccount)
 
 	catalogMu.RLock()
-	if !force && cachedCatalog != nil && time.Since(cachedAt) < 2*time.Minute {
-		if !(hasAcc && !cachedWithAccount) {
-			defer catalogMu.RUnlock()
-			return cachedCatalog
-		}
+	if !force && cachedCatalog != nil && cachedCatalogKey == cacheKey && time.Since(cachedAt) < 2*time.Minute {
+		defer catalogMu.RUnlock()
+		return cachedCatalog
 	}
 	catalogMu.RUnlock()
 
 	catalogMu.Lock()
 	defer catalogMu.Unlock()
 
-	// Double check cache
-	if !force && cachedCatalog != nil && time.Since(cachedAt) < 2*time.Minute {
-		if !(hasAcc && !cachedWithAccount) {
-			return cachedCatalog
-		}
+	if !force && cachedCatalog != nil && cachedCatalogKey == cacheKey && time.Since(cachedAt) < 2*time.Minute {
+		return cachedCatalog
 	}
 
 	cat := &AvailableModelsCatalog{
 		Success:          true,
-		GeminiModels:     DefaultBaseGeminiModels(),
-		NonGeminiModels:  DefaultBaseNonGeminiModels(),
 		DefaultGemini:    "gemini-3.8-flash-high",
 		DefaultNonGemini: "claude-opus-4-6-thinking",
 		Timestamp:        time.Now(),
 	}
 
-	liveSuccess := false
+	type liveResult struct {
+		account   *keyring.Account
+		gemini    []ModelOption
+		nonGemini []ModelOption
+		defaultID string
+	}
 
-	if hasAcc {
-		// Live CloudCode fetchAvailableModels: the picker order is authoritative,
-		// so a successful fetch fully replaces the offline baseline lists.
-		liveGemini, liveNonGemini, defaultAgentID, err := fetchLiveAvailableModels(acc)
-		if err == nil && (len(liveGemini) > 0 || len(liveNonGemini) > 0) {
-			if len(liveGemini) > 0 {
-				cat.GeminiModels = liveGemini
+	var fetchable []*keyring.Account
+	for _, acc := range fleet {
+		if acc.AccessToken != "" || acc.RefreshToken != "" {
+			fetchable = append(fetchable, acc)
+		}
+	}
+	results := make([]liveResult, len(fetchable))
+	var wg sync.WaitGroup
+	for i, acc := range fetchable {
+		wg.Add(1)
+		go func(i int, acc *keyring.Account) {
+			defer wg.Done()
+			gemini, nonGemini, defaultID, err := fetchLiveAvailableModels(acc)
+			if err != nil {
+				return
 			}
-			if len(liveNonGemini) > 0 {
-				cat.NonGeminiModels = liveNonGemini
+			results[i] = liveResult{account: acc, gemini: gemini, nonGemini: nonGemini, defaultID: defaultID}
+		}(i, acc)
+	}
+	wg.Wait()
+
+	var liveGemini, liveNonGemini []ModelOption
+	var activeDefaultID, firstLiveDefaultID string
+	for _, result := range results {
+		if len(result.gemini) == 0 && len(result.nonGemini) == 0 {
+			continue
+		}
+		liveGemini = append(liveGemini, result.gemini...)
+		liveNonGemini = append(liveNonGemini, result.nonGemini...)
+		if result.defaultID != "" {
+			if firstLiveDefaultID == "" {
+				firstLiveDefaultID = result.defaultID
 			}
-			if defaultAgentID != "" {
-				cat.DefaultGemini = defaultAgentID
+			if sameFleetAccount(result.account, activeAccount) {
+				activeDefaultID = result.defaultID
 			}
-			liveSuccess = true
 		}
 	}
 
+	cat.GeminiModels = mergeModelOptions(DefaultBaseGeminiModels(), liveGemini)
+	cat.NonGeminiModels = mergeModelOptions(DefaultBaseNonGeminiModels(), liveNonGemini)
+	cat.DefaultGemini = selectCatalogDefault(cat.GeminiModels, activeDefaultID, firstLiveDefaultID, "gemini-3.8-flash-high")
+	cat.DefaultNonGemini = selectCatalogDefault(cat.NonGeminiModels, "claude-opus-4-6-thinking")
+
 	cachedCatalog = cat
 	cachedAt = time.Now()
-	cachedWithAccount = liveSuccess
+	cachedCatalogKey = cacheKey
 	return cat
+}
+
+func normalizeFleetAccounts(accounts []*keyring.Account, activeAccount *keyring.Account) []*keyring.Account {
+	fleet := make([]*keyring.Account, 0, len(accounts)+1)
+	seen := make(map[string]bool)
+	add := func(acc *keyring.Account) {
+		if acc == nil {
+			return
+		}
+		key := strings.ToLower(strings.TrimSpace(acc.Email))
+		if key == "" {
+			key = fmt.Sprintf("%p", acc)
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		fleet = append(fleet, acc)
+	}
+	for _, acc := range accounts {
+		add(acc)
+	}
+	add(activeAccount)
+	return fleet
+}
+
+func sameFleetAccount(a, b *keyring.Account) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	aEmail := strings.TrimSpace(a.Email)
+	return aEmail != "" && strings.EqualFold(aEmail, strings.TrimSpace(b.Email))
+}
+
+func fleetCatalogCacheKey(accounts []*keyring.Account, activeAccount *keyring.Account) string {
+	entries := make([]string, 0, len(accounts))
+	for _, acc := range accounts {
+		entries = append(entries, accountCatalogCacheKey(acc))
+	}
+	sort.Strings(entries)
+	return accountCatalogCacheKey(activeAccount) + "\n" + strings.Join(entries, "\n")
+}
+
+func accountCatalogCacheKey(acc *keyring.Account) string {
+	if acc == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%t|%t", strings.ToLower(strings.TrimSpace(acc.Email)), acc.PlanTier, acc.AccessToken != "", acc.RefreshToken != "")
+}
+
+func mergeModelOptions(groups ...[]ModelOption) []ModelOption {
+	var merged []ModelOption
+	positions := make(map[string]int)
+	for _, group := range groups {
+		for _, model := range group {
+			if model.ID == "" {
+				continue
+			}
+			if pos, ok := positions[model.ID]; ok {
+				merged[pos] = model
+				continue
+			}
+			positions[model.ID] = len(merged)
+			merged = append(merged, model)
+		}
+	}
+	return merged
+}
+
+func selectCatalogDefault(models []ModelOption, preferred ...string) string {
+	for _, id := range preferred {
+		if id == "" {
+			continue
+		}
+		for _, model := range models {
+			if model.ID == id {
+				return id
+			}
+		}
+	}
+	if len(models) > 0 {
+		return models[0].ID
+	}
+	return ""
 }
 
 // isInternalModelID identifies internal utility, autocomplete, or quota-bucket models.
