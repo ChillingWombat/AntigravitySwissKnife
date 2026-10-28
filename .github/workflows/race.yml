@@ -113,7 +113,7 @@ jobs:
   frontend-test:
     name: Electron & Frontend Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

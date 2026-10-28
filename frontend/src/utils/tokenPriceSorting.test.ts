@@ -582,10 +582,12 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
           } as any
         }) as any
 
+        let unmountFn: (() => void) | undefined
         try {
           const { querySelectorAll, unmount } = await mount(
             React.createElement(TokenMonitorPage, { activeTab: 1 })
           )
+          unmountFn = unmount
           await act(async () => {
             await new Promise((resolve) => setTimeout(resolve, 30))
           })
@@ -593,7 +595,7 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
           const tables = querySelectorAll('table')
           const table = tables.find((t) => {
             const ths = Array.from(t.querySelectorAll('thead th')).map((h) => h.textContent?.trim())
-            return ths.includes('Time') && ths.includes('Status')
+            return ths.includes('Time') && ths.includes('Tokens (In / Cache / Out)')
           })
           assert.ok(table, 'Telemetry table must be rendered')
 
@@ -604,9 +606,10 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
           assert.match(rowText, /1\.00B cache/, 'Telemetry row must format cached tokens with B unit')
           assert.match(rowText, /1\.00B out/, 'Telemetry row must format output tokens with B unit')
           assert.doesNotMatch(rowText, /1000\.00M/, 'Telemetry row must not format 1e9 as 1000.00M')
-
-          unmount()
         } finally {
+          if (unmountFn) {
+            unmountFn()
+          }
           globalThis.fetch = originalFetch
           cancelAllInFlightRequests()
         }
