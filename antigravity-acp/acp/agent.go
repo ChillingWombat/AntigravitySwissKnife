@@ -191,12 +191,23 @@ func (a *Agent) LoadSession(ctx context.Context, p acpsdk.LoadSessionRequest) (a
 		return acpsdk.LoadSessionResponse{}, err
 	}
 	for _, ev := range events {
-		if ev.Kind != surface.EventText || ev.Text == "" {
+		if ev.Text == "" {
+			continue
+		}
+		// History must preserve who spoke: replaying a user turn as an agent
+		// message makes the transcript claim the agent said it.
+		var update acpsdk.SessionUpdate
+		switch ev.Kind {
+		case surface.EventUserText:
+			update = acpsdk.UpdateUserMessageText(ev.Text)
+		case surface.EventText:
+			update = acpsdk.UpdateAgentMessageText(ev.Text)
+		default:
 			continue
 		}
 		if err := a.conn.SessionUpdate(ctx, acpsdk.SessionNotification{
 			SessionId: p.SessionId,
-			Update:    acpsdk.UpdateAgentMessageText(ev.Text),
+			Update:    update,
 		}); err != nil {
 			return acpsdk.LoadSessionResponse{}, err
 		}

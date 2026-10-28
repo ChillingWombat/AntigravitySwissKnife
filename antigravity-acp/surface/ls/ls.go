@@ -116,6 +116,12 @@ type step struct {
 	PlannerResponse *struct {
 		Response string `json:"response"`
 	} `json:"plannerResponse"`
+	UserInput *struct {
+		UserResponse string `json:"userResponse"`
+		Items        []struct {
+			Text string `json:"text"`
+		} `json:"items"`
+	} `json:"userInput"`
 	ErrorMessage *struct {
 		Error struct {
 			ShortError       string `json:"shortError"`
@@ -123,6 +129,24 @@ type step struct {
 		} `json:"error"`
 		Message string `json:"message"`
 	} `json:"errorMessage"`
+}
+
+// userTurnText is the prompt a user turn carried. userResponse is authoritative;
+// items is the fallback for steps recorded before it was populated.
+func (st step) userTurnText() string {
+	if st.UserInput == nil {
+		return ""
+	}
+	if text := strings.TrimSpace(st.UserInput.UserResponse); text != "" {
+		return text
+	}
+	parts := make([]string, 0, len(st.UserInput.Items))
+	for _, item := range st.UserInput.Items {
+		if text := strings.TrimSpace(item.Text); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (s *Surface) Send(ctx context.Context, sessionID, prompt string, emit func(surface.Event) error) (surface.StopReason, error) {
@@ -333,7 +357,9 @@ func cwdFromWorkspaceURI(raw string) string {
 	return cwd
 }
 
-// History replays the planner responses already recorded in a cascade.
+// History replays the turns already recorded in a cascade, user input included.
+// Replaying only planner text produced a one-sided transcript that read as if the
+// agent had been talking to itself.
 func (s *Surface) History(ctx context.Context, sessionID string) ([]surface.Event, error) {
 	var reply struct {
 		Steps      []step `json:"steps"`
@@ -350,6 +376,9 @@ func (s *Surface) History(ctx context.Context, sessionID string) ([]surface.Even
 	}
 	events := make([]surface.Event, 0, len(steps))
 	for _, st := range steps {
+		if text := st.userTurnText(); text != "" {
+			events = append(events, surface.Event{Kind: surface.EventUserText, Text: text})
+		}
 		if st.PlannerResponse != nil && st.PlannerResponse.Response != "" {
 			events = append(events, surface.Event{Kind: surface.EventText, Text: st.PlannerResponse.Response})
 		}
