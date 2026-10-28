@@ -824,15 +824,10 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   }}
                 >
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <AppWindow size={16} color={runtimeMode === 'app' ? 'var(--primary)' : 'var(--text-muted)'} />
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                          App Mode (Default)
-                        </span>
-                      </div>
-                      <span className={`badge-chip ${runtimeMode === 'app' ? 'badge-blue' : 'badge-neutral'}`} style={{ fontSize: '10px', padding: '2px 8px' }}>
-                        {runtimeMode === 'app' ? 'ACTIVE' : 'SELECT'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <AppWindow size={16} color={runtimeMode === 'app' ? 'var(--primary)' : 'var(--text-muted)'} />
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                        App Mode (Default)
                       </span>
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
@@ -860,15 +855,10 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                   }}
                 >
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Server size={16} color={runtimeMode === 'daemon' ? 'var(--accent, #3b82f6)' : 'var(--text-muted)'} />
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                          Daemon Mode
-                        </span>
-                      </div>
-                      <span className={`badge-chip ${runtimeMode === 'daemon' ? 'badge-blue' : 'badge-neutral'}`} style={{ fontSize: '10px', padding: '2px 8px' }}>
-                        {runtimeMode === 'daemon' ? 'ACTIVE' : 'SELECT'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <Server size={16} color={runtimeMode === 'daemon' ? 'var(--accent, #3b82f6)' : 'var(--text-muted)'} />
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                        Daemon Mode
                       </span>
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
@@ -930,17 +920,10 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
 
           {/* Appearance (Theme Mode) Card */}
           <div className="google-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <div style={{ marginBottom: '16px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
                 Appearance
               </div>
-              <span className="badge-chip badge-neutral" style={{ fontSize: '10px', padding: '2px 8px' }}>
-                {savingTheme ? 'SAVING...' : themeMode === 'auto' ? 'FOLLOWS SYSTEM' : themeMode.toUpperCase()}
-              </span>
-            </div>
-
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: '1.45' }}>
-              Choose how the interface looks. Auto follows your operating system light or dark appearance.
             </div>
 
             {/* Theme Mode (1x3 Grid) */}
@@ -972,15 +955,10 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                     }}
                   >
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <Icon size={16} color={isActive ? 'var(--primary)' : 'var(--text-muted)'} />
-                          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                            {label}
-                          </span>
-                        </div>
-                        <span className={`badge-chip ${isActive ? 'badge-blue' : 'badge-neutral'}`} style={{ fontSize: '10px', padding: '2px 8px' }}>
-                          {isActive ? 'ACTIVE' : 'SELECT'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <Icon size={16} color={isActive ? 'var(--primary)' : 'var(--text-muted)'} />
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                          {label}
                         </span>
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
@@ -995,16 +973,10 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
 
           {/* App Access Password Protection Card */}
           <div className="google-card">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-              <div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                  App Access Password Protection
-                </div>
+            <div style={{ marginBottom: '14px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                App Access Password Protection
               </div>
-
-              <span className={`badge-chip ${isPasswordEnabled ? 'badge-green' : 'badge-neutral'}`}>
-                {isPasswordEnabled ? 'ENABLED / LOCKED' : 'OPTIONAL / DISABLED'}
-              </span>
             </div>
 
             {passwordFeedback && (
@@ -2039,7 +2011,7 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
 
           {/* Clean State Restore / Factory Reset Gadget */}
           <div className="google-card" style={{ border: '1px solid var(--border-danger)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>
                 Restore Antigravity Apps to Clean Unmodified State
               </div>
@@ -2053,13 +2025,6 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                 {isResetting ? 'Restoring...' : 'Restore Antigravity'}
               </button>
             </div>
-
-            <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Restore all Antigravity apps to default state and disable all enhancements.
-            </p>
-            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              This removes custom executable overrides, disables injected customizations, and resets state safely.
-            </p>
 
             {resetFeedback && (
               <div

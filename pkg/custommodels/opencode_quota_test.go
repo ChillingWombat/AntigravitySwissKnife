@@ -150,7 +150,7 @@ func TestOpenCodeLegacyBudgetMigration(t *testing.T) {
 		QuotaType:     QuotaTypeQuota,
 		Fraction:      &remaining,
 		HasPercentage: true,
-		Buckets:       []QuotaBucket{{Label: "7D", Fraction: &remaining, Value: "63% left"}},
+		Buckets:       []QuotaBucket{{Label: "7D", Fraction: &remaining, Value: "63%"}},
 	})
 	if err := store.SaveModel(migrated); err != nil {
 		t.Fatal(err)

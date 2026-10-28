@@ -20,14 +20,22 @@ int main(int argc, char *argv[]) {
     snprintf(bin_path, sizeof(bin_path), "%s.bin", exe_path);
 
     int has_no_sandbox = 0;
+    int has_ozone_hint = 0;
+    int has_disable_gpu = 0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--no-sandbox") == 0) {
             has_no_sandbox = 1;
-            break;
+        } else if (strncmp(argv[i], "--ozone-platform", 16) == 0) {
+            has_ozone_hint = 1;
+        } else if (strcmp(argv[i], "--disable-gpu") == 0) {
+            has_disable_gpu = 1;
         }
     }
 
-    char **new_argv = calloc((size_t)argc + 4, sizeof(char *));
+    const char *enable_gpu = getenv("ANTIGRAVITY_SWISS_ENABLE_GPU");
+    int force_gpu = (enable_gpu != NULL && strcmp(enable_gpu, "1") == 0);
+
+    char **new_argv = calloc((size_t)argc + 6, sizeof(char *));
     if (!new_argv) return 1;
 
     int idx = 0;
@@ -35,6 +43,12 @@ int main(int argc, char *argv[]) {
     if (!has_no_sandbox) {
         new_argv[idx++] = "--no-sandbox";
         new_argv[idx++] = "--disable-setuid-sandbox";
+    }
+    if (!has_ozone_hint) {
+        new_argv[idx++] = "--ozone-platform-hint=auto";
+    }
+    if (!has_disable_gpu && !force_gpu) {
+        new_argv[idx++] = "--disable-gpu";
     }
     for (int i = 1; i < argc; i++) {
         new_argv[idx++] = argv[i];
@@ -55,7 +69,7 @@ while [ -h "$SOURCE" ]; do
   [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
-exec "\${DIR}/antigravity-swiss-knife.bin" --no-sandbox --disable-setuid-sandbox "$@"
+exec "\${DIR}/antigravity-swiss-knife.bin" --no-sandbox --disable-setuid-sandbox --ozone-platform-hint=auto --disable-gpu "$@"
 `;
 
 exports.default = async function afterPack(context) {

@@ -178,9 +178,6 @@ export const WhatsAppBridgePage: React.FC = () => {
             <div style={{ fontSize: '16px', fontWeight: 700, color: waStatus.enabled ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
               {waStatus.status_text || (waStatus.enabled ? 'Online' : 'Standby')}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              {config.whatsapp.mode.toUpperCase()} Transport
-            </div>
           </div>
 
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
@@ -189,9 +186,6 @@ export const WhatsAppBridgePage: React.FC = () => {
             </div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {waStatus.identity || (config.whatsapp.phone_number_id ? `ID: ${config.whatsapp.phone_number_id}` : 'Local MCP Bridge')}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Verified sender target
             </div>
           </div>
 
@@ -202,9 +196,6 @@ export const WhatsAppBridgePage: React.FC = () => {
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
               {config.whatsapp.allowed_numbers?.length > 0 ? `${config.whatsapp.allowed_numbers.length} Numbers` : 'Open (Any Sender)'}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Allowed Phone Numbers policy
-            </div>
           </div>
 
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
@@ -214,23 +205,16 @@ export const WhatsAppBridgePage: React.FC = () => {
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
               {waStatus.last_message_at || 'Never'}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Bidirectional message log
-            </div>
           </div>
         </div>
       </div>
 
       {/* 2. Channel Configuration Settings */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
-          Channel Configuration
-        </div>
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
                 Integration Mode
               </div>
               <select
@@ -250,11 +234,8 @@ export const WhatsAppBridgePage: React.FC = () => {
             </div>
 
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
                 Phone Number ID / Sender ID
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Target sender identifier for cloud API or webhook routing.
               </div>
               <input
                 type="text"
@@ -274,7 +255,7 @@ export const WhatsAppBridgePage: React.FC = () => {
           {config.whatsapp.mode === 'cloud_api' ? (
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
               <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
                   Meta Permanent Access Token
                 </div>
                 <div style={{ position: 'relative' }}>
@@ -312,7 +293,7 @@ export const WhatsAppBridgePage: React.FC = () => {
               </div>
 
               <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
                   Webhook Verification Token
                 </div>
                 <input
@@ -330,11 +311,8 @@ export const WhatsAppBridgePage: React.FC = () => {
             </div>
           ) : (
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
                 Webhook Verification Token
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Shared secret token used to verify inbound webhook notifications.
               </div>
               <input
                 type="text"
@@ -351,11 +329,8 @@ export const WhatsAppBridgePage: React.FC = () => {
           )}
 
           <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
               Allowed Phone Numbers (Whitelist)
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-              Comma-separated international numbers with country code. Only whitelisted numbers can issue prompts to Antigravity agents.
             </div>
             <input
               type="text"

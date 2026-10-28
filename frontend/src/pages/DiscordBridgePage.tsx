@@ -206,9 +206,6 @@ export const DiscordBridgePage: React.FC = () => {
             <div style={{ fontSize: '16px', fontWeight: 700, color: dsStatus.enabled ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
               {dsStatus.status_text || (dsStatus.enabled ? 'Gateway Ready' : 'Standby')}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Discord Gateway v10
-            </div>
           </div>
 
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
@@ -217,9 +214,6 @@ export const DiscordBridgePage: React.FC = () => {
             </div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {config.discord.application_id || 'Unconfigured'}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Developer Portal App ID
             </div>
           </div>
 
@@ -230,9 +224,6 @@ export const DiscordBridgePage: React.FC = () => {
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
               {config.discord.allowed_channels?.length > 0 ? `${config.discord.allowed_channels.length} Allowed` : 'All Guild Channels'}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Restricts bot channels
-            </div>
           </div>
 
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
@@ -242,26 +233,16 @@ export const DiscordBridgePage: React.FC = () => {
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
               {dsStatus.last_message_at || 'Never'}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Latest agent dispatch
-            </div>
           </div>
         </div>
       </div>
 
       {/* 2. Bot Configuration Settings */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
-          Bot Configuration
-        </div>
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
               Discord Bot Token
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-              Token generated under the Bot tab in the Discord Developer Portal.
             </div>
             <div style={{ position: 'relative' }}>
               <input
@@ -298,11 +279,8 @@ export const DiscordBridgePage: React.FC = () => {
           </div>
 
           <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
               Application ID (Client ID)
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-              Discord Developer Portal General Information Application ID.
             </div>
             <input
               type="text"
@@ -320,11 +298,8 @@ export const DiscordBridgePage: React.FC = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
                 Allowed Channel IDs (Whitelist)
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Comma-separated Discord channel IDs. Leave blank to allow any channel the bot is added to.
               </div>
               <input
                 type="text"
@@ -336,11 +311,8 @@ export const DiscordBridgePage: React.FC = () => {
             </div>
 
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
                 Allowed User IDs (Whitelist)
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Comma-separated Discord user IDs. Leave blank to allow all server members.
               </div>
               <input
                 type="text"

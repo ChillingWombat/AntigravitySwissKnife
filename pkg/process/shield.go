@@ -508,6 +508,7 @@ func (s *Shield) LaunchHostIDE() error {
 	} else {
 		cmd = exec.Command(binPath)
 	}
+	cmd.Env = append(os.Environ(), "CLOUD_CODE_URL=http://127.0.0.1:8765")
 
 	if err := core.LaunchDetachedGUIProcess(cmd); err != nil {
 		return fmt.Errorf("failed to launch Antigravity (%s): %w", binPath, err)
@@ -733,6 +734,7 @@ func (s *Shield) RelaunchHostIDE() error {
 	} else {
 		cmd = exec.Command(binPath)
 	}
+	cmd.Env = append(os.Environ(), "CLOUD_CODE_URL=http://127.0.0.1:8765")
 
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err == nil {

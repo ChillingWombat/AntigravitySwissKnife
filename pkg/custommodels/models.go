@@ -331,6 +331,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Version:            "1.0.0",
 		InferenceSupported: true,
+		Integration:        DefaultIntegrationSettings(),
 		Models:             []CustomModel{},
 	}
 }

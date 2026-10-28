@@ -1399,8 +1399,17 @@ func TestIssue293CachedArgonExpiresAtReset(t *testing.T) {
 	}
 	breakdown := &LiveQuotaBreakdown{}
 	restoreCachedArgon(breakdown, cached, now)
-	if breakdown.Quota5hArgon != nil || breakdown.QuotaWeeklyArgon != nil {
-		t.Fatalf("expired cached Argon survived: 5h=%v weekly=%v", breakdown.Quota5hArgon, breakdown.QuotaWeeklyArgon)
+	if breakdown.Quota5hArgon == nil || *breakdown.Quota5hArgon != 1.0 {
+		t.Fatalf("expired cached 5h Argon = %v, want 1.0", breakdown.Quota5hArgon)
+	}
+	if breakdown.QuotaWeeklyArgon == nil || *breakdown.QuotaWeeklyArgon != 1.0 {
+		t.Fatalf("expired cached weekly Argon = %v, want 1.0", breakdown.QuotaWeeklyArgon)
+	}
+	if breakdown.ResetSeconds5hArgon != 0 || breakdown.ResetSecondsWeeklyArgon != 0 {
+		t.Fatalf("expired cached reset seconds: 5h=%v weekly=%v, want 0", breakdown.ResetSeconds5hArgon, breakdown.ResetSecondsWeeklyArgon)
+	}
+	if breakdown.ResetHorizon5hArgonText != "Ready" || breakdown.ResetHorizonWeeklyArgonText != "Ready" {
+		t.Fatalf("expired cached reset horizon: 5h=%q weekly=%q, want Ready", breakdown.ResetHorizon5hArgonText, breakdown.ResetHorizonWeeklyArgonText)
 	}
 }
 

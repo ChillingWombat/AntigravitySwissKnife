@@ -597,6 +597,10 @@ describe('accountPresentation utility', () => {
       assert.ok(pageSrc.includes('{hasArgonWeeklyQuota ? ('), 'should split the Gemini 7D cell only when the account has Argon 7D quota')
       assert.ok(modalSrc.includes('Gemini 4 Argon 5H Quota'), 'account details should show Argon 5H quota')
       assert.ok(modalSrc.includes('Gemini 4 Argon 7D Quota'), 'account details should show Argon 7D quota')
+      assert.ok(!modalSrc.includes('isProAccount ? initialWeekly : null'), 'AccountDetailModal must not synthesize Argon 7D quota from Gemini weekly quota')
+      assert.ok(!modalSrc.includes('isProAccount ? initial5h : null'), 'AccountDetailModal must not synthesize Argon 5H quota from Gemini 5H quota')
+      assert.ok(!modalSrc.includes('setLiveQuotaWeeklyArgon(q.quota_weekly_fraction)'), 'AccountDetailModal must not synthesize Argon 7D quota on live refresh')
+      assert.ok(!modalSrc.includes('setLiveQuota5hArgon(q.quota_5h_fraction)'), 'AccountDetailModal must not synthesize Argon 5H quota on live refresh')
     })
 
     it('verifies QuotaDashboardPage displays Credit column header and reduced column width', async () => {

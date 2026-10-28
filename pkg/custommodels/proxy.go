@@ -93,10 +93,25 @@ func (p *Proxy) tryCustomModel(w http.ResponseWriter, r *http.Request, body []by
 		RequestID string          `json:"requestId"`
 		Request   json.RawMessage `json:"request"`
 	}
-	if err := json.Unmarshal(body, &envelope); err != nil || strings.TrimSpace(envelope.Model) == "" {
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return false
+	}
+	if len(envelope.Request) == 0 && strings.TrimSpace(envelope.Model) == "" {
 		return false // not an envelope we understand: let it pass through
 	}
 	model := p.findCustomModel(envelope.Model)
+	if model == nil {
+		model = p.activeCustomModel()
+		if model != nil && model.ThinkingLevel == "" && model.SupportsThinking {
+			lowerModel := strings.ToLower(envelope.Model)
+			for _, lvl := range []string{"high", "medium", "low", "xhigh", "max"} {
+				if strings.HasSuffix(lowerModel, "-"+lvl) {
+					model.ThinkingLevel = lvl
+					break
+				}
+			}
+		}
+	}
 	if model == nil {
 		return false
 	}
@@ -194,6 +209,56 @@ func (p *Proxy) findCustomModel(modelID string) *CustomModel {
 			return &copy
 		}
 	}
+	return nil
+}
+
+// activeCustomModel returns the custom model that should override native model
+// execution, or nil if native models should execute unchanged.
+func (p *Proxy) activeCustomModel() *CustomModel {
+	if p.store == nil {
+		return nil
+	}
+	cfg := p.store.GetConfig()
+	activeID := strings.TrimSpace(cfg.ActiveModelID)
+	enabled := p.gw.enabledModels()
+	if activeID != "" {
+		for _, m := range enabled {
+			if m.ID == activeID || m.Name == activeID {
+				copy := m
+				return &copy
+			}
+		}
+	}
+
+	mode := strings.ToLower(strings.TrimSpace(cfg.Integration.Mode))
+	isCustomOnly := mode == "custom_only"
+	if !isCustomOnly && cfg.Integration.Apps != nil {
+		if app, ok := cfg.Integration.Apps["antigravity"]; ok && strings.EqualFold(app.Source, "custom") {
+			isCustomOnly = true
+		}
+	}
+	if isCustomOnly || cfg.GeminiQuotaExhausted {
+		defID := strings.TrimSpace(cfg.DefaultCustomModel)
+		if defID != "" {
+			for _, m := range enabled {
+				if m.ID == defID || m.Name == defID {
+					copy := m
+					return &copy
+				}
+			}
+		}
+		for _, m := range enabled {
+			if m.IsDefault {
+				copy := m
+				return &copy
+			}
+		}
+		if len(enabled) > 0 {
+			copy := enabled[0]
+			return &copy
+		}
+	}
+
 	return nil
 }
 

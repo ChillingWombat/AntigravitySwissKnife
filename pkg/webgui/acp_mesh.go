@@ -57,28 +57,19 @@ func matchACPAgent(id string, p process.ProcEntry) bool {
 	commLower := strings.TrimSuffix(commRaw, ".exe")
 
 	switch id {
-	case acpmesh.PresetAntigravity:
-		return (commLower == "antigravity" ||
+	case acpmesh.PresetAntigravityACP:
+		return (commLower == "antigravity-acp" ||
+			commLower == "antigravity" ||
+			commLower == "agy" ||
+			commLower == "agy-run" ||
+			commLower == "agy_acp_server" ||
+			strings.Contains(cmdLower, "antigravity-acp") ||
+			strings.Contains(cmdLower, "agy_acp_server") ||
 			strings.Contains(cmdLower, "/opt/antigravity/antigravity") ||
 			strings.Contains(cmdLower, "/antigravity.app/") ||
 			strings.HasSuffix(commRaw, "antigravity.exe")) &&
 			!strings.Contains(cmdLower, "--type=") &&
-			!strings.Contains(cmdLower, "swiss") &&
-			!strings.Contains(cmdLower, "agy") &&
-			commLower != "agy"
-	case acpmesh.PresetAntigravityCLI:
-		if !(commLower == "agy" || commLower == "agy-run" || commLower == "agy_acp_server" ||
-			strings.Contains(cmdLower, "/bin/agy") || strings.Contains(cmdLower, "agy_acp_server") ||
-			strings.Contains(cmdLower, "bin/agy --hub")) {
-			return false
-		}
-		return !strings.Contains(cmdLower, "swiss") && !strings.Contains(cmdLower, "antigravity-swiss-knife")
-	case acpmesh.PresetAntigravityVSCode:
-		if !(commLower == "antigravity-acp" || commLower == "antigravity-vscode" ||
-			(commLower == "code" && strings.Contains(cmdLower, "antigravity"))) {
-			return false
-		}
-		return !strings.Contains(cmdLower, "swiss")
+			!strings.Contains(cmdLower, "swiss")
 	case acpmesh.PresetDevin:
 		if !(commLower == "devin" || commLower == "devin-desktop" || commLower == "windsurf" ||
 			strings.Contains(cmdLower, "devin-desktop") || strings.Contains(cmdLower, "bin/devin") ||
@@ -150,31 +141,28 @@ func pgrepACPAgent(id string) (bool, int) {
 	}
 
 	exact := map[string][]string{
-		acpmesh.PresetAntigravity:       {"antigravity"},
-		acpmesh.PresetAntigravityCLI:    {"agy", "agy-run", "agy_acp_server"},
-		acpmesh.PresetAntigravityVSCode: {"antigravity-acp", "antigravity-vscode"},
-		acpmesh.PresetDevin:             {"devin", "devin-desktop", "windsurf"},
-		acpmesh.PresetOpenCode:          {"opencode"},
-		acpmesh.PresetDeepSeek:          {"dsh", "deepseek-harness"},
-		acpmesh.PresetPi:                {"pi", "pi-acp"},
-		acpmesh.PresetCodex:             {"codex"},
-		acpmesh.PresetClaudeCode:        {"claude"},
-		acpmesh.PresetCursor:            {"cursor"},
+		acpmesh.PresetAntigravityACP: {"antigravity-acp", "antigravity", "agy", "agy-run", "agy_acp_server"},
+		acpmesh.PresetDevin:          {"devin", "devin-desktop", "windsurf"},
+		acpmesh.PresetOpenCode:       {"opencode"},
+		acpmesh.PresetDeepSeek:       {"dsh", "deepseek-harness"},
+		acpmesh.PresetPi:             {"pi", "pi-acp"},
+		acpmesh.PresetCodex:          {"codex"},
+		acpmesh.PresetClaudeCode:     {"claude"},
+		acpmesh.PresetCursor:         {"cursor"},
 	}
 	patterns := map[string][]string{
-		acpmesh.PresetAntigravityCLI:    {"/bin/agy", "agy_acp_server"},
-		acpmesh.PresetAntigravityVSCode: {"antigravity-acp --surface vscode", "antigravity-vscode"},
-		acpmesh.PresetDevin:             {"devin-desktop", "bin/devin", "bin/windsurf"},
-		acpmesh.PresetOpenCode:          {"bin/opencode", "opencode acp"},
-		acpmesh.PresetDeepSeek:          {"deepseek-harness", "bin/dsh"},
-		acpmesh.PresetCodex:             {"bin/codex", "codex app-server"},
-		acpmesh.PresetClaudeCode:        {"bin/claude"},
-		acpmesh.PresetCursor:            {"/opt/Cursor/cursor"},
+		acpmesh.PresetAntigravityACP: {"antigravity-acp", "/bin/agy", "agy_acp_server"},
+		acpmesh.PresetDevin:          {"devin-desktop", "bin/devin", "bin/windsurf"},
+		acpmesh.PresetOpenCode:       {"bin/opencode", "opencode acp"},
+		acpmesh.PresetDeepSeek:       {"deepseek-harness", "bin/dsh"},
+		acpmesh.PresetCodex:          {"bin/codex", "codex app-server"},
+		acpmesh.PresetClaudeCode:     {"bin/claude"},
+		acpmesh.PresetCursor:         {"/opt/Cursor/cursor"},
 	}
 
 	for _, name := range exact[id] {
 		for _, pid := range pgrepPIDs("-x", name) {
-			if id == acpmesh.PresetAntigravity && !antigravityCmdlineAllowed(pid) {
+			if id == acpmesh.PresetAntigravityACP && !antigravityCmdlineAllowed(pid) {
 				continue
 			}
 			return true, pid
@@ -254,7 +242,7 @@ func buildACPNode(agent acpmesh.Resolved, running bool, pid int, hasExplicitEndp
 	}
 
 	binaryPath := agent.BinaryPath
-	if agent.ID == acpmesh.PresetAntigravityACP || agent.ID == acpmesh.PresetAntigravityVSCode {
+	if agent.ID == acpmesh.PresetAntigravityACP {
 		binaryPath = resolveAntigravityACPPath(binaryPath)
 	}
 
@@ -411,6 +399,9 @@ func (s *Server) handleUtilitiesACP(w http.ResponseWriter, r *http.Request) {
 	if requestedAgent == "agent-windsurf" {
 		requestedAgent = acpmesh.PresetDevin
 	}
+	if requestedAgent == "agent-antigravity" || requestedAgent == "antigravity" {
+		requestedAgent = acpmesh.PresetAntigravityACP
+	}
 	if requestedAgent != "" {
 		agents, _ := response["agents"].([]map[string]interface{})
 		filtered := make([]map[string]interface{}, 0, 1)
@@ -480,6 +471,12 @@ func (s *Server) handleACPAgentDelete(w http.ResponseWriter, r *http.Request) {
 		writeACPError(w, http.StatusBadRequest, "query parameter id is required")
 		return
 	}
+	if id == "agent-windsurf" {
+		id = acpmesh.PresetDevin
+	}
+	if id == "agent-antigravity" || id == "antigravity" {
+		id = acpmesh.PresetAntigravityACP
+	}
 
 	cfg, err := core.LoadConfig()
 	if err != nil {
@@ -520,6 +517,12 @@ func (s *Server) handleUtilitiesACPAgentDetect(w http.ResponseWriter, r *http.Re
 	if req.ID == "" {
 		writeACPError(w, http.StatusBadRequest, "id is required")
 		return
+	}
+	if req.ID == "agent-windsurf" {
+		req.ID = acpmesh.PresetDevin
+	}
+	if req.ID == "agent-antigravity" || req.ID == "antigravity" {
+		req.ID = acpmesh.PresetAntigravityACP
 	}
 
 	cfg, err := core.LoadConfig()
@@ -600,6 +603,9 @@ func (s *Server) handleUtilitiesACPPing(w http.ResponseWriter, r *http.Request) 
 	req.ID = strings.TrimSpace(req.ID)
 	if req.ID == "agent-windsurf" {
 		req.ID = acpmesh.PresetDevin
+	}
+	if req.ID == "agent-antigravity" || req.ID == "antigravity" {
+		req.ID = acpmesh.PresetAntigravityACP
 	}
 
 	cfg, err := core.LoadConfig()
@@ -759,6 +765,12 @@ func (s *Server) handleUtilitiesACPPrompt(w http.ResponseWriter, r *http.Request
 		writeACPError(w, http.StatusBadRequest, "id is required")
 		return
 	}
+	if req.ID == "agent-windsurf" {
+		req.ID = acpmesh.PresetDevin
+	}
+	if req.ID == "agent-antigravity" || req.ID == "antigravity" {
+		req.ID = acpmesh.PresetAntigravityACP
+	}
 	if strings.TrimSpace(req.Prompt) == "" {
 		writeACPError(w, http.StatusBadRequest, "prompt is required")
 		return
@@ -802,4 +814,46 @@ func (s *Server) handleUtilitiesACPPrompt(w http.ResponseWriter, r *http.Request
 		response[key] = value
 	}
 	writeJSON(w, response)
+}
+
+// handleUtilitiesACPSyncRegistry fetches the official ACP registry and updates preset settings.
+func (s *Server) handleUtilitiesACPSyncRegistry(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		RegistryURL string `json:"registry_url"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		writeACPError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+
+	updatedOverrides, count, err := acpmesh.SyncRegistry(ctx, req.RegistryURL, cfg.GetACPAgents())
+	if err != nil {
+		writeACPError(w, http.StatusBadGateway, "failed to sync registry: "+err.Error())
+		return
+	}
+
+	if err := cfg.SetACPAgents(updatedOverrides); err != nil {
+		writeACPError(w, http.StatusInternalServerError, "failed to save updated agents: "+err.Error())
+		return
+	}
+
+	resp := buildACPMeshResponse(cfg)
+	resp["synced"] = count
+	if count == 0 {
+		resp["summary"] = "ACP preset settings are already up to date with official registry"
+	} else {
+		resp["summary"] = fmt.Sprintf("Successfully synced %d preset ACP settings from official registry", count)
+	}
+	writeJSON(w, resp)
 }

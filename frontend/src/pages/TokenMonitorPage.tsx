@@ -16,7 +16,7 @@ import type {
 } from '../types'
 import { api, isAbortError } from '../api'
 import { ToggleSwitch } from '../components/ToggleSwitch'
-import { buildTrendBars, bucketLabel, OTHERS_COLOR, TREND_COLORS } from '../utils/tokenTrend'
+import { buildTrendBars, bucketLabel, generate24HourlyBuckets, OTHERS_COLOR, TREND_COLORS } from '../utils/tokenTrend'
 
 import {
   GEMINI_SELECTOR_ORDER,
@@ -159,6 +159,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   const [trendGroup, setTrendGroup] = useState<'model' | 'project'>('model')
   const [trendTopN, setTrendTopN] = useState<number>(5)
   const [hoverBucket, setHoverBucket] = useState<number | null>(null)
+  const [hoveredModelKey, setHoveredModelKey] = useState<string | null>(null)
+  const [hoveredProjectKey, setHoveredProjectKey] = useState<string | null>(null)
 
   const loadLiveMetrics = async (range: TokenRange = timeRange) => {
     try {
@@ -342,13 +344,18 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
       : v.toFixed(0)
   }
 
-  // The histogram is built exclusively from the backend's real per-bucket
-  // aggregates over the selected window (#125). There is no synthetic
-  // interpolation: an empty window renders an empty chart.
-  const trendBuckets: TokenTrendBucket[] = React.useMemo(
-    () => summary.trend?.buckets ?? [],
-    [summary]
-  )
+  // The histogram is built from the backend's real per-bucket aggregates (#125).
+  // For the 24H view, it guarantees 24 hourly bars (one for each hour of the preceding 24 hours).
+  const trendBuckets: TokenTrendBucket[] = React.useMemo(() => {
+    const is24h = (timeRange as string).toLowerCase() === '24h'
+    if (is24h) {
+      if (summary.trend?.buckets && summary.trend.buckets.length === 24) {
+        return summary.trend.buckets
+      }
+      return generate24HourlyBuckets(Date.now(), telemetryEvents)
+    }
+    return summary.trend?.buckets ?? []
+  }, [summary, timeRange, telemetryEvents])
 
   const bucketLabelFor = React.useCallback(
     (start: number) => bucketLabel(start, timeRange),
@@ -763,7 +770,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
         const W = 1000
         const H = 200
         const py = (v: number) => H - 12 - (v / maxVal) * (H - 24)
-        const tickEvery = Math.max(1, Math.ceil(n / 8))
+        const tickEvery = n === 24 ? 4 : Math.max(1, Math.ceil(n / 8))
         const slot = n > 0 ? W / n : W
         const barWidth = Math.max(2, Math.min(48, slot * 0.7))
 
@@ -843,7 +850,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                 ))}
               </select>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                per {timeRange === '24h' ? 'hour' : 'day'} · {timeRange.toUpperCase()} ·{' '}
+                per {(timeRange as string).toLowerCase() === '24h' ? 'hour' : 'day'} · {timeRange.toUpperCase()} ·{' '}
                 {unitMode === 'usd' ? 'USD' : unitMode === 'tokens' ? 'tokens' : 'requests'}
               </span>
             </div>
@@ -883,6 +890,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               {/* Main SVG Chart & X-Axis */}
               <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
                 <svg
+                  data-testid="token-trend-svg"
                   viewBox={`0 0 ${W} ${H}`}
                   style={{ width: '100%', height: '200px', display: 'block' }}
                   preserveAspectRatio="none"
@@ -1047,13 +1055,13 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             </h3>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
             {modelBreakdowns.length === 0 ? (
               <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                 No model token usage recorded yet. Start interacting with agent models to see consumption breakdowns.
               </div>
             ) : (
-              modelBreakdowns.map((m) => {
+              modelBreakdowns.map((m, idx) => {
                 const pct =
                   unitMode === 'usd'
                     ? summary.total_cost_usd > 0
@@ -1067,9 +1075,27 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     ? (m.total_tokens / summary.total_tokens) * 100
                     : 0
                 const provLower = (m.provider || '').toLowerCase()
+                const modelKey = m.canonical_id || m.model_id || null
+                const isHovered = hoveredModelKey === modelKey
+                const speedText = m.avg_tps && m.avg_tps > 0 ? `${m.avg_tps} TPS` : '— TPS'
+                const reqCachedText = `${m.requests} requests • ${formatTokens(m.cached_tokens)} cached${m.price_missing ? ' • Price null (set in Token Price)' : ''}`
+                const tooltipText = `Speed: ${speedText} • ${reqCachedText}`
+
                 return (
-                  <div key={m.canonical_id || m.model_id}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', marginBottom: '4px', gap: '8px' }}>
+                  <div
+                    key={modelKey}
+                    onMouseEnter={() => setHoveredModelKey(modelKey)}
+                    onMouseLeave={() => setHoveredModelKey(null)}
+                    title={tooltipText}
+                    style={{
+                      position: 'relative',
+                      padding: '6px 8px',
+                      borderRadius: '8px',
+                      backgroundColor: isHovered ? 'var(--tonal)' : 'transparent',
+                      transition: 'background-color 0.15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', marginBottom: '6px', gap: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 600, color: 'var(--text)' }}>{m.model_name || m.name}</span>
                         <span
@@ -1109,13 +1135,32 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                         }}
                       />
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      <span>Speed: {m.avg_tps && m.avg_tps > 0 ? `${m.avg_tps} TPS` : '— TPS'}</span>
-                      <span>
-                        {m.requests} requests • {formatTokens(m.cached_tokens)} cached
-                        {m.price_missing ? ' • Price null (set in Token Price)' : ''}
-                      </span>
-                    </div>
+                    {isHovered && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          ...(idx === 0 ? { top: 'calc(100% + 4px)' } : { bottom: 'calc(100% + 2px)' }),
+                          backgroundColor: 'var(--surface, #ffffff)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '6px',
+                          padding: '4px 10px',
+                          fontSize: '11px',
+                          color: 'var(--text-muted)',
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+                          zIndex: 20,
+                          whiteSpace: 'nowrap',
+                          pointerEvents: 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                        }}
+                      >
+                        <span style={{ color: 'var(--text)', fontWeight: 600 }}>Speed: {speedText}</span>
+                        <span>•</span>
+                        <span>{reqCachedText}</span>
+                      </div>
+                    )}
                   </div>
                 )
               })
@@ -1141,13 +1186,13 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             </h3>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
             {projectBreakdowns.length === 0 ? (
               <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                 No workspaces configured yet.
               </div>
             ) : (
-              projectBreakdowns.map((p) => {
+              projectBreakdowns.map((p, idx) => {
                 const pct =
                   unitMode === 'usd'
                     ? summary.total_cost_usd > 0
@@ -1160,9 +1205,33 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     : summary.total_tokens > 0
                     ? (p.total_tokens / summary.total_tokens) * 100
                     : 0
+                const projectKey = p.project_name
+                const isHovered = hoveredProjectKey === projectKey
+                const cacheHitRatioNum =
+                  typeof p.cache_hit_ratio === 'number'
+                    ? p.cache_hit_ratio
+                    : (p.input_tokens || 0) > 0
+                    ? (((p.cached_tokens || 0) / (p.input_tokens || 1)) * 100)
+                    : 0
+                const cacheHitText = `Cache hit: ${cacheHitRatioNum.toFixed(1)}%`
+                const activeText = p.last_active ? `Active ${p.last_active}` : p.workspace_path || '—'
+                const tooltipText = `${cacheHitText} • ${activeText}`
+
                 return (
-                  <div key={p.project_name}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+                  <div
+                    key={projectKey}
+                    onMouseEnter={() => setHoveredProjectKey(projectKey)}
+                    onMouseLeave={() => setHoveredProjectKey(null)}
+                    title={tooltipText}
+                    style={{
+                      position: 'relative',
+                      padding: '6px 8px',
+                      borderRadius: '8px',
+                      backgroundColor: isHovered ? 'var(--tonal)' : 'transparent',
+                      transition: 'background-color 0.15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
                       <span style={{ fontWeight: 600, color: 'var(--text)' }}>{p.project_name}</span>
                       <span style={{ fontWeight: 600, color: 'var(--primary)' }}>
                         {formatMetric(
@@ -1181,18 +1250,32 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                         }}
                       />
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      <span>
-                        Cache hit:{' '}
-                        {(typeof p.cache_hit_ratio === 'number'
-                          ? p.cache_hit_ratio
-                          : (p.input_tokens || 0) > 0
-                          ? (((p.cached_tokens || 0) / (p.input_tokens || 1)) * 100)
-                          : 0
-                        ).toFixed(1)}%
-                      </span>
-                      <span>{p.last_active ? `Active ${p.last_active}` : p.workspace_path}</span>
-                    </div>
+                    {isHovered && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          ...(idx === 0 ? { top: 'calc(100% + 4px)' } : { bottom: 'calc(100% + 2px)' }),
+                          backgroundColor: 'var(--surface, #ffffff)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '6px',
+                          padding: '4px 10px',
+                          fontSize: '11px',
+                          color: 'var(--text-muted)',
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+                          zIndex: 20,
+                          whiteSpace: 'nowrap',
+                          pointerEvents: 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                        }}
+                      >
+                        <span style={{ color: 'var(--text)', fontWeight: 600 }}>{cacheHitText}</span>
+                        <span>•</span>
+                        <span>{activeText}</span>
+                      </div>
+                    )}
                   </div>
                 )
               })
@@ -1629,30 +1712,29 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text)' }}>
                 In-Chat Telemetry Display
               </h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
-                Configure real-time per-chat metrics shown at the bottom action row of each assistant response alongside timestamp and copy controls.
-              </p>
             </div>
 
             {/* Scope Switcher: Aggregated vs Main Agent Only (Placed ABOVE the 2x2 grid) */}
             <div
               style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
                 padding: '14px 16px',
                 border: '1px solid var(--border)',
                 borderRadius: '6px',
                 backgroundColor: 'var(--surface, #ffffff)',
                 marginBottom: '16px',
+                flexWrap: 'wrap',
+                gap: '12px',
               }}
             >
               <div>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                   Main Conversation Metrics Scope
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  Choose whether metrics in the main chat reflect the main agent only or aggregate usage from concurrent subagents.
-                </div>
               </div>
-              <div style={{ marginTop: '10px' }}>
+              <div>
                 <div
                   style={{
                     display: 'inline-flex',
@@ -1919,13 +2001,12 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     <th style={{ padding: '8px 12px' }}>Tokens (In / Cache / Out)</th>
                     <th style={{ padding: '8px 12px' }}>Speed</th>
                     <th style={{ padding: '8px 12px' }}>Cost</th>
-                    <th style={{ padding: '8px 12px' }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredTelemetryEvents.length === 0 ? (
                     <tr>
-                      <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                      <td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                         No live telemetry sessions recorded for the selected filter.
                       </td>
                     </tr>
@@ -1962,20 +2043,6 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     </td>
                     <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)' }}>
                       {formatCost(ev.cost_usd)}
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <span
-                        style={{
-                          backgroundColor: '#e6f4ea',
-                          color: '#137333',
-                          padding: '2px 8px',
-                          borderRadius: '10px',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                        }}
-                      >
-                        Completed
-                      </span>
                     </td>
                   </tr>
                 ))

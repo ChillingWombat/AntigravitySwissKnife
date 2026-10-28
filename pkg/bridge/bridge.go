@@ -36,6 +36,8 @@ type Config struct {
 	// AgentBackend selects which Antigravity surface lead/model tools drive:
 	// "auto" (CLI when installed), "app" (2.0 desktop app) or "cli".
 	AgentBackend string `json:"agent_backend"`
+	// HTTPAllowlistMode configures outbound HTTP filtering: "always_allow" (default) or "whitelist_only".
+	HTTPAllowlistMode    string                `json:"http_allowlist_mode"`
 	// HTTPAllowlist gates local_http_request. An agent may only reach hosts listed
 	// here; anything else lands in HTTPPendingApprovals and is never called.
 	HTTPAllowlist        []string              `json:"http_allowlist"`
@@ -88,7 +90,8 @@ type BridgeStatus struct {
 	RecentAttempts    []AuthAttempt `json:"recent_attempts,omitempty"`
 	InvocationsCount  int           `json:"invocations_count"`
 	RecentInvocations []Invocation  `json:"recent_invocations"`
-	// Outbound HTTP gate: the hosts agents may call, and the hosts they asked for.
+	// Outbound HTTP gate: the mode, hosts agents may call, and the hosts they asked for.
+	HTTPAllowlistMode    string                `json:"http_allowlist_mode"`
 	HTTPAllowlist        []string              `json:"http_allowlist"`
 	HTTPPendingApprovals []HTTPApprovalRequest `json:"http_pending_approvals"`
 }
@@ -127,6 +130,7 @@ func DefaultConfig() Config {
 		Port:            8765,
 		OperatingMode:   "hybrid",
 		AgentBackend:    AgentAuto,
+		HTTPAllowlistMode: "always_allow",
 		TunnelType:      "quick",
 		TunnelURL:       "",
 		AuthToken:       GenerateSecureToken(),
@@ -459,6 +463,9 @@ func (s *Service) loadConfig() error {
 	if c.OperatingMode == "" {
 		c.OperatingMode = "hybrid"
 	}
+	if c.HTTPAllowlistMode == "" || (c.HTTPAllowlistMode != "whitelist_only" && c.HTTPAllowlistMode != "always_allow") {
+		c.HTTPAllowlistMode = "always_allow"
+	}
 	if normalized := normalizeAgentBackend(c.AgentBackend); normalized != agentUnknown {
 		c.AgentBackend = normalized
 	} else {
@@ -552,6 +559,15 @@ func (s *Service) UpdateConfig(c Config) error {
 	}
 	if c.OperatingMode == "" {
 		c.OperatingMode = s.config.OperatingMode
+	}
+	if c.HTTPAllowlistMode != "" {
+		if c.HTTPAllowlistMode == "whitelist_only" {
+			c.HTTPAllowlistMode = "whitelist_only"
+		} else {
+			c.HTTPAllowlistMode = "always_allow"
+		}
+	} else {
+		c.HTTPAllowlistMode = s.config.HTTPAllowlistMode
 	}
 	if normalized := normalizeAgentBackend(c.AgentBackend); normalized != agentUnknown {
 		c.AgentBackend = normalized
@@ -777,6 +793,7 @@ func (s *Service) GetStatus() BridgeStatus {
 		RecentAttempts:       s.authMgr.GetRecentAttempts(),
 		InvocationsCount:     len(s.invocations),
 		RecentInvocations:    recent,
+		HTTPAllowlistMode:    s.HTTPAllowlistMode(),
 		HTTPAllowlist:        append([]string{}, s.config.HTTPAllowlist...),
 		HTTPPendingApprovals: append([]HTTPApprovalRequest{}, s.config.HTTPPendingApprovals...),
 	}

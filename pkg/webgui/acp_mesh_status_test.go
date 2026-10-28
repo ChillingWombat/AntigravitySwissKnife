@@ -95,7 +95,7 @@ func TestAntigravityACPBinFallbackInCWD(t *testing.T) {
 	}
 	t.Chdir(dir)
 
-	for _, id := range []string{acpmesh.PresetAntigravityACP, acpmesh.PresetAntigravityVSCode} {
+	for _, id := range []string{acpmesh.PresetAntigravityACP} {
 		node := buildACPNode(acpmesh.Resolved{
 			ID:         id,
 			Name:       "Bundled Antigravity ACP",
@@ -118,7 +118,7 @@ func writeWebGUIFakeACP(t *testing.T) string {
 	}
 	script := filepath.Join(t.TempDir(), "antigravity-acp")
 	content := `#!/bin/sh
-if [ "$1" != "--surface" ] || [ "$2" != "cli" ]; then
+if [ "$1" != "--surface" ] || [ "$2" != "auto" ]; then
   exit 2
 fi
 while IFS= read -r line; do

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage, session, clipboard } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage, session, clipboard, screen } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -20,10 +20,19 @@ if (app && typeof app.setAppUserModelId === 'function') {
   app.setAppUserModelId('com.antigravity.swiss-knife');
 }
 
-// Only append no-sandbox switches if explicitly requested via environment variable
-if (process.platform === 'linux' && process.env.ELECTRON_NO_SANDBOX === '1' && app && app.commandLine) {
-  app.commandLine.appendSwitch('no-sandbox');
-  app.commandLine.appendSwitch('disable-setuid-sandbox');
+// Linux desktop configuration: use native Wayland when available and disable hardware GL
+// scanout buffers unless explicitly requested (prevents Intel i915 execbuf ENOMEM and XWayland unmap stalls).
+if (process.platform === 'linux' && app) {
+  if (typeof app.disableHardwareAcceleration === 'function' && process.env.ANTIGRAVITY_SWISS_ENABLE_GPU !== '1') {
+    app.disableHardwareAcceleration();
+  }
+  if (app.commandLine) {
+    if (process.env.ELECTRON_NO_SANDBOX === '1') {
+      app.commandLine.appendSwitch('no-sandbox');
+      app.commandLine.appendSwitch('disable-setuid-sandbox');
+    }
+    app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+  }
 }
 
 // Desktop background & close behavior settings (defaults to ON: minimize to system tray on window close)
@@ -245,10 +254,92 @@ function daemonAuthHeaders(extra = {}, maxAgeMs = 3000) {
 // Module State
 let mainWindow = null;
 let tray = null;
+let activeTrayContextMenu = null;
+let trayMenuInterval = null;
+let lastTrayMenuSignature = null;
+let trayMenuRevision = 0;
 let isQuitting = false;
 let isStoppingDaemon = false;
 let isTearingDown = false;
 let teardownCompleted = false;
+
+function isMainWindowUsable(win = mainWindow) {
+  if (!win) return false;
+  if (typeof win.isDestroyed === 'function' && win.isDestroyed()) return false;
+  if (win.webContents) {
+    if (typeof win.webContents.isDestroyed === 'function' && win.webContents.isDestroyed()) return false;
+    if (typeof win.webContents.isCrashed === 'function' && win.webContents.isCrashed()) return false;
+  }
+  return true;
+}
+
+async function showOrCreateMainWindow() {
+  if (!isMainWindowUsable(mainWindow)) {
+    mainWindow = null;
+    await createWindow({ forceShow: true });
+    return mainWindow;
+  }
+  try {
+    if (typeof mainWindow.isMinimized === 'function' && mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    if (typeof mainWindow.show === 'function') {
+      mainWindow.show();
+    }
+    if (process.platform !== 'linux' && typeof mainWindow.setAlwaysOnTop === 'function') {
+      mainWindow.setAlwaysOnTop(true);
+      setTimeout(() => {
+        try {
+          if (mainWindow && typeof mainWindow.setAlwaysOnTop === 'function' && !mainWindow.isDestroyed()) {
+            mainWindow.setAlwaysOnTop(false);
+          }
+        } catch (_) {}
+      }, 150).unref();
+    }
+    if (typeof mainWindow.moveTop === 'function') {
+      mainWindow.moveTop();
+    }
+    if (typeof mainWindow.focus === 'function') {
+      mainWindow.focus();
+    }
+    if (process.platform === 'linux') {
+      activateLinuxWindowOnDesktop(1);
+    }
+  } catch (err) {
+    console.warn('[Window] Failed to reveal existing window, recreating:', err.message);
+    try {
+      if (mainWindow && typeof mainWindow.destroy === 'function' && !mainWindow.isDestroyed()) {
+        mainWindow.destroy();
+      }
+    } catch (_) {}
+    mainWindow = null;
+    await createWindow({ forceShow: true });
+  }
+  return mainWindow;
+}
+
+async function toggleOrShowMainWindow() {
+  if (isMainWindowUsable(mainWindow) && typeof mainWindow.isVisible === 'function' && mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    if (process.platform === 'linux') {
+      mainWindow.close();
+    } else {
+      mainWindow.hide();
+    }
+    return;
+  }
+  await showOrCreateMainWindow();
+}
+
+function requestAppQuit() {
+  isQuitting = true;
+  if (trayMenuInterval) {
+    clearInterval(trayMenuInterval);
+    trayMenuInterval = null;
+  }
+  if (app && typeof app.quit === 'function') {
+    app.quit();
+  }
+}
 
 // Sidecar Daemon Manager instance
 const daemonManager = new DaemonManager({
@@ -279,15 +370,21 @@ function buildConnectingFallbackHtml() {
     body { background: #131314; color: #e3e3e3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
     h2 { margin-bottom: 8px; font-weight: 500; }
     p { color: #8e918f; font-size: 14px; margin-bottom: 24px; }
+    .actions { display: flex; gap: 12px; align-items: center; }
     button { background: #1a73e8; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; }
     button:hover { background: #1557b0; }
     button:disabled { background: #3c4043; cursor: not-allowed; }
+    #quitBtn { background: #282a2d; color: #c4c7c5; border: 1px solid #3c4043; }
+    #quitBtn:hover { background: #35373b; color: #e3e3e3; }
   </style>
 </head>
 <body>
   <h2>Connecting to Daemon...</h2>
   <p>The companion service is starting or unreachable on port 8765.</p>
-  <button id="retryBtn" type="button" onclick="checkAndRetry()">Retry Connection</button>
+  <div class="actions">
+    <button id="retryBtn" type="button" onclick="checkAndRetry()">Retry Connection</button>
+    <button id="quitBtn" type="button" onclick="window.electronAPI?.quitApp?.()">Quit Application</button>
+  </div>
   <script>
     const retryButton = document.getElementById("retryBtn");
     let retryInFlight = false;
@@ -339,12 +436,8 @@ if (app && typeof app.requestSingleInstanceLock === 'function') {
     app.quit();
     process.exit(0);
   } else {
-    app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        if (!mainWindow.isVisible()) mainWindow.show();
-        mainWindow.focus();
-      }
+    app.on('second-instance', async (_event, _commandLine, _workingDirectory) => {
+      await showOrCreateMainWindow();
     });
   }
 }
@@ -454,16 +547,80 @@ function switchAccountViaHttp(email) {
   }
 }
 
+function computeTrayMenuSignature({ activeAlias, quotaInfo, accountsCount, switchMenuItems }) {
+  const itemsSig = Array.isArray(switchMenuItems)
+    ? switchMenuItems.map((item) => `${item.label || ''}:${Boolean(item.enabled)}`).sort().join('|')
+    : '';
+  return `${activeAlias || ''}::${quotaInfo || ''}::${accountsCount || 0}::${itemsSig}`;
+}
+
+function applyTrayMenuState({
+  activeAlias = 'Not Logged In',
+  quotaInfo = '5H: 0% | 7D: 0%',
+  switchMenuItems = [],
+  accountsCount = 0,
+  force = false,
+} = {}) {
+  if (!tray || (typeof tray.isDestroyed === 'function' && tray.isDestroyed())) {
+    return false;
+  }
+
+  const signature = computeTrayMenuSignature({ activeAlias, quotaInfo, accountsCount, switchMenuItems });
+  if (!force && signature === lastTrayMenuSignature) {
+    return false;
+  }
+
+  const template = buildTrayMenuTemplate({
+    activeAlias,
+    quotaInfo,
+    switchMenuItems,
+    accountsCount,
+    onOpenDashboard: async () => {
+      await showOrCreateMainWindow();
+    },
+    onSystemSettings: async () => {
+      await showOrCreateMainWindow();
+      if (mainWindow && (typeof mainWindow.isDestroyed !== 'function' || !mainWindow.isDestroyed())) {
+        if (mainWindow.webContents && typeof mainWindow.webContents.isLoading === 'function' && mainWindow.webContents.isLoading()) {
+          mainWindow.webContents.once('did-finish-load', () => {
+            if (mainWindow && (typeof mainWindow.isDestroyed !== 'function' || !mainWindow.isDestroyed())) {
+              mainWindow.webContents.send('desktop:navigate', 2);
+            }
+          });
+        } else if (mainWindow.webContents) {
+          mainWindow.webContents.send('desktop:navigate', 2);
+        }
+      }
+    },
+    onQuit: () => {
+      requestAppQuit();
+    },
+  });
+
+  const contextMenu = Menu.buildFromTemplate(template);
+  activeTrayContextMenu = contextMenu;
+  tray.setContextMenu(contextMenu);
+  lastTrayMenuSignature = signature;
+  trayMenuRevision += 1;
+
+  // On Linux SNI hosts (e.g. GNOME status-tray OverflowButton), updating ToolTip
+  // with an em-dash suffix ("Antigravity Swiss Knife — ...") preserves the normalized
+  // appId/display name ("Antigravity Swiss Knife") while guaranteeing a PropertiesChanged
+  // signal on org.kde.StatusNotifierItem so cached DBusMenu item IDs are invalidated.
+  if (typeof tray.setToolTip === 'function') {
+    if (process.platform === 'linux') {
+      tray.setToolTip(`Antigravity Swiss Knife — ${activeAlias} (${quotaInfo}) [${trayMenuRevision}]`);
+    } else {
+      tray.setToolTip('Antigravity Swiss Knife');
+    }
+  }
+
+  return true;
+}
+
 let isUpdatingTrayMenu = false;
 
-async function updateTrayMenu() {
-  if (isUpdatingTrayMenu) return;
-  if (!tray || (typeof tray.isDestroyed === 'function' && tray.isDestroyed())) {
-    return;
-  }
-  isUpdatingTrayMenu = true;
-  try {
-
+async function fetchTrayMenuData() {
   let activeAccount = 'Not Logged In';
   let accountsList = [];
 
@@ -478,13 +635,41 @@ async function updateTrayMenu() {
   let fleetFetched = false;
   try {
     const fleetRes = await new Promise((resolve) => {
-      http.get(`${DAEMON_URL}/api/quota/fleet`, { timeout: 800, headers: daemonAuthHeaders() }, (res) => {
+      let resolved = false;
+      let req = null;
+      const finish = (val) => {
+        if (!resolved) {
+          resolved = true;
+          resolve(val);
+        }
+      };
+      const guardTimer = setTimeout(() => {
+        try { if (req) req.destroy(); } catch (_) {}
+        finish(null);
+      }, 1200);
+      guardTimer.unref();
+
+      req = http.get(`${DAEMON_URL}/api/quota/fleet`, { timeout: 800, headers: daemonAuthHeaders() }, (res) => {
         let body = '';
         res.on('data', (c) => { body += c; });
         res.on('end', () => {
-          try { resolve(JSON.parse(body)); } catch { resolve(null); }
+          clearTimeout(guardTimer);
+          try { finish(JSON.parse(body)); } catch { finish(null); }
         });
-      }).on('error', () => resolve(null));
+        res.on('error', () => {
+          clearTimeout(guardTimer);
+          finish(null);
+        });
+      });
+      req.on('timeout', () => {
+        clearTimeout(guardTimer);
+        req.destroy();
+        finish(null);
+      });
+      req.on('error', () => {
+        clearTimeout(guardTimer);
+        finish(null);
+      });
     });
 
     if (fleetRes && Array.isArray(fleetRes.accounts)) {
@@ -500,13 +685,41 @@ async function updateTrayMenu() {
   if (!fleetFetched || accountsList.length === 0) {
     try {
       const accRes = await new Promise((resolve) => {
-        http.get(`${DAEMON_URL}/api/accounts`, { timeout: 800, headers: daemonAuthHeaders() }, (res) => {
+        let resolved = false;
+        let req = null;
+        const finish = (val) => {
+          if (!resolved) {
+            resolved = true;
+            resolve(val);
+          }
+        };
+        const guardTimer = setTimeout(() => {
+          try { if (req) req.destroy(); } catch (_) {}
+          finish([]);
+        }, 1200);
+        guardTimer.unref();
+
+        req = http.get(`${DAEMON_URL}/api/accounts`, { timeout: 800, headers: daemonAuthHeaders() }, (res) => {
           let body = '';
           res.on('data', (c) => { body += c; });
           res.on('end', () => {
-            try { resolve(JSON.parse(body)); } catch { resolve([]); }
+            clearTimeout(guardTimer);
+            try { finish(JSON.parse(body)); } catch { finish([]); }
           });
-        }).on('error', () => resolve([]));
+          res.on('error', () => {
+            clearTimeout(guardTimer);
+            finish([]);
+          });
+        });
+        req.on('timeout', () => {
+          clearTimeout(guardTimer);
+          req.destroy();
+          finish([]);
+        });
+        req.on('error', () => {
+          clearTimeout(guardTimer);
+          finish([]);
+        });
       });
       if (Array.isArray(accRes)) {
         accountsList = accRes;
@@ -526,13 +739,41 @@ async function updateTrayMenu() {
   if (activeAccount && activeAccount !== 'Not Logged In' && (!activeAcc || activeAcc.quota_5h_current === undefined || activeAcc.quota_weekly === undefined)) {
     try {
       const singleQuota = await new Promise((resolve) => {
-        http.get(`${DAEMON_URL}/api/quota?email=${encodeURIComponent(activeAccount)}`, { timeout: 400, headers: daemonAuthHeaders() }, (res) => {
+        let resolved = false;
+        let req = null;
+        const finish = (val) => {
+          if (!resolved) {
+            resolved = true;
+            resolve(val);
+          }
+        };
+        const guardTimer = setTimeout(() => {
+          try { if (req) req.destroy(); } catch (_) {}
+          finish(null);
+        }, 800);
+        guardTimer.unref();
+
+        req = http.get(`${DAEMON_URL}/api/quota?email=${encodeURIComponent(activeAccount)}`, { timeout: 400, headers: daemonAuthHeaders() }, (res) => {
           let body = '';
           res.on('data', (c) => { body += c; });
           res.on('end', () => {
-            try { resolve(JSON.parse(body)); } catch { resolve(null); }
+            clearTimeout(guardTimer);
+            try { finish(JSON.parse(body)); } catch { finish(null); }
           });
-        }).on('error', () => resolve(null));
+          res.on('error', () => {
+            clearTimeout(guardTimer);
+            finish(null);
+          });
+        });
+        req.on('timeout', () => {
+          clearTimeout(guardTimer);
+          req.destroy();
+          finish(null);
+        });
+        req.on('error', () => {
+          clearTimeout(guardTimer);
+          finish(null);
+        });
       });
       if (singleQuota) {
         if (!activeAcc) {
@@ -564,84 +805,81 @@ async function updateTrayMenu() {
   }
 
   const quotaText = formatQuotaInfo(activeAcc);
-
   const switchMenuItems = buildSwitchMenuItems(accountsList, activeAccount, (email) => {
     switchAccountViaHttp(email);
   }, 0.10, 0.05, fleetFetched);
 
-  const template = buildTrayMenuTemplate({
+  return {
     activeAlias,
     quotaInfo: quotaText,
     switchMenuItems,
     accountsCount: accountsList.length,
-    onOpenDashboard: () => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        if (!mainWindow.isVisible()) mainWindow.show();
-        mainWindow.focus();
-      }
-    },
-    onSystemSettings: () => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        if (!mainWindow.isVisible()) mainWindow.show();
-        mainWindow.focus();
-        mainWindow.webContents.send('desktop:navigate', 2);
-      }
-    },
-    onQuit: () => {
-      app.quit();
-    },
-  });
+  };
+}
 
+async function updateTrayMenu(options = {}) {
+  if (isUpdatingTrayMenu || isQuitting || isTearingDown) return;
   if (!tray || (typeof tray.isDestroyed === 'function' && tray.isDestroyed())) {
     return;
   }
-
-  const contextMenu = Menu.buildFromTemplate(template);
-  tray.setContextMenu(contextMenu);
-} catch (err) {
-  console.error('[Tray] Error updating tray menu:', err);
-} finally {
-  isUpdatingTrayMenu = false;
+  isUpdatingTrayMenu = true;
+  try {
+    const state = await fetchTrayMenuData();
+    applyTrayMenuState({
+      ...state,
+      force: Boolean(options && options.force),
+    });
+  } catch (err) {
+    console.error('[Tray] Error updating tray menu:', err);
+  } finally {
+    isUpdatingTrayMenu = false;
+  }
 }
-}
 
-function createTray() {
+async function createTray() {
   const trayIcon = getTrayIcon();
   if (!trayIcon) return;
 
   try {
+    let initialState = {
+      activeAlias: 'Not Logged In',
+      quotaInfo: '5H: 0% | 7D: 0%',
+      switchMenuItems: [],
+      accountsCount: 0,
+    };
+    try {
+      initialState = await fetchTrayMenuData();
+    } catch (_) {}
+
     tray = new Tray(trayIcon);
     tray.setToolTip('Antigravity Swiss Knife');
 
-    tray.on('click', () => {
-      if (mainWindow) {
-        if (mainWindow.isVisible()) {
-          mainWindow.focus();
-        } else {
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      }
+    // Attach the live context menu synchronously right after Tray construction
+    // so StatusNotifierItem registers with revision 1 already populated.
+    applyTrayMenuState({
+      ...initialState,
+      force: true,
     });
 
-    tray.on('double-click', () => {
-      if (mainWindow) {
-        mainWindow.show();
-        mainWindow.focus();
-      }
+    tray.on('click', async () => {
+      await toggleOrShowMainWindow();
     });
 
-    updateTrayMenu();
+    tray.on('double-click', async () => {
+      await toggleOrShowMainWindow();
+    });
+
     // Periodically refresh tray state
-    setInterval(updateTrayMenu, 15000);
+    if (trayMenuInterval) {
+      clearInterval(trayMenuInterval);
+    }
+    trayMenuInterval = setInterval(updateTrayMenu, 15000);
   } catch (err) {
     console.warn('[Tray] Could not create system tray icon:', err.message);
   }
 }
 
-async function createWindow() {
+async function createWindow(options = {}) {
   const windowIcon = getWindowIcon();
   if (process.platform === 'darwin' && app.dock && windowIcon) {
     try {
@@ -659,18 +897,37 @@ async function createWindow() {
       try { app.dock.setIcon(windowIcon); } catch (__) {}
     }
   }
-  const startMinimized = process.argv.includes('--minimized') ||
-                         process.argv.includes('--hidden') ||
-                         app.getLoginItemSettings().wasOpenedAsHidden;
+  const forceShow = Boolean(options && options.forceShow);
+  const startMinimized = !forceShow && (
+    process.argv.includes('--minimized') ||
+    process.argv.includes('--hidden') ||
+    (app && typeof app.getLoginItemSettings === 'function' && app.getLoginItemSettings().wasOpenedAsHidden)
+  );
 
   // Disable default application menu bar
   Menu.setApplicationMenu(null);
+
+  let initialX;
+  let initialY;
+  try {
+    if (screen && typeof screen.getPrimaryDisplay === 'function') {
+      const primaryDisplay = screen.getPrimaryDisplay();
+      if (primaryDisplay && primaryDisplay.workArea) {
+        const { x, y, width, height } = primaryDisplay.workArea;
+        initialX = Math.round(x + (width - 1216) / 2);
+        initialY = Math.round(y + (height - 684) / 2);
+      }
+    }
+  } catch (_) {}
 
   mainWindow = new BrowserWindow({
     width: 1216,
     height: 684,
     minWidth: 1216,
     minHeight: 684,
+    ...(typeof initialX === 'number' && typeof initialY === 'number'
+      ? { x: initialX, y: initialY }
+      : { center: true }),
     title: 'Antigravity Swiss Knife',
     icon: windowIcon,
     show: !startMinimized,
@@ -685,6 +942,186 @@ async function createWindow() {
   });
 
   mainWindow.setMenu(null);
+
+  let linuxActivationInFlight = false;
+  const activateLinuxWindowOnDesktop = (attempt = 1) => {
+    if (process.platform !== 'linux') return;
+    if (!mainWindow || (typeof mainWindow.isDestroyed === 'function' && mainWindow.isDestroyed())) {
+      linuxActivationInFlight = false;
+      return;
+    }
+    if (attempt === 1) {
+      if (linuxActivationInFlight) return;
+      linuxActivationInFlight = true;
+    }
+    try {
+      const { execFile } = require('child_process');
+      execFile(
+        'gdbus',
+        [
+          'call',
+          '--session',
+          '--dest',
+          'org.gnome.Shell',
+          '--object-path',
+          '/org/gnome/Shell/Extensions/Windows',
+          '--method',
+          'org.gnome.Shell.Extensions.Windows.List',
+        ],
+        { timeout: 1000 },
+        (err, stdout) => {
+          let target = null;
+          if (!err && stdout) {
+            const match = stdout.match(/\('(\[.*\])',\)/s);
+            if (match) {
+              try {
+                const windows = JSON.parse(match[1]);
+                target = windows.find(
+                  (w) =>
+                    w.pid === process.pid ||
+                    (typeof w.wm_class === 'string' && w.wm_class.toLowerCase() === 'antigravity-swiss-knife')
+                );
+              } catch (_) {}
+            }
+          }
+
+          if (!target || !target.id) {
+            if (attempt < 12) {
+              const retryTimer = setTimeout(() => activateLinuxWindowOnDesktop(attempt + 1), 150);
+              if (retryTimer && typeof retryTimer.unref === 'function') {
+                retryTimer.unref();
+              }
+            } else {
+              linuxActivationInFlight = false;
+            }
+            return;
+          }
+
+          const winIdStr = String(target.id);
+          const callWindowsMethod = (methodName, cb) => {
+            execFile(
+              'gdbus',
+              [
+                'call',
+                '--session',
+                '--dest',
+                'org.gnome.Shell',
+                '--object-path',
+                '/org/gnome/Shell/Extensions/Windows',
+                '--method',
+                `org.gnome.Shell.Extensions.Windows.${methodName}`,
+                winIdStr,
+              ],
+              { timeout: 1000 },
+              (mErr, mOut) => {
+                if (typeof cb === 'function') cb(mErr, mOut);
+              }
+            );
+          };
+
+          callWindowsMethod('Unminimize', () => {
+            callWindowsMethod('MakeAbove', () => {
+              callWindowsMethod('Activate', () => {
+                callWindowsMethod('Details', (dErr, dOut) => {
+                  let isFocusedAndMapped = false;
+                  if (!dErr && dOut) {
+                    const dMatch = dOut.match(/\('(\{.*\})',\)/s);
+                    if (dMatch) {
+                      try {
+                        const details = JSON.parse(dMatch[1]);
+                        isFocusedAndMapped = details.focus === true && Number(details.width) > 0 && Number(details.height) > 0;
+                      } catch (_) {}
+                    }
+                  }
+
+                  if (isFocusedAndMapped) {
+                    const unmakeTimer = setTimeout(() => {
+                      callWindowsMethod('UnmakeAbove', () => {
+                        linuxActivationInFlight = false;
+                      });
+                    }, 150);
+                    if (unmakeTimer && typeof unmakeTimer.unref === 'function') {
+                      unmakeTimer.unref();
+                    }
+                    return;
+                  }
+
+                  if (attempt < 6) {
+                    const retryTimer = setTimeout(() => activateLinuxWindowOnDesktop(attempt + 1), 180);
+                    if (retryTimer && typeof retryTimer.unref === 'function') {
+                      retryTimer.unref();
+                    }
+                    return;
+                  }
+
+                  // If Mutter focus-stealing prevention withheld focus on a background
+                  // DBus tray callback, keep MakeAbove active so the window remains
+                  // visibly on top of maximized windows until the user focuses/interacts with it.
+                  linuxActivationInFlight = false;
+                  if (mainWindow && typeof mainWindow.once === 'function') {
+                    const clearAboveOnInteract = () => {
+                      const clearTimer = setTimeout(() => {
+                        callWindowsMethod('UnmakeAbove');
+                      }, 150);
+                      if (clearTimer && typeof clearTimer.unref === 'function') {
+                        clearTimer.unref();
+                      }
+                    };
+                    mainWindow.once('focus', clearAboveOnInteract);
+                    mainWindow.once('blur', clearAboveOnInteract);
+                  }
+                });
+              });
+            });
+          });
+        }
+      );
+    } catch (_) {
+      linuxActivationInFlight = false;
+    }
+  };
+
+  const revealMainWindow = () => {
+    if (!mainWindow || (typeof mainWindow.isDestroyed === 'function' && mainWindow.isDestroyed())) return;
+    try {
+      if (typeof mainWindow.isMinimized === 'function' && mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      if (typeof mainWindow.show === 'function') {
+        mainWindow.show();
+      }
+      if (process.platform !== 'linux' && typeof mainWindow.setAlwaysOnTop === 'function') {
+        mainWindow.setAlwaysOnTop(true);
+        const timer = setTimeout(() => {
+          try {
+            if (mainWindow && (typeof mainWindow.isDestroyed !== 'function' || !mainWindow.isDestroyed())) {
+              mainWindow.setAlwaysOnTop(false);
+            }
+          } catch (_) {}
+        }, 150);
+        if (timer && typeof timer.unref === 'function') {
+          timer.unref();
+        }
+      }
+      if (typeof mainWindow.moveTop === 'function') {
+        mainWindow.moveTop();
+      }
+      if (typeof mainWindow.focus === 'function') {
+        mainWindow.focus();
+      }
+      activateLinuxWindowOnDesktop(1);
+    } catch (_) {}
+  };
+
+  if (!startMinimized) {
+    revealMainWindow();
+    if (typeof mainWindow.once === 'function') {
+      mainWindow.once('ready-to-show', revealMainWindow);
+    }
+    if (mainWindow.webContents && typeof mainWindow.webContents.once === 'function') {
+      mainWindow.webContents.once('did-finish-load', revealMainWindow);
+    }
+  }
 
   const isTilingWM = process.platform === 'linux' && Boolean(
     process.env.SWAYSOCK ||
@@ -705,10 +1142,29 @@ async function createWindow() {
 
   // Intercept window close ('X'): default is to minimize to system tray unless close_to_tray is disabled
   mainWindow.on('close', (event) => {
-    if (teardownCompleted) return;
+    if (teardownCompleted || isTearingDown || isQuitting) return;
     const closeToTray = getCloseToTraySetting();
     const hasTray = Boolean(tray && (typeof tray.isDestroyed !== 'function' || !tray.isDestroyed()));
-    if (closeToTray && hasTray && !isTearingDown) {
+    if (closeToTray && hasTray) {
+      if (process.platform === 'linux') {
+        // On Linux (XWayland / GNOME Wayland), intercepting WM_DELETE_WINDOW with
+        // mainWindow.hide() disposes the compositor window actor while EGL swaps
+        // buffers, crashing the GPU process and leaving a dead X11 window handle.
+        // Destroy the BrowserWindow cleanly on the next tick; window-all-closed
+        // keeps the tray process alive and showOrCreateMainWindow() recreates the
+        // window on demand.
+        event.preventDefault();
+        const winToDestroy = mainWindow;
+        mainWindow = null;
+        setImmediate(() => {
+          try {
+            if (winToDestroy && typeof winToDestroy.isDestroyed === 'function' && !winToDestroy.isDestroyed()) {
+              winToDestroy.destroy();
+            }
+          } catch (_) {}
+        });
+        return;
+      }
       event.preventDefault();
       mainWindow.hide();
       if (tray && process.platform === 'win32') {
@@ -718,7 +1174,7 @@ async function createWindow() {
         });
       }
     } else {
-      app.quit();
+      requestAppQuit();
     }
   });
 
@@ -787,6 +1243,9 @@ async function createWindow() {
         if (backgroundRetryTimer) {
           clearInterval(backgroundRetryTimer);
           backgroundRetryTimer = null;
+        }
+        if (!startMinimized) {
+          revealMainWindow();
         }
         return;
       } catch (err) {
@@ -985,6 +1444,12 @@ function registerIpcHandlers() {
     return recoverDaemonConnection();
   });
 
+  ipcMain.on('desktop:quit-app', (event) => {
+    if (!isTrustedSender(event)) return;
+    console.log('[App] Quit requested via IPC');
+    requestAppQuit();
+  });
+
   ipcMain.handle('desktop:notify', async (event, params) => {
     if (!isTrustedSender(event)) {
       return false;
@@ -1037,9 +1502,7 @@ function registerIpcHandlers() {
     if (!isTrustedSender(event)) {
       return false;
     }
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    if (!mainWindow.isVisible()) mainWindow.show();
-    mainWindow.focus();
+    await showOrCreateMainWindow();
     return true;
   });
 
@@ -1239,15 +1702,19 @@ if (app && typeof app.whenReady === 'function') {
     } catch (err) {
       console.error('[App] Failed to start Go daemon sidecar:', err);
     }
-    createTray();
-    await createWindow();
+    await createTray();
+    const startHiddenOnBoot = (
+      process.argv.includes('--minimized') ||
+      process.argv.includes('--hidden') ||
+      (app && typeof app.getLoginItemSettings === 'function' && app.getLoginItemSettings().wasOpenedAsHidden)
+    ) && process.env.TEST_DESKTOP_E2E !== '1';
 
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
-      } else if (mainWindow) {
-        mainWindow.show();
-      }
+    if (!(process.platform === 'linux' && startHiddenOnBoot)) {
+      await createWindow();
+    }
+
+    app.on('activate', async () => {
+      await showOrCreateMainWindow();
     });
 
     if (process.env.TEST_DESKTOP_E2E === '1') {
@@ -1259,6 +1726,7 @@ if (app && typeof app.whenReady === 'function') {
 // Full application quit hook
 if (app && typeof app.on === 'function') {
   app.on('before-quit', async (event) => {
+    isQuitting = true;
     if (teardownCompleted) {
       return;
     }
@@ -1267,20 +1735,56 @@ if (app && typeof app.on === 'function') {
       return;
     }
     isTearingDown = true;
+
+    if (trayMenuInterval) {
+      clearInterval(trayMenuInterval);
+      trayMenuInterval = null;
+    }
+
+    // Safety fallback: ensure process never hangs indefinitely on quit
+    setTimeout(() => {
+      console.warn('[App] Hard quit fallback triggered');
+      app.exit(0);
+    }, 3500).unref();
+
     try {
-      await teardownDaemonForAppExit();
+      await Promise.race([
+        teardownDaemonForAppExit(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Teardown timed out after 2500ms')), 2500)
+        ),
+      ]);
     } catch (err) {
-      console.error('[App] Error during daemon stop on before-quit:', err);
+      console.warn('[App] Warning during daemon stop on before-quit:', err.message || err);
     } finally {
       teardownCompleted = true;
+      try {
+        if (mainWindow && typeof mainWindow.isDestroyed === 'function' && !mainWindow.isDestroyed()) {
+          mainWindow.destroy();
+        }
+      } catch (_) {}
+      try {
+        if (tray && typeof tray.isDestroyed === 'function' && !tray.isDestroyed()) {
+          tray.destroy();
+        }
+      } catch (_) {}
+    }
+
+    if (app && typeof app.exit === 'function') {
+      app.exit(0);
+    } else {
       app.quit();
     }
   });
 
   app.on('window-all-closed', () => {
+    if (isQuitting || isTearingDown || teardownCompleted) {
+      return;
+    }
     const closeToTray = getCloseToTraySetting();
-    if (!closeToTray) {
-      app.quit();
+    const hasTray = Boolean(tray && (typeof tray.isDestroyed !== 'function' || !tray.isDestroyed()));
+    if (!closeToTray || !hasTray) {
+      requestAppQuit();
     }
   });
 }
@@ -1323,8 +1827,14 @@ module.exports = {
   buildConnectingFallbackHtml,
   recoverDaemonConnection,
   createWindow,
+  showOrCreateMainWindow,
+  toggleOrShowMainWindow,
+  isMainWindowUsable,
+  requestAppQuit,
   createTray,
   updateTrayMenu,
+  computeTrayMenuSignature,
+  applyTrayMenuState,
   registerIpcHandlers,
   getSwissConfigDir,
   getCloseToTraySetting,

@@ -167,3 +167,86 @@ func TestProxyNeverInterceptsOtherEndpoints(t *testing.T) {
 		t.Errorf("expected all three calls upstream, got %d", hits)
 	}
 }
+
+func TestProxyAppModelOverrideRoutesNativeToCustomModel(t *testing.T) {
+	upstreamHit := false
+	customProviderHit := false
+	var customBody map[string]any
+
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		customProviderHit = true
+		_ = json.NewDecoder(r.Body).Decode(&customBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hello from custom model\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer providerServer.Close()
+
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamHit = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"response":{"candidates":[{"content":{"parts":[{"text":"native gemini"}]}}]}}`))
+	}))
+	defer upstreamServer.Close()
+
+	store, proxy := newProxyFixture(t, upstreamServer.URL)
+	if err := store.SaveModel(CustomModel{
+		ID:               "deepseek-active",
+		Name:             "deepseek-chat",
+		DisplayName:      "DeepSeek Active",
+		ProviderType:     ProviderOpenAI,
+		BaseURL:          providerServer.URL,
+		APIKey:           "sk-test",
+		Enabled:          true,
+		SupportsThinking: true,
+		ThinkingLevel:    "high",
+	}); err != nil {
+		t.Fatalf("SaveModel: %v", err)
+	}
+
+	// 1. With ActiveModelID set to deepseek-active, native model name "gemini-3.8-flash" routes to custom model
+	if err := store.SetActiveModel("deepseek-active"); err != nil {
+		t.Fatalf("SetActiveModel: %v", err)
+	}
+
+	body := `{"model":"gemini-3.8-flash","requestId":"req-active-test","request":{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}}`
+	req := httptest.NewRequest(http.MethodPost, "/v1internal:streamGenerateContent?alt=sse", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer ya29.native")
+	rr := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rr, req)
+
+	if !customProviderHit {
+		t.Errorf("expected custom provider to receive request when ActiveModelID is set")
+	}
+	if upstreamHit {
+		t.Errorf("upstream Google Cloud Code should NOT have been called when custom model is active")
+	}
+	if !strings.Contains(rr.Body.String(), "hello from custom model") {
+		t.Errorf("expected custom model response in stream, got %s", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"traceId":"req-active-test"`) {
+		t.Errorf("expected wrapped SSE envelope with traceId, got %s", rr.Body.String())
+	}
+	if effort, ok := customBody["reasoning_effort"].(string); !ok || effort != "high" {
+		t.Errorf("expected reasoning_effort 'high' in custom payload, got %v", customBody["reasoning_effort"])
+	}
+
+	// 2. Clear ActiveModelID: native model requests must now pass through to upstream verbatim
+	upstreamHit = false
+	customProviderHit = false
+	if err := store.SetActiveModel(""); err != nil {
+		t.Fatalf("SetActiveModel clear: %v", err)
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/v1internal:streamGenerateContent?alt=sse", strings.NewReader(body))
+	req2.Header.Set("Authorization", "Bearer ya29.native")
+	rr2 := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rr2, req2)
+
+	if !upstreamHit {
+		t.Errorf("expected upstream Google Cloud Code to receive request when ActiveModelID is cleared")
+	}
+	if customProviderHit {
+		t.Errorf("custom provider should NOT have been called after clearing ActiveModelID")
+	}
+}

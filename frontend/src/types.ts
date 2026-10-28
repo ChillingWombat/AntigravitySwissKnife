@@ -153,6 +153,12 @@ export interface AccountState {
   quota_weekly_argon?: number | null
   reset_seconds_weekly?: number
   reset_seconds_weekly_argon?: number
+  reset_5h_argon_seconds?: number
+  reset_weekly_argon_seconds?: number
+  reset_5h_argon_time?: string
+  reset_weekly_argon_time?: string
+  reset_time_5h_argon?: string
+  reset_time_weekly_argon?: string
   quota_5h_claude_gpt?: number | null
   quota_weekly_claude_gpt?: number | null
   reset_horizon_text: string
@@ -205,6 +211,14 @@ export function toAccountState(acc: any, activeEmail?: string, allowNonGemini?: 
     status = 'STANDBY'
   }
   const hasError = status === 'ERROR' || status === 'BANNED'
+  const raw5hArgon = acc.quota_5h_argon !== undefined ? acc.quota_5h_argon : acc.raw?.quota_5h_argon
+  const rawWeeklyArgon = acc.quota_weekly_argon !== undefined ? acc.quota_weekly_argon : acc.raw?.quota_weekly_argon
+  const parsed5hArgon = typeof raw5hArgon === 'number' ? raw5hArgon : (typeof raw5hArgon === 'string' && raw5hArgon.trim() !== '' && !isNaN(Number(raw5hArgon)) ? Number(raw5hArgon) : null)
+  const parsedWeeklyArgon = typeof rawWeeklyArgon === 'number' ? rawWeeklyArgon : (typeof rawWeeklyArgon === 'string' && rawWeeklyArgon.trim() !== '' && !isNaN(Number(rawWeeklyArgon)) ? Number(rawWeeklyArgon) : null)
+
+  const resetSec5hArgon = typeof acc.reset_seconds_5h_argon === 'number' ? acc.reset_seconds_5h_argon : (typeof acc.reset_5h_argon_seconds === 'number' ? acc.reset_5h_argon_seconds : 0)
+  const resetSecWeeklyArgon = typeof acc.reset_seconds_weekly_argon === 'number' ? acc.reset_seconds_weekly_argon : (typeof acc.reset_weekly_argon_seconds === 'number' ? acc.reset_weekly_argon_seconds : 0)
+
   return {
     email,
     label: acc.label || email,
@@ -216,16 +230,21 @@ export function toAccountState(acc: any, activeEmail?: string, allowNonGemini?: 
     status,
     quota_5h_current: hasError ? 0.0 : (typeof acc.quota_5h_current === 'number' ? acc.quota_5h_current : 1.0),
     quota_5h_available: hasError ? 0.0 : (typeof acc.quota_5h_available === 'number' ? acc.quota_5h_available : 1.0),
-    quota_5h_argon: hasError ? null : (typeof acc.quota_5h_argon === 'number' ? acc.quota_5h_argon : null),
+    quota_5h_argon: hasError ? null : (parsed5hArgon !== null && !isNaN(parsed5hArgon) ? parsed5hArgon : null),
     quota_weekly: hasError ? 0.0 : (typeof acc.quota_weekly === 'number' ? acc.quota_weekly : 1.0),
-    quota_weekly_argon: hasError ? null : (typeof acc.quota_weekly_argon === 'number' ? acc.quota_weekly_argon : null),
+    quota_weekly_argon: hasError ? null : (parsedWeeklyArgon !== null && !isNaN(parsedWeeklyArgon) ? parsedWeeklyArgon : null),
     quota_5h_claude_gpt: hasError ? 0.0 : (typeof acc.quota_5h_claude_gpt === 'number' ? acc.quota_5h_claude_gpt : (typeof acc.quota_5h_claude === 'number' ? acc.quota_5h_claude : (acc.quota_5h_claude_gpt === null ? null : undefined))),
     quota_weekly_claude_gpt: hasError ? 0.0 : (typeof acc.quota_weekly_claude_gpt === 'number' ? acc.quota_weekly_claude_gpt : (typeof acc.quota_weekly_claude === 'number' ? acc.quota_weekly_claude : (acc.quota_weekly_claude_gpt === null ? null : undefined))),
     reset_horizon_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_text || 'Ready'),
-    reset_seconds_5h_argon: typeof acc.reset_seconds_5h_argon === 'number' ? acc.reset_seconds_5h_argon : 0,
-    reset_horizon_5h_argon_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_5h_argon_text || ''),
+    reset_seconds: typeof acc.reset_seconds === 'number' ? acc.reset_seconds : 0,
+    reset_seconds_weekly: typeof acc.reset_seconds_weekly === 'number' ? acc.reset_seconds_weekly : 0,
+    reset_seconds_5h_argon: resetSec5hArgon,
+    reset_seconds_weekly_argon: resetSecWeeklyArgon,
+    reset_5h_argon_seconds: resetSec5hArgon,
+    reset_weekly_argon_seconds: resetSecWeeklyArgon,
+    reset_horizon_5h_argon_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_5h_argon_text || (parsed5hArgon !== null && resetSec5hArgon <= 0 ? 'Ready' : '')),
     reset_horizon_weekly_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_weekly_text || 'Ready'),
-    reset_horizon_weekly_argon_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_weekly_argon_text || ''),
+    reset_horizon_weekly_argon_text: hasError ? (status === 'BANNED' ? 'Banned' : 'Error') : (acc.reset_horizon_weekly_argon_text || (parsedWeeklyArgon !== null && resetSecWeeklyArgon <= 0 ? 'Ready' : '')),
     has_mfa: Boolean(acc.has_totp || acc.totp_secret),
     totp_secret: acc.totp_secret || '',
     refresh_token: acc.refresh_token || '',

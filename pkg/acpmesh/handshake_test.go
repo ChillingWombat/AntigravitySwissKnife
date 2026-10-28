@@ -37,7 +37,7 @@ func shellSingleQuote(value string) string {
 func TestProbeAgentHandshakeACPStdio(t *testing.T) {
 	requestLog := filepath.Join(t.TempDir(), "initialize.jsonl")
 	script := writeACPTestScript(t, `
-if [ "$1" != "--surface" ] || [ "$2" != "cli" ]; then
+if [ "$1" != "--surface" ] || [ "$2" != "auto" ]; then
   printf 'unexpected args: %s %s\n' "$1" "$2" >&2
   exit 2
 fi
@@ -87,7 +87,7 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo"
 func TestPromptAgentACPStdio(t *testing.T) {
 	requestLog := filepath.Join(t.TempDir(), "session.jsonl")
 	script := writeACPTestScript(t, `
-if [ "$1" != "--surface" ] || [ "$2" != "cli" ]; then
+if [ "$1" != "--surface" ] || [ "$2" != "auto" ]; then
   exit 2
 fi
 while IFS= read -r line; do

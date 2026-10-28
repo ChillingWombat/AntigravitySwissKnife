@@ -322,6 +322,9 @@ func (g *Gateway) runOpenAICompatible(r *http.Request, model *CustomModel, req *
 			payload["top_p"] = v
 		}
 	}
+	if (model.SupportsThinking || model.ThinkingLevel != "") && strings.ToLower(model.ThinkingLevel) != "off" {
+		payload["reasoning_effort"] = strings.ToLower(model.ThinkingLevel)
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -376,8 +379,10 @@ func (g *Gateway) runOpenAICompatible(r *http.Request, model *CustomModel, req *
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content   string           `json:"content"`
-					ToolCalls []openAIToolCall `json:"tool_calls"`
+					Content          string           `json:"content"`
+					ReasoningContent string           `json:"reasoning_content"`
+					Reasoning        string           `json:"reasoning"`
+					ToolCalls        []openAIToolCall `json:"tool_calls"`
 				} `json:"delta"`
 			} `json:"choices"`
 			Usage *struct {
@@ -390,6 +395,17 @@ func (g *Gateway) runOpenAICompatible(r *http.Request, model *CustomModel, req *
 			continue
 		}
 		for _, choice := range chunk.Choices {
+			reasoning := choice.Delta.ReasoningContent
+			if reasoning == "" {
+				reasoning = choice.Delta.Reasoning
+			}
+			if reasoning != "" {
+				if err := emit(geminiResponse{Candidates: []geminiCandidate{{
+					Content: geminiContent{Role: "model", Parts: []geminiPart{{Text: reasoning, Thought: true}}},
+				}}}); err != nil {
+					return err
+				}
+			}
 			if choice.Delta.Content != "" {
 				if err := emit(geminiResponse{Candidates: []geminiCandidate{{
 					Content: geminiContent{Role: "model", Parts: []geminiPart{{Text: choice.Delta.Content}}},
@@ -496,6 +512,25 @@ func (g *Gateway) runAnthropic(r *http.Request, model *CustomModel, req *geminiR
 			payload["temperature"] = v
 		}
 	}
+	if (model.SupportsThinking || model.ThinkingLevel != "") && strings.ToLower(model.ThinkingLevel) != "off" {
+		budget := 4096
+		switch strings.ToLower(model.ThinkingLevel) {
+		case "low":
+			budget = 2048
+		case "medium":
+			budget = 4096
+		case "high", "xhigh", "max":
+			budget = 8192
+		}
+		curMax, _ := payload["max_tokens"].(int)
+		if curMax <= budget {
+			payload["max_tokens"] = budget + 4096
+		}
+		payload["thinking"] = map[string]interface{}{
+			"type":          "enabled",
+			"budget_tokens": budget,
+		}
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -555,6 +590,7 @@ func (g *Gateway) runAnthropic(r *http.Request, model *CustomModel, req *geminiR
 			Delta struct {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
+				Thinking    string `json:"thinking"`
 				PartialJSON string `json:"partial_json"`
 			} `json:"delta"`
 			Usage struct {
@@ -576,9 +612,10 @@ func (g *Gateway) runAnthropic(r *http.Request, model *CustomModel, req *geminiR
 			entry := &block{kind: event.Content.Type, name: event.Content.Name, id: event.Content.ID}
 			blocks[event.Index] = entry
 			order = append(order, event.Index)
-			if event.Content.Type == "text" && event.Content.Text != "" {
+			if (event.Content.Type == "text" || event.Content.Type == "thinking") && event.Content.Text != "" {
+				thought := event.Content.Type == "thinking"
 				_ = emit(geminiResponse{Candidates: []geminiCandidate{{
-					Content: geminiContent{Role: "model", Parts: []geminiPart{{Text: event.Content.Text}}},
+					Content: geminiContent{Role: "model", Parts: []geminiPart{{Text: event.Content.Text, Thought: thought}}},
 				}}})
 			}
 		case "content_block_delta":
@@ -589,6 +626,13 @@ func (g *Gateway) runAnthropic(r *http.Request, model *CustomModel, req *geminiR
 			if event.Delta.Type == "text_delta" && event.Delta.Text != "" {
 				if err := emit(geminiResponse{Candidates: []geminiCandidate{{
 					Content: geminiContent{Role: "model", Parts: []geminiPart{{Text: event.Delta.Text}}},
+				}}}); err != nil {
+					return err
+				}
+			}
+			if event.Delta.Type == "thinking_delta" && event.Delta.Thinking != "" {
+				if err := emit(geminiResponse{Candidates: []geminiCandidate{{
+					Content: geminiContent{Role: "model", Parts: []geminiPart{{Text: event.Delta.Thinking, Thought: true}}},
 				}}}); err != nil {
 					return err
 				}
@@ -732,6 +776,7 @@ type geminiContent struct {
 
 type geminiPart struct {
 	Text             string                `json:"text,omitempty"`
+	Thought          bool                  `json:"thought,omitempty"`
 	FunctionCall     *geminiFunctionCall   `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFunctionResult `json:"functionResponse,omitempty"`
 }

@@ -38,3 +38,7 @@
 - Whenever a project moves to a new major version or completes a substantial set of work/features, the agent must automatically rebuild and recompile the new application artifacts (e.g., `npm run build`, `go build`).
 - If an older instance of the application or its background daemon is currently running, the agent must cleanly terminate the running process and relaunch the newly compiled application so that active execution never drifts from the codebase.
 
+### 7. Scoped Verification & Anti-Hang Discipline
+- **Strict Prohibition of Unscoped Test Suites**: Workers and subagents must never run global test runners (such as `npm test` or `go test ./...`) for localized component or page edits. Always execute targeted tests (e.g., `npx tsx --test src/tests/<test_name>.test.ts`, `go test ./pkg/<pkg_name> -run <TestName>`).
+- **Synchronous Execution Guarantee**: All compile, test, and typecheck commands must execute synchronously. Subagents must never background a test suite into an asynchronous task and enter `waiting_for_dependents` sleep.
+- **Orchestrator Proactive Supervision**: If a subagent does not return within expected bounds (>= 3 minutes) or enters `waiting_for_dependents`, the orchestrator must proactively inspect subagent state, terminate stalled background commands, and synthesize progress directly.

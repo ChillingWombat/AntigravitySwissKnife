@@ -87,6 +87,7 @@ type Server struct {
 	lifetimeCostsMu           sync.RWMutex
 	lifetimeCostsCache        map[string]float64
 	lifetimeCostsExp          time.Time
+	syncLSURLStop             chan struct{}
 }
 
 // NewServer initializes the web UI server.
@@ -328,8 +329,9 @@ func (s *Server) AddKnownWorkspace(ws string) {
 
 // Hooks used by test suites to automatically register and deregister active server addresses.
 var (
-	onServerStartHook func(addr, token string)
-	onServerStopHook  func(addr string)
+	onServerStartHook       func(addr, token string)
+	onServerStopHook        func(addr string)
+	languageServerURLSyncer = quota.SetLanguageServerCloudCodeURL
 )
 
 // setupRoutes registers all application endpoint handlers onto a fresh ServeMux.
@@ -365,7 +367,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 		}
 		http.NotFound(w, r)
 	})
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		daemonRunning := false
 		daemonPID := 0
@@ -392,35 +394,10 @@ func (s *Server) setupRoutes() *http.ServeMux {
 			"pid":            daemonPID,
 		}
 		_ = json.NewEncoder(w).Encode(resp)
-	})
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		daemonRunning := false
-		daemonPID := 0
-		if s.client != nil {
-			var status map[string]interface{}
-			if err := s.client.Call("swiss.getStatus", nil, &status); err == nil {
-				daemonRunning = true
-				if p, ok := status["daemon_pid"].(float64); ok {
-					daemonPID = int(p)
-				} else if p, ok := status["pid"].(float64); ok {
-					daemonPID = int(p)
-				}
-			}
-		}
-		if daemonPID == 0 {
-			daemonPID = os.Getpid()
-		}
-		w.WriteHeader(http.StatusOK)
-		resp := map[string]interface{}{
-			"status":         "ok",
-			"version":        core.AppVersion,
-			"daemon_running": daemonRunning,
-			"daemon_pid":     daemonPID,
-			"pid":            daemonPID,
-		}
-		_ = json.NewEncoder(w).Encode(resp)
-	})
+	}
+	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/healthz", healthHandler)
+	mux.HandleFunc("/api/health", healthHandler)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/accounts", s.handleAccounts)
 	mux.HandleFunc("/api/accounts/scan", s.handleAccountsScan)
@@ -563,6 +540,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/utilities/acp/detect", s.handleUtilitiesACPAgentDetect)
 	mux.HandleFunc("/api/utilities/acp/ping", s.handleUtilitiesACPPing)
 	mux.HandleFunc("/api/utilities/acp/prompt", s.handleUtilitiesACPPrompt)
+	mux.HandleFunc("/api/utilities/acp/sync-registry", s.handleUtilitiesACPSyncRegistry)
 	mux.HandleFunc("/api/utilities/import", s.handleUtilitiesImport)
 	mux.HandleFunc("/api/utilities/import/scan", s.handleUtilitiesImportScan)
 
@@ -660,6 +638,7 @@ func (s *Server) Start() error {
 	if onServerStartHook != nil {
 		onServerStartHook(s.addr, s.GetSessionToken())
 	}
+	s.startLanguageServerURLSync()
 
 	s.httpServer = &http.Server{
 		Handler:     s.cloudCodeDispatch(s.corsMiddleware(s.authMiddleware(maxBytesMiddleware(mux, 10*1024*1024)))),
@@ -676,6 +655,13 @@ func (s *Server) Start() error {
 
 // Stop gracefully shuts down the web server.
 func (s *Server) Stop() error {
+	if s.syncLSURLStop != nil {
+		select {
+		case <-s.syncLSURLStop:
+		default:
+			close(s.syncLSURLStop)
+		}
+	}
 	if onServerStopHook != nil && s.addr != "" {
 		onServerStopHook(s.addr)
 	}
@@ -715,6 +701,34 @@ func (s *Server) Stop() error {
 		return s.httpServer.Shutdown(ctx)
 	}
 	return nil
+}
+
+func (s *Server) syncLanguageServerCloudCodeURL() {
+	if s == nil || s.addr == "" || core.IsRunningTests() || gui.IsTestExecution() {
+		return
+	}
+	endpoint := "http://" + loopbackAddr(s.addr)
+	_ = languageServerURLSyncer(endpoint)
+}
+
+func (s *Server) startLanguageServerURLSync() {
+	if core.IsRunningTests() || gui.IsTestExecution() {
+		return
+	}
+	s.syncLanguageServerCloudCodeURL()
+	s.syncLSURLStop = make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.syncLSURLStop:
+				return
+			case <-ticker.C:
+				s.syncLanguageServerCloudCodeURL()
+			}
+		}
+	}()
 }
 
 // Addr returns the network address the server is listening on.
@@ -3173,6 +3187,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 		if saved, err := s.customModelsStore.GetModel(m.ID); err == nil && saved != nil {
 			m = *saved
 		}
+		s.syncLanguageServerCloudCodeURL()
 		writeJSON(w, map[string]interface{}{"success": true, "model": custommodels.RedactCustomModel(m)})
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
@@ -3200,6 +3215,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 			_ = c.Save()
 			_ = s.customModelsStore.ClearDefaultFlags()
 		}
+		s.syncLanguageServerCloudCodeURL()
 		writeJSON(w, map[string]interface{}{"success": true, "deleted": id})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -3491,6 +3507,7 @@ func (s *Server) handleCustomModelAppProxy(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	s.syncLanguageServerCloudCodeURL()
 	writeJSON(w, map[string]interface{}{
 		"success":        true,
 		"pid":            pid,
@@ -3522,6 +3539,7 @@ func (s *Server) handleCustomModelActive(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.syncLanguageServerCloudCodeURL()
 	writeJSON(w, map[string]interface{}{"success": true, "active_model_id": store.GetConfig().ActiveModelID})
 }
 
@@ -6796,10 +6814,15 @@ func (s *Server) handleBridgeAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleBridgeHTTPAllowlist(w http.ResponseWriter, r *http.Request) {
 	bridgeSvc := s.getBridgeService()
+	if bridgeSvc == nil {
+		http.Error(w, "bridge service not available", http.StatusServiceUnavailable)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		writeJSON(w, map[string]interface{}{
 			"success":   true,
+			"mode":      bridgeSvc.HTTPAllowlistMode(),
 			"allowlist": bridgeSvc.AllowlistHosts(),
 			"pending":   bridgeSvc.PendingHTTPApprovals(),
 		})
@@ -6807,12 +6830,19 @@ func (s *Server) handleBridgeHTTPAllowlist(w http.ResponseWriter, r *http.Reques
 		var payload struct {
 			Action string `json:"action"`
 			Host   string `json:"host"`
+			Mode   string `json:"mode"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
-		switch strings.ToLower(strings.TrimSpace(payload.Action)) {
+		action := strings.ToLower(strings.TrimSpace(payload.Action))
+		switch action {
+		case "set_mode", "mode":
+			if err := bridgeSvc.SetHTTPAllowlistMode(payload.Mode); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		case "allow":
 			if _, err := bridgeSvc.AllowHTTPHost(payload.Host); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -6829,11 +6859,19 @@ func (s *Server) handleBridgeHTTPAllowlist(w http.ResponseWriter, r *http.Reques
 				return
 			}
 		default:
-			http.Error(w, "unsupported action: use allow, revoke or deny", http.StatusBadRequest)
-			return
+			if payload.Mode != "" {
+				if err := bridgeSvc.SetHTTPAllowlistMode(payload.Mode); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+			} else {
+				http.Error(w, "unsupported action: use allow, revoke, deny or set_mode", http.StatusBadRequest)
+				return
+			}
 		}
 		writeJSON(w, map[string]interface{}{
 			"success":   true,
+			"mode":      bridgeSvc.HTTPAllowlistMode(),
 			"allowlist": bridgeSvc.AllowlistHosts(),
 			"pending":   bridgeSvc.PendingHTTPApprovals(),
 		})

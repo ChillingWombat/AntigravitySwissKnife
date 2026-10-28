@@ -1791,6 +1791,36 @@ func populateVerificationAuthUser(rawURL, email string) string {
 	return cleanURL
 }
 
+func getCachedReset5hArgon(cached *QuotaSummary) (float64, time.Time) {
+	if cached == nil {
+		return 0, time.Time{}
+	}
+	sec := cached.ResetSeconds5hArgon
+	if sec <= 0 && cached.Reset5hArgonSeconds > 0 {
+		sec = cached.Reset5hArgonSeconds
+	}
+	rTime := cached.ResetTime5hArgon
+	if rTime.IsZero() && !cached.Reset5hArgonTime.IsZero() {
+		rTime = cached.Reset5hArgonTime
+	}
+	return sec, rTime
+}
+
+func getCachedResetWeeklyArgon(cached *QuotaSummary) (float64, time.Time) {
+	if cached == nil {
+		return 0, time.Time{}
+	}
+	sec := cached.ResetSecondsWeeklyArgon
+	if sec <= 0 && cached.ResetWeeklyArgonSeconds > 0 {
+		sec = cached.ResetWeeklyArgonSeconds
+	}
+	rTime := cached.ResetTimeWeeklyArgon
+	if rTime.IsZero() && !cached.ResetWeeklyArgonTime.IsZero() {
+		rTime = cached.ResetWeeklyArgonTime
+	}
+	return sec, rTime
+}
+
 func cachedArgonResetTime(cached *QuotaSummary, resetSeconds float64, now time.Time) (time.Time, bool) {
 	if cached == nil || cached.LastPolled.IsZero() || resetSeconds <= 0 {
 		return time.Time{}, false
@@ -1804,21 +1834,83 @@ func restoreCachedArgon(breakdown *LiveQuotaBreakdown, cached *QuotaSummary, now
 		return
 	}
 	if breakdown.Quota5hArgon == nil && cached.Quota5hArgon != nil {
-		if resetAt, ok := cachedArgonResetTime(cached, cached.ResetSeconds5hArgon, now); ok {
+		sec5h, time5h := getCachedReset5hArgon(cached)
+		if sec5h <= 0 && time5h.IsZero() {
 			remaining := ClampFraction(*cached.Quota5hArgon)
 			breakdown.Quota5hArgon = &remaining
-			breakdown.ResetSeconds5hArgon = resetAt.Sub(now).Seconds()
-			breakdown.ResetHorizon5hArgonText = FormatResetHorizon(resetAt, now)
-			updateArgonModel(breakdown, "Gemini 4 Argon 5H", remaining, resetAt, now)
+			breakdown.ResetSeconds5hArgon = 0
+			breakdown.ResetTime5hArgon = time.Time{}
+			breakdown.ResetHorizon5hArgonText = "Ready"
+			updateArgonModel(breakdown, "Gemini 4 Argon 5H", remaining, time.Time{}, now)
+		} else {
+			var resetAt time.Time
+			if !time5h.IsZero() {
+				resetAt = time5h
+			} else if !cached.LastPolled.IsZero() && sec5h > 0 {
+				resetAt = cached.LastPolled.Add(time.Duration(sec5h * float64(time.Second)))
+			}
+			if !resetAt.IsZero() && resetAt.After(now) {
+				remaining := ClampFraction(*cached.Quota5hArgon)
+				breakdown.Quota5hArgon = &remaining
+				breakdown.ResetTime5hArgon = resetAt
+				breakdown.ResetSeconds5hArgon = resetAt.Sub(now).Seconds()
+				breakdown.ResetHorizon5hArgonText = FormatResetHorizon(resetAt, now)
+				updateArgonModel(breakdown, "Gemini 4 Argon 5H", remaining, resetAt, now)
+			} else if !resetAt.IsZero() {
+				// Expired: recovered to ready / 1.0
+				recovered := 1.0
+				breakdown.Quota5hArgon = &recovered
+				breakdown.ResetSeconds5hArgon = 0
+				breakdown.ResetTime5hArgon = time.Time{}
+				breakdown.ResetHorizon5hArgonText = "Ready"
+				updateArgonModel(breakdown, "Gemini 4 Argon 5H", recovered, time.Time{}, now)
+			} else {
+				remaining := ClampFraction(*cached.Quota5hArgon)
+				breakdown.Quota5hArgon = &remaining
+				breakdown.ResetSeconds5hArgon = sec5h
+				breakdown.ResetHorizon5hArgonText = cached.ResetHorizon5hArgonText
+				updateArgonModel(breakdown, "Gemini 4 Argon 5H", remaining, time.Time{}, now)
+			}
 		}
 	}
 	if breakdown.QuotaWeeklyArgon == nil && cached.QuotaWeeklyArgon != nil {
-		if resetAt, ok := cachedArgonResetTime(cached, cached.ResetSecondsWeeklyArgon, now); ok {
+		secWeekly, timeWeekly := getCachedResetWeeklyArgon(cached)
+		if secWeekly <= 0 && timeWeekly.IsZero() {
 			remaining := ClampFraction(*cached.QuotaWeeklyArgon)
 			breakdown.QuotaWeeklyArgon = &remaining
-			breakdown.ResetSecondsWeeklyArgon = resetAt.Sub(now).Seconds()
-			breakdown.ResetHorizonWeeklyArgonText = FormatResetHorizon(resetAt, now)
-			updateArgonModel(breakdown, "Gemini 4 Argon Weekly", remaining, resetAt, now)
+			breakdown.ResetSecondsWeeklyArgon = 0
+			breakdown.ResetTimeWeeklyArgon = time.Time{}
+			breakdown.ResetHorizonWeeklyArgonText = "Ready"
+			updateArgonModel(breakdown, "Gemini 4 Argon Weekly", remaining, time.Time{}, now)
+		} else {
+			var resetAt time.Time
+			if !timeWeekly.IsZero() {
+				resetAt = timeWeekly
+			} else if !cached.LastPolled.IsZero() && secWeekly > 0 {
+				resetAt = cached.LastPolled.Add(time.Duration(secWeekly * float64(time.Second)))
+			}
+			if !resetAt.IsZero() && resetAt.After(now) {
+				remaining := ClampFraction(*cached.QuotaWeeklyArgon)
+				breakdown.QuotaWeeklyArgon = &remaining
+				breakdown.ResetTimeWeeklyArgon = resetAt
+				breakdown.ResetSecondsWeeklyArgon = resetAt.Sub(now).Seconds()
+				breakdown.ResetHorizonWeeklyArgonText = FormatResetHorizon(resetAt, now)
+				updateArgonModel(breakdown, "Gemini 4 Argon Weekly", remaining, resetAt, now)
+			} else if !resetAt.IsZero() {
+				// Expired: recovered to ready / 1.0
+				recovered := 1.0
+				breakdown.QuotaWeeklyArgon = &recovered
+				breakdown.ResetSecondsWeeklyArgon = 0
+				breakdown.ResetTimeWeeklyArgon = time.Time{}
+				breakdown.ResetHorizonWeeklyArgonText = "Ready"
+				updateArgonModel(breakdown, "Gemini 4 Argon Weekly", recovered, time.Time{}, now)
+			} else {
+				remaining := ClampFraction(*cached.QuotaWeeklyArgon)
+				breakdown.QuotaWeeklyArgon = &remaining
+				breakdown.ResetSecondsWeeklyArgon = secWeekly
+				breakdown.ResetHorizonWeeklyArgonText = cached.ResetHorizonWeeklyArgonText
+				updateArgonModel(breakdown, "Gemini 4 Argon Weekly", remaining, time.Time{}, now)
+			}
 		}
 	}
 }
@@ -2062,12 +2154,18 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 			ResetSeconds5h:              breakdown.ResetSeconds5h,
 			ResetHorizonText:            breakdown.ResetHorizonText,
 			ResetSeconds5hArgon:         breakdown.ResetSeconds5hArgon,
+			Reset5hArgonSeconds:         breakdown.ResetSeconds5hArgon,
 			ResetHorizon5hArgonText:     breakdown.ResetHorizon5hArgonText,
 			ResetSecondsWeekly:          breakdown.ResetSecondsWeekly,
 			ResetHorizonWeeklyText:      breakdown.ResetHorizonWeeklyText,
 			ResetSecondsWeeklyArgon:     breakdown.ResetSecondsWeeklyArgon,
+			ResetWeeklyArgonSeconds:     breakdown.ResetSecondsWeeklyArgon,
 			ResetHorizonWeeklyArgonText: breakdown.ResetHorizonWeeklyArgonText,
 			ResetTimeWeekly:             breakdown.ResetTimeWeekly,
+			ResetTime5hArgon:            breakdown.ResetTime5hArgon,
+			Reset5hArgonTime:            breakdown.ResetTime5hArgon,
+			ResetTimeWeeklyArgon:        breakdown.ResetTimeWeeklyArgon,
+			ResetWeeklyArgonTime:        breakdown.ResetTimeWeeklyArgon,
 			Models:                      breakdown.Models,
 			MinFraction:                 minFrac,
 			OverallHealth:               ComputeHealth(minFrac),

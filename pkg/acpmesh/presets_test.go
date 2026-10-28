@@ -38,22 +38,22 @@ func TestDefaultEndpointPerOS(t *testing.T) {
 		want     string
 	}{
 		{
-			name:     "linux socket preset uses runtime dir",
+			name:     "antigravity acp stdio has empty endpoint on linux",
 			goos:     "linux",
-			presetID: PresetAntigravity,
-			want:     "unix:///run/user/1000/antigravity-acp.sock",
+			presetID: PresetAntigravityACP,
+			want:     "",
 		},
 		{
-			name:     "darwin socket preset uses application support",
+			name:     "antigravity acp stdio has empty endpoint on darwin",
 			goos:     "darwin",
-			presetID: PresetAntigravity,
-			want:     "unix:///home/tester/Library/Application Support/Antigravity/antigravity-acp.sock",
+			presetID: PresetAntigravityACP,
+			want:     "",
 		},
 		{
-			name:     "windows socket preset uses named pipe",
+			name:     "antigravity acp stdio has empty endpoint on windows",
 			goos:     "windows",
-			presetID: PresetAntigravity,
-			want:     `\\.\pipe\antigravity-acp`,
+			presetID: PresetAntigravityACP,
+			want:     "",
 		},
 		{
 			name:     "devin linux socket",
@@ -107,12 +107,9 @@ func TestDefaultBinaryPathPerOS(t *testing.T) {
 		presetID string
 		want     string
 	}{
-		{"antigravity windows", "windows", PresetAntigravity, "C:/Users/tester/AppData/Local/Programs/Antigravity/Antigravity.exe"},
-		{"antigravity linux", "linux", PresetAntigravity, "/opt/Antigravity/antigravity"},
-		{"antigravity darwin", "darwin", PresetAntigravity, "/Applications/Antigravity.app/Contents/MacOS/Antigravity"},
-		{"agy windows", "windows", PresetAntigravityCLI, "/home/tester/.local/bin/agy.exe"},
-		{"agy linux", "linux", PresetAntigravityCLI, "/home/tester/.local/bin/agy"},
-		{"antigravity vscode linux", "linux", PresetAntigravityVSCode, "/home/tester/.local/bin/antigravity-acp"},
+		{"antigravity acp windows", "windows", PresetAntigravityACP, "/home/tester/bin/antigravity-acp.exe"},
+		{"antigravity acp linux", "linux", PresetAntigravityACP, "/home/tester/.local/bin/antigravity-acp"},
+		{"antigravity acp darwin", "darwin", PresetAntigravityACP, "/home/tester/.local/bin/antigravity-acp"},
 		{"devin windows falls back to historical path", "windows", PresetDevin, "/usr/bin/devin-desktop"},
 		{"cursor windows", "windows", PresetCursor, "C:/Users/tester/AppData/Local/Programs/cursor/Cursor.exe"},
 	}
@@ -127,26 +124,33 @@ func TestDefaultBinaryPathPerOS(t *testing.T) {
 	}
 }
 
-func TestAntigravityVSCodePreset(t *testing.T) {
+func TestUnifiedAntigravityACPPreset(t *testing.T) {
 	presets := Presets()
-	index := make(map[string]int, len(presets))
-	for i, preset := range presets {
-		index[preset.ID] = i
-	}
-	if !(index[PresetAntigravity] < index[PresetAntigravityCLI] &&
-		index[PresetAntigravityCLI] < index[PresetAntigravityVSCode]) {
-		t.Fatalf("Antigravity presets are out of order: %+v", index)
+	if len(presets) == 0 || presets[0].ID != PresetAntigravityACP {
+		t.Fatalf("PresetAntigravityACP must be the first preset, got %+v", presets)
 	}
 
-	preset, ok := PresetByID(PresetAntigravityVSCode)
-	if !ok {
-		t.Fatal("Antigravity VS Code Extension preset is missing")
+	for _, p := range presets {
+		if p.ID == "agent-antigravity-cli" || p.ID == "agent-antigravity-vscode" {
+			t.Fatalf("obsolete preset %s must be removed", p.ID)
+		}
+		if p.SocketName == "antigravity-acp.sock" {
+			t.Fatal("fictional antigravity-acp.sock must be removed")
+		}
 	}
-	if preset.Name != "Antigravity VS Code Extension" {
-		t.Fatalf("preset name = %q", preset.Name)
+
+	preset, ok := PresetByID(PresetAntigravityACP)
+	if !ok {
+		t.Fatal("Antigravity ACP Adapter preset is missing")
+	}
+	if preset.Name != "Antigravity ACP Adapter" {
+		t.Fatalf("preset name = %q, want 'Antigravity ACP Adapter'", preset.Name)
 	}
 	if preset.BinaryLinux != "~/.local/bin/antigravity-acp" {
 		t.Fatalf("preset binary = %q", preset.BinaryLinux)
+	}
+	if preset.DefaultEndpoint(testEnv("linux")) != "" {
+		t.Fatalf("expected empty endpoint for stdio preset, got %q", preset.DefaultEndpoint(testEnv("linux")))
 	}
 }
 
@@ -170,12 +174,12 @@ func TestMergePresetWithoutOverrideUsesOSDefault(t *testing.T) {
 		t.Fatalf("expected %d presets, got %d", len(Presets()), len(agents))
 	}
 
-	antigravity := findResolved(t, agents, PresetAntigravity)
+	antigravity := findResolved(t, agents, PresetAntigravityACP)
 	if !antigravity.OSDefault {
 		t.Fatal("preset without override must be flagged OSDefault")
 	}
-	if antigravity.Endpoint != `\\.\pipe\antigravity-acp` {
-		t.Fatalf("unexpected endpoint %q", antigravity.Endpoint)
+	if antigravity.Endpoint != "" {
+		t.Fatalf("unexpected endpoint %q, expected empty for stdio", antigravity.Endpoint)
 	}
 	if antigravity.Custom {
 		t.Fatal("preset must not be flagged Custom")
@@ -187,10 +191,10 @@ func TestMergePresetWithoutOverrideUsesOSDefault(t *testing.T) {
 
 func TestMergeOverrideWinsOverOSDefault(t *testing.T) {
 	overrides := []core.ACPAgentConfig{
-		{ID: PresetAntigravity, Endpoint: "127.0.0.1:9911", BinaryPath: "/custom/antigravity", Name: "Antigravity Custom"},
+		{ID: PresetAntigravityACP, Endpoint: "127.0.0.1:9911", BinaryPath: "/custom/antigravity-acp", Name: "Antigravity Custom"},
 	}
 	agents := Merge(overrides, testEnv("linux"))
-	antigravity := findResolved(t, agents, PresetAntigravity)
+	antigravity := findResolved(t, agents, PresetAntigravityACP)
 
 	if antigravity.Endpoint != "127.0.0.1:9911" {
 		t.Fatalf("override endpoint not applied: %q", antigravity.Endpoint)
@@ -198,14 +202,14 @@ func TestMergeOverrideWinsOverOSDefault(t *testing.T) {
 	if antigravity.OSDefault {
 		t.Fatal("override endpoint must not be flagged OSDefault")
 	}
-	if antigravity.BinaryPath != "/custom/antigravity" {
+	if antigravity.BinaryPath != "/custom/antigravity-acp" {
 		t.Fatalf("override binary path not applied: %q", antigravity.BinaryPath)
 	}
 	if antigravity.Name != "Antigravity Custom" {
 		t.Fatalf("override name not applied: %q", antigravity.Name)
 	}
 	// Fields the override leaves empty must fall back to the preset.
-	if antigravity.Type != "Desktop IDE & Agent Core" {
+	if antigravity.Type != "Desktop IDE & Agent Core (ACP)" {
 		t.Fatalf("empty override type must keep the preset type, got %q", antigravity.Type)
 	}
 	if antigravity.Version != "v1.2.0-draft" {
@@ -364,6 +368,58 @@ func TestNormalizeAgentInput(t *testing.T) {
 	t.Run("new agent requires a name", func(t *testing.T) {
 		if _, _, err := NormalizeAgentInput(AgentInput{Endpoint: "127.0.0.1:9002"}, taken); err == nil {
 			t.Fatal("expected an error for a nameless new agent")
+		}
+	})
+
+	t.Run("preset Antigravity ACP override with empty or stdio endpoint succeeds", func(t *testing.T) {
+		entry, custom, err := NormalizeAgentInput(AgentInput{
+			ID:         PresetAntigravityACP,
+			Name:       "Antigravity ACP Adapter",
+			Endpoint:   "",
+			BinaryPath: "~/.local/bin/antigravity-acp",
+			Tools:      []string{"read_file", "write_file"},
+		}, taken)
+		if err != nil {
+			t.Fatalf("unexpected error for empty endpoint on PresetAntigravityACP: %v", err)
+		}
+		if custom {
+			t.Fatal("preset override must not be custom")
+		}
+		if entry.Endpoint != "" {
+			t.Fatalf("expected empty endpoint, got %q", entry.Endpoint)
+		}
+
+		// Also test explicit "stdio" string input
+		entryStdio, _, errStdio := NormalizeAgentInput(AgentInput{
+			ID:       PresetAntigravityACP,
+			Endpoint: "stdio",
+		}, taken)
+		if errStdio != nil {
+			t.Fatalf("unexpected error for stdio endpoint: %v", errStdio)
+		}
+		if entryStdio.Endpoint != "" {
+			t.Fatalf("expected empty endpoint when stdio is passed, got %q", entryStdio.Endpoint)
+		}
+	})
+
+	t.Run("legacy agent-antigravity id maps to PresetAntigravityACP", func(t *testing.T) {
+		entry, custom, err := NormalizeAgentInput(AgentInput{
+			ID:       "agent-antigravity",
+			Endpoint: "",
+		}, taken)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if custom {
+			t.Fatal("legacy preset id must not be custom")
+		}
+		if entry.ID != PresetAntigravityACP {
+			t.Fatalf("expected ID %q, got %q", PresetAntigravityACP, entry.ID)
+		}
+
+		p, ok := PresetByID("agent-antigravity")
+		if !ok || p.ID != PresetAntigravityACP {
+			t.Fatalf("PresetByID for legacy id failed: got %+v, ok=%v", p, ok)
 		}
 	})
 

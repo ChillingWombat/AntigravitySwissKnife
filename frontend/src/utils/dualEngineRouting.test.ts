@@ -32,6 +32,8 @@ describe('Dual-Engine Model Routing & Quota Cooldown Switchability (R1)', () => 
         quota_5h_argon: 0.44,
         quota_weekly: 0.72,
         quota_weekly_argon: 0.31,
+        reset_seconds_5h_argon: 12000,
+        reset_seconds_weekly_argon: 374400,
         reset_horizon_5h_argon_text: 'Resets in 3h 20m',
         reset_horizon_weekly_argon_text: 'Resets in 4d 8h',
         status: 'STANDBY',
@@ -40,8 +42,47 @@ describe('Dual-Engine Model Routing & Quota Cooldown Switchability (R1)', () => 
       assert.strictEqual(state.quota_5h_argon, 0.44)
       assert.strictEqual(state.quota_weekly, 0.72)
       assert.strictEqual(state.quota_weekly_argon, 0.31)
+      assert.strictEqual(state.reset_seconds_5h_argon, 12000)
+      assert.strictEqual(state.reset_5h_argon_seconds, 12000)
+      assert.strictEqual(state.reset_seconds_weekly_argon, 374400)
+      assert.strictEqual(state.reset_weekly_argon_seconds, 374400)
       assert.strictEqual(state.reset_horizon_5h_argon_text, 'Resets in 3h 20m')
       assert.strictEqual(state.reset_horizon_weekly_argon_text, 'Resets in 4d 8h')
+    })
+
+    it('preserves cached 100% full Argon quota with 0 reset seconds immediately on startup', () => {
+      const raw = {
+        email: 'argon-full@example.com',
+        plan_tier: 'Pro',
+        quota_5h_argon: 1.0,
+        quota_weekly: 1.0,
+        quota_weekly_argon: 1.0,
+        reset_seconds_5h_argon: 0,
+        reset_seconds_weekly_argon: 0,
+        status: 'STANDBY',
+      }
+      const state = toAccountState(raw)
+      assert.strictEqual(state.quota_5h_argon, 1.0)
+      assert.strictEqual(state.quota_weekly_argon, 1.0)
+      assert.strictEqual(state.reset_seconds_5h_argon, 0)
+      assert.strictEqual(state.reset_seconds_weekly_argon, 0)
+      assert.strictEqual(state.reset_horizon_5h_argon_text, 'Ready')
+      assert.strictEqual(state.reset_horizon_weekly_argon_text, 'Ready')
+    })
+
+    it('maps raw.quota_5h_argon when nested under raw object', () => {
+      const input = {
+        email: 'nested-raw@example.com',
+        plan_tier: 'Pro',
+        raw: {
+          quota_5h_argon: 0.88,
+          quota_weekly_argon: 0.92,
+        },
+        status: 'STANDBY',
+      }
+      const state = toAccountState(input)
+      assert.strictEqual(state.quota_5h_argon, 0.88)
+      assert.strictEqual(state.quota_weekly_argon, 0.92)
     })
 
     it('keeps Argon null for Pro accounts when the API omits Argon buckets', () => {

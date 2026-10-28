@@ -16,6 +16,7 @@ import {
   Plus,
   X,
   Info,
+  Globe,
 } from 'lucide-react'
 import { api, isAbortError } from '../api'
 import { ToggleSwitch } from '../components/ToggleSwitch'
@@ -68,6 +69,7 @@ interface BridgeStatusData {
     granted: boolean
     reason: string
   }>
+  http_allowlist_mode?: 'always_allow' | 'whitelist_only'
   http_allowlist?: string[]
   http_pending_approvals?: Array<{
     host: string
@@ -139,8 +141,24 @@ export const GeminiBridgePage: React.FC = () => {
     }
   }
 
+  const allowlistMode = status?.http_allowlist_mode ?? 'always_allow'
   const allowlist = status?.http_allowlist ?? []
   const pendingAllow = status?.http_pending_approvals ?? []
+
+  const handleAllowlistModeChange = async (mode: 'always_allow' | 'whitelist_only') => {
+    try {
+      setActionFeedback(null)
+      await api.setBridgeHTTPAllowlistMode(mode)
+      await loadStatus()
+      setActionFeedback({
+        text: mode === 'always_allow' ? 'Outbound HTTP set to Always Allow' : 'Outbound HTTP set to Whitelist Only',
+        isError: false,
+      })
+    } catch (err) {
+      if (isAbortError(err)) return
+      setActionFeedback({ text: `Mode update failed: ${(err as Error).message}`, isError: true })
+    }
+  }
 
   const handleAllowHostChange = async (action: 'allow' | 'revoke' | 'deny', host: string) => {
     try {
@@ -334,7 +352,7 @@ export const GeminiBridgePage: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* 1. Overview, Live Status, Endpoint & Pairing */}
       <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
@@ -342,9 +360,9 @@ export const GeminiBridgePage: React.FC = () => {
               </h2>
               <span
                 title="Streamable HTTPS MCP gateway for Gemini App and Web orchestration."
-                style={{ display: 'inline-flex', color: 'var(--text-muted)', cursor: 'default' }}
+                style={{ display: 'inline-flex', color: 'var(--text-subtle)', cursor: 'default' }}
               >
-                <Info size={15} aria-hidden="true" />
+                <Info size={13} aria-hidden="true" />
               </span>
             </div>
           </div>
@@ -392,9 +410,6 @@ export const GeminiBridgePage: React.FC = () => {
             <div style={{ fontSize: '16px', fontWeight: 700, color: status?.enabled ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
               {status?.enabled ? 'Streamable HTTPS' : 'Standby'}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Port 8765 MCP Server
-            </div>
           </div>
 
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
@@ -403,9 +418,6 @@ export const GeminiBridgePage: React.FC = () => {
             </div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
               {currentMode.toUpperCase()}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Direct / Lead / Hybrid
             </div>
           </div>
 
@@ -534,18 +546,10 @@ export const GeminiBridgePage: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Zero-Setup Remote Tunneling */}
+      {/* 2. Access Mode Tunneling */}
       <div className="google-card">
-        <div style={{ marginBottom: '10px' }}>
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-              Remote Internet Access (Zero-Setup)
-            </div>
-            <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Publishes the local port 8765 MCP endpoint over public HTTPS so cloud-hosted Gemini sessions can connect, with 4-minute keep-alive probes and automatic shutoff on tunnel drop.
-            </p>
-          </div>
-
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+          Access Mode
         </div>
 
         {/* Tunnel Selection Grid */}
@@ -977,109 +981,7 @@ export const GeminiBridgePage: React.FC = () => {
         </div>
       )}
 
-      {/* 6. Exposed Tools Catalog */}
-      <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
-          Exposed Model Context Protocol Tools
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-          {[
-            {
-              name: 'antigravity_lead_create_conversation',
-              type: 'Lead',
-              desc: 'Creates a new conversation in local Antigravity 2.0 app and submits initial task instructions.',
-            },
-            {
-              name: 'antigravity_lead_send_message',
-              type: 'Lead',
-              desc: 'Sends follow-up directions, corrections, or task assignments to Antigravity conversation.',
-            },
-            {
-              name: 'antigravity_lead_await_response',
-              type: 'Lead',
-              desc: 'Waits for Antigravity response turn and forwards completed response and artifacts to Gemini.',
-            },
-            {
-              name: 'antigravity_lead_get_status',
-              type: 'Lead',
-              desc: 'Inspects real-time step status, thinking, and completion state of an active Antigravity session.',
-            },
-            {
-              name: 'antigravity_lead_compact_conversation',
-              type: 'Lead',
-              desc: 'Runs the native compact command in the active Antigravity conversation to reduce context history.',
-            },
-            {
-              name: 'antigravity_lead_stop_conversation',
-              type: 'Lead',
-              desc: 'Stops or cancels an in-progress Antigravity generation turn.',
-            },
-            {
-              name: 'antigravity_fleet_get_quota',
-              type: 'Fleet',
-              desc: 'Returns live quota health and active Google account status across the Antigravity account fleet.',
-            },
-            {
-              name: 'antigravity_fleet_switch_account',
-              type: 'Fleet',
-              desc: 'Switches the active Antigravity account to a specified email or the next healthy standby.',
-            },
-            {
-              name: 'local_run_command',
-              type: 'Direct',
-              desc: 'Directly executes a safe shell command on the host machine with timeout protection.',
-            },
-            {
-              name: 'local_read_file',
-              type: 'Direct',
-              desc: 'Reads file contents from the host filesystem within workspace bounds.',
-            },
-            {
-              name: 'local_write_file',
-              type: 'Direct',
-              desc: 'Writes or updates file contents on the local computer.',
-            },
-            {
-              name: 'local_search_files',
-              type: 'Direct',
-              desc: 'Searches local files for text or regular expressions and returns matching paths, lines, and snippets.',
-            },
-            {
-              name: 'local_computer_use',
-              type: 'Direct',
-              desc: 'Controls GUI and captures screenshots via display subsystem automation.',
-            },
-          ].map((tool) => (
-            <div
-              key={tool.name}
-              style={{
-                padding: '12px',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                backgroundColor: '#ffffff',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <code style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary)' }}>
-                  {tool.name}
-                </code>
-                <span
-                  className={`badge-chip ${tool.type === 'Lead' ? 'badge-blue' : 'badge-green'}`}
-                  style={{ fontSize: '10px', padding: '1px 6px' }}
-                >
-                  {tool.type}
-                </span>
-              </div>
-              <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                {tool.desc}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 7. Recent Invocations & Access Audit Logs */}
+      {/* 6. Recent Invocations & Access Audit Logs */}
       <div className="google-card">
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
           Remote Invocations & Access Audit ({status?.invocations_count || 0})
@@ -1134,96 +1036,155 @@ export const GeminiBridgePage: React.FC = () => {
           </table>
         </div>
       </div>
-      {/* 8. Outbound HTTP allowlist */}
+      {/* 7. Outbound HTTP allowlist */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '6px' }}>
-          Outbound HTTP Allowlist
-        </div>
-        <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
-          Agents can call external APIs (calendars, REST, webhooks) only on these hosts. A host an agent asks for appears under pending requests until you approve or deny it.
-        </p>
-
-        {pendingAllow.length > 0 && (
-          <div style={{ marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {pendingAllow.map((req) => (
-              <div
-                key={req.host}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)' }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {req.host}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {req.reason || req.url || 'Requested by an agent'} · {req.requested_at}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-primary"
-                    style={{ whiteSpace: 'nowrap' }}
-                    onClick={() => handleAllowHostChange('allow', req.host)}
-                  >
-                    <Check size={13} /> Approve
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    style={{ whiteSpace: 'nowrap' }}
-                    onClick={() => handleAllowHostChange('deny', req.host)}
-                  >
-                    <Ban size={13} /> Deny
-                  </button>
-                </div>
-              </div>
-            ))}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+            Outbound HTTP Allowlist
           </div>
-        )}
-
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
-          <input
-            type="text"
-            className="input"
-            placeholder="api.example.com or *.googleapis.com"
-            value={newAllowHost}
-            onChange={(e) => setNewAllowHost(e.target.value)}
-            style={{ flex: '1 1 260px', minWidth: '200px' }}
-          />
-          <button
-            type="button"
-            className="btn btn-sm btn-primary"
-            style={{ whiteSpace: 'nowrap' }}
-            onClick={() => {
-              const host = newAllowHost.trim()
-              if (!host) return
-              handleAllowHostChange('allow', host)
-              setNewAllowHost('')
+          <div
+            style={{
+              display: 'inline-flex',
+              backgroundColor: 'var(--tonal)',
+              padding: '3px',
+              borderRadius: '8px',
+              gap: '2px',
+              border: '1px solid var(--border)',
             }}
           >
-            <Plus size={13} /> Add host
-          </button>
+            <button
+              type="button"
+              onClick={() => handleAllowlistModeChange('always_allow')}
+              style={{
+                borderRadius: '6px',
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: allowlistMode === 'always_allow' ? 600 : 500,
+                color: allowlistMode === 'always_allow' ? 'var(--primary)' : 'var(--text-muted)',
+                backgroundColor: allowlistMode === 'always_allow' ? 'var(--surface)' : 'transparent',
+                boxShadow: allowlistMode === 'always_allow' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                border: 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              Always Allow
+            </button>
+            <button
+              type="button"
+              onClick={() => handleAllowlistModeChange('whitelist_only')}
+              style={{
+                borderRadius: '6px',
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: allowlistMode === 'whitelist_only' ? 600 : 500,
+                color: allowlistMode === 'whitelist_only' ? 'var(--primary)' : 'var(--text-muted)',
+                backgroundColor: allowlistMode === 'whitelist_only' ? 'var(--surface)' : 'transparent',
+                boxShadow: allowlistMode === 'whitelist_only' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                border: 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              Whitelist Only
+            </button>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-          {allowlist.length === 0 ? (
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No hosts allowed yet.</span>
-          ) : (
-            allowlist.map((host) => (
-              <span key={host} className="badge-chip badge-neutral" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
-                {host}
-                <button
-                  type="button"
-                  title={`Revoke ${host}`}
-                  onClick={() => handleAllowHostChange('revoke', host)}
-                  style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'inline-flex', color: 'var(--text-muted)' }}
-                >
-                  <X size={12} />
-                </button>
-              </span>
-            ))
-          )}
-        </div>
+        {allowlistMode === 'always_allow' ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)' }}>
+            <Globe size={15} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              All outbound HTTP requests and domains are permitted without restriction.
+            </span>
+          </div>
+        ) : (
+          <>
+            {pendingAllow.length > 0 && (
+              <div style={{ marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {pendingAllow.map((req) => (
+                  <div
+                    key={req.host}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)' }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {req.host}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {req.reason || req.url || 'Requested by an agent'} · {req.requested_at}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-primary"
+                        style={{ whiteSpace: 'nowrap' }}
+                        onClick={() => handleAllowHostChange('allow', req.host)}
+                      >
+                        <Check size={13} /> Approve
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{ whiteSpace: 'nowrap' }}
+                        onClick={() => handleAllowHostChange('deny', req.host)}
+                      >
+                        <Ban size={13} /> Deny
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                className="input"
+                placeholder="api.example.com or *.googleapis.com"
+                value={newAllowHost}
+                onChange={(e) => setNewAllowHost(e.target.value)}
+                style={{ flex: '1 1 260px', minWidth: '200px' }}
+              />
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                style={{ whiteSpace: 'nowrap' }}
+                onClick={() => {
+                  const host = newAllowHost.trim()
+                  if (!host) return
+                  handleAllowHostChange('allow', host)
+                  setNewAllowHost('')
+                }}
+              >
+                <Plus size={13} /> Add host
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {allowlist.length === 0 ? (
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No hosts allowed yet.</span>
+              ) : (
+                allowlist.map((host) => (
+                  <span key={host} className="badge-chip badge-neutral" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                    {host}
+                    <button
+                      type="button"
+                      title={`Revoke ${host}`}
+                      onClick={() => handleAllowHostChange('revoke', host)}
+                      style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'inline-flex', color: 'var(--text-muted)' }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

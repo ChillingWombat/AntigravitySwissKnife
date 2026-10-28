@@ -165,6 +165,7 @@ export const GoogleCloudLogoIcon: React.FC<AcpBrandIconProps> = ({ size = 18, cl
 export function getAcpBrandIcon(nodeId: string, size = 18): React.ReactNode {
   switch (nodeId) {
     case 'agent-antigravity':
+    case 'agent-antigravity-acp':
       return <AntigravityLogoIcon size={size} />
     case 'agent-antigravity-cli':
       return <AntigravityCliIcon size={size} />

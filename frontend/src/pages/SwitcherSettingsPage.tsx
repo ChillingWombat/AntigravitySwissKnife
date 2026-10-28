@@ -8,6 +8,7 @@ import {
   Upload,
   Copy,
   Check,
+  Save,
   FileText,
   AlertCircle,
   CheckCircle2,
@@ -169,6 +170,8 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     selectedGeminiBaseModel?.supportsThinking ? selectedGeminiBaseModel.thinkingLevels : ['off']
 
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [isSavingPrompt, setIsSavingPrompt] = useState<boolean>(false)
+  const [promptSaved, setPromptSaved] = useState<boolean>(false)
   const hydratedRef = useRef(false)
   const lastSentPayloadRef = useRef<string | null>(null)
   const onSavedRef = useRef(onSaved)
@@ -644,6 +647,48 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     }
   }
 
+  const handleSavePrompt = async () => {
+    setIsSavingPrompt(true)
+    try {
+      const payload = {
+        auto_switch_threshold: threshold,
+        auto_switch_weekly_threshold: weeklyThreshold,
+        switch_mode: switchMode,
+        quota_refresh_mode: quotaRefreshMode,
+        dynamic_quota_refresh_enabled: quotaRefreshMode === 'dynamic',
+        polling_interval_seconds: pollingInterval,
+        active_polling_interval_seconds: activePollingInterval,
+        standby_polling_interval_seconds: standbyPollingInterval,
+        standby_random_jitter_seconds: standbyRandomJitter,
+        warmup_enabled: warmupEnabled,
+        warmup_lead_time_seconds: warmupLeadTime,
+        post_reset_delay_seconds: warmupLeadTime,
+        allow_ai_credits_usage: allowAICredits,
+        allow_non_gemini_native_models: allowNonGemini,
+        model_source_hierarchy: hierarchy,
+        default_gemini_model: defaultGemini,
+        default_gemini_reasoning_level: defaultGeminiReasoningLevel,
+        default_custom_model: effectiveCustomModel,
+        default_non_gemini_model: defaultNonGemini,
+        auto_import_active_account: autoImportActive,
+        multi_app_sync_mode: isSingleAppOrLess ? 'shared' : multiAppSyncMode,
+        subagent_custom_models_enabled: subagentCustomModelsEnabled,
+        subagent_model_strategy: subagentStrategy,
+        session_resume_prompt: sessionResumePrompt,
+      }
+      await api.saveRules(payload)
+      lastSentPayloadRef.current = JSON.stringify(payload)
+      setFeedback(null)
+      onSavedRef.current()
+      setPromptSaved(true)
+      setTimeout(() => setPromptSaved(false), 2000)
+    } catch (err: any) {
+      setFeedback(`Save error: ${err.message}`)
+    } finally {
+      setIsSavingPrompt(false)
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {feedback && (
@@ -670,11 +715,8 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Switch Mode Strategy Selector */}
           <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '12px' }}>
               Account Switch Mode:
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px' }}>
-              Configure rotation triggers and candidate account priority.
             </div>
 
             <div
@@ -918,12 +960,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 
       {/* Section 1b: Multi-App Account Synchronization Mode */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
           Multi-App Account Synchronization Mode
         </div>
-        <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          Sync active accounts across all Antigravity apps or manage each app independently.
-        </p>
 
         <div
           style={{
@@ -1016,12 +1055,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 
       {/* Section 2: Model Source Hierarchy & Failover Priority */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '16px' }}>
           Model Source Hierarchy & Priority Order
         </div>
-        <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          When quotas deplete or requests require fallback, Antigravity attempts model sources in this exact sequential order. Drag items or use arrows to adjust priority.
-        </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {hierarchy.map((sourceKey, idx) => {
@@ -1275,9 +1311,6 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                 Default Custom Model:
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Selected BYOK model to route to when custom model source is triggered.
-              </div>
             </div>
             <select
               value={effectiveCustomModel}
@@ -1315,9 +1348,6 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
                 Default Non-Gemini Native Model:
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Fallback third-party model used when non-Gemini routing is enabled.
-              </div>
             </div>
             <select
               value={defaultNonGemini}
@@ -1343,7 +1373,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
 
       {/* Section 4b: Gemini Subagent Custom Models */}
       <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
             Gemini Subagent Custom Models
           </div>
@@ -1354,9 +1384,6 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
             ariaLabel="Enable Gemini subagent custom models"
           />
         </div>
-        <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-          Configure how Gemini subagents use custom models.
-        </p>
 
         <div
           style={{
@@ -1475,35 +1502,30 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         </div>
       </div>
 
-      {/* Auto-Import */}
-      <div className="google-card">
-        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', cursor: 'pointer' }}>
-          <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-              Auto Import Account
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px', lineHeight: 1.5 }}>
-              Auto import accounts signed in to Antigravity but not stored in Account Switcher's vault.
-            </div>
-          </div>
-          <ToggleSwitch
-            checked={autoImportActive}
-            onChange={(checked) => setAutoImportActive(checked)}
-            style={{ flexShrink: 0 }}
-          />
-        </label>
-      </div>
-
       {/* Session Resumption Prompt */}
       <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '12px' }}>
-          Session Resumption Prompt
-        </div>
-        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
-          Custom Resume Message Sent to Agents
-        </div>
-        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.5 }}>
-          Custom prompt dispatched to active and revived agent sessions following an automated account switch.
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+            Custom Resume Message Sent to Agents
+          </div>
+          <button
+            type="button"
+            onClick={handleSavePrompt}
+            disabled={isSavingPrompt}
+            className="btn-pill-primary"
+            style={{
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {promptSaved ? <Check size={14} /> : <Save size={14} />}
+            {promptSaved ? 'Saved' : isSavingPrompt ? 'Saving...' : 'Save'}
+          </button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <textarea
@@ -1523,17 +1545,23 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               resize: 'vertical',
             }}
           />
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              type="button"
-              className="google-button google-button-secondary"
-              style={{ fontSize: '11px', padding: '4px 10px', height: '28px', whiteSpace: 'nowrap' }}
-              onClick={() => setSessionResumePrompt('Please continue ongoing tasks and subagents.')}
-            >
-              Reset to Default
-            </button>
-          </div>
         </div>
+      </div>
+
+      {/* Auto-Import */}
+      <div className="google-card">
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', cursor: 'pointer' }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+              Auto Import Account
+            </div>
+          </div>
+          <ToggleSwitch
+            checked={autoImportActive}
+            onChange={(checked) => setAutoImportActive(checked)}
+            style={{ flexShrink: 0 }}
+          />
+        </label>
       </div>
 
       {/* 6. Account Data Export & Import (JSON) */}
@@ -1588,14 +1616,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               justifyContent: 'space-between',
             }}
           >
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
                   Export Accounts
                 </span>
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.4 }}>
-                Download all saved accounts or copy JSON directly. Includes ID, password, MFA, and OAuth tokens.
               </div>
             </div>
 
@@ -1616,24 +1641,6 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               >
                 <Download size={14} />
                 {isExporting ? 'Exporting...' : 'Export JSON File'}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleExportCopy}
-                disabled={isExporting}
-                className="btn-pill-outlined"
-                style={{
-                  padding: '7px 14px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                {copiedExport ? <Check size={14} color="#137333" /> : <Copy size={14} />}
-                {copiedExport ? 'Copied' : 'Copy JSON'}
               </button>
 
               <button
@@ -1668,14 +1675,11 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               justifyContent: 'space-between',
             }}
           >
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
                   Import Accounts
                 </span>
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px', lineHeight: 1.4 }}>
-                Upload a JSON file or paste JSON text. Existing accounts are updated; new accounts are safely registered.
               </div>
             </div>
 

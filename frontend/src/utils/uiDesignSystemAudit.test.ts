@@ -174,6 +174,12 @@ describe('UI Design System Audit & Voice Invariants (Milestone 16)', () => {
         ['ACPAgentMeshPage.tsx', 'Click &quot;Ping All ACP Nodes&quot; above'],
         ['RemoteControlPage.tsx', 'Remote sessions authenticate with an 8-character'],
         ['WhatsAppBridgePage.tsx', 'Select transport architecture for inbound and outbound messages.'],
+        ['SwitcherSettingsPage.tsx', 'Configure rotation triggers and candidate account priority.'],
+        ['SwitcherSettingsPage.tsx', 'Sync active accounts across all Antigravity apps or manage each app independently.'],
+        ['SwitcherSettingsPage.tsx', 'Fallback third-party model used when non-Gemini routing is enabled.'],
+        ['SwitcherSettingsPage.tsx', 'Configure how Gemini subagents use custom models.'],
+        ['SystemSettingsPage.tsx', 'Restore all Antigravity apps to default state and disable all enhancements.'],
+        ['SystemSettingsPage.tsx', 'This removes custom executable overrides, disables injected customizations, and resets state safely.'],
       ] as const
 
       for (const [pageName, copy] of removedMicrocopy) {
@@ -190,6 +196,12 @@ describe('UI Design System Audit & Voice Invariants (Milestone 16)', () => {
         ['ExtensionsPage.tsx', 'Left Panel Extensions Access Mode'],
         ['ACPAgentMeshPage.tsx', 'Ping All ACP Nodes'],
         ['WhatsAppBridgePage.tsx', 'Integration Mode'],
+        ['SwitcherSettingsPage.tsx', 'Account Switch Mode:'],
+        ['SwitcherSettingsPage.tsx', 'Multi-App Account Synchronization Mode'],
+        ['SwitcherSettingsPage.tsx', 'Default Non-Gemini Native Model:'],
+        ['SwitcherSettingsPage.tsx', 'Gemini Subagent Custom Models'],
+        ['SystemSettingsPage.tsx', 'Lifecycle Mode'],
+        ['SystemSettingsPage.tsx', 'Restore Antigravity Apps to Clean Unmodified State'],
       ] as const
 
       for (const [pageName, label] of retainedLabels) {
@@ -207,24 +219,28 @@ describe('UI Design System Audit & Voice Invariants (Milestone 16)', () => {
     it('verifies humanized copy in SwitcherSettingsPage', () => {
       const content = fs.readFileSync(path.join(pagesDir, 'SwitcherSettingsPage.tsx'), 'utf8')
       assert.ok(
-        content.includes('Configure rotation triggers and candidate account priority.'),
-        'SwitcherSettingsPage strategy subtitle must be humanized'
+        content.includes('Account Switch Mode:'),
+        'SwitcherSettingsPage must retain "Account Switch Mode:" header'
+      )
+      assert.ok(
+        !content.includes('Configure rotation triggers and candidate account priority.'),
+        'SwitcherSettingsPage strategy subtitle must be eliminated per anti-UI slop'
       )
       assert.ok(
         content.includes('Rotates when active quota hits the threshold. Ranks standby accounts by combined 5H and 7D quota.'),
         'SwitcherSettingsPage balanced mode copy must be humanized'
       )
       assert.ok(
-        content.includes('Sync active accounts across all Antigravity apps or manage each app independently.'),
-        'SwitcherSettingsPage sync subtitle must be humanized'
+        !content.includes('Sync active accounts across all Antigravity apps or manage each app independently.'),
+        'SwitcherSettingsPage sync subtitle must be eliminated per anti-UI slop'
       )
       assert.ok(
-        content.includes('Fallback third-party model used when non-Gemini routing is enabled.'),
-        'SwitcherSettingsPage fallback model copy must be direct'
+        !content.includes('Fallback third-party model used when non-Gemini routing is enabled.'),
+        'SwitcherSettingsPage fallback model copy must be eliminated per anti-UI slop'
       )
       assert.ok(
-        content.includes('Configure how Gemini subagents use custom models.'),
-        'SwitcherSettingsPage subagent model copy must be concise'
+        !content.includes('Configure how Gemini subagents use custom models.'),
+        'SwitcherSettingsPage subagent model copy must be eliminated per anti-UI slop'
       )
     })
 
@@ -239,8 +255,16 @@ describe('UI Design System Audit & Voice Invariants (Milestone 16)', () => {
         'SystemSettingsPage app mode copy must be humanized'
       )
       assert.ok(
-        content.includes('Restore all Antigravity apps to default state and disable all enhancements.'),
-        'SystemSettingsPage clean restore copy must be humanized'
+        content.includes('Restore Antigravity Apps to Clean Unmodified State'),
+        'SystemSettingsPage clean restore header must be retained'
+      )
+      assert.ok(
+        !content.includes('Restore all Antigravity apps to default state and disable all enhancements.'),
+        'SystemSettingsPage clean restore subtitle must be eliminated per anti-UI slop'
+      )
+      assert.ok(
+        !content.includes('This removes custom executable overrides, disables injected customizations, and resets state safely.'),
+        'SystemSettingsPage clean restore helper copy must be eliminated per anti-UI slop'
       )
     })
 
@@ -251,8 +275,8 @@ describe('UI Design System Audit & Voice Invariants (Milestone 16)', () => {
         'BrainCachePage vault copy must be humanized'
       )
       assert.ok(
-        content.includes('Reclaims disk space from stale scratch files, step logs, and task outputs without touching active sessions.'),
-        'BrainCachePage pruner copy must be humanized'
+        !content.includes('Reclaims disk space from stale scratch files, step logs, and task outputs without touching active sessions.'),
+        'BrainCachePage pruner copy must be eliminated per anti-UI slop'
       )
     })
 

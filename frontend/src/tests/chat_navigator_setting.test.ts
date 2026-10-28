@@ -2,7 +2,7 @@
  * chat_navigator_setting.test.ts - Chat Navigator display-mode selector (#162)
  *
  * Covers the Chat Navigator select under App Enhancements > Chat View >
- * Quick Prompt Jump Bar:
+ * Chat Navigator:
  *   - the select renders with Panel (Default) / Single Line choices;
  *   - the daemon value seeds the control and defaults to panel;
  *   - changing it POSTs `chat_navigator_mode: "line"` immediately.
@@ -108,7 +108,7 @@ describe('Chat Navigator display-mode selector', () => {
     cancelAllInFlightRequests()
   })
 
-  it('renders under Quick Prompt Jump Bar with Title Case options and defaults to Panel', async () => {
+  it('renders under Chat Navigator with Title Case options and defaults to Panel', async () => {
     initDOM()
     const { view: mounted } = await mountPage({})
     view = mounted
@@ -119,18 +119,18 @@ describe('Chat Navigator display-mode selector', () => {
 
     const card = select!.closest('.google-card')
     assert.ok(
-      card?.textContent?.includes('Quick Prompt Jump Bar'),
-      'Chat Navigator select must render inside the Quick Prompt Jump Bar card'
+      card?.textContent?.includes('Chat Navigator'),
+      'Chat Navigator select must render inside the Chat Navigator card'
     )
 
     const label = view!.querySelector<HTMLLabelElement>('label[for="chat-navigator-mode"]')
-    assert.equal(label?.textContent?.trim(), 'Chat Navigator')
+    assert.equal(label?.textContent?.trim(), 'Navigator Style')
 
     const options = Array.from(select!.querySelectorAll('option')).map((o) => (o.textContent || '').trim())
     assert.deepEqual(options, ['Panel (Default)', 'Single Line'])
     assert.ok(
-      (view!.container.textContent || '').includes('Hover the left rail to expand the prompt list.'),
-      'panel mode description must render'
+      !(view!.container.textContent || '').includes('Hover the left rail to expand the prompt list.'),
+      'panel mode explanatory subtitle must be removed'
     )
   })
 
@@ -140,10 +140,6 @@ describe('Chat Navigator display-mode selector', () => {
     view = first.view
 
     assert.equal(findNavigatorSelect(view!)!.value, 'line', 'daemon-reported line mode must seed the select')
-    assert.ok(
-      (view!.container.textContent || '').includes('Show the rail as plain dashes.'),
-      'line mode description must render'
-    )
     view!.unmount()
 
     const second = await mountPage({ chat_navigator_mode: 'bogus' })
@@ -170,9 +166,5 @@ describe('Chat Navigator display-mode selector', () => {
     assert.equal(posts[0].body.chat_navigator_mode, 'line', 'the partial payload must carry chat_navigator_mode: "line"')
 
     assert.equal(findNavigatorSelect(view!)!.value, 'line', 'the select must reflect the saved value')
-    assert.ok(
-      (view!.container.textContent || '').includes('Show the rail as plain dashes.'),
-      'description must switch with the mode'
-    )
   })
 })

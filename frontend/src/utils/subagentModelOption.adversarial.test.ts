@@ -75,7 +75,7 @@ describe('Adversarial & Empirical Verification: Milestone 13 Subagent Custom Mod
     })
 
     it('verifies natural wrapping is preserved for multi-line descriptive text', () => {
-      assert.ok(sec4bSource.includes("lineHeight: 1.5"), 'Card description must allow natural multi-line reading')
+      assert.ok(!sec4bSource.includes('Configure how Gemini subagents use custom models'), 'Card description padding removed per anti-UI slop')
       assert.ok(sec4bSource.includes("lineHeight: '1.45'"), 'Option descriptions must allow natural multi-line reading')
     })
   })
@@ -83,14 +83,14 @@ describe('Adversarial & Empirical Verification: Milestone 13 Subagent Custom Mod
   describe('3. Spacing Tokens & Visual Border Geometry', () => {
     it('verifies 4px grid multiple alignment for grid gap, margins, and radii', () => {
       assert.ok(sec4bSource.includes("gap: '12px'"), 'Option grid gap must be 12px (3 * 4px)')
-      assert.ok(sec4bSource.includes("margin: '0 0 16px'"), 'Card description bottom margin must be 16px (4 * 4px)')
+      assert.ok(sec4bSource.includes("marginBottom: '16px'"), 'Header bottom margin must be 16px (4 * 4px)')
       assert.ok(sec4bSource.includes("borderRadius: '8px'"), 'Option card border radius must be 8px (2 * 4px)')
       assert.ok(sec4bSource.includes("gap: '8px'"), 'Option card internal flex gap must be 8px (2 * 4px)')
     })
 
     it('verifies consistent card padding and sibling alignment', () => {
       assert.ok(sec4bSource.includes("padding: '14px'"), 'Option cards must use 14px padding matching sibling cards')
-      assert.ok(sec4bSource.includes("marginBottom: '14px'"), 'Header bottom margin must be 14px matching Section 3/4')
+      assert.ok(sec4bSource.includes("marginBottom: '16px'"), 'Header bottom margin must be 16px (4 * 4px)')
     })
 
     it('verifies active border is 2px solid primary and unselected is 1px solid border', () => {
