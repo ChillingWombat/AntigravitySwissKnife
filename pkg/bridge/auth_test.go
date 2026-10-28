@@ -50,12 +50,12 @@ func TestAuthManager_ValidateRequestAcceptsHeaderAndQueryCredentials(t *testing.
 
 func TestAuthManager_LockoutTrackingIsCapped(t *testing.T) {
 	am := NewAuthManager("test-token-123", "654321", nil)
-	start := time.Now()
+	now := time.Now()
 
 	am.mu.Lock()
 	for i := 0; i < maxTrackedLockoutIPs; i++ {
 		ip := fmt.Sprintf("198.51.%d.%d", i/256, i%256)
-		am.failedAttempts[ip] = []time.Time{start.Add(time.Duration(i) * time.Microsecond)}
+		am.failedAttempts[ip] = []time.Time{now.Add(-time.Duration(maxTrackedLockoutIPs-i) * time.Millisecond)}
 	}
 	am.recordFailureLocked("203.0.113.200")
 	_, oldestTracked := am.failedAttempts["198.51.0.0"]

@@ -440,6 +440,14 @@ func TestAuthHotPath_AuthUnlockRateLimitsInvalidPasswordAttempts(t *testing.T) {
 		t.Fatalf("Save config: %v", err)
 	}
 
+	originalVerify := verifyAppPasswordForAuth
+	verifyAppPasswordForAuth = func(cfg *core.Config, candidate string) bool {
+		return candidate == "correct-password"
+	}
+	t.Cleanup(func() {
+		verifyAppPasswordForAuth = originalVerify
+	})
+
 	srv := NewServer("127.0.0.1:0", "")
 	const limitedIP = "198.51.100.40:4321"
 	for i := 0; i < legacyAppPasswordAttemptLimit; i++ {

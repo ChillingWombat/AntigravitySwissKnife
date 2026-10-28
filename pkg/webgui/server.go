@@ -3984,7 +3984,7 @@ func (s *Server) handleAuthUnlock(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many password attempts", http.StatusTooManyRequests)
 		return
 	}
-	if cfg.VerifyAppPassword(p.Password) {
+	if verifyAppPasswordForAuth(cfg, p.Password) {
 		tok, tokenErr := s.createSessionToken()
 		if tokenErr != nil {
 			http.Error(w, "failed to create session token", http.StatusInternalServerError)
