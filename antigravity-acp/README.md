@@ -33,6 +33,16 @@ go build ./cmd/antigravity-acp
 
 Point an editor at that command. stdout carries the protocol; logs go to stderr.
 
+To exercise an existing conversation through the language-server surface:
+
+```sh
+go run ./cmd/acp-probe \
+  --server "/tmp/antigravity-acp --surface ls" \
+  --session <conversation-id> \
+  --cwd "/path/to/project" \
+  --prompt "Status check"
+```
+
 ## Tests
 
 ```sh

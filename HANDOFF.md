@@ -396,3 +396,16 @@ Files: `frontend/src/App.tsx`, `frontend/src/api.ts`.
 - Push the branch and open a PR for review; this handoff does not claim a remote merge.
 - `-race` could not run in the local release environment because `CGO_ENABLED=0`; run the race workflow after pushing.
 - The current working snapshot includes broad pre-existing product changes, so review the complete branch diff rather than only the two routing fixes.
+
+### 10.5 Installer Relaunch Hardening
+
+- The observed repeat outage was caused by an update stopping the Swiss app in `Runtime mode: app`; the daemon and `8765` custom-model proxy stopped, and the updater did not relaunch the app.
+- `scripts/install-linux.js` now stages first, stops only the installed main app immediately before replacement, installs the new tree, relaunches it detached, and waits for `/health`.
+- `--no-restart` preserves the running app; `--no-launch` installs without relaunching. CI and `ANTIGRAVITY_INSTALL_NO_LAUNCH=1` disable restart/launch.
+- Regression coverage: `scripts/install-linux.test.js`, included in the root `npm test` command.
+
+### 10.6 ACP Existing-Conversation Probe
+
+- `antigravity-acp/cmd/acp-probe` now accepts `--session <conversation-id>` and uses ACP `session/load` before prompting.
+- Conversation `772970ba-46cd-46c2-8adc-1d6d0b81b0e0` was loaded successfully through the language-server surface at `/mnt/Data/Projects/Antigravity Swiss Knife`.
+- The prompt was delivered and the conversation summary advanced, but the one-shot probe returned `context deadline exceeded` after 120 seconds while waiting for turn completion. Treat delivery/loading as verified; turn-completion polling still needs investigation if ACP prompt callers must receive a synchronous response.
