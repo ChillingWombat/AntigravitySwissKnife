@@ -22,7 +22,14 @@ Serves an Antigravity surface to any ACP client (Zed, Neovim, our own daemon) ov
 - `session/close`, `session/resume`, `session/fork` answer `-32601`. They are not
   implemented and are not advertised.
 - `session/list` and `session/load` are real: summaries come from the server, and load
-  replays recorded planner responses before returning.
+  replays the recorded turns — user messages as `user_message_chunk`, planner text as
+  `agent_message_chunk` — before returning.
+- Reasoning-backed custom models need output headroom. The cascade sends a small
+  `maxOutputTokens`, and a reasoning model bills its hidden reasoning against that same
+  cap, so it can stream reasoning and no visible text. The cascade then fails the turn
+  with "model output must contain either output text or tool calls", which looks like an
+  intermittent ACP failure. The gateway keeps `max_tokens` at or above
+  `thinkingHeadroomTokens` whenever reasoning is enabled.
 
 ## Run
 

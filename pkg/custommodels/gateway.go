@@ -272,6 +272,11 @@ func (g *Gateway) runTurn(r *http.Request, model *CustomModel, request *geminiRe
 	}
 }
 
+// thinkingHeadroomTokens is the smallest max_tokens a reasoning model is given.
+// Reasoning is billed against that cap, so a smaller one lets the model reason
+// itself out of an answer and the caller sees an empty turn.
+const thinkingHeadroomTokens = 8192
+
 // ---- provider: OpenAI-compatible chat completions ----
 
 type openAIMessage struct {
@@ -324,6 +329,14 @@ func (g *Gateway) runOpenAICompatible(r *http.Request, model *CustomModel, req *
 	}
 	if (model.SupportsThinking || model.ThinkingLevel != "") && strings.ToLower(model.ThinkingLevel) != "off" {
 		payload["reasoning_effort"] = strings.ToLower(model.ThinkingLevel)
+		// Reasoning tokens are billed against max_tokens. The language server's
+		// cascade sends a small cap, so a reasoning model can spend the whole
+		// budget thinking and stream no visible text at all. The cascade rejects
+		// that with "model output must contain either output text or tool calls",
+		// which surfaced as an intermittent ACP failure. Leave room for an answer.
+		if curMax, ok := payload["max_tokens"].(int); ok && curMax < thinkingHeadroomTokens {
+			payload["max_tokens"] = thinkingHeadroomTokens
+		}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
