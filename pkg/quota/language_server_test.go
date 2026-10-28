@@ -230,7 +230,11 @@ func TestFetchArgonQuotaFromLanguageServerWithProjectAndSnakeCase(t *testing.T) 
 				"user_status": map[string]any{"email": "active@example.com"},
 			})
 		case languageServerQuotaSummaryMethod:
-			if strings.Contains(string(requestPayload), "my-gcp-project") {
+			payloadStr := string(requestPayload)
+			if strings.Contains(payloadStr, `"force_refresh"`) && strings.Contains(payloadStr, `"forceRefresh"`) {
+				t.Errorf("request payload must not contain duplicate proto fields force_refresh and forceRefresh: %s", payloadStr)
+			}
+			if strings.Contains(payloadStr, "my-gcp-project") {
 				projectSeen = true
 			}
 			writeGRPCWebJSON(t, w, map[string]any{
@@ -279,5 +283,155 @@ func TestFetchArgonQuotaFromLanguageServerWithProjectAndSnakeCase(t *testing.T) 
 	}
 	if got.Weekly == nil || *got.Weekly != 0.7717351 {
 		t.Errorf("weekly fraction = %v, want 0.7717351", got.Weekly)
+	}
+}
+
+func TestFetchArgonQuotaFromLanguageServerWeeklyOnlyBucket(t *testing.T) {
+	const csrfToken = "test-local-csrf-token"
+	resetTime := "2026-10-28T07:58:15Z"
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPayload := readGRPCWebRequest(t, r)
+		w.Header().Set("Content-Type", "application/grpc-web+json")
+		switch r.URL.Path {
+		case languageServerUserStatusMethod:
+			writeGRPCWebJSON(t, w, map[string]any{
+				"userStatus": map[string]any{"email": "active@example.com"},
+			})
+		case languageServerQuotaSummaryMethod:
+			payloadStr := string(requestPayload)
+			if strings.Contains(payloadStr, `"force_refresh"`) && strings.Contains(payloadStr, `"forceRefresh"`) {
+				t.Errorf("duplicate field: %s", payloadStr)
+			}
+			writeGRPCWebJSON(t, w, map[string]any{
+				"response": map[string]any{
+					"groups": []any{
+						map[string]any{
+							"displayName": "Gemini 4 Argon",
+							"buckets": []any{
+								map[string]any{
+									"bucketId":          "gemini-argon-wtu-weekly",
+									"displayName":       "Gemini 4 Argon Weekly Limit",
+									"window":            "weekly",
+									"remainingFraction": 0.4768864,
+									"resetTime":         resetTime,
+								},
+							},
+						},
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	got, err := fetchArgonQuotaFromEndpointWithProject(languageServerEndpoint{
+		origin:    server.URL,
+		csrfToken: csrfToken,
+	}, "active@example.com", "", time.Now())
+	if err != nil {
+		t.Fatalf("fetchArgonQuotaFromEndpointWithProject() error = %v", err)
+	}
+	if got.FiveHour != nil {
+		t.Errorf("expected 5H fraction to be nil for weekly-only Argon, got %v", got.FiveHour)
+	}
+	if got.Weekly == nil || *got.Weekly != 0.4768864 {
+		t.Errorf("weekly fraction = %v, want 0.4768864", got.Weekly)
+	}
+	if got.WeeklyResetTime.Format(time.RFC3339) != resetTime {
+		t.Errorf("weekly reset time = %v, want %s", got.WeeklyResetTime, resetTime)
+	}
+}
+
+func TestFetchArgonQuotaFromLanguageServerUserStatusFallback(t *testing.T) {
+	const csrfToken = "test-local-csrf-token"
+	resetTime := "2026-10-28T07:58:15Z"
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = readGRPCWebRequest(t, r)
+		w.Header().Set("Content-Type", "application/grpc-web+json")
+		switch r.URL.Path {
+		case languageServerUserStatusMethod:
+			writeGRPCWebJSON(t, w, map[string]any{
+				"userStatus": map[string]any{
+					"email": "fallback@example.com",
+					"cascadeModelConfigData": map[string]any{
+						"clientModelConfigs": []any{
+							map[string]any{
+								"modelId": "gemini-4-argon-medium",
+								"label":   "Gemini 4 Argon (Medium)",
+								"quotaInfo": map[string]any{
+									"remainingFraction": 0.4768864,
+									"resetTime":         resetTime,
+								},
+							},
+						},
+					},
+				},
+			})
+		case languageServerQuotaSummaryMethod:
+			// Quota summary is empty or omitted
+			writeGRPCWebJSON(t, w, map[string]any{
+				"response": map[string]any{
+					"groups": []any{},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	got, err := fetchArgonQuotaFromEndpointWithProject(languageServerEndpoint{
+		origin:    server.URL,
+		csrfToken: csrfToken,
+	}, "fallback@example.com", "", time.Now())
+	if err != nil {
+		t.Fatalf("fetchArgonQuotaFromEndpointWithProject() fallback error = %v", err)
+	}
+	if got.Weekly == nil || *got.Weekly != 0.4768864 {
+		t.Errorf("fallback weekly fraction = %v, want 0.4768864", got.Weekly)
+	}
+	if got.WeeklyResetTime.Format(time.RFC3339) != resetTime {
+		t.Errorf("fallback weekly reset time = %v, want %s", got.WeeklyResetTime, resetTime)
+	}
+}
+
+func TestSetLanguageServerCloudCodeURL(t *testing.T) {
+	const csrfToken = "test-csrf-token"
+	var receivedPayload map[string]any
+	var receivedCSRF string
+	var receivedMethod string
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedMethod = r.URL.Path
+		receivedCSRF = r.Header.Get("x-codeium-csrf-token")
+		reqBytes := readGRPCWebRequest(t, r)
+		_ = json.Unmarshal(reqBytes, &receivedPayload)
+		w.Header().Set("Content-Type", "application/grpc-web+json")
+		writeGRPCWebJSON(t, w, map[string]any{})
+	}))
+	defer server.Close()
+
+	endpoint := languageServerEndpoint{
+		origin:    server.URL,
+		csrfToken: csrfToken,
+	}
+
+	targetURL := "http://127.0.0.1:8765"
+	if err := SetLanguageServerCloudCodeURLForEndpoint(endpoint, targetURL); err != nil {
+		t.Fatalf("SetLanguageServerCloudCodeURLForEndpoint() error = %v", err)
+	}
+
+	if receivedMethod != languageServerSetCloudCodeURLMethod {
+		t.Errorf("received method = %q, want %q", receivedMethod, languageServerSetCloudCodeURLMethod)
+	}
+	if receivedCSRF != csrfToken {
+		t.Errorf("received csrf = %q, want %q", receivedCSRF, csrfToken)
+	}
+	if urlVal, ok := receivedPayload["url"].(string); !ok || urlVal != targetURL {
+		t.Errorf("received payload url = %v, want %q", receivedPayload["url"], targetURL)
 	}
 }

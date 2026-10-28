@@ -28,10 +28,10 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
 
   const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u
 
-  it('NavRail contains dedicated Remote Connect section button with Network Lucide icon', () => {
+  it('NavRail contains dedicated Remote Connect section button with Globe Lucide icon', () => {
     assert.ok(navContent.includes('id="btnNavBridge"'))
     assert.ok(navContent.includes('onSelectTool(10)'))
-    assert.ok(navContent.includes('<Network size={18}'))
+    assert.ok(navContent.includes('<Globe size={18}'))
     assert.ok(navContent.includes('Remote Connect'))
   })
 
@@ -64,6 +64,8 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
 
   it('RemoteControlPage uses one operational remote-access control', () => {
     assert.strictEqual(emojiRegex.test(remoteContent), false, 'RemoteControlPage must not contain emojis')
+    assert.ok(remoteContent.includes('Access Mode'))
+    assert.strictEqual(remoteContent.includes('Remote Internet Access'), false)
     assert.ok(remoteContent.includes('api.getRemoteControlStatus'))
     assert.ok(remoteContent.includes('api.rotateRemotePIN'))
     assert.ok(remoteContent.includes('Security PIN'))
@@ -168,7 +170,7 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
         /import\s*\{[\s\S]*?\bInfo\b[\s\S]*?\}\s*from 'lucide-react'/,
         `${header.name} must import the Lucide Info icon`
       )
-      assert.ok(header.content.includes('<Info size={15} aria-hidden="true" />'), `${header.name} must render the Info icon`)
+      assert.ok(header.content.includes('<Info size={13} aria-hidden="true" />'), `${header.name} must render the Info icon`)
       assert.ok(header.content.includes(`title="${header.tooltip}"`), `${header.name} must expose the Info tooltip`)
       assert.strictEqual(
         header.content.includes(header.removedCopy),

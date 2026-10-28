@@ -134,11 +134,6 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
             <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
               Profile Mappings Inventory
             </h2>
-            <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              {isLoadingProfiles
-                ? 'Loading device profiles...'
-                : 'Click an account row to view and customize its isolated hardware profile.'}
-            </p>
           </div>
         </div>
 

@@ -65,9 +65,11 @@ export const HorizontalQuotaBar: React.FC<HorizontalQuotaBarProps> = ({
           style={{
             fontSize: '11px',
             fontWeight: 700,
-              fontVariantNumeric: 'tabular-nums',
+            fontVariantNumeric: 'tabular-nums',
             color: isUntracked ? 'var(--text-muted)' : 'var(--text)',
             whiteSpace: 'nowrap',
+            minWidth: '32px',
+            textAlign: 'right',
           }}
         >
           {isUntracked ? 'N/A' : `${pct}%`}

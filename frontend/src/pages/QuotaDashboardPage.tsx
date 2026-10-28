@@ -447,15 +447,15 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
   const raw5hGemini = fleet?.fleet_5h_gemini_available ?? fleet?.fleet_5h_available ?? fallback5h
   const gauge5hGemini = raw5hGemini !== null && !isNaN(raw5hGemini) ? Math.round(raw5hGemini * 100) : null
 
-  const hasArgon5h = polledAccounts5hArgon.length > 0
-  const raw5hArgon = hasArgon5h ? fallback5hArgon : null
+  const hasArgon5h = polledAccounts5hArgon.length > 0 || (typeof fleet?.fleet_5h_argon_available === 'number' && fleet.fleet_5h_argon_available !== null)
+  const raw5hArgon = hasArgon5h ? (fleet?.fleet_5h_argon_available ?? fallback5hArgon) : null
   const gauge5hArgon = raw5hArgon !== null && !isNaN(raw5hArgon) ? Math.round(raw5hArgon * 100) : null
 
   const rawWeeklyGemini = fleet?.fleet_weekly_gemini_available ?? fleet?.fleet_weekly_available ?? fallbackWeekly
   const gaugeWeeklyGemini = rawWeeklyGemini !== null && !isNaN(rawWeeklyGemini) ? Math.round(rawWeeklyGemini * 100) : null
 
-  const hasArgon7d = polledAccountsWeeklyArgon.length > 0
-  const rawWeeklyArgon = hasArgon7d ? fallbackWeeklyArgon : null
+  const hasArgon7d = polledAccountsWeeklyArgon.length > 0 || (typeof fleet?.fleet_weekly_argon_available === 'number' && fleet.fleet_weekly_argon_available !== null)
+  const rawWeeklyArgon = hasArgon7d ? (fleet?.fleet_weekly_argon_available ?? fallbackWeeklyArgon) : null
   const gaugeWeeklyArgon = rawWeeklyArgon !== null && !isNaN(rawWeeklyArgon) ? Math.round(rawWeeklyArgon * 100) : null
 
   const raw5hClaude = fleet?.fleet_5h_claude_gpt_available ?? fallback5hClaude
@@ -1017,8 +1017,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => setSortMode('quota_5h')}
                 style={{
-                  width: '156px',
-                  minWidth: '156px',
+                  width: '180px',
+                  minWidth: '180px',
                   padding: '12px 12px',
                   textAlign: 'left',
                   fontSize: '11px',
@@ -1041,8 +1041,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => setSortMode('quota_weekly')}
                 style={{
-                  width: '156px',
-                  minWidth: '156px',
+                  width: '180px',
+                  minWidth: '180px',
                   padding: '12px 12px',
                   textAlign: 'left',
                   fontSize: '11px',
@@ -1217,7 +1217,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     {renderPlanTierBadge(acc.plan_tier)}
                   </td>
 
-                  <td style={{ padding: '12px', verticalAlign: 'top' }}>
+                  <td style={{ padding: '12px', verticalAlign: 'middle' }}>
                     {(() => {
                       const avail5h = acc.quota_5h_available ?? current5h
                       const hasDiff = Math.abs(avail5h - current5h) > 0.001
@@ -1230,34 +1230,37 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
                       if (rules?.allow_non_gemini_native_models) {
                         return (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <div>
-                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                 <span>Gemini</span>
                               </div>
                               <HorizontalQuotaBar
                                 fraction={current5h}
                                 title={tooltip5hGemini}
+                                maxWidth="100%"
                               />
                             </div>
                             {hasArgon5hQuota && (
                               <div>
-                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                   <span>Argon</span>
                                 </div>
                                 <HorizontalQuotaBar
                                   fraction={acc.quota_5h_argon}
                                   title={acc.reset_horizon_5h_argon_text || 'Gemini 4 Argon 5H cycle'}
+                                  maxWidth="100%"
                                 />
                               </div>
                             )}
                             <div>
-                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                 <span>Non-Gemini</span>
                               </div>
                               <HorizontalQuotaBar
                                 fraction={acc.quota_5h_claude_gpt ?? 0}
                                 title="Non-Gemini 5h cycle"
+                                maxWidth="100%"
                               />
                             </div>
                           </div>
@@ -1265,25 +1268,41 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                       }
                       if (hasArgon5hQuota) {
                         return (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <div>
-                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                 <span>Gemini</span>
                               </div>
                               <HorizontalQuotaBar
                                 fraction={current5h}
                                 title={tooltip5hGemini}
+                                maxWidth="100%"
                               />
                             </div>
                             <div>
-                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                 <span>Argon</span>
                               </div>
                               <HorizontalQuotaBar
                                 fraction={acc.quota_5h_argon}
                                 title={acc.reset_horizon_5h_argon_text || 'Gemini 4 Argon 5H cycle'}
+                                maxWidth="100%"
                               />
                             </div>
+                          </div>
+                        )
+                      }
+                      if (hasArgonWeeklyQuota) {
+                        return (
+                          <div>
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              <span>Gemini</span>
+                            </div>
+                            <HorizontalQuotaBar
+                              fraction={current5h}
+                              title={tooltip5hGemini}
+                              maxWidth="100%"
+                            />
                           </div>
                         )
                       }
@@ -1291,36 +1310,42 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                         <HorizontalQuotaBar
                           fraction={current5h}
                           title={tooltip5h}
+                          maxWidth="100%"
                         />
                       )
                     })()}
                   </td>
 
-                  <td style={{ padding: '12px', verticalAlign: 'top' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                  <td style={{ padding: '12px', verticalAlign: 'middle' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       {hasArgonWeeklyQuota ? (
-                        <>
-                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
-                            <span>Gemini</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <div>
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              <span>Gemini</span>
+                            </div>
+                            <HorizontalQuotaBar
+                              fraction={acc.quota_weekly ?? 0}
+                              title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
+                              maxWidth="100%"
+                            />
                           </div>
-                          <HorizontalQuotaBar
-                            fraction={acc.quota_weekly ?? 0}
-                            title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
-                          />
-                        <div>
-                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
-                            <span>Argon</span>
+                          <div>
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              <span>Argon</span>
+                            </div>
+                            <HorizontalQuotaBar
+                              fraction={acc.quota_weekly_argon}
+                              title={acc.reset_horizon_weekly_argon_text || 'Gemini 4 Argon 7D cycle'}
+                              maxWidth="100%"
+                            />
                           </div>
-                          <HorizontalQuotaBar
-                            fraction={acc.quota_weekly_argon}
-                            title={acc.reset_horizon_weekly_argon_text || 'Gemini 4 Argon 7D cycle'}
-                          />
                         </div>
-                        </>
                       ) : (
                         <HorizontalQuotaBar
                           fraction={acc.quota_weekly ?? 0}
                           title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
+                          maxWidth="100%"
                         />
                       )}
                       {rules?.allow_non_gemini_native_models && (
@@ -1331,6 +1356,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           <HorizontalQuotaBar
                             fraction={acc.quota_weekly_claude_gpt ?? 0}
                             title="Non-Gemini 7D cycle"
+                            maxWidth="100%"
                           />
                         </div>
                       )}

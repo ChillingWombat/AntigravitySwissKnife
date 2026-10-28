@@ -11,10 +11,19 @@ import (
 func GenerateCustomModelsScript(cfg *Config) string {
 	// Custom models must not be baked permanently into the offline Electron renderer.
 	// Initial state starts empty; config is loaded dynamically only when the Swiss Knife daemon is running and inference is supported.
-	cfgJSON := []byte(`{"version":"1.0.0","inference_supported":true,"gemini_quota_exhausted":false,"models":[]}`)
+	cfgJSON := []byte(`{"version":"1.0.0","inference_supported":true,"gemini_quota_exhausted":false,"integration":{"mode":"profile_isolation","apps":{"antigravity":{"source":"native","subagents":"app"},"vscode":{"source":"native","subagents":"app"}}},"models":[]}`)
 	if cfg != nil {
 		cfgCopy := *cfg
 		cfgCopy.InferenceSupported = true
+		if cfgCopy.Integration.Mode == "" {
+			cfgCopy.Integration.Mode = IntegrationProfileIsolation
+		}
+		if cfgCopy.Integration.Apps == nil {
+			cfgCopy.Integration.Apps = map[string]AppProfile{
+				"antigravity": {Source: ModelSourceNative, Subagents: SubagentsApp},
+				"vscode":      {Source: ModelSourceNative, Subagents: SubagentsApp},
+			}
+		}
 		if cBytes, err := json.Marshal(&cfgCopy); err == nil {
 			cfgJSON = cBytes
 		}
@@ -26,6 +35,39 @@ func GenerateCustomModelsScript(cfg *Config) string {
   try {
     let customConfig = %s;
     if (!customConfig.models) customConfig.models = [];
+    if (!customConfig.integration) {
+      customConfig.integration = {
+        mode: "profile_isolation",
+        apps: {
+          antigravity: { source: "native", subagents: "app" },
+          vscode: { source: "native", subagents: "app" }
+        }
+      };
+    }
+
+    function getEffectiveCatalogMode() {
+      const mode = (customConfig && customConfig.integration && customConfig.integration.mode) || "profile_isolation";
+      if (mode === "api_proxy") {
+        return "hybrid";
+      }
+      let profile = "";
+      if (typeof window !== "undefined" && window.__SWISS_WINDOW_PROFILE__) {
+        profile = window.__SWISS_WINDOW_PROFILE__;
+      } else if (
+        typeof process !== "undefined" &&
+        ((process.env && (process.env.AGY_LLM_GATEWAY_URL || (process.env.HOME && process.env.HOME.includes("antigravity-swiss-custom")))) ||
+         (Array.isArray(process.argv) && process.argv.some(a => typeof a === "string" && a.includes("antigravity-swiss-custom"))))
+      ) {
+        profile = "custom";
+      } else {
+        profile = (customConfig && customConfig.integration && customConfig.integration.apps && customConfig.integration.apps.antigravity && customConfig.integration.apps.antigravity.source) || "native";
+      }
+
+      if (profile === "custom") {
+        return "custom_only";
+      }
+      return "native_only";
+    }
 
     // Auth headers provider matching daemon session authentication
     function getSwissAuthHeaders(extra = {}) {
@@ -53,12 +95,33 @@ func GenerateCustomModelsScript(cfg *Config) string {
             if (loaded) {
               customConfig = loaded;
               if (!customConfig.models) customConfig.models = [];
+              if (!customConfig.integration) {
+                customConfig.integration = {
+                  mode: "profile_isolation",
+                  apps: {
+                    antigravity: { source: "native", subagents: "app" },
+                    vscode: { source: "native", subagents: "app" }
+                  }
+                };
+              }
               return;
             }
           }
         }
       } catch (_) {}
-      customConfig = { version: "1.0.0", inference_supported: false, models: [] };
+      const savedIntegration = customConfig && customConfig.integration;
+      customConfig = {
+        version: "1.0.0",
+        inference_supported: false,
+        models: [],
+        integration: savedIntegration || {
+          mode: "profile_isolation",
+          apps: {
+            antigravity: { source: "native", subagents: "app" },
+            vscode: { source: "native", subagents: "app" }
+          }
+        }
+      };
     }
 
     refreshCustomConfig();
@@ -171,12 +234,18 @@ func GenerateCustomModelsScript(cfg *Config) string {
     function clearSessionCustomModel() {
       if (typeof window !== "undefined") {
         window.__swiss_session_custom_model_id = null;
+        window.__swiss_native_model_selected = true;
       }
       customConfig.active_model_id = "";
       const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
       if (trigger) {
+        const savedNative = trigger.getAttribute("data-swiss-native-label");
         trigger.removeAttribute("data-swiss-custom-bound");
         trigger.removeAttribute("data-swiss-native-label");
+        const label = trigger.querySelector("span") || trigger;
+        if (savedNative && label) {
+          label.textContent = savedNative;
+        }
         try {
           const k = Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
           if (k && trigger[k]) {
@@ -190,7 +259,6 @@ func GenerateCustomModelsScript(cfg *Config) string {
               return "";
             };
             const nativeText = collect(ch?.[0]);
-            const label = trigger.querySelector("span") || trigger;
             if (nativeText && label) label.textContent = nativeText;
           }
         } catch (_) {}
@@ -210,6 +278,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
         if (!(target instanceof Element)) return;
         if (target.closest(".swiss-custom-models-menu-group")) return;
         if (target.closest("#swiss-custom-thinking-submenu")) return;
+        const popover = getModelSelectorPopover();
         const nativeOption = target.closest(
           '[data-testid="model-selector-effort-option"], ' +
           '[data-testid="model-selector-context-window-option"], ' +
@@ -217,7 +286,8 @@ func GenerateCustomModelsScript(cfg *Config) string {
           '[data-testid="model-selector-effort-group"]'
         );
         const panelItem = target.closest('[data-testid="model-selector-panel"] [role="menuitem"]');
-        const clickedItem = nativeOption || panelItem;
+        const popoverItem = (popover && popover.contains(target)) ? target.closest('[role="menuitem"], [role="menuitemradio"], button') : null;
+        const clickedItem = nativeOption || panelItem || popoverItem;
         if (!clickedItem || (clickedItem.textContent || "").trim() === "View Usage") return;
         clearSessionCustomModel();
       }, true);
@@ -251,6 +321,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
         const model = models.find(m => m && m.enabled && (m.id === wanted || m.name === wanted));
         if (!model) return { success: false, reason: "unknown_or_disabled_model" };
         window.__swiss_session_custom_model_id = model.id;
+        window.__swiss_native_model_selected = false;
         customConfig.active_model_id = model.id;
         const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
         if (trigger) {
@@ -268,6 +339,78 @@ func GenerateCustomModelsScript(cfg *Config) string {
         }).catch(() => {});
         return { success: true, model_id: model.id, label: model.display_name || model.name || model.id };
       };
+    }
+
+    function updateModelSelectorTrigger(trigger, activeCustomModel) {
+      if (!trigger) return;
+      const catalogMode = getEffectiveCatalogMode();
+      const label = trigger.querySelector("span") || trigger;
+
+      if (catalogMode === "native_only") {
+        if (trigger.hasAttribute("data-swiss-custom-bound")) {
+          trigger.removeAttribute("data-swiss-custom-bound");
+          trigger.removeAttribute("data-swiss-native-label");
+          try {
+            const k = Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
+            if (k && trigger[k]) {
+              const ch = trigger[k].memoizedProps?.children;
+              const collect = (node) => {
+                if (!node) return "";
+                if (typeof node === "string") return node;
+                if (typeof node === "number") return String(node);
+                if (Array.isArray(node)) return node.map(collect).join("");
+                if (node.props?.children) return collect(node.props.children);
+                return "";
+              };
+              const nativeText = collect(ch?.[0]);
+              if (nativeText) label.textContent = nativeText;
+            }
+          } catch (_) {}
+        }
+        return;
+      }
+
+      if (catalogMode === "custom_only") {
+        let targetModel = activeCustomModel;
+        if (!targetModel) {
+          const selectable = customConfig.models || [];
+          const defId = customConfig.default_custom_model;
+          if (defId) {
+            targetModel = selectable.find(m => (m.id === defId || m.name === defId) && m.enabled);
+          }
+          if (!targetModel) {
+            targetModel = selectable.find(m => m.is_default && m.enabled) || selectable.find(m => m.enabled);
+          }
+        }
+        if (targetModel) {
+          renderTriggerModelLabel(trigger, targetModel);
+        }
+        return;
+      }
+
+      // Hybrid mode
+      if (activeCustomModel) {
+        renderTriggerModelLabel(trigger, activeCustomModel);
+      } else if (trigger.hasAttribute("data-swiss-custom-bound")) {
+        trigger.removeAttribute("data-swiss-custom-bound");
+        trigger.removeAttribute("data-swiss-native-label");
+        try {
+          const k = Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
+          if (k && trigger[k]) {
+            const ch = trigger[k].memoizedProps?.children;
+            const collect = (node) => {
+              if (!node) return "";
+              if (typeof node === "string") return node;
+              if (typeof node === "number") return String(node);
+              if (Array.isArray(node)) return node.map(collect).join("");
+              if (node.props?.children) return collect(node.props.children);
+              return "";
+            };
+            const nativeText = collect(ch?.[0]);
+            if (nativeText) label.textContent = nativeText;
+          }
+        } catch (_) {}
+      }
     }
 
     function updateModelSelector() {
@@ -314,66 +457,78 @@ func GenerateCustomModelsScript(cfg *Config) string {
           if (nativeHeader && nativeHeader.textContent.trim() === "Native Model") {
             nativeHeader.textContent = "Model";
           }
+          popover.querySelectorAll('[data-testid="model-selector-item"], [data-testid="model-selector-effort-group"], [data-testid="model-selector-context-window-option"]').forEach(el => {
+            el.style.display = "";
+          });
+        }
+        return;
+      }
+
+      const catalogMode = getEffectiveCatalogMode();
+      if (catalogMode === "native_only") {
+        removeCustomThinkingSubmenu();
+        const popover = getModelSelectorPopover();
+        if (popover) {
+          const existingCustomGroup = popover.querySelector(".swiss-custom-models-menu-group");
+          if (existingCustomGroup) existingCustomGroup.remove();
+          const customHeader = popover.querySelector('[data-testid="custom-models-header"]');
+          if (customHeader) customHeader.remove();
+
+          const nativeHeader = popover.querySelector('[data-testid="model-selector-header"]') ||
+            Array.from(popover.querySelectorAll('div')).find(d => {
+              const t = (d.textContent || "").trim();
+              return d.children.length === 0 && (t === "Model" || t === "Native Model" || t === "Native Models");
+            });
+          if (nativeHeader && nativeHeader.textContent.trim() === "Native Model") {
+            nativeHeader.textContent = "Model";
+          }
+          popover.querySelectorAll('[data-testid="model-selector-item"], [data-testid="model-selector-effort-group"], [data-testid="model-selector-context-window-option"]').forEach(el => {
+            el.style.display = "";
+          });
+        }
+        if (trigger && (trigger.hasAttribute("data-swiss-custom-bound") || (typeof window !== "undefined" && window.__swiss_session_custom_model_id))) {
+          clearSessionCustomModel();
         }
         return;
       }
 
       // Determine activeCustomModel. A model is never bound to a project: the pick
       // is per session, falling back to the app-wide active model, and only then to
-      // the quota-exhaustion backup.
+      // the quota-exhaustion backup. If the user explicitly clicked a native model,
+      // respect that selection and do not auto-override with custom model fallback.
       let activeCustomModel = null;
       const selectable = customConfig.models || [];
-      if (typeof window !== "undefined" && window.__swiss_session_custom_model_id) {
-        activeCustomModel = selectable.find(m => m.id === window.__swiss_session_custom_model_id && m.enabled) || null;
-      }
-      if (!activeCustomModel && customConfig.active_model_id) {
-        activeCustomModel = selectable.find(m => m.id === customConfig.active_model_id && m.enabled) || null;
-      }
-      if (!activeCustomModel && customConfig.gemini_quota_exhausted === true) {
-        // Gemini quota is exhausted: fall back to the configured backup model.
-        const defId = customConfig.default_custom_model;
-        if (defId) {
-          activeCustomModel = selectable.find(m => (m.id === defId || m.name === defId) && m.enabled) || null;
+      const isNativeSelected = (typeof window !== "undefined" && window.__swiss_native_model_selected === true);
+      if (isNativeSelected) {
+        activeCustomModel = null;
+      } else {
+        if (typeof window !== "undefined" && window.__swiss_session_custom_model_id) {
+          activeCustomModel = selectable.find(m => m.id === window.__swiss_session_custom_model_id && m.enabled) || null;
         }
-        if (!activeCustomModel) {
-          activeCustomModel = selectable.find(m => m.is_default && m.enabled) || null;
+        if (!activeCustomModel && customConfig.active_model_id) {
+          activeCustomModel = selectable.find(m => m.id === customConfig.active_model_id && m.enabled) || null;
         }
-        if (!activeCustomModel) {
-          activeCustomModel = selectable.find(m => m.enabled) || null;
+        if (!activeCustomModel && (customConfig.gemini_quota_exhausted === true || catalogMode === "custom_only")) {
+          // Gemini quota is exhausted or in custom_only mode: fall back to the configured backup model.
+          const defId = customConfig.default_custom_model;
+          if (defId) {
+            activeCustomModel = selectable.find(m => (m.id === defId || m.name === defId) && m.enabled) || null;
+          }
+          if (!activeCustomModel) {
+            activeCustomModel = selectable.find(m => m.is_default && m.enabled) || null;
+          }
+          if (!activeCustomModel) {
+            activeCustomModel = selectable.find(m => m.enabled) || null;
+          }
         }
       }
 
-      // Update trigger pill text if custom model is bound
-      if (trigger) {
-        const label = trigger.querySelector("span") || trigger;
-        if (activeCustomModel) {
-          renderTriggerModelLabel(trigger, activeCustomModel);
-        } else if (trigger.hasAttribute("data-swiss-custom-bound")) {
-          trigger.removeAttribute("data-swiss-custom-bound");
-          trigger.removeAttribute("data-swiss-native-label");
-          try {
-            const k = Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
-            if (k && trigger[k]) {
-              const ch = trigger[k].memoizedProps?.children;
-              const collect = (node) => {
-                if (!node) return "";
-                if (typeof node === "string") return node;
-                if (typeof node === "number") return String(node);
-                if (Array.isArray(node)) return node.map(collect).join("");
-                if (node.props?.children) return collect(node.props.children);
-                return "";
-              };
-              const nativeText = collect(ch?.[0]);
-              if (nativeText) label.textContent = nativeText;
-            }
-          } catch (_) {}
-        }
+      updateModelSelectorTrigger(trigger, activeCustomModel);
 
-        // Clean up any stale Gemini reasoning selector from DOM if present
-        const staleGeminiSelector = document.querySelector("#swiss-gemini-reasoning-selector");
-        if (staleGeminiSelector) {
-          staleGeminiSelector.remove();
-        }
+      // Clean up any stale Gemini reasoning selector from DOM if present
+      const staleGeminiSelector = document.querySelector("#swiss-gemini-reasoning-selector");
+      if (staleGeminiSelector) {
+        staleGeminiSelector.remove();
       }
 
       // Detect open model selector dropdown. Other host menus are [role="menu"]
@@ -383,7 +538,6 @@ func GenerateCustomModelsScript(cfg *Config) string {
         removeCustomThinkingSubmenu();
         return;
       }
-      if (popover.__swissCustomGrouped) return;
 
       const menuItems = Array.from(popover.querySelectorAll('[role="menuitem"], button, .menu-item'));
       if (menuItems.length === 0) return;
@@ -391,25 +545,65 @@ func GenerateCustomModelsScript(cfg *Config) string {
       // Check if menu has native model names
       const isModelMenu = menuItems.some(it => {
         const txt = it.textContent || "";
-        return txt.includes("Gemini") || txt.includes("Flash") || txt.includes("Claude") || txt.includes("Pro") || txt.includes("GPT-OSS") || txt.includes("Opus");
+        return txt.includes("Gemini") || txt.includes("Flash") || txt.includes("Claude") || txt.includes("Pro") || txt.includes("GPT-OSS") || txt.includes("Opus") || it.matches?.('[data-testid="model-selector-custom-item"]');
       });
 
       if (!isModelMenu) return;
+
+      if (catalogMode === "custom_only") {
+        popover.querySelectorAll('[data-testid="model-selector-item"]').forEach(el => {
+          // Do not hide custom items which have data-testid="model-selector-custom-item"
+          if (!el.matches('[data-testid="model-selector-custom-item"]')) {
+            el.style.display = "none";
+          }
+        });
+        // Also hide native effort groups and context window options
+        popover.querySelectorAll('[data-testid="model-selector-effort-group"], [data-testid="model-selector-context-window-option"]').forEach(el => {
+          el.style.display = "none";
+        });
+      } else if (catalogMode === "hybrid") {
+        popover.querySelectorAll('[data-testid="model-selector-item"], [data-testid="model-selector-effort-group"], [data-testid="model-selector-context-window-option"]').forEach(el => {
+          el.style.display = "";
+        });
+      }
 
       // Rename factory category header "Model" to "Native Model"
       const nativeHeader = popover.querySelector('[data-testid="model-selector-header"]') ||
         Array.from(popover.querySelectorAll('div')).find(d => {
           const t = (d.textContent || "").trim();
-          return d.children.length === 0 && (t === "Model" || t === "Native Models");
+          return d.children.length === 0 && (t === "Model" || t === "Native Model" || t === "Native Models");
         });
-      if (nativeHeader && nativeHeader.textContent.trim() !== "Native Model") {
-        nativeHeader.textContent = "Native Model";
+      if (nativeHeader) {
+        if (catalogMode === "custom_only") {
+          nativeHeader.style.display = "none";
+        } else if (catalogMode === "hybrid") {
+          nativeHeader.style.display = "";
+          if (nativeHeader.textContent.trim() !== "Native Model") {
+            nativeHeader.textContent = "Native Model";
+          }
+        } else {
+          nativeHeader.style.display = "";
+          if (nativeHeader.textContent.trim() === "Native Model") {
+            nativeHeader.textContent = "Model";
+          }
+        }
       }
 
       // Rename existing custom category header to "Custom Model"
       const existingCustomHeader = popover.querySelector('[data-testid="custom-models-header"]');
-      if (existingCustomHeader && existingCustomHeader.textContent.trim() !== "Custom Model") {
-        existingCustomHeader.textContent = "Custom Model";
+      if (existingCustomHeader) {
+        if (catalogMode === "custom_only") {
+          if (existingCustomHeader.textContent.trim() !== "Model") {
+            existingCustomHeader.textContent = "Model";
+          }
+        } else if (existingCustomHeader.textContent.trim() !== "Custom Model") {
+          existingCustomHeader.textContent = "Custom Model";
+        }
+      }
+
+      const existingSeparator = popover.querySelector('.swiss-custom-models-menu-group > [role="separator"]');
+      if (existingSeparator) {
+        existingSeparator.style.display = (catalogMode === "custom_only") ? "none" : "";
       }
 
       if (popover.__swissCustomGrouped) return;
@@ -479,13 +673,20 @@ func GenerateCustomModelsScript(cfg *Config) string {
           const separator = document.createElement("div");
           separator.setAttribute("role", "separator");
           separator.style.cssText = "height: 1px; background: var(--border, rgba(0, 0, 0, 0.08)); margin: 4px -4px 3px -4px;";
+          if (catalogMode === "custom_only") {
+            separator.style.display = "none";
+          }
           customContainer.appendChild(separator);
 
           // Native Section Header matching factory "Model" header
           const customHeader = document.createElement("div");
           customHeader.setAttribute("data-testid", "custom-models-header");
           customHeader.className = "text-xs px-2 pt-1 pb-1 text-muted-foreground font-medium select-none";
-          customHeader.textContent = "Custom Model";
+          if (catalogMode === "custom_only") {
+            customHeader.textContent = "Model";
+          } else {
+            customHeader.textContent = "Custom Model";
+          }
           customHeader.style.cssText = "padding: 3px 8px 3px 8px; font-size: 12px; font-weight: 500; color: var(--muted-foreground, #71717a); user-select: none;";
           customHeader.addEventListener("mouseenter", () => {
             removeCustomThinkingSubmenu();
@@ -564,6 +765,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
             async function selectCustomModelWithLevel(chosenLevel) {
               if (typeof window !== "undefined") {
                 window.__swiss_session_custom_model_id = m.id;
+                window.__swiss_native_model_selected = false;
               }
               if (chosenLevel) {
                 m.thinking_level = chosenLevel;

@@ -186,7 +186,7 @@ export const RemoteControlPage: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* 1. Remote Control Wrapper, Status, Endpoint & Pairing Security */}
       <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
@@ -194,9 +194,9 @@ export const RemoteControlPage: React.FC = () => {
               </h2>
               <span
                 title="Authenticated reverse proxy streaming the Antigravity web UI."
-                style={{ display: 'inline-flex', color: 'var(--text-muted)', cursor: 'default' }}
+                style={{ display: 'inline-flex', color: 'var(--text-subtle)', cursor: 'default' }}
               >
-                <Info size={15} aria-hidden="true" />
+                <Info size={13} aria-hidden="true" />
               </span>
             </div>
           </div>
@@ -244,9 +244,6 @@ export const RemoteControlPage: React.FC = () => {
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {status.active_google_account || 'Not signed in'}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Syncs without dropped viewer
-            </div>
           </div>
 
           <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
@@ -255,9 +252,6 @@ export const RemoteControlPage: React.FC = () => {
             </div>
             <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
               {status.devtools_port > 0 ? status.devtools_port : 'Idle (Auto)'}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              CDP DevTools Port
             </div>
           </div>
         </div>
@@ -397,10 +391,10 @@ export const RemoteControlPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Out-of-Home Remote Internet Access (Tunneling) */}
+      {/* 2. Access Mode (Tunneling) */}
       <div className="google-card">
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
-          Remote Internet Access (Out-of-Home Access)
+          Access Mode
         </div>
 
         {/* Tunnel Options Grid */}

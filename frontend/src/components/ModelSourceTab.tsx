@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { AlertCircle, AlertTriangle, Copy, Check, Play, RefreshCw, Terminal } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Copy, Check, Play, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 
 type AppKey = 'antigravity' | 'vscode'
@@ -117,6 +117,7 @@ export const ModelSourceTab: React.FC = () => {
   const [launching, setLaunching] = useState<AppKey | null>(null)
   const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedGemini, setCopiedGemini] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -176,9 +177,21 @@ export const ModelSourceTab: React.FC = () => {
 
   const copyEndpoint = async () => {
     try {
-      await navigator.clipboard.writeText(endpoint)
+      const url = endpoint || 'http://127.0.0.1:8765/v1'
+      await navigator.clipboard.writeText(url)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setFeedback({ text: 'Clipboard is not available', isError: true })
+    }
+  }
+
+  const copyGemini = async () => {
+    try {
+      const url = geminiBase || 'http://127.0.0.1:8765/v1beta'
+      await navigator.clipboard.writeText(url)
+      setCopiedGemini(true)
+      setTimeout(() => setCopiedGemini(false), 1500)
     } catch {
       setFeedback({ text: 'Clipboard is not available', isError: true })
     }
@@ -299,75 +312,94 @@ export const ModelSourceTab: React.FC = () => {
                 style={segmentStyle(!isExternal)}
                 onClick={() => save({ ...integration, proxy: { ...integration.proxy, scope: 'antigravity' } })}
               >
-                Antigravity apps only
+                Antigravity Only
               </button>
               <button
-                style={segmentStyle(isExternal)}
+                style={{
+                  ...segmentStyle(isExternal),
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
                 onClick={() => save({ ...integration, proxy: { ...integration.proxy, scope: 'external' } })}
               >
-                Also expose to external agents
+                <span>Global Use</span>
+                <span
+                  title="Increased Ban Risk"
+                  aria-label="Increased Ban Risk"
+                  style={{ display: 'inline-flex', alignItems: 'center' }}
+                >
+                  <AlertCircle
+                    size={12}
+                    color="#b91c1c"
+                    className="text-red-600"
+                    style={{ flexShrink: 0 }}
+                  />
+                </span>
               </button>
             </div>
           </div>
-          {isExternal && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={riskStyle('red')}>
-                <AlertCircle size={12} /> Increased Ban Risk
-              </span>
-              <span style={{ ...wrappingTextStyle, fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                External agents can call native models through this endpoint.
-              </span>
-            </div>
-          )}
-
-          <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-            <span style={sectionLabelStyle}>OpenAI protocol</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-              <code style={{ ...wrappingTextStyle, fontSize: '12px', color: 'var(--text)' }}>{endpoint || '—'}/models</code>
-              <button style={actionStyle} onClick={copyEndpoint}>
-                {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy endpoint'}
-              </button>
-            </div>
-            <span style={{ ...wrappingTextStyle, fontSize: '11.5px', color: 'var(--text-muted)' }}>
-              `/v1/chat/completions`. Gemini model calls are converted to the Gemini protocol before reaching Google.
-            </span>
-          </div>
-
-          <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-            <span style={sectionLabelStyle}>Gemini protocol</span>
-            <code style={{ ...wrappingTextStyle, fontSize: '12px', color: 'var(--text)' }}>{geminiBase || '—'}/models</code>
-            <span style={{ ...wrappingTextStyle, fontSize: '11.5px', color: 'var(--text-muted)' }}>
-              Gemini models only, listed and served without conversion.
-            </span>
-          </div>
 
           {isExternal && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-              <span style={{ ...wrappingTextStyle, fontSize: '12px', color: 'var(--text)' }}>PIN / private key (optional)</span>
-              <input
-                type="password"
-                value={integration.proxy.pin || ''}
-                onChange={(e) => setIntegration({ ...integration, proxy: { ...integration.proxy, pin: e.target.value } })}
-                onBlur={() => save(integration)}
-                placeholder="Require a PIN for external calls"
-                style={{ flex: '1 1 240px', minWidth: '200px', padding: '7px 10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '12px' }}
-              />
-            </div>
+            <>
+              <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+                <span style={sectionLabelStyle}>OpenAI protocol</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <code style={{ ...wrappingTextStyle, fontSize: '12px', color: 'var(--text)' }}>
+                    {endpoint || 'http://127.0.0.1:8765/v1'}
+                  </code>
+                  <button
+                    style={actionStyle}
+                    onClick={copyEndpoint}
+                    title={copied ? 'Copied' : 'Copy'}
+                    aria-label="Copy"
+                  >
+                    {copied ? <Check size={13} /> : <Copy size={13} />}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+                <span style={sectionLabelStyle}>Gemini protocol</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <code style={{ ...wrappingTextStyle, fontSize: '12px', color: 'var(--text)' }}>
+                    {geminiBase || 'http://127.0.0.1:8765/v1beta'}
+                  </code>
+                  <button
+                    style={actionStyle}
+                    onClick={copyGemini}
+                    title={copiedGemini ? 'Copied' : 'Copy'}
+                    aria-label="Copy"
+                  >
+                    {copiedGemini ? <Check size={13} /> : <Copy size={13} />}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+                <span style={{ ...wrappingTextStyle, fontSize: '12px', color: 'var(--text)' }}>Private Key</span>
+                <input
+                  type="password"
+                  value={integration.proxy.pin || ''}
+                  onChange={(e) => setIntegration({ ...integration, proxy: { ...integration.proxy, pin: e.target.value } })}
+                  onBlur={() => save(integration)}
+                  placeholder="Required"
+                  style={{ flex: '1 1 240px', minWidth: '200px', padding: '7px 10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '12px' }}
+                />
+              </div>
+            </>
           )}
         </div>
       )}
 
       <div
         role="note"
-        style={{ ...cardStyle, flexDirection: 'row', alignItems: 'flex-start', gap: '12px', padding: '14px 16px' }}
+        style={{ ...cardStyle, padding: '14px 16px', gap: '4px' }}
       >
-        <Terminal size={18} aria-hidden="true" style={{ flexShrink: 0, marginTop: '1px', color: 'var(--text-muted)' }} />
-        <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>AGY CLI</span>
-          <span style={{ ...wrappingTextStyle, fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            Runs independently and can use Native and Custom models at the same time in one session, without API Proxy mode or window profile isolation.
-          </span>
-        </div>
+        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>AGY CLI</span>
+        <span style={{ ...wrappingTextStyle, fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Runs independently and can use Native and Custom models at the same time in one session, without API Proxy mode or window profile isolation.
+        </span>
       </div>
     </div>
   )

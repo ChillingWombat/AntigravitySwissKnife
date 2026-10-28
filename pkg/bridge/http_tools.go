@@ -66,6 +66,35 @@ func hostAllowed(host string, allowlist []string) bool {
 	return false
 }
 
+const (
+	HTTPAllowlistModeAlwaysAllow   = "always_allow"
+	HTTPAllowlistModeWhitelistOnly = "whitelist_only"
+)
+
+// HTTPAllowlistMode returns the current outbound HTTP allowlist mode ("always_allow" or "whitelist_only").
+// Defaults to "always_allow".
+func (s *Service) HTTPAllowlistMode() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.config.HTTPAllowlistMode == HTTPAllowlistModeWhitelistOnly {
+		return HTTPAllowlistModeWhitelistOnly
+	}
+	return HTTPAllowlistModeAlwaysAllow
+}
+
+// SetHTTPAllowlistMode sets the outbound HTTP allowlist mode.
+func (s *Service) SetHTTPAllowlistMode(mode string) error {
+	normalized := strings.ToLower(strings.TrimSpace(mode))
+	if normalized != HTTPAllowlistModeWhitelistOnly {
+		normalized = HTTPAllowlistModeAlwaysAllow
+	}
+	s.mu.Lock()
+	s.config.HTTPAllowlistMode = normalized
+	err := s.saveConfig()
+	s.mu.Unlock()
+	return err
+}
+
 // AllowlistHosts returns the current outbound HTTP allowlist, sorted.
 func (s *Service) AllowlistHosts() []string {
 	s.mu.RLock()
@@ -187,7 +216,7 @@ func (s *Service) HTTPRequest(args map[string]interface{}) (string, error) {
 	}
 
 	host := normalizeAllowHost(parsed.Host)
-	if !hostAllowed(host, s.AllowlistHosts()) {
+	if s.HTTPAllowlistMode() == HTTPAllowlistModeWhitelistOnly && !hostAllowed(host, s.AllowlistHosts()) {
 		reason, _ := args["reason"].(string)
 		s.queueHTTPApproval(host, argString(args, "method", "GET"), rawURL, reason)
 		payload := map[string]interface{}{
@@ -294,6 +323,20 @@ func (s *Service) HTTPAllowlistCommand(args map[string]interface{}) (string, err
 	case "", "list":
 		payload := map[string]interface{}{
 			"status":    "ok",
+			"mode":      s.HTTPAllowlistMode(),
+			"allowlist": s.AllowlistHosts(),
+			"pending":   s.PendingHTTPApprovals(),
+		}
+		data, _ := json.MarshalIndent(payload, "", "  ")
+		return string(data), nil
+	case "set_mode", "mode":
+		mode := argString(args, "mode", "")
+		if err := s.SetHTTPAllowlistMode(mode); err != nil {
+			return "", err
+		}
+		payload := map[string]interface{}{
+			"status":    "ok",
+			"mode":      s.HTTPAllowlistMode(),
 			"allowlist": s.AllowlistHosts(),
 			"pending":   s.PendingHTTPApprovals(),
 		}
@@ -306,6 +349,7 @@ func (s *Service) HTTPAllowlistCommand(args map[string]interface{}) (string, err
 		}
 		payload := map[string]interface{}{
 			"status":    "allowed",
+			"mode":      s.HTTPAllowlistMode(),
 			"host":      approved,
 			"allowlist": s.AllowlistHosts(),
 		}
@@ -321,6 +365,7 @@ func (s *Service) HTTPAllowlistCommand(args map[string]interface{}) (string, err
 		}
 		payload := map[string]interface{}{
 			"status":    "revoked",
+			"mode":      s.HTTPAllowlistMode(),
 			"host":      normalizeAllowHost(host),
 			"allowlist": s.AllowlistHosts(),
 			"pending":   s.PendingHTTPApprovals(),
@@ -328,7 +373,7 @@ func (s *Service) HTTPAllowlistCommand(args map[string]interface{}) (string, err
 		data, _ := json.MarshalIndent(payload, "", "  ")
 		return string(data), nil
 	default:
-		return "", fmt.Errorf("unsupported action %q: use list, allow, revoke or deny", action)
+		return "", fmt.Errorf("unsupported action %q: use list, allow, revoke, deny or set_mode", action)
 	}
 }
 

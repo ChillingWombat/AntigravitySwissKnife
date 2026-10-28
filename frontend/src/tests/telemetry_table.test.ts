@@ -108,12 +108,12 @@ const mountPage = async (summaryFixture: unknown, tab = 1) => {
   return rendered
 }
 
-/** Finds the telemetry log table (unique by its "Time" + "Status" header combination). */
+/** Finds the telemetry log table (unique by its "Time" + "Tokens (In / Cache / Out)" header combination). */
 const findTelemetryTable = (querySelectorAll: (sel: string) => Element[]) => {
   const tables = querySelectorAll('table')
   return tables.find((table) => {
     const headers = Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent?.trim())
-    return headers.includes('Time') && headers.includes('Status')
+    return headers.includes('Time') && headers.includes('Tokens (In / Cache / Out)')
   }) as HTMLTableElement | undefined
 }
 
@@ -125,7 +125,7 @@ describe('Telemetry log table: Type column removal', () => {
     cancelAllInFlightRequests()
   })
 
-  it('renders exactly 8 columns and no dedicated Type header', async () => {
+  it('renders exactly 7 columns and no dedicated Type or Status header', async () => {
     initDOM()
     const { querySelectorAll, unmount } = await mountPage(TELEMETRY_FIXTURE)
 
@@ -134,8 +134,9 @@ describe('Telemetry log table: Type column removal', () => {
       assert.ok(table, 'Telemetry log table must be rendered')
 
       const headers = Array.from(table!.querySelectorAll('thead th')).map((th) => th.textContent?.trim())
-      assert.equal(headers.length, 8, `Expected 8 telemetry columns, got ${headers.length}: ${headers.join(', ')}`)
+      assert.equal(headers.length, 7, `Expected 7 telemetry columns, got ${headers.length}: ${headers.join(', ')}`)
       assert.ok(!headers.includes('Type'), 'The dedicated Type column must be removed')
+      assert.ok(!headers.includes('Status'), 'The Status column must be removed')
       assert.ok(headers.includes('Model'), 'Model column must remain')
     } finally {
       unmount()
@@ -178,7 +179,7 @@ describe('Telemetry log table: Type column removal', () => {
     }
   })
 
-  it('empty state colSpan matches the reduced 8-column layout', async () => {
+  it('empty state colSpan matches the reduced 7-column layout', async () => {
     initDOM()
     const { querySelectorAll, unmount } = await mountPage(EMPTY_TELEMETRY_FIXTURE)
 
@@ -188,7 +189,7 @@ describe('Telemetry log table: Type column removal', () => {
 
       const emptyCell = table!.querySelector('tbody td[colspan]')
       assert.ok(emptyCell, 'Empty-state cell must exist')
-      assert.equal(emptyCell!.getAttribute('colspan'), '8', 'Empty-state colSpan must be 8')
+      assert.equal(emptyCell!.getAttribute('colspan'), '7', 'Empty-state colSpan must be 7')
     } finally {
       unmount()
     }

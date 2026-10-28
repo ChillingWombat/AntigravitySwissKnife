@@ -11,6 +11,7 @@ import {
   Coins,
   Wrench,
   Network,
+  Globe,
 } from 'lucide-react'
 import type { SystemStatus } from '../types'
 
@@ -197,7 +198,7 @@ export const NavRail: React.FC<NavRailProps> = ({
             whiteSpace: 'nowrap',
           }}
         >
-          <Network size={18} color={currentTool === 10 ? 'var(--primary)' : 'var(--text-muted)'} />
+          <Globe size={18} color={currentTool === 10 ? 'var(--primary)' : 'var(--text-muted)'} />
           Remote Connect
         </button>
 

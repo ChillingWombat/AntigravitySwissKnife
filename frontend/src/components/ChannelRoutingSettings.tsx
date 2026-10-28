@@ -9,10 +9,10 @@ export interface ChannelRouting {
   default_project?: string
 }
 
-const BACKENDS: { key: string; label: string; hint: string }[] = [
-  { key: '', label: 'Bridge default', hint: 'Use the agent chosen for the Gemini bridge' },
-  { key: 'cli', label: 'Antigravity CLI', hint: 'Short-lived process, own conversation store' },
-  { key: 'app', label: 'Antigravity 2.0', hint: 'Shares context with the desktop app and VS Code' },
+const BACKENDS: { key: string; label: string }[] = [
+  { key: '', label: 'Bridge default' },
+  { key: 'cli', label: 'Antigravity CLI' },
+  { key: 'app', label: 'Antigravity 2.0' },
 ]
 
 interface Props {
@@ -48,7 +48,6 @@ export const ChannelRoutingSettings: React.FC<Props> = ({ config, onChange, disa
                 }}
               >
                 <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>{option.label}</div>
-                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px' }}>{option.hint}</div>
               </button>
             )
           })}

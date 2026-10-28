@@ -300,7 +300,8 @@ func unlockAppStorage(f *os.File) {
 	}
 }
 
-// SyncAppStorageLoginUser updates jetski.onboarding.lastLoginUsername in ~/.config/Antigravity/app_storage.json.
+// SyncAppStorageLoginUser updates jetski.onboarding.lastLoginUsername in ~/.config/Antigravity/app_storage.json,
+// while strictly preserving and propagating app preferences (keepComputerAwake, runInBackground, etc.).
 func SyncAppStorageLoginUser(email string) error {
 	if isTestMockEmail(email) {
 		return nil
@@ -316,16 +317,48 @@ func SyncAppStorageLoginUser(email string) error {
 	}
 
 	data, err := os.ReadFile(storagePath)
+	var rawMap map[string]interface{}
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // Antigravity config not yet created
+			if _, statErr := os.Stat(filepath.Dir(storagePath)); os.IsNotExist(statErr) {
+				return nil // Antigravity config not yet created
+			}
+			rawMap = make(map[string]interface{})
+		} else {
+			return err
 		}
-		return err
+	} else {
+		if err := json.Unmarshal(data, &rawMap); err != nil {
+			return fmt.Errorf("failed to parse app_storage.json: %w", err)
+		}
 	}
 
-	var rawMap map[string]interface{}
-	if err := json.Unmarshal(data, &rawMap); err != nil {
-		return fmt.Errorf("failed to parse app_storage.json: %w", err)
+	// 1. Snapshot any live preferences into shared settings
+	shared, _ := LoadSharedAntigravitySettings()
+	if shared == nil {
+		shared = NewSharedAntigravitySettings()
+	}
+	sharedUpdated := false
+	for _, key := range AppStoragePreferenceKeys {
+		if val, ok := rawMap[key]; ok {
+			if shared.AppStorage == nil {
+				shared.AppStorage = make(map[string]interface{})
+			}
+			shared.AppStorage[key] = val
+			sharedUpdated = true
+		}
+	}
+	if sharedUpdated {
+		_ = SaveSharedAntigravitySettings(shared)
+	}
+
+	// 2. Re-assert shared preferences into rawMap if not present
+	if shared != nil && len(shared.AppStorage) > 0 {
+		for k, v := range shared.AppStorage {
+			if _, exists := rawMap[k]; !exists {
+				rawMap[k] = v
+			}
+		}
 	}
 
 	rawMap["jetski.onboarding.lastLoginUsername"] = email
@@ -342,7 +375,8 @@ func SyncAppStorageLoginUser(email string) error {
 }
 
 // SyncHardwareProfileToDirs writes all 4 virtualized device telemetry identifiers
-// (machineid, .updaterId, installation_id, and installation_uuid in antigravity_state.pbtxt).
+// (machineid, .updaterId, installation_id, and installation_uuid in antigravity_state.pbtxt)
+// while ensuring onboarding states are never dropped.
 func SyncHardwareProfileToDirs(prof *fingerprint.DeviceProfile, antigravityConfigDir, geminiAntigravityDir string) error {
 	if prof == nil {
 		return nil
@@ -394,11 +428,19 @@ func SyncHardwareProfileToDirs(prof *fingerprint.DeviceProfile, antigravityConfi
 						updatedContent = trimmed + "\n" + uuidLine + "\n"
 					}
 				}
+				// Make sure if antigravity_state.pbtxt had onboarding states, they are never dropped.
+				if !strings.Contains(string(existing), "agent_onboarding_completed") {
+					shared, _ := LoadSharedAntigravitySettings()
+					if shared != nil && shared.PbtxtOnboardingCompleted != "" {
+						updatedContent = PreserveAndApplyPbtxtSettings(updatedContent, shared)
+					}
+				}
 			} else if os.IsNotExist(err) {
 				updatedContent = uuidLine + "\n"
 			} else {
 				return err
 			}
+
 			if updatedContent != "" {
 				if err := writeAtomic(statePath, []byte(updatedContent), 0600); err != nil {
 					return err
@@ -781,6 +823,11 @@ func syncSingleVscdb(vscdbPath string, acc *Account) error {
 		}
 	}
 
+	// 4. Snapshot and re-assert unified state sync preference keys (agentPreferences, browserPreferences, modelPreferences, overrideStore, theme)
+	if err := syncVscdbPreferences(db, execWithRetry); err != nil {
+		return fmt.Errorf("failed to sync preferences in %s: %w", vscdbPath, err)
+	}
+
 	return nil
 }
 
@@ -830,6 +877,9 @@ func newSyncJournal() *syncJournal {
 }
 
 func getUserHomeDir() string {
+	if testHome := os.Getenv("ANTIGRAVITY_TEST_HOME"); testHome != "" {
+		return testHome
+	}
 	h, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -1039,6 +1089,9 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 		return fmt.Errorf("refusing to sync account %s: credentials still carry redaction placeholders", acc.Email)
 	}
 
+	// 0. Snapshot live settings from current account before touching surfaces
+	_, _ = SnapshotLiveAntigravitySettings()
+
 	// Ensure access token is fresh before writing across all Antigravity surfaces
 	_ = EnsureFreshAccessToken(acc)
 
@@ -1105,6 +1158,7 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 	if err := SyncHardwareProfile(acc.Email, profileMgr); err != nil {
 		return fail("hardware profile", err)
 	}
+	applyPbtxtSettings(nil)
 	if syncStepHookForTest != nil {
 		if err := syncStepHookForTest("hardware profile"); err != nil {
 			return fail("hardware profile hook", err)
@@ -1112,11 +1166,11 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 	}
 
 	// 5. State vscdb SQLite
-	vscdbKeys := []string{
+	vscdbKeys := append([]string{
 		"antigravityUnifiedStateSync.userStatus",
 		"antigravity.profileUrl",
 		"antigravityUnifiedStateSync.oauthToken",
-	}
+	}, UnifiedSyncPreferenceKeys...)
 	_ = journal.RecordVscdbKeys(filepath.Join(core.GetAntigravityHostConfigDir(), "User", "globalStorage", "state.vscdb"), vscdbKeys)
 	_ = journal.RecordVscdbKeys(filepath.Join(core.GetVSCodeHostConfigDir(), "User", "globalStorage", "state.vscdb"), vscdbKeys)
 	if err := SyncStateVscdb(acc); err != nil {
@@ -1180,6 +1234,20 @@ func SyncAllSurfaces(acc *Account, allEmails []string, profileMgr *fingerprint.S
 		}
 	}
 
+	// 10. Gemini config.json userSettings
+	geminiConfigPath := getGeminiConfigPath()
+	if home != "" && isSafeTestWritePath(geminiConfigPath) {
+		_ = journal.RecordFile(geminiConfigPath)
+	}
+	if err := SyncGeminiConfigUserSettings(); err != nil {
+		return fail("gemini config.json", err)
+	}
+	if syncStepHookForTest != nil {
+		if err := syncStepHookForTest("gemini config.json"); err != nil {
+			return fail("gemini config.json hook", err)
+		}
+	}
+
 	return nil
 }
 
@@ -1188,6 +1256,7 @@ func SyncDesktopSurface(acc *Account, profileMgr *fingerprint.Store, allEmails .
 	if acc == nil {
 		return fmt.Errorf("nil account")
 	}
+	_, _ = SnapshotLiveAntigravitySettings()
 	_ = EnsureFreshAccessToken(acc)
 	_ = WriteSecretServiceToken(acc)
 
@@ -1201,6 +1270,7 @@ func SyncDesktopSurface(acc *Account, profileMgr *fingerprint.Store, allEmails .
 	if err := SyncHardwareProfile(acc.Email, profileMgr); err != nil {
 		errs = append(errs, fmt.Sprintf("hardware profile: %v", err))
 	}
+	applyPbtxtSettings(nil)
 	if err := SyncStateVscdb(acc); err != nil {
 		errs = append(errs, fmt.Sprintf("state.vscdb: %v", err))
 	}
@@ -1215,6 +1285,9 @@ func SyncDesktopSurface(acc *Account, profileMgr *fingerprint.Store, allEmails .
 		errs = append(errs, fmt.Sprintf("oauth_creds.json: %v", err))
 	}
 	_ = SyncCloudAccountsActiveAccount("", acc.Email)
+	if err := SyncGeminiConfigUserSettings(); err != nil {
+		errs = append(errs, fmt.Sprintf("gemini config.json: %v", err))
+	}
 
 	if len(errs) > 0 {
 		return fmt.Errorf("desktop surface sync failures: %s", strings.Join(errs, "; "))

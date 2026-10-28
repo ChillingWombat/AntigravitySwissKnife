@@ -431,7 +431,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
   const renderExtSwitches = (id: string, name: string) => {
     const vis = visFor(id)
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', flexShrink: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
         <span style={extSwitchLabelStyle} title="Available in the IDE's right auxiliary panel">
           Auxiliary Panel
           <ToggleSwitch
@@ -730,71 +730,74 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
         {/* ========================================================================= */}
         {/* TOP GADGET: Left Panel Extensions Access Mode                            */}
         {/* ========================================================================= */}
-        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <PanelLeft size={16} color="var(--text-muted)" />
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
-                  Left Panel Extensions Access Mode
-                </h3>
-              </div>
-            </div>
+        <div
+          className="google-card"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '16px 20px',
+            gap: '16px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <PanelLeft size={16} color="var(--text-muted)" />
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+              Left Panel Extensions Access Mode
+            </h3>
+          </div>
 
-            <div style={{ display: 'flex', gap: '6px', backgroundColor: 'var(--tonal)', padding: '3px', borderRadius: '8px', flexShrink: 0 }}>
-              <button
-                type="button"
-                onClick={() => handleLeftPanelModeChange('individual')}
-                style={{
-                  border: 'none',
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? 600 : 500,
-                  backgroundColor: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? '#ffffff' : 'transparent',
-                  color: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? 'var(--primary)' : 'var(--text-muted)',
-                  boxShadow: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Individual Buttons
-              </button>
-              <button
-                type="button"
-                onClick={() => handleLeftPanelModeChange('single')}
-                style={{
-                  border: 'none',
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? 600 : 500,
-                  backgroundColor: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? '#ffffff' : 'transparent',
-                  color: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? 'var(--primary)' : 'var(--text-muted)',
-                  boxShadow: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Single Swiss Knife Button
-              </button>
-            </div>
+          <div style={{ display: 'flex', gap: '6px', backgroundColor: 'var(--tonal)', padding: '3px', borderRadius: '8px', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => handleLeftPanelModeChange('single')}
+              style={{
+                border: 'none',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? 600 : 500,
+                backgroundColor: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? '#ffffff' : 'transparent',
+                color: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? 'var(--primary)' : 'var(--text-muted)',
+                boxShadow: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'single' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Single Swiss Knife Button
+            </button>
+            <button
+              type="button"
+              onClick={() => handleLeftPanelModeChange('individual')}
+              style={{
+                border: 'none',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? 600 : 500,
+                backgroundColor: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? '#ffffff' : 'transparent',
+                color: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? 'var(--primary)' : 'var(--text-muted)',
+                boxShadow: (enhConfig?.left_panel_extensions_mode ?? 'single') === 'individual' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Individual Buttons
+            </button>
           </div>
         </div>
 
         {/* ========================================================================= */}
         {/* GADGET 1: GitHub Workspace                                                */}
         {/* ========================================================================= */}
-        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px 20px' }}>
+        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: (githubVis.aux_panel || githubVis.main_page) ? '14px' : 0, padding: '16px 20px' }}>
           {/* Header & Toggle Row */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <GithubIcon size={16} color="var(--text-muted)" />
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
-                  GitHub Workspace
-                </h3>
-              </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <GithubIcon size={16} color="var(--text-muted)" />
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                GitHub Workspace
+              </h3>
             </div>
             {renderExtSwitches('github', 'GitHub Workspace')}
           </div>
@@ -874,16 +877,14 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
         {/* ========================================================================= */}
         {/* GADGET 2: Preview Browser                                                 */}
         {/* ========================================================================= */}
-        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px 20px' }}>
+        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: (browserVis.aux_panel || browserVis.main_page) ? '14px' : 0, padding: '16px 20px' }}>
           {/* Header & Toggle Row */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Globe size={16} color="var(--text-muted)" />
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
-                  Preview Browser
-                </h3>
-              </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Globe size={16} color="var(--text-muted)" />
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                Preview Browser
+              </h3>
             </div>
             {renderExtSwitches('browser', 'Preview Browser')}
           </div>
@@ -980,16 +981,14 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
         {/* ========================================================================= */}
         {/* GADGET 3: Auxiliary File Explorer                                         */}
         {/* ========================================================================= */}
-        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px 20px' }}>
+        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: (filesVis.aux_panel || filesVis.main_page) ? '14px' : 0, padding: '16px 20px' }}>
           {/* Header & Toggle Row */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Folder size={16} color="var(--text-muted)" />
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
-                  Auxiliary File Explorer
-                </h3>
-              </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Folder size={16} color="var(--text-muted)" />
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                Auxiliary File Explorer
+              </h3>
             </div>
             {renderExtSwitches('files', 'Auxiliary File Explorer')}
           </div>
@@ -1073,16 +1072,14 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
         {/* ========================================================================= */}
         {/* GADGET 4: Quick Memos                                                     */}
         {/* ========================================================================= */}
-        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '18px 20px' }}>
+        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: (memosVis.aux_panel || memosVis.main_page) ? '14px' : 0, padding: '16px 20px' }}>
           {/* Header & Toggle Row */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <FileText size={16} color="var(--text-muted)" />
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
-                  Quick Memos
-                </h3>
-              </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <FileText size={16} color="var(--text-muted)" />
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                Quick Memos
+              </h3>
             </div>
             {renderExtSwitches('memos', 'Quick Memos')}
           </div>
@@ -1155,42 +1152,26 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
               </div>
 
               {/* Row 3: Text Extraction Mode */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
-                    Extraction:
-                  </span>
-                  <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--tonal)', padding: '2px', borderRadius: '6px' }}>
-                    <button
-                      onClick={() => handleUpdateMemoConfig({ auto_extract: false })}
-                      style={segBtnStyle(!memoAutoExtract)}
-                      aria-pressed={!memoAutoExtract}
-                    >
-                      Manual
-                    </button>
-                    <button
-                      onClick={() => handleUpdateMemoConfig({ auto_extract: true })}
-                      style={segBtnStyle(memoAutoExtract)}
-                      aria-pressed={memoAutoExtract}
-                    >
-                      Automatic
-                    </button>
-                  </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: '100px' }}>
+                  Extraction:
+                </span>
+                <div style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--tonal)', padding: '2px', borderRadius: '6px' }}>
+                  <button
+                    onClick={() => handleUpdateMemoConfig({ auto_extract: false })}
+                    style={segBtnStyle(!memoAutoExtract)}
+                    aria-pressed={!memoAutoExtract}
+                  >
+                    Manual
+                  </button>
+                  <button
+                    onClick={() => handleUpdateMemoConfig({ auto_extract: true })}
+                    style={segBtnStyle(memoAutoExtract)}
+                    aria-pressed={memoAutoExtract}
+                  >
+                    Automatic
+                  </button>
                 </div>
-                <p
-                  style={{
-                    margin: 0,
-                    marginLeft: '112px',
-                    fontSize: '12px',
-                    color: 'var(--text-muted)',
-                    lineHeight: 1.45,
-                    maxWidth: '640px',
-                  }}
-                >
-                  {memoAutoExtract
-                    ? 'Extract text as soon as a voice or image memo is saved.'
-                    : 'Extract text per memo from the card buttons.'}
-                </p>
               </div>
 
               {/* Row 4: Voice + OCR language */}
@@ -1262,31 +1243,16 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '18px 20px',
+              padding: '16px 20px',
               gap: '16px',
               flexWrap: 'wrap',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '8px',
-                  backgroundColor: 'var(--tonal)',
-                  flexShrink: 0,
-                }}
-              >
-                <Blocks size={20} color="var(--primary)" />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
-                  Community Extensions
-                </h3>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Blocks size={16} color="var(--text-muted)" />
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                Community Extensions
+              </h3>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
@@ -1968,7 +1934,7 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
                 </div>
 
                 {/* Right Side: Visibility Toggles */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', flexShrink: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
                   <span style={extSwitchLabelStyle} title="Available in the IDE's right auxiliary panel">
                     Auxiliary Panel
                     <ToggleSwitch

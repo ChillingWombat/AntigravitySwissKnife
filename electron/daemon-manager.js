@@ -28,6 +28,15 @@ class DaemonManager {
     this.logBuffer = [];
     this.maxLogLines = 50;
     this.startPromise = null;
+    this.isStoppingDaemon = false;
+    this.isDetached = false;
+    this.isTeardown = false;
+    this.respawnTimer = null;
+    this.crashTimestamps = [];
+    this.maxRestarts = options.maxRestarts || 3;
+    this.restartWindowMs = options.restartWindowMs || 30000;
+    this.isHealthy = false;
+    this.lastHealthyAt = 0;
   }
 
   /**
@@ -111,11 +120,45 @@ class DaemonManager {
     return path.join(os.tmpdir(), 'antigravity-swiss', 'daemon.sock');
   }
   /**
+   * Synchronously checks if a Swiss daemon is responding healthy on this.baseUrl via curl on Linux.
+   */
+  checkStatusSync(timeoutSec = 0.3) {
+    if (process.platform !== 'linux') return false;
+    try {
+      const { execFileSync } = require('child_process');
+      const out = execFileSync('curl', ['-s', '-m', String(timeoutSec), `${this.baseUrl}/health`], {
+        encoding: 'utf8',
+        timeout: Math.ceil(timeoutSec * 1000) + 200,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      const parsed = JSON.parse(out);
+      return Boolean(parsed && parsed.status === 'ok' && parsed.daemon_running === true);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Reaps unmanaged orphaned swiss daemon processes on Linux if no daemon is responding on HTTP.
    * Returns true if any orphaned process was signaled.
+   * @param {object} [options]
+   * @param {boolean} [options.force] Force reap even in test environment
    */
-  reapOrphanedProcesses() {
+  reapOrphanedProcesses(options = {}) {
     if (process.platform !== 'linux') return false;
+    const force = Boolean(options && options.force);
+    if (process.env.NODE_ENV === 'test' && !force) return false;
+
+    // Never signal a process if a Swiss daemon is already responding healthy on this.baseUrl
+    if (this.isHealthy && (Date.now() - (this.lastHealthyAt || 0) < 3000)) {
+      return false;
+    }
+    if (this.checkStatusSync && this.checkStatusSync(0.3)) {
+      this.isHealthy = true;
+      this.lastHealthyAt = Date.now();
+      return false;
+    }
+
     let signaled = false;
     try {
       const procEntries = fs.readdirSync('/proc');
@@ -123,14 +166,60 @@ class DaemonManager {
         if (!/^\d+$/.test(entry)) continue;
         const pid = parseInt(entry, 10);
         if (pid === process.pid || pid <= 1) continue;
+        if (this.child && pid === this.child.pid) continue;
         try {
           const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
           if ((cmdline.includes('swiss') || cmdline.includes('antigravity-swiss')) && (cmdline.includes('daemon') || cmdline.includes('web'))) {
-            console.log(`[DaemonManager] Reaping unmanaged orphaned Go process (PID: ${pid})...`);
+            // Check if process is a genuine orphan: check /proc/${pid}/status or /proc/${pid}/stat
+            let ppid = null;
             try {
-              process.kill(pid, 'SIGTERM');
-              signaled = true;
+              const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
+              const match = status.match(/^PPid:\s*(\d+)/m);
+              if (match) {
+                ppid = parseInt(match[1], 10);
+              }
             } catch (_) {}
+
+            if (ppid === null) {
+              try {
+                const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+                const lastParen = stat.lastIndexOf(')');
+                if (lastParen !== -1) {
+                  const rest = stat.slice(lastParen + 2).trim().split(/\s+/);
+                  const parsedPpid = parseInt(rest[1], 10);
+                  if (!Number.isNaN(parsedPpid)) {
+                    ppid = parsedPpid;
+                  }
+                }
+              } catch (_) {}
+            }
+
+            if (ppid === null) continue;
+
+            // Only reap if ppid === 1 or if the parent process no longer exists
+            let isOrphan = false;
+            if (ppid === 1) {
+              isOrphan = true;
+            } else {
+              try {
+                process.kill(ppid, 0);
+              } catch (killErr) {
+                if (killErr.code === 'ESRCH') {
+                  isOrphan = true;
+                }
+              }
+              if (!isOrphan && !fs.existsSync(`/proc/${ppid}`)) {
+                isOrphan = true;
+              }
+            }
+
+            if (isOrphan) {
+              console.log(`[DaemonManager] Reaping genuine unmanaged orphaned Go process (PID: ${pid}, PPID: ${ppid})...`);
+              try {
+                process.kill(pid, 'SIGTERM');
+                signaled = true;
+              } catch (_) {}
+            }
           }
         } catch (_) {}
       }
@@ -161,13 +250,25 @@ class DaemonManager {
   requestJson(pathname, timeoutMs = 1000, headers = {}) {
     return new Promise((resolve) => {
       let settled = false;
+      let req = null;
+      let overallTimer = null;
+
       const finish = (value) => {
         if (settled) return;
         settled = true;
+        if (overallTimer) clearTimeout(overallTimer);
         resolve(value);
       };
 
-      const req = http.get(`${this.baseUrl}${pathname}`, { timeout: timeoutMs, headers }, (res) => {
+      overallTimer = setTimeout(() => {
+        try {
+          if (req) req.destroy();
+        } catch (_) {}
+        finish(null);
+      }, timeoutMs + 300);
+      overallTimer.unref();
+
+      req = http.get(`${this.baseUrl}${pathname}`, { timeout: timeoutMs, headers }, (res) => {
         const contentType = String(res.headers['content-type'] || '').toLowerCase();
         if (res.statusCode !== 200 || !contentType.includes('application/json')) {
           res.resume();
@@ -210,13 +311,18 @@ class DaemonManager {
   async checkStatus(timeoutMs = 1000) {
     const health = await this.requestJson('/health', timeoutMs);
     if (health && health.status === 'ok' && health.daemon_running === true && typeof health.version === 'string' && health.version.trim()) {
+      this.isHealthy = true;
+      this.lastHealthyAt = Date.now();
       return health;
     }
 
     const status = await this.requestJson('/api/status', timeoutMs, this.getAuthHeaders());
     if (status && status.daemon_running === true && typeof status.version === 'string' && status.version.trim()) {
+      this.isHealthy = true;
+      this.lastHealthyAt = Date.now();
       return status;
     }
+    this.isHealthy = false;
     return null;
   }
 
@@ -237,6 +343,14 @@ class DaemonManager {
   }
 
   async _startInternal() {
+    this.isStoppingDaemon = false;
+    this.isDetached = false;
+    this.isTeardown = false;
+    if (this.respawnTimer) {
+      clearTimeout(this.respawnTimer);
+      this.respawnTimer = null;
+    }
+
     // 1. External Daemon Check: probe /api/status verifying HTTP 200 and status.daemon_running === true
     const existing = await this.checkStatus(800);
     if (existing && existing.daemon_running === true) {
@@ -309,9 +423,7 @@ class DaemonManager {
     });
 
     this.child.on('exit', (code, signal) => {
-      console.log(`[DaemonManager] Child process exited: code=${code}, signal=${signal}`);
-      this.child = null;
-      this.isManagedChild = false;
+      this._handleChildExit(code, signal);
     });
 
     // 5. Poll every 150ms up to 10s timeout until HTTP 200 with status.daemon_running === true
@@ -344,9 +456,57 @@ class DaemonManager {
   }
 
   /**
+   * Handles child process exit with watchdog auto-restart behavior.
+   */
+  _handleChildExit(code, signal) {
+    console.log(`[DaemonManager] Child process exited: code=${code}, signal=${signal}`);
+    const wasManaged = this.isManagedChild;
+    this.child = null;
+    this.isManagedChild = false;
+    this.isHealthy = false;
+
+    // Watchdog / Auto-Restart:
+    // If unexpected (code !== 0 or killed externally while app is running),
+    // log a warning and schedule automatic respawn (this.start()) after 1000ms
+    // with max retry count (e.g., 3 retries within 30s) so the sidecar never stays dead.
+    const isIntentional = this.isStoppingDaemon || this.isDetached || this.isTeardown;
+    if (!isIntentional && wasManaged) {
+      const now = Date.now();
+      this.crashTimestamps = this.crashTimestamps.filter((ts) => now - ts < this.restartWindowMs);
+
+      if (this.crashTimestamps.length < this.maxRestarts) {
+        this.crashTimestamps.push(now);
+        const attempt = this.crashTimestamps.length;
+        console.warn(`[DaemonManager] Unexpected daemon termination (code=${code}, signal=${signal}). Watchdog scheduling auto-restart (attempt ${attempt}/${this.maxRestarts}) in 1000ms...`);
+        if (this.respawnTimer) clearTimeout(this.respawnTimer);
+        this.respawnTimer = setTimeout(async () => {
+          this.respawnTimer = null;
+          if (this.isStoppingDaemon || this.isDetached || this.isTeardown) return;
+          try {
+            console.log('[DaemonManager] Watchdog respawning Go daemon sidecar...');
+            await this.start();
+          } catch (err) {
+            console.error('[DaemonManager] Watchdog auto-restart failed:', err.message);
+          }
+        }, 1000);
+        if (this.respawnTimer && typeof this.respawnTimer.unref === 'function') {
+          this.respawnTimer.unref();
+        }
+      } else {
+        console.error(`[DaemonManager] Daemon exceeded maximum auto-restart attempts (${this.maxRestarts} crashes in ${this.restartWindowMs / 1000}s). Watchdog will not respawn.`);
+      }
+    }
+  }
+
+  /**
    * Detaches the Go daemon child process so it continues running in background (Daemon Mode).
    */
   detach() {
+    this.isDetached = true;
+    if (this.respawnTimer) {
+      clearTimeout(this.respawnTimer);
+      this.respawnTimer = null;
+    }
     if (!this.child) {
       console.log('[DaemonManager] No managed child daemon to detach.');
       return;
@@ -380,6 +540,12 @@ class DaemonManager {
    * Graceful termination on full application exit.
    */
   async stop(options = {}) {
+    this.isStoppingDaemon = true;
+    this.isTeardown = true;
+    if (this.respawnTimer) {
+      clearTimeout(this.respawnTimer);
+      this.respawnTimer = null;
+    }
     const force = Boolean(options && options.force);
     if (!this.isManagedChild || !this.child) {
       if (force && process.env.TEST_DESKTOP_E2E !== '1') {
@@ -398,13 +564,34 @@ class DaemonManager {
             }
             if (isSwissProcess) {
               console.log(`[DaemonManager] Terminating adopted background Go daemon (PID: ${pid}) via SIGTERM...`);
-              try { process.kill(pid, 'SIGTERM'); } catch (_) {}
+              try {
+                if (process.platform !== 'win32') {
+                  try { process.kill(-pid, 'SIGTERM'); } catch (_) { process.kill(pid, 'SIGTERM'); }
+                } else {
+                  process.kill(pid, 'SIGTERM');
+                }
+              } catch (_) {}
               const deadline = Date.now() + 2000;
               while (Date.now() < deadline) {
                 await new Promise((r) => setTimeout(r, 100));
                 const alive = await this.checkStatus(200);
                 if (!alive) break;
               }
+              // If still running after deadline, escalate to SIGKILL / taskkill
+              try {
+                process.kill(pid, 0); // check if alive
+                console.warn(`[DaemonManager] Adopted daemon (PID: ${pid}) did not exit within 2000ms. Escalating to SIGKILL...`);
+                if (process.platform !== 'win32') {
+                  try { process.kill(-pid, 'SIGKILL'); } catch (_) { process.kill(pid, 'SIGKILL'); }
+                } else {
+                  try {
+                    const { execSync } = require('child_process');
+                    execSync(`taskkill /F /PID ${pid} /T`, { stdio: 'ignore' });
+                  } catch (_) {
+                    try { process.kill(pid, 'SIGKILL'); } catch (_) {}
+                  }
+                }
+              } catch (_) {}
             } else {
               console.warn(`[DaemonManager] Refusing to signal PID ${pid}: not confirmed as swiss daemon`);
             }
@@ -431,26 +618,50 @@ class DaemonManager {
 
     await new Promise((resolve) => {
       let resolved = false;
+      let killTimer = null;
+      let hardLimitTimer = null;
+
       const finish = () => {
         if (!resolved) {
           resolved = true;
+          if (killTimer) clearTimeout(killTimer);
+          if (hardLimitTimer) clearTimeout(hardLimitTimer);
           resolve();
         }
       };
 
-      // 3-second fallback to SIGKILL
-      const killTimer = setTimeout(() => {
-        console.warn(`[DaemonManager] Grace period expired (3000ms). Escalating to SIGKILL on PID ${pid}...`);
+      // Hard limit timer: under NO circumstances will this promise take > 3000ms
+      hardLimitTimer = setTimeout(() => {
+        console.warn(`[DaemonManager] Hard stop limit reached (3000ms) for PID ${pid}. Forcing resolution.`);
+        finish();
+      }, 3000);
+      hardLimitTimer.unref();
+
+      // 2.5-second fallback to SIGKILL before hard limit
+      killTimer = setTimeout(() => {
+        console.warn(`[DaemonManager] Grace period expired (2500ms). Escalating to SIGKILL on PID ${pid}...`);
         try {
-          child.kill('SIGKILL');
+          if (process.platform !== 'win32') {
+            try {
+              process.kill(-pid, 'SIGKILL');
+            } catch (_) {
+              process.kill(pid, 'SIGKILL');
+            }
+          } else {
+            try {
+              const { execSync } = require('child_process');
+              execSync(`taskkill /F /PID ${pid} /T`, { stdio: 'ignore' });
+            } catch (_) {
+              try { child.kill('SIGKILL'); } catch (_) {}
+            }
+          }
         } catch (err) {
           console.warn(`[DaemonManager] SIGKILL warning: ${err.message}`);
         }
-        finish();
-      }, 3000);
+      }, 2500);
+      killTimer.unref();
 
       child.once('exit', (code, signal) => {
-        clearTimeout(killTimer);
         console.log(`[DaemonManager] Go daemon child process (PID: ${pid}) exited cleanly: code=${code}, signal=${signal}. Zero orphans.`);
         finish();
       });
@@ -466,7 +677,6 @@ class DaemonManager {
           child.kill('SIGTERM');
         }
       } catch (err) {
-        clearTimeout(killTimer);
         console.warn(`[DaemonManager] SIGTERM error: ${err.message}`);
         finish();
       }

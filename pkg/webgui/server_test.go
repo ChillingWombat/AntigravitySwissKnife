@@ -2859,14 +2859,13 @@ func TestWebGUIUtilitiesACPEndpoint(t *testing.T) {
 	if result.ProtocolVersion != "v1.2.0-draft" {
 		t.Errorf("expected protocol_version 'v1.2.0-draft', got '%s'", result.ProtocolVersion)
 	}
-	if result.MeshNodes < 9 || len(result.Agents) < 9 {
-		t.Errorf("expected at least 9 mesh nodes, got %d (len=%d)", result.MeshNodes, len(result.Agents))
+	if result.MeshNodes < 8 || len(result.Agents) < 8 {
+		t.Errorf("expected at least 8 mesh nodes, got %d (len=%d)", result.MeshNodes, len(result.Agents))
 	}
 
 	// Required node IDs to verify
 	expectedIDs := map[string]string{
-		"agent-antigravity":      "Google Antigravity 2.0",
-		"agent-antigravity-cli":  "Antigravity CLI (agy)",
+		"agent-antigravity-acp":  "Antigravity ACP Adapter",
 		"agent-devin":            "Devin",
 		"agent-opencode":         "OpenCode",
 		"agent-deepseek-harness": "DeepSeek Harness",
@@ -2891,8 +2890,10 @@ func TestWebGUIUtilitiesACPEndpoint(t *testing.T) {
 		if name, _ := agent["name"].(string); name != expName {
 			t.Errorf("expected agent %s name '%s', got '%s'", expID, expName, name)
 		}
-		if port, _ := agent["port_socket"].(string); port == "" {
-			t.Errorf("agent %s has empty port_socket", expID)
+		if expID != "agent-antigravity-acp" {
+			if port, _ := agent["port_socket"].(string); port == "" {
+				t.Errorf("agent %s has empty port_socket", expID)
+			}
 		}
 		// Version and tools are negotiated data: they exist only for a reachable
 		// endpoint, or for a user-declared agent. Presets with a silent endpoint

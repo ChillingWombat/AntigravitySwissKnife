@@ -59,10 +59,13 @@ func TestNormalizeAllowHost(t *testing.T) {
 	}
 }
 
-// A host that is not allowlisted must never be contacted: the tool answers with
-// an approval request instead, and the request is queued for the user.
+// A host that is not allowlisted must never be contacted in whitelist_only mode:
+// the tool answers with an approval request instead, and the request is queued for the user.
 func TestHTTPRequestRequiresApprovalForUnknownHost(t *testing.T) {
 	svc := newTestBridge(t)
+	if err := svc.SetHTTPAllowlistMode(HTTPAllowlistModeWhitelistOnly); err != nil {
+		t.Fatalf("SetHTTPAllowlistMode: %v", err)
+	}
 
 	// A dead address: if the bridge tried to dial it, the call would fail instead
 	// of returning an approval request.
@@ -105,6 +108,9 @@ func TestHTTPRequestRequiresApprovalForUnknownHost(t *testing.T) {
 
 func TestHTTPRequestAfterApproval(t *testing.T) {
 	svc := newTestBridge(t)
+	if err := svc.SetHTTPAllowlistMode(HTTPAllowlistModeWhitelistOnly); err != nil {
+		t.Fatalf("SetHTTPAllowlistMode: %v", err)
+	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -380,5 +386,50 @@ func TestToolManifestExposesFullToolset(t *testing.T) {
 		if !allowed[name] {
 			t.Errorf("tool %q is exposed but missing from allowed_tools", name)
 		}
+	}
+}
+
+func TestHTTPRequestAlwaysAllowMode(t *testing.T) {
+	svc := newTestBridge(t)
+	if got := svc.HTTPAllowlistMode(); got != "always_allow" {
+		t.Fatalf("expected default mode always_allow, got %s", got)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"events":["meeting"]}`))
+	}))
+	defer server.Close()
+
+	result, err := svc.HTTPRequest(map[string]interface{}{"url": server.URL + "/events"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(result, "approval_required") {
+		t.Fatalf("always_allow must not require approval, got %s", result)
+	}
+	if len(svc.PendingHTTPApprovals()) != 0 {
+		t.Fatalf("always_allow must not create pending approvals")
+	}
+}
+
+func TestHTTPAllowlistModePersistence(t *testing.T) {
+	svc := newTestBridge(t)
+	if got := svc.HTTPAllowlistMode(); got != "always_allow" {
+		t.Fatalf("default mode should be always_allow, got %s", got)
+	}
+	if err := svc.SetHTTPAllowlistMode("whitelist_only"); err != nil {
+		t.Fatalf("SetHTTPAllowlistMode: %v", err)
+	}
+	if got := svc.HTTPAllowlistMode(); got != "whitelist_only" {
+		t.Fatalf("mode should be whitelist_only, got %s", got)
+	}
+	// Reload from disk
+	svc2, err := NewService(svc.configPath)
+	if err != nil {
+		t.Fatalf("NewService reload: %v", err)
+	}
+	if got := svc2.HTTPAllowlistMode(); got != "whitelist_only" {
+		t.Fatalf("reloaded mode should be whitelist_only, got %s", got)
 	}
 }

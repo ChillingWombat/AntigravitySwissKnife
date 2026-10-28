@@ -83,12 +83,18 @@ type QuotaSummary struct {
 	ResetSeconds5h              float64      `json:"reset_seconds_5h,omitempty"`
 	ResetHorizonText            string       `json:"reset_horizon_text,omitempty"`
 	ResetSeconds5hArgon         float64      `json:"reset_seconds_5h_argon,omitempty"`
+	Reset5hArgonSeconds         float64      `json:"reset_5h_argon_seconds,omitempty"`
 	ResetHorizon5hArgonText     string       `json:"reset_horizon_5h_argon_text,omitempty"`
 	ResetSecondsWeekly          float64      `json:"reset_seconds_weekly,omitempty"`
 	ResetHorizonWeeklyText      string       `json:"reset_horizon_weekly_text,omitempty"`
 	ResetSecondsWeeklyArgon     float64      `json:"reset_seconds_weekly_argon,omitempty"`
+	ResetWeeklyArgonSeconds     float64      `json:"reset_weekly_argon_seconds,omitempty"`
 	ResetHorizonWeeklyArgonText string       `json:"reset_horizon_weekly_argon_text,omitempty"`
 	ResetTimeWeekly             time.Time    `json:"reset_time_weekly,omitempty"`
+	ResetTime5hArgon            time.Time    `json:"reset_time_5h_argon,omitempty"`
+	Reset5hArgonTime            time.Time    `json:"reset_5h_argon_time,omitempty"`
+	ResetTimeWeeklyArgon        time.Time    `json:"reset_time_weekly_argon,omitempty"`
+	ResetWeeklyArgonTime        time.Time    `json:"reset_weekly_argon_time,omitempty"`
 	Models                      []ModelQuota `json:"models"`
 	MinFraction                 float64      `json:"min_fraction"`
 	OverallHealth               string       `json:"overall_health"`

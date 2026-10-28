@@ -357,3 +357,42 @@ Files: `frontend/src/App.tsx`, `frontend/src/api.ts`.
 - Updated `.github/workflows/race.yml` and `.github/workflows/release.yml` from Go `1.24.x` / `1.23.x` to `1.26.x`, matching `go.mod`.
 - Scoped `contents: write` to `publish-release` only. Removed silent failure suppression (`|| true` and `if-no-files-found: warn`) from `release.yml`.
 - Removed remaining tutorial microcopy from `AppEnhancementsPage`, `ExtensionsPage`, `ACPAgentMeshPage`, `RemoteControlPage`, and `WhatsAppBridgePage`.
+
+## 10. 2026-10-29 Custom Model Routing and Runtime Recovery
+
+- **Branch**: `codex/custom-model-routing-recovery`
+- **Base**: `3f01889` (`origin/main`)
+- **Environment**: Linux, Go `1.27.1`, Node `24.16.0`
+- **Scope**: This branch captures the accumulated working tree required for the current release, including custom-model routing, model-source UI, ACP mesh and registry, keyring settings sync, quota handling, Electron lifecycle changes, and regenerated WebGUI assets.
+
+### 10.1 Failure chain
+
+1. `go test ./pkg/webgui` started a test server on an ephemeral port. `Server.Start()` unconditionally called `SetCloudCodeURL` on every live Antigravity `language_server`.
+2. The live app was redirected to the test port (`33721` in the reproduced incident). The test process exited, leaving the app pinned to a dead endpoint and producing `fetchUserInfo` / `fetchAvailableModels` connection-refused loops.
+3. Selecting a custom model also exposed a lock re-entry deadlock. `Store.GetConfig()` held `RLock` and called `IntegrationSettings()`, which attempted to acquire the same lock again while a writer was queued.
+4. The deadlock stalled `/api/custom_models/active`, `GetConfig` consumers, and the cloud-code model override. The selector could change before the backend request path became usable.
+
+### 10.2 Fixes
+
+- Test processes are now forbidden from redirecting a live language server. Both the one-shot and periodic sync paths return early under Go test execution. Regression test: `pkg/webgui/language_server_sync_test.go`.
+- `Store.GetConfig()` now uses lock-owned helpers and no longer re-enters the store mutex. Integration defaults are merged by a pure helper shared with `IntegrationSettings()`. Concurrent regression test: `pkg/custommodels/store_lock_test.go`.
+- The active-model proxy override routes native Cloud Code envelopes to the selected custom model without relying on a DOM-only selector mutation.
+- The language-server endpoint was restored to `http://127.0.0.1:8765`; the old dead port is no longer contacted.
+
+### 10.3 Verification
+
+- `go test ./pkg/custommodels -count=1`: PASS.
+- `go test ./pkg/webgui -run '^(TestLanguageServerURLSyncDisabledDuringTests|TestWebGUICustomModelsEndpoints)$' -count=1`: PASS.
+- Live active-model POST: HTTP 200 in 12 ms.
+- Live config GET: HTTP 200 in 4 ms.
+- Two repeated native `gemini-3.8-flash` envelopes returned HTTP 200 with wrapped custom SSE frames.
+- Proxy evidence: `model="gemini-3.8-flash" -> custom "openai-deepseek-v4-flash-..."`.
+- UI state after selection: `DeepSeek V4.1 Flash (OpenCode) High`, no error alerts.
+- Language server routing: `http://127.0.0.1:8765/v1internal:*`; no new `33721` hits after `02:27:16`.
+- `npm run pack:linux` and `npm run install:linux -- --user`: PASS.
+
+### 10.4 Remaining
+
+- Push the branch and open a PR for review; this handoff does not claim a remote merge.
+- `-race` could not run in the local release environment because `CGO_ENABLED=0`; run the race workflow after pushing.
+- The current working snapshot includes broad pre-existing product changes, so review the complete branch diff rather than only the two routing fixes.

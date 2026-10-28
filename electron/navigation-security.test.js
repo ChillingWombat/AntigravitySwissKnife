@@ -10,6 +10,8 @@ const {
   DAEMON_URL,
   isTrustedSender,
   loadConnectingFallback,
+  computeTrayMenuSignature,
+  isMainWindowUsable,
 } = require('./main');
 const { DaemonManager } = require('./daemon-manager');
 
@@ -208,6 +210,69 @@ test('Connecting fallback - retries through the preload IPC bridge without a dat
   assert.doesNotMatch(html, /\bfetch\s*\(/);
 });
 
+test('Connecting fallback - renders Quit Application button linked to preload IPC bridge', () => {
+  const html = buildConnectingFallbackHtml();
+  assert.match(html, /id="quitBtn"/);
+  assert.match(html, /window\.electronAPI\?\.quitApp\?\.\(\)/);
+  assert.match(html, />Quit Application<\/button>/);
+});
+
+test('Preload bridge - exposes quitApp method', () => {
+  const { electronAPI } = require('./preload');
+  assert.equal(typeof electronAPI.quitApp, 'function');
+});
+
+test('DaemonManager - reapOrphanedProcesses skips when NODE_ENV is test unless forced', () => {
+  const dm = new DaemonManager({ port: 8765, host: '127.0.0.1' });
+  const origEnv = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = 'test';
+    const result = dm.reapOrphanedProcesses();
+    assert.equal(result, false);
+  } finally {
+    process.env.NODE_ENV = origEnv;
+  }
+});
+
+test('DaemonManager - reapOrphanedProcesses respects active healthy daemon on baseUrl', () => {
+  const dm = new DaemonManager({ port: 8765, host: '127.0.0.1' });
+  dm.isHealthy = true;
+  dm.lastHealthyAt = Date.now();
+  const result = dm.reapOrphanedProcesses({ force: true });
+  assert.equal(result, false);
+});
+
+test('DaemonManager - Watchdog schedules auto-restart on unexpected exit', () => {
+  const dm = new DaemonManager({ port: 8765, host: '127.0.0.1', maxRestarts: 3, restartWindowMs: 30000 });
+  dm.isManagedChild = true;
+  dm._handleChildExit(1, null);
+
+  assert.equal(dm.crashTimestamps.length, 1);
+  assert.ok(dm.respawnTimer !== null);
+
+  // Clear timer
+  clearTimeout(dm.respawnTimer);
+  dm.respawnTimer = null;
+});
+
+test('DaemonManager - Watchdog suppresses auto-restart when intentionally stopped or detached', () => {
+  const dm = new DaemonManager({ port: 8765, host: '127.0.0.1' });
+  dm.isManagedChild = true;
+  dm.isStoppingDaemon = true;
+  dm._handleChildExit(0, 'SIGTERM');
+
+  assert.equal(dm.crashTimestamps.length, 0);
+  assert.equal(dm.respawnTimer, null);
+
+  const dm2 = new DaemonManager({ port: 8765, host: '127.0.0.1' });
+  dm2.isManagedChild = true;
+  dm2.isDetached = true;
+  dm2._handleChildExit(0, null);
+
+  assert.equal(dm2.crashTimestamps.length, 0);
+  assert.equal(dm2.respawnTimer, null);
+});
+
 test('recoverDaemonConnection - starts the daemon and navigates only to the trusted daemon URL', async () => {
   const loadedUrls = [];
   let startCalls = 0;
@@ -338,5 +403,86 @@ test('isTrustedSender - verifies window status, main-frame identity, and exact o
   assert.equal(
     isTrustedSender({ sender: fakeWebContents, senderFrame: mainFrame }, fakeWindow),
     false
+  );
+});
+
+test('DaemonManager - requestJson bounds hanging HTTP streams and resolves null', async () => {
+  const hangingServer = await startHttpServer((req, res) => {
+    // Write headers but never finish or send complete body
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.write('{"status":');
+  });
+
+  try {
+    const dm = new DaemonManager({ baseUrl: hangingServer.baseUrl });
+    const start = Date.now();
+    const result = await dm.requestJson('/test-hang', 200);
+    const duration = Date.now() - start;
+    assert.equal(result, null);
+    assert.ok(duration < 1000, `Expected request to timeout quickly, took ${duration}ms`);
+  } finally {
+    await hangingServer.close();
+  }
+});
+
+test('DaemonManager - stop enforces bounded execution and cleans up sockets', async () => {
+  const dm = new DaemonManager({ port: 8765, host: '127.0.0.1' });
+  const start = Date.now();
+  await dm.stop();
+  const elapsed = Date.now() - start;
+  assert.ok(elapsed < 1000, `stop took ${elapsed}ms`);
+});
+
+test('computeTrayMenuSignature - produces stable signatures and detects state changes', () => {
+  const stateA = {
+    activeAlias: 'Main',
+    quotaInfo: '5H: 86% | 7D: 96%',
+    accountsCount: 2,
+    switchMenuItems: [
+      { label: '✓ a@example.com', enabled: false },
+      { label: 'b@example.com', enabled: true },
+    ],
+  };
+  const stateB = {
+    activeAlias: 'Main',
+    quotaInfo: '5H: 86% | 7D: 96%',
+    accountsCount: 2,
+    switchMenuItems: [
+      { label: 'b@example.com', enabled: true },
+      { label: '✓ a@example.com', enabled: false },
+    ],
+  };
+  const stateChangedQuota = {
+    ...stateA,
+    quotaInfo: '5H: 84% | 7D: 96%',
+  };
+
+  assert.equal(computeTrayMenuSignature(stateA), computeTrayMenuSignature(stateB));
+  assert.notEqual(computeTrayMenuSignature(stateA), computeTrayMenuSignature(stateChangedQuota));
+});
+
+test('isMainWindowUsable - rejects null, destroyed, or crashed BrowserWindow instances', () => {
+  assert.equal(isMainWindowUsable(null), false);
+  assert.equal(isMainWindowUsable({ isDestroyed: () => true }), false);
+  assert.equal(
+    isMainWindowUsable({
+      isDestroyed: () => false,
+      webContents: { isDestroyed: () => true, isCrashed: () => false },
+    }),
+    false
+  );
+  assert.equal(
+    isMainWindowUsable({
+      isDestroyed: () => false,
+      webContents: { isDestroyed: () => false, isCrashed: () => true },
+    }),
+    false
+  );
+  assert.equal(
+    isMainWindowUsable({
+      isDestroyed: () => false,
+      webContents: { isDestroyed: () => false, isCrashed: () => false },
+    }),
+    true
   );
 });

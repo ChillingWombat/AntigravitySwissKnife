@@ -4,6 +4,7 @@ import {
   RefreshCw,
   AlertCircle,
   CheckCircle2,
+  Info,
 } from 'lucide-react'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import type { CacheBreakdown, VaultStatus } from '../types'
@@ -197,12 +198,31 @@ export const BrainCachePage: React.FC = () => {
       <div className="google-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: '16px',
+                fontWeight: 700,
+                color: 'var(--text)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
               Conversation Vault
+              <span
+                title="Protects conversations beyond Antigravity's 500-session limit using filesystem hardlinks."
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  color: 'var(--text-subtle)',
+                  cursor: 'default',
+                  verticalAlign: 'middle',
+                }}
+              >
+                <Info size={13} aria-hidden="true" />
+              </span>
             </h2>
-            <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Protects conversations beyond Antigravity's 500-session limit using filesystem hardlinks.
-            </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -328,12 +348,16 @@ export const BrainCachePage: React.FC = () => {
       <div className="google-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: '16px',
+                fontWeight: 700,
+                color: 'var(--text)',
+              }}
+            >
               Cache Manager
             </h2>
-            <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Reclaims disk space from stale scratch files, step logs, and task outputs without touching active sessions.
-            </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

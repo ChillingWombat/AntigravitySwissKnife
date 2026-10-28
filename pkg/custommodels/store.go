@@ -146,6 +146,10 @@ func (s *Store) GetConfig() Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	return s.getConfigLocked()
+}
+
+func (s *Store) getConfigLocked() Config {
 	modelsCopy := make([]CustomModel, len(s.config.Models))
 	for i, m := range s.config.Models {
 		mCopy := m
@@ -172,7 +176,7 @@ func (s *Store) GetConfig() Config {
 		PricingRecords:     pricingCopy,
 		DeletedModels:      deletedCopy,
 		GatewayToken:       s.config.GatewayToken,
-		Integration:        s.IntegrationSettings(),
+		Integration:        integrationSettingsFromConfig(s.config.Integration),
 	}
 }
 
@@ -466,8 +470,12 @@ func (s *Store) DeleteModel(id string) error {
 func (s *Store) IntegrationSettings() IntegrationSettings {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	return integrationSettingsFromConfig(s.config.Integration)
+}
+
+func integrationSettingsFromConfig(cfg IntegrationSettings) IntegrationSettings {
 	out := DefaultIntegrationSettings()
-	cfg := s.config.Integration
 	if cfg.Mode == IntegrationProfileIsolation || cfg.Mode == IntegrationAPIProxy {
 		out.Mode = cfg.Mode
 	}

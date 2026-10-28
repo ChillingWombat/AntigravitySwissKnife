@@ -24,6 +24,7 @@ import (
 const (
 	languageServerUserStatusMethod         = "/exa.language_server_pb.LanguageServerService/GetUserStatus"
 	languageServerQuotaSummaryMethod       = "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
+	languageServerSetCloudCodeURLMethod    = "/exa.language_server_pb.LanguageServerService/SetCloudCodeURL"
 	languageServerResponseMaxBytes   int64 = 8 << 20
 )
 
@@ -32,12 +33,62 @@ type languageServerEndpoint struct {
 	csrfToken string
 }
 
+type languageServerClientModelConfig struct {
+	ModelID        string                        `json:"modelId"`
+	ModelIDSnake   string                        `json:"model_id"`
+	Label          string                        `json:"label"`
+	QuotaInfo      *languageServerModelQuotaInfo `json:"quotaInfo"`
+	QuotaInfoSnake *languageServerModelQuotaInfo `json:"quota_info"`
+}
+
+type languageServerModelQuotaInfo struct {
+	RemainingFraction *float64 `json:"remainingFraction"`
+	RemainingFractAlt *float64 `json:"remaining_fraction"`
+	ResetTime         string   `json:"resetTime"`
+	ResetTimeSnake    string   `json:"reset_time"`
+}
+
+func (q *languageServerModelQuotaInfo) fraction() (float64, bool) {
+	if q == nil {
+		return 0, false
+	}
+	if q.RemainingFraction != nil {
+		return *q.RemainingFraction, true
+	}
+	if q.RemainingFractAlt != nil {
+		return *q.RemainingFractAlt, true
+	}
+	return 0, false
+}
+
+func (q *languageServerModelQuotaInfo) resetTime() string {
+	if q == nil {
+		return ""
+	}
+	if q.ResetTime != "" {
+		return q.ResetTime
+	}
+	return q.ResetTimeSnake
+}
+
 type languageServerUserStatusResponse struct {
 	UserStatus struct {
-		Email string `json:"email"`
+		Email                  string                           `json:"email"`
+		CascadeModelConfigData struct {
+			ClientModelConfigs []languageServerClientModelConfig `json:"clientModelConfigs"`
+		} `json:"cascadeModelConfigData"`
+		CascadeModelConfigSnake struct {
+			ClientModelConfigs []languageServerClientModelConfig `json:"client_model_configs"`
+		} `json:"cascade_model_config_data"`
 	} `json:"userStatus"`
 	UserStatusSnake struct {
-		Email string `json:"email"`
+		Email                  string                           `json:"email"`
+		CascadeModelConfigData struct {
+			ClientModelConfigs []languageServerClientModelConfig `json:"clientModelConfigs"`
+		} `json:"cascadeModelConfigData"`
+		CascadeModelConfigSnake struct {
+			ClientModelConfigs []languageServerClientModelConfig `json:"client_model_configs"`
+		} `json:"cascade_model_config_data"`
 	} `json:"user_status"`
 }
 
@@ -48,6 +99,42 @@ func (s languageServerUserStatusResponse) email() string {
 	return s.UserStatusSnake.Email
 }
 
+func (s languageServerUserStatusResponse) extractArgonQuota(now time.Time) *languageServerArgonQuota {
+	configs := s.UserStatus.CascadeModelConfigData.ClientModelConfigs
+	if len(configs) == 0 {
+		configs = s.UserStatus.CascadeModelConfigSnake.ClientModelConfigs
+	}
+	if len(configs) == 0 {
+		configs = s.UserStatusSnake.CascadeModelConfigData.ClientModelConfigs
+	}
+	if len(configs) == 0 {
+		configs = s.UserStatusSnake.CascadeModelConfigSnake.ClientModelConfigs
+	}
+	for _, m := range configs {
+		modelID := m.ModelID
+		if modelID == "" {
+			modelID = m.ModelIDSnake
+		}
+		if !isArgonQuotaIdentifier(modelID, m.Label) {
+			continue
+		}
+		info := m.QuotaInfo
+		if info == nil {
+			info = m.QuotaInfoSnake
+		}
+		fract, ok := info.fraction()
+		if !ok {
+			continue
+		}
+		remaining := ClampFraction(fract)
+		resetAt := parseResetTime(info.resetTime())
+		return &languageServerArgonQuota{
+			Weekly:          &remaining,
+			WeeklyResetTime: resetAt,
+		}
+	}
+	return nil
+}
 type languageServerQuotaBucket struct {
 	BucketID          string   `json:"bucketId"`
 	BucketIDSnake     string   `json:"bucket_id"`
@@ -185,8 +272,7 @@ func fetchArgonQuotaFromEndpointWithProject(endpoint languageServerEndpoint, exp
 	}
 
 	payload := map[string]any{
-		"forceRefresh":  true,
-		"force_refresh": true,
+		"forceRefresh": true,
 	}
 	if project != "" {
 		payload["project"] = project
@@ -196,43 +282,52 @@ func fetchArgonQuotaFromEndpointWithProject(endpoint languageServerEndpoint, exp
 	}
 
 	var summary languageServerQuotaResponse
-	if err := postLanguageServerRPC(endpoint, languageServerQuotaSummaryMethod, payload, &summary); err != nil {
-		return nil, err
-	}
+	summaryErr := postLanguageServerRPC(endpoint, languageServerQuotaSummaryMethod, payload, &summary)
 
 	result := &languageServerArgonQuota{}
-	processBucket := func(groupName string, bucket languageServerQuotaBucket) {
-		bucketID := bucket.bucketID()
-		displayName := bucket.displayName()
-		if !isArgonQuotaIdentifier(groupName, bucketID, displayName) {
-			return
+	if summaryErr == nil {
+		processBucket := func(groupName string, bucket languageServerQuotaBucket) {
+			bucketID := bucket.bucketID()
+			displayName := bucket.displayName()
+			if !isArgonQuotaIdentifier(groupName, bucketID, displayName) {
+				return
+			}
+			fract, ok := bucket.fraction()
+			if !ok {
+				return
+			}
+			resetTime := parseResetTime(bucket.resetTime())
+			remaining := ClampFraction(fract)
+			switch classifyQuotaWindow(bucket.Window, bucketID, displayName, resetTime, now) {
+			case "weekly":
+				result.Weekly = &remaining
+				result.WeeklyResetTime = resetTime
+			case "5h":
+				result.FiveHour = &remaining
+				result.FiveHourResetTime = resetTime
+			}
 		}
-		fract, ok := bucket.fraction()
-		if !ok {
-			return
-		}
-		resetTime := parseResetTime(bucket.resetTime())
-		remaining := ClampFraction(fract)
-		switch classifyQuotaWindow(bucket.Window, bucketID, displayName, resetTime, now) {
-		case "weekly":
-			result.Weekly = &remaining
-			result.WeeklyResetTime = resetTime
-		case "5h":
-			result.FiveHour = &remaining
-			result.FiveHourResetTime = resetTime
-		}
-	}
 
-	for _, group := range summary.allGroups() {
-		for _, bucket := range group.Buckets {
-			processBucket(group.displayName(), bucket)
+		for _, group := range summary.allGroups() {
+			for _, bucket := range group.Buckets {
+				processBucket(group.displayName(), bucket)
+			}
 		}
-	}
-	for _, bucket := range summary.allBuckets() {
-		processBucket("", bucket)
+		for _, bucket := range summary.allBuckets() {
+			processBucket("", bucket)
+		}
 	}
 
 	if result.FiveHour == nil && result.Weekly == nil {
+		if fallback := status.extractArgonQuota(now); fallback != nil {
+			result = fallback
+		}
+	}
+
+	if result.FiveHour == nil && result.Weekly == nil {
+		if summaryErr != nil {
+			return nil, summaryErr
+		}
 		return nil, fmt.Errorf("Gemini 4 Argon quota buckets not found")
 	}
 	return result, nil
@@ -547,6 +642,10 @@ func grpcWebFrame(payload []byte) []byte {
 }
 
 func decodeGRPCWebMessage(data []byte) ([]byte, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+		return trimmed, nil
+	}
 	for len(data) >= 5 {
 		flag := data[0]
 		size := int(binary.BigEndian.Uint32(data[1:5]))
@@ -565,4 +664,38 @@ func decodeGRPCWebMessage(data []byte) ([]byte, error) {
 		return payload, nil
 	}
 	return nil, fmt.Errorf("empty local language server response")
+}
+
+// SetLanguageServerCloudCodeURLForEndpoint instructs a specific Antigravity language_server
+// endpoint to route Cloud Code API requests to targetURL.
+func SetLanguageServerCloudCodeURLForEndpoint(endpoint languageServerEndpoint, targetURL string) error {
+	payload := map[string]any{
+		"url":            targetURL,
+		"cloudCodeUrl":   targetURL,
+		"cloud_code_url": targetURL,
+	}
+	return postLanguageServerRPC(endpoint, languageServerSetCloudCodeURLMethod, payload, nil)
+}
+
+// SetLanguageServerCloudCodeURL instructs all discovered running Antigravity
+// language_server instances to route their Cloud Code requests to targetURL
+// (e.g. "http://127.0.0.1:8765").
+func SetLanguageServerCloudCodeURL(targetURL string) error {
+	endpoints := discoverLanguageServerEndpoints()
+	if len(endpoints) == 0 {
+		return fmt.Errorf("no running Antigravity language_server instances discovered")
+	}
+	var lastErr error
+	successCount := 0
+	for _, endpoint := range endpoints {
+		if err := SetLanguageServerCloudCodeURLForEndpoint(endpoint, targetURL); err != nil {
+			lastErr = err
+			continue
+		}
+		successCount++
+	}
+	if successCount == 0 && lastErr != nil {
+		return fmt.Errorf("failed to set cloud code url on language server: %w", lastErr)
+	}
+	return nil
 }

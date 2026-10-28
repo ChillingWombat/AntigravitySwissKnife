@@ -1065,6 +1065,13 @@ export const api = {
 
   getAcpMesh: () => request<AcpMeshResponse>('/api/utilities/acp'),
 
+  syncAcpRegistry: (registryUrl?: string) =>
+    request<AcpMeshResponse & { synced?: number; summary?: string }>('/api/utilities/acp/sync-registry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(registryUrl ? { registry_url: registryUrl } : {}),
+    }),
+
   saveAcpAgent: (agent: AcpAgentInput) =>
     request<AcpMeshResponse>('/api/utilities/acp/agents', {
       method: 'POST',
@@ -1232,13 +1239,23 @@ export const api = {
 
   getBridgeStatus: () => request<any>('/api/bridge/status'),
   getBridgeHTTPAllowlist: () =>
-    request<{ success: boolean; allowlist: string[]; pending: Array<{ host: string; method?: string; url?: string; reason?: string; requested_at: string }> }>(
-      '/api/bridge/http-allowlist'
-    ),
+    request<{
+      success: boolean
+      mode: 'always_allow' | 'whitelist_only'
+      allowlist: string[]
+      pending: Array<{ host: string; method?: string; url?: string; reason?: string; requested_at: string }>
+    }>('/api/bridge/http-allowlist'),
   updateBridgeHTTPAllowlist: (action: 'allow' | 'revoke' | 'deny', host: string) =>
-    request<{ success: boolean; allowlist: string[]; pending: any[] }>('/api/bridge/http-allowlist', {
+    request<{ success: boolean; mode: 'always_allow' | 'whitelist_only'; allowlist: string[]; pending: any[] }>('/api/bridge/http-allowlist', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, host }),
+    }),
+  setBridgeHTTPAllowlistMode: (mode: 'always_allow' | 'whitelist_only') =>
+    request<{ success: boolean; mode: 'always_allow' | 'whitelist_only'; allowlist: string[]; pending: any[] }>('/api/bridge/http-allowlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_mode', mode }),
     }),
 
   updateBridgeConfig: (data: any) =>

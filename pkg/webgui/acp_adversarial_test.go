@@ -46,37 +46,22 @@ func TestAdversarial_ACPProcessAndPIDIntegrity(t *testing.T) {
 		agentMap[id] = a
 	}
 
-	ideAgent, hasIDE := agentMap["agent-antigravity"]
-	cliAgent, hasCLI := agentMap["agent-antigravity-cli"]
-
-	if !hasIDE {
-		t.Fatalf("missing agent-antigravity in ACP nodes")
-	}
-	if !hasCLI {
-		t.Fatalf("missing agent-antigravity-cli in ACP nodes")
+	antigravityAgent, hasAntigravity := agentMap["agent-antigravity-acp"]
+	if !hasAntigravity {
+		t.Fatalf("missing agent-antigravity-acp in ACP nodes")
 	}
 
-	idePIDFloat, _ := ideAgent["pid"].(float64)
+	idePIDFloat, _ := antigravityAgent["pid"].(float64)
 	idePID := int(idePIDFloat)
-	cliPIDFloat, _ := cliAgent["pid"].(float64)
-	cliPID := int(cliPIDFloat)
 
-	t.Logf("Empirical Discovery: Desktop IDE PID=%d, CLI PID=%d", idePID, cliPID)
+	t.Logf("Empirical Discovery: Antigravity ACP PID=%d", idePID)
 
-	// If agy is running on the host, verify PID isolation
-	if cliPID > 0 {
-		cmdBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", cliPID))
+	// If antigravity or agy is running on the host, verify PID cmdline
+	if idePID > 0 {
+		cmdBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", idePID))
 		if err == nil {
 			cmdStr := string(cmdBytes)
-			t.Logf("CLI Process cmdline: %s", cmdStr)
-			if !strings.Contains(cmdStr, "agy") {
-				t.Errorf("agent-antigravity-cli PID %d does not contain 'agy' in cmdline", cliPID)
-			}
-		}
-
-		// Critical check: IDE PID must NOT equal CLI PID
-		if idePID == cliPID {
-			t.Errorf("PID COLLISION: agent-antigravity and agent-antigravity-cli reported the same PID: %d", idePID)
+			t.Logf("Antigravity ACP cmdline: %s", cmdStr)
 		}
 	}
 
@@ -263,11 +248,11 @@ func TestAdversarial_9NodeFleetValidation(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&fullResult)
 	resp.Body.Close()
 
-	if fullResult.MeshNodes != 11 {
-		t.Errorf("expected 11 mesh nodes (10 presets + the ACP adapter), got %d", fullResult.MeshNodes)
+	if fullResult.MeshNodes != 8 {
+		t.Errorf("expected 8 mesh nodes (unified ACP presets), got %d", fullResult.MeshNodes)
 	}
-	if len(fullResult.Agents) != 11 {
-		t.Errorf("expected 11 agents in array, got %d", len(fullResult.Agents))
+	if len(fullResult.Agents) != 8 {
+		t.Errorf("expected 8 agents in array, got %d", len(fullResult.Agents))
 	}
 
 	expectedNodes := []struct {
@@ -275,8 +260,7 @@ func TestAdversarial_9NodeFleetValidation(t *testing.T) {
 		name     string
 		nodeType string
 	}{
-		{"agent-antigravity", "Google Antigravity 2.0", "Desktop IDE & Agent Core"},
-		{"agent-antigravity-cli", "Antigravity CLI (agy)", "Terminal Agent Daemon"},
+		{"agent-antigravity-acp", "Antigravity ACP Adapter", "Desktop IDE & Agent Core (ACP)"},
 		{"agent-devin", "Devin", "Autonomous Developer IDE"},
 		{"agent-opencode", "OpenCode", "Editor & Agent Sidecar"},
 		{"agent-deepseek-harness", "DeepSeek Harness", "Terminal Agent Harness"},
@@ -365,8 +349,8 @@ func TestAdversarial_9NodeFleetValidation(t *testing.T) {
 	if len(ghostResult.Agents) != 0 {
 		t.Errorf("expected 0 agents for unknown ID, got %d", len(ghostResult.Agents))
 	}
-	if ghostResult.MeshNodes != 11 {
-		t.Errorf("expected mesh_nodes count to remain 11, got %d", ghostResult.MeshNodes)
+	if ghostResult.MeshNodes != 8 {
+		t.Errorf("expected mesh_nodes count to remain 8, got %d", ghostResult.MeshNodes)
 	}
 }
 

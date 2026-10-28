@@ -133,6 +133,13 @@ describe('ACP agent registry API client', () => {
       cwd: '/tmp/workspace',
     })
   })
+
+  it('POSTs to the sync-registry endpoint', async () => {
+    const calls = recordFetch()
+    await api.syncAcpRegistry()
+    assert.equal(calls[0].url, '/api/utilities/acp/sync-registry')
+    assert.equal(calls[0].method, 'POST')
+  })
 })
 
 describe('ACP Agent Mesh page configurability', () => {
@@ -143,12 +150,16 @@ describe('ACP Agent Mesh page configurability', () => {
     cancelAllInFlightRequests()
   })
 
-  const mountPage = async () => {
-    globalThis.fetch = (async () => ({
-      ok: true,
-      status: 200,
-      json: async () => MESH_FIXTURE,
-    })) as any
+  const mountPage = async (customFetch?: any) => {
+    if (customFetch) {
+      globalThis.fetch = customFetch
+    } else {
+      globalThis.fetch = (async () => ({
+        ok: true,
+        status: 200,
+        json: async () => MESH_FIXTURE,
+      })) as any
+    }
 
     const rendered = await mount(React.createElement(ACPAgentMeshPage))
     // Let the initial useEffect fetch resolve.
@@ -179,7 +190,11 @@ describe('ACP Agent Mesh page configurability', () => {
       'Discovered Daemons banner must not render'
     )
     assert.ok(
-      gadgetCards.some((card) => (card.textContent || '').includes('Google Antigravity 2.0')),
+      !gadgetCards.some((card) => (card.textContent || '').includes('Handshake ping completed')),
+      'Top handshake alert banner must not render'
+    )
+    assert.ok(
+      gadgetCards.some((card) => (card.textContent || '').includes('Antigravity ACP Adapter')),
       'agent cards must still render'
     )
 
@@ -326,7 +341,7 @@ describe('ACP Agent Mesh page configurability', () => {
     })
 
     const pageText = rendered.container.textContent || ''
-    assert.match(pageText, /1 active agent daemon responded successfully/)
+    assert.ok(!pageText.includes('ACP Handshake ping completed'), 'top alert banner must not render')
     assert.match(pageText, /installed_idle/)
     assert.match(pageText, /not_found/)
 
@@ -356,11 +371,244 @@ describe('ACP Agent Mesh page configurability', () => {
         await new Promise((resolve) => setTimeout(resolve, 20))
       })
 
-      assert.match(rendered.container.textContent || '', /1 active agent daemon responded successfully/)
+      assert.ok(
+        !(rendered.container.textContent || '').includes('ACP Handshake ping completed'),
+        'top alert banner must not render'
+      )
       assert.match(rendered.container.textContent || '', /MESH_STATUS_FALLBACK/)
     } finally {
       ;(api as any).pingAcpAgents = originalPing
       rendered.unmount()
     }
+  })
+
+  it('renders Sync Registry button to the left of Add Agent and handles click', async () => {
+    const { querySelector, click, unmount } = await mountPage()
+    const syncBtn = querySelector('#btnAcpSyncRegistry')
+    assert.ok(syncBtn, 'Sync Registry button must exist')
+    assert.ok(
+      syncBtn.className.includes('btn-pill-tonal'),
+      'Sync Registry button must use btn-pill-tonal class'
+    )
+    assert.equal((syncBtn as any).tagName?.toLowerCase(), 'button', 'Sync Registry must be a button element')
+    const addBtn = querySelector('#btnAcpAddAgent')
+    assert.ok(addBtn, 'Add Agent button must exist')
+
+    let syncCalled = false
+    globalThis.fetch = (async (url: any) => {
+      if (String(url).includes('/api/utilities/acp/sync-registry')) {
+        syncCalled = true
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ...MESH_FIXTURE,
+            synced: 1,
+            summary: 'Successfully synced 1 preset ACP settings from official registry',
+          }),
+        } as any
+      }
+      return { ok: true, status: 200, json: async () => MESH_FIXTURE } as any
+    }) as any
+
+    await click(syncBtn)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    assert.equal(syncCalled, true, 'syncAcpRegistry must be called')
+    unmount()
+  })
+
+  it('handles sync registry failure gracefully without crashing the UI', async () => {
+    const { querySelector, click, unmount, container } = await mountPage()
+    const syncBtn = querySelector('#btnAcpSyncRegistry')
+    assert.ok(syncBtn, 'Sync Registry button must exist')
+
+    globalThis.fetch = (async (url: any) => {
+      if (String(url).includes('/api/utilities/acp/sync-registry')) {
+        return {
+          ok: false,
+          status: 502,
+          json: async () => ({
+            success: false,
+            error: 'failed to sync registry: connection refused',
+          }),
+        } as any
+      }
+      return { ok: true, status: 200, json: async () => MESH_FIXTURE } as any
+    }) as any
+
+    await click(syncBtn)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    assert.ok(syncBtn, 'Sync button remains intact and operable after failure')
+    assert.ok(
+      !container.textContent?.includes('Failed to sync ACP registry'),
+      'top banner must not render on sync error'
+    )
+    unmount()
+  })
+
+  it('renders Antigravity ACP adapter as dedicated section at top with 1x3 sub-sections', async () => {
+    const { querySelector, unmount } = await mountPage()
+    const antigravityCard = querySelector('[data-acp-agent-id="agent-antigravity"]') as HTMLElement | null
+    assert.ok(antigravityCard, 'Antigravity card must exist')
+    assert.match(antigravityCard?.textContent || '', /Antigravity ACP Adapter/)
+    assert.match(antigravityCard?.textContent || '', /Antigravity 2\.0/)
+    assert.match(antigravityCard?.textContent || '', /Antigravity CLI/)
+    assert.match(antigravityCard?.textContent || '', /Antigravity IDE Extension/)
+    assert.match(antigravityCard?.textContent || '', /Socket \/ Pipe:/)
+    assert.match(antigravityCard?.textContent || '', /Integration:/)
+    assert.match(antigravityCard?.textContent || '', /Handshake:/)
+    unmount()
+  })
+
+  it('positions unified agent-antigravity-acp at the very top as a dedicated section', async () => {
+    const MESH_WITH_ACP = {
+      ...MESH_FIXTURE,
+      agents: [
+        {
+          id: 'agent-devin',
+          name: 'Devin',
+          type: 'Autonomous Developer IDE',
+          binary_path: '/usr/bin/devin-desktop',
+          pid: 0,
+          port_socket: 'unix:///run/user/1000/devin-acp.sock',
+          acp_version: 'v1.2.0',
+          status: 'unreachable',
+          ping_latency_ms: 0,
+          supported_tools: ['terminal'],
+          last_handshake: 'Offline',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+        {
+          id: 'agent-antigravity-acp',
+          name: 'Google Antigravity (ACP)',
+          type: 'Desktop IDE & Agent Core (ACP)',
+          binary_path: '~/.local/bin/antigravity-acp',
+          pid: 1234,
+          port_socket: '',
+          transport: 'stdio',
+          acp_version: 'v1.2.0-draft',
+          status: 'installed_idle',
+          ping_latency_ms: null,
+          supported_tools: ['read_file', 'terminal'],
+          last_handshake: 'never',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+      ],
+    }
+
+    const { querySelector, querySelectorAll, unmount } = await mountPage(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => MESH_WITH_ACP,
+    }))
+
+    const allCards = querySelectorAll('[data-acp-agent-id]')
+    assert.ok(allCards.length >= 2, 'Should render multiple agent cards')
+    // First card in DOM must be agent-antigravity-acp
+    assert.equal(allCards[0].getAttribute('data-acp-agent-id'), 'agent-antigravity-acp')
+
+    const antigravityCard = querySelector('[data-acp-agent-id="agent-antigravity-acp"]') as HTMLElement | null
+    assert.ok(antigravityCard, 'Antigravity ACP card must exist')
+    assert.match(antigravityCard?.textContent || '', /Antigravity ACP Adapter/)
+    assert.match(antigravityCard?.textContent || '', /stdio \(process pipe\)/)
+    assert.match(antigravityCard?.textContent || '', /Antigravity 2\.0/)
+    assert.match(antigravityCard?.textContent || '', /Antigravity CLI/)
+    assert.match(antigravityCard?.textContent || '', /Antigravity IDE Extension/)
+
+    // Verify no INSTALLED tag rendered in adapter card or sub-sections
+    const spans = Array.from(antigravityCard?.querySelectorAll('span') || [])
+    const spanTexts = spans.map((s) => s.textContent?.trim())
+    assert.ok(!spanTexts.includes('INSTALLED'), 'INSTALLED tag must not be rendered in adapter card or sub-sections')
+
+    // Verify sub-card headers do not contain icons
+    const subCardHeaders = Array.from(antigravityCard?.querySelectorAll('div[style*="gridTemplateColumns"] > div > div:first-child') || [])
+    for (const h of subCardHeaders) {
+      const svgs = h.querySelectorAll('svg')
+      assert.equal(svgs.length, 0, 'sub-card header must not contain an icon')
+    }
+    unmount()
+  })
+
+  it('removes header subtitle and relabels ping button to the far left on agent cards', async () => {
+    const MESH_WITH_DEVIN = {
+      ...MESH_FIXTURE,
+      agents: [
+        {
+          id: 'agent-devin',
+          name: 'Devin',
+          type: 'Autonomous Developer IDE',
+          binary_path: '/usr/bin/devin-desktop',
+          pid: 0,
+          port_socket: 'unix:///run/user/1000/devin-acp.sock',
+          acp_version: 'v1.2.0',
+          status: 'unreachable',
+          ping_latency_ms: 0,
+          supported_tools: ['terminal'],
+          last_handshake: 'Offline',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+      ],
+    }
+
+    const { querySelector, unmount } = await mountPage(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => MESH_WITH_DEVIN,
+    }))
+
+    const devinCard = querySelector('[data-acp-agent-id="agent-devin"]') as HTMLElement | null
+    assert.ok(devinCard, 'Devin card must exist')
+
+    // 1. Subtitle removal check
+    assert.ok(
+      !devinCard?.textContent?.includes('Autonomous Developer IDE • PID'),
+      'Card header subtitle must be removed'
+    )
+
+    // 2. Ping button text and position check
+    const buttons = devinCard?.querySelectorAll('button') || []
+    assert.ok(buttons.length >= 3, 'Action buttons must exist')
+    const pingButton = buttons[0]
+    assert.equal(pingButton?.textContent?.trim(), 'Ping', 'Ping button text must be strictly "Ping"')
+    assert.equal(pingButton?.getAttribute('aria-label'), 'Ping Devin', 'Ping button must have aria-label')
+
+    unmount()
+  })
+
+  it('separates Antigravity ACP adapter and ordinary agent nodes into dedicated google-card sections', async () => {
+    const { querySelector, querySelectorAll, unmount } = await mountPage()
+
+    const googleCards = querySelectorAll('.google-card')
+    assert.ok(googleCards.length >= 2, 'Must have at least two separate google-card sections')
+
+    const adapterCard = querySelector('[data-acp-agent-id="agent-antigravity"]')
+    assert.ok(adapterCard, 'Antigravity adapter card must exist')
+
+    const otherCard = querySelector('[data-acp-agent-id="custom-my-agent"]')
+    assert.ok(otherCard, 'Ordinary agent card must exist')
+
+    const adapterSection = adapterCard?.closest('.google-card')
+    const otherSection = otherCard?.closest('.google-card')
+
+    assert.ok(adapterSection, 'Adapter card must be inside a google-card section')
+    assert.ok(otherSection, 'Ordinary agent card must be inside a google-card section')
+    assert.notEqual(adapterSection, otherSection, 'Adapter and ordinary agent cards must reside in separate google-card sections')
+
+    assert.match(adapterSection?.textContent || '', /Antigravity ACP Host Adapter/)
+    assert.match(otherSection?.textContent || '', /Connected Agent Nodes/)
+
+    unmount()
   })
 })

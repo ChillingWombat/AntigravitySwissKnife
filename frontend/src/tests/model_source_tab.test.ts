@@ -47,13 +47,16 @@ describe('Custom model navigation and integration mode layout', () => {
     cancelAllInFlightRequests()
   })
 
-  const mockFetch = (url: unknown) => {
+  const mockFetch = (url: unknown, init?: RequestInit) => {
     const target = String(url)
     if (target === '/api/custom_models') {
       return jsonResponse({ version: '1.0.0', inference_supported: true, models: [] })
     }
     if (target === '/api/rules') {
       return jsonResponse({ default_custom_model: '' })
+    }
+    if (init?.method === 'POST' && target === '/api/custom_models/integration' && init.body) {
+      return jsonResponse({ success: true, integration: JSON.parse(String(init.body)) })
     }
     return jsonResponse({ integration, endpoint: 'http://127.0.0.1:8765/v1', gemini_base: 'http://127.0.0.1:8765/gemini' })
   }
@@ -118,5 +121,178 @@ describe('Custom model navigation and integration mode layout', () => {
       assert.equal(description?.style.wordBreak, 'break-word')
       assert.ok(description?.style.minWidth === '0' || description?.style.minWidth === '0px')
     }
+  })
+
+  it('renders the AGY CLI note card without an icon', async () => {
+    initDOM()
+    globalThis.fetch = (async () => mockFetch('/api/custom_models/integration')) as typeof fetch
+    view = await mount(React.createElement(ModelSourceTab))
+    await flush()
+
+    const note = view.querySelector<HTMLDivElement>('div[role="note"]')
+    assert.ok(note, 'AGY CLI note must render')
+    assert.match(note.textContent || '', /AGY CLI/)
+    assert.match(note.textContent || '', /Runs independently/)
+    assert.equal(note.querySelector('svg'), null, 'AGY CLI note must not have an icon')
+  })
+
+  it('renders proxy scope tabs with "Antigravity Only", "Global Use", and "Increased Ban Risk" icon tooltip', async () => {
+    initDOM()
+    const proxyIntegration = {
+      mode: 'api_proxy',
+      apps: {
+        antigravity: { source: 'native', subagents: 'app' },
+        vscode: { source: 'native', subagents: 'app' },
+      },
+      proxy: { scope: 'antigravity', pin: '' },
+    }
+    globalThis.fetch = (async () => jsonResponse({
+      integration: proxyIntegration,
+      endpoint: 'http://127.0.0.1:8765/v1',
+      gemini_base: 'http://127.0.0.1:8765/v1beta',
+    })) as typeof fetch
+
+    view = await mount(React.createElement(ModelSourceTab))
+    await flush()
+
+    const buttons = view.querySelectorAll<HTMLButtonElement>('button')
+    const buttonTexts = buttons.map((b) => compactText(b.textContent))
+
+    assert.ok(buttonTexts.some((text) => text === 'Antigravity Only'), 'Antigravity Only tab must exist')
+    assert.ok(buttonTexts.some((text) => text.includes('Global Use')), 'Global Use tab must exist')
+    assert.ok(!buttonTexts.some((text) => text.includes('Antigravity apps only')), 'Legacy tab text must be removed')
+    assert.ok(!buttonTexts.some((text) => text.includes('Also expose to external agents')), 'Legacy tab text must be removed')
+
+    // Find the Global Use button
+    const globalUseButton = buttons.find((b) => compactText(b.textContent).includes('Global Use'))
+    assert.ok(globalUseButton, 'Global Use button must exist')
+
+    // Verify "Increased Ban Risk" icon title is on or beside the Global Use button
+    const alertIcon = globalUseButton.querySelector('[title="Increased Ban Risk"]')
+    assert.ok(alertIcon, '"Increased Ban Risk" icon title must be present on Global Use button')
+    assert.equal(alertIcon.getAttribute('aria-label'), 'Increased Ban Risk')
+
+    // Verify standalone warning row and explanatory sentence are removed
+    const textContent = view.container.textContent || ''
+    assert.doesNotMatch(textContent, /External agents can call native models through this endpoint/)
+  })
+
+  it('conditionally hides protocol fields on "Antigravity Only" and displays them on "Global Use"', async () => {
+    initDOM()
+    let currentIntegration = {
+      mode: 'api_proxy',
+      apps: {
+        antigravity: { source: 'native', subagents: 'app' },
+        vscode: { source: 'native', subagents: 'app' },
+      },
+      proxy: { scope: 'antigravity', pin: '' },
+    }
+
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      const target = String(url)
+      if (init?.method === 'POST' && target === '/api/custom_models/integration' && init.body) {
+        currentIntegration = JSON.parse(String(init.body))
+        return jsonResponse({ success: true, integration: currentIntegration })
+      }
+      return jsonResponse({
+        integration: currentIntegration,
+        endpoint: 'http://127.0.0.1:8765/v1',
+        gemini_base: 'http://127.0.0.1:8765/v1beta',
+      })
+    }) as typeof fetch
+
+    view = await mount(React.createElement(ModelSourceTab))
+    await flush()
+
+    // 1. Antigravity Only selected: Protocol fields and Private Key must NOT be rendered
+    assert.doesNotMatch(view.container.textContent || '', /OpenAI protocol/)
+    assert.doesNotMatch(view.container.textContent || '', /Gemini protocol/)
+    assert.doesNotMatch(view.container.textContent || '', /Private Key/)
+    assert.equal(view.querySelector('input[placeholder="Required"]'), null)
+
+    // 2. Click "Global Use" tab
+    const globalUseBtn = view.querySelectorAll<HTMLButtonElement>('button')
+      .find((b) => compactText(b.textContent).includes('Global Use'))
+    assert.ok(globalUseBtn, 'Global Use button must be found')
+
+    await view.click(globalUseBtn)
+    await flush()
+
+    // Now protocol sections and Private Key ARE rendered
+    assert.match(view.container.textContent || '', /OpenAI protocol/)
+    assert.match(view.container.textContent || '', /Gemini protocol/)
+    assert.match(view.container.textContent || '', /Private Key/)
+
+    const privateKeyInput = view.querySelector<HTMLInputElement>('input[placeholder="Required"]')
+    assert.ok(privateKeyInput, 'Private key input with placeholder "Required" must be rendered')
+    assert.doesNotMatch(view.container.textContent || '', /PIN \/ private key \(optional\)/)
+    assert.equal(view.querySelector('input[placeholder="Require a PIN for external calls"]'), null)
+
+    // 3. Switch back to "Antigravity Only"
+    const antigravityOnlyBtn = view.querySelectorAll<HTMLButtonElement>('button')
+      .find((b) => compactText(b.textContent) === 'Antigravity Only')
+    assert.ok(antigravityOnlyBtn, 'Antigravity Only button must be found')
+
+    await view.click(antigravityOnlyBtn)
+    await flush()
+
+    // Protocol sections must be hidden again
+    assert.doesNotMatch(view.container.textContent || '', /OpenAI protocol/)
+    assert.doesNotMatch(view.container.textContent || '', /Gemini protocol/)
+    assert.doesNotMatch(view.container.textContent || '', /Private Key/)
+  })
+
+  it('renders clean base URLs, icon-only copy buttons, and eliminates explanatory subtitles under protocols', async () => {
+    initDOM()
+    const externalIntegration = {
+      mode: 'api_proxy',
+      apps: {
+        antigravity: { source: 'native', subagents: 'app' },
+        vscode: { source: 'native', subagents: 'app' },
+      },
+      proxy: { scope: 'external', pin: 'test-secret' },
+    }
+
+    globalThis.fetch = (async () => jsonResponse({
+      integration: externalIntegration,
+      endpoint: 'http://127.0.0.1:8765/v1',
+      gemini_base: 'http://127.0.0.1:8765/v1beta',
+    })) as typeof fetch
+
+    view = await mount(React.createElement(ModelSourceTab))
+    await flush()
+
+    // Clean displayed base URLs (no /models suffix)
+    const codeElements = view.querySelectorAll<HTMLElement>('code')
+    assert.equal(codeElements.length, 2, 'Two code elements for OpenAI and Gemini endpoints')
+    assert.equal(compactText(codeElements[0].textContent), 'http://127.0.0.1:8765/v1')
+    assert.equal(compactText(codeElements[1].textContent), 'http://127.0.0.1:8765/v1beta')
+
+    // Explanatory subtitles removed
+    const containerText = view.container.textContent || ''
+    assert.doesNotMatch(containerText, /Gemini model calls are converted to the Gemini protocol/)
+    assert.doesNotMatch(containerText, /Gemini models only, listed and served without conversion/)
+
+    // Icon-only copy buttons
+    const copyButtons = view.querySelectorAll<HTMLButtonElement>('button[aria-label="Copy"]')
+    assert.equal(copyButtons.length, 2, 'Two icon-only copy buttons must exist')
+
+    for (const copyBtn of copyButtons) {
+      assert.equal(compactText(copyBtn.textContent), '', 'Copy button must be icon-only with no text label')
+      assert.equal(copyBtn.title, 'Copy')
+      assert.ok(copyBtn.querySelector('svg'), 'Copy button must contain an SVG icon')
+    }
+
+    // Test clicking OpenAI copy button
+    await view.click(copyButtons[0])
+    await flush()
+    assert.equal(await navigator.clipboard.readText(), 'http://127.0.0.1:8765/v1')
+    assert.equal(copyButtons[0].title, 'Copied')
+
+    // Test clicking Gemini copy button
+    await view.click(copyButtons[1])
+    await flush()
+    assert.equal(await navigator.clipboard.readText(), 'http://127.0.0.1:8765/v1beta')
+    assert.equal(copyButtons[1].title, 'Copied')
   })
 })

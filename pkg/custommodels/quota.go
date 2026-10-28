@@ -616,7 +616,7 @@ func parseOpenCodeUsageBuckets(body []byte) []QuotaBucket {
 		buckets = append(buckets, QuotaBucket{
 			Label:    window.label,
 			Fraction: &fraction,
-			Value:    fmt.Sprintf("%.0f%% left", remaining*100),
+			Value:    fmt.Sprintf("%.0f%%", remaining*100),
 			Message:  message,
 		})
 	}

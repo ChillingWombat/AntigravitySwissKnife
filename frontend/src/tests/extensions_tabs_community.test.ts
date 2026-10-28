@@ -350,4 +350,38 @@ describe('Extensions top tab switcher & Community Extensions UI (#203)', () => {
     assert.ok(deleteCall, 'deleteCommunityExtension DELETE must be invoked')
     assert.ok(deleteCall.url.includes('id='), 'DELETE call must include id query param')
   })
+
+  it('4. Community Extensions header icon matches Built-in tab styling without grey background box', async () => {
+    installFetch([])
+    view = await mount(React.createElement(ExtensionsPage, { activeTab: 1 }))
+    await flush()
+
+    const headings = view.querySelectorAll<HTMLHeadingElement>('h3')
+    const headerEl = headings.find((h) => (h.textContent || '').trim() === 'Community Extensions')
+    assert.ok(headerEl, 'Community Extensions h3 must exist')
+
+    const parentContainer = headerEl.parentElement
+    assert.ok(parentContainer, 'Parent container must exist')
+
+    // Direct children must be the SVG icon and the H3 heading (no intermediate tonal box)
+    const svg = parentContainer.querySelector('svg')
+    assert.ok(svg, 'Blocks SVG icon must exist in header container')
+    assert.equal(
+      parentContainer.querySelector('div'),
+      null,
+      'Header container must not have any inner div wrapper or background box'
+    )
+
+    // Verify source styling invariants matching Built-in tab icons
+    const __dirname = path.dirname(fileURLToPath(import.meta.url))
+    const extPageSrc = fs.readFileSync(path.resolve(__dirname, '../pages/ExtensionsPage.tsx'), 'utf8')
+    assert.ok(
+      extPageSrc.includes('<Blocks size={16} color="var(--text-muted)" />'),
+      'Community Extensions header icon must use size 16 and color var(--text-muted)'
+    )
+    assert.ok(
+      !extPageSrc.includes('<Blocks size={20} color="var(--primary)" />'),
+      'Old primary size 20 Blocks icon must be removed'
+    )
+  })
 })

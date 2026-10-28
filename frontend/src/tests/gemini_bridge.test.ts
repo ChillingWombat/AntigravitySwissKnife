@@ -27,6 +27,9 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
   })
 
   it('implements zero-setup remote tunneling controls without decorative tags', () => {
+    assert.ok(content.includes('Access Mode'))
+    assert.strictEqual(content.includes('Remote Internet Access'), false)
+    assert.strictEqual(content.includes('Publishes the local port 8765 MCP endpoint over public HTTPS'), false)
     assert.ok(content.includes('api.startBridgeTunnel'))
     assert.ok(content.includes('api.stopBridgeTunnel'))
     assert.ok(content.includes('Cloudflare Quick Tunnel'))
@@ -106,15 +109,17 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.ok(content.includes('Forwarded Antigravity Response Preview'))
   })
 
-  it('catalogs the expanded lead, fleet, and local search tools without removed test surfaces', () => {
+  it('removes explanatory model context protocol tools gadget (deferred to documentation)', () => {
+    assert.strictEqual(content.includes('Exposed Model Context Protocol Tools'), false)
     for (const tool of [
+      'antigravity_lead_create_conversation',
       'antigravity_lead_compact_conversation',
       'antigravity_lead_stop_conversation',
       'antigravity_fleet_get_quota',
       'antigravity_fleet_switch_account',
       'local_search_files',
     ]) {
-      assert.ok(content.includes(tool), `${tool} must be present in the exposed tool catalog`)
+      assert.strictEqual(content.includes(tool), false, `${tool} should not be in explanatory UI gadget`)
     }
 
     assert.strictEqual(content.includes('Test Remote Task Dispatch'), false)
@@ -131,5 +136,20 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
         `GeminiBridgePage must not contain banned buzzword "${word}"`
       )
     }
+  })
+
+  it('provides Outbound HTTP Allowlist mode switch between Always Allow and Whitelist Only without slop subtitle', () => {
+    assert.ok(content.includes('Outbound HTTP Allowlist'))
+    assert.ok(content.includes('Always Allow'))
+    assert.ok(content.includes('Whitelist Only'))
+    assert.ok(content.includes('api.setBridgeHTTPAllowlistMode'))
+    assert.ok(content.includes("allowlistMode === 'always_allow'"))
+    assert.ok(content.includes('All outbound HTTP requests and domains are permitted without restriction.'))
+    // Anti-slop check: remove the explanatory subtitle
+    assert.strictEqual(
+      content.includes('Agents can call external APIs (calendars, REST, webhooks) only on these hosts.'),
+      false,
+      'Explanatory subtitle under Outbound HTTP Allowlist header must be removed'
+    )
   })
 })

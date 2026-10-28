@@ -69,8 +69,36 @@ func IsTestExecution() bool {
 var (
 	devtoolsPortCacheMu sync.Mutex
 	cachedDevToolsPort  int
+	cachedPortProfile   string
 	cachedPortExpiresAt time.Time
 )
+
+// DetectPortProfile determines whether the CDP port belongs to the isolated custom profile or native profile.
+func (inj *Injector) DetectPortProfile(port int) string {
+	devtoolsPortCacheMu.Lock()
+	if cachedDevToolsPort == port && cachedPortProfile != "" && time.Now().Before(cachedPortExpiresAt) {
+		p := cachedPortProfile
+		devtoolsPortCacheMu.Unlock()
+		return p
+	}
+	devtoolsPortCacheMu.Unlock()
+
+	customCandidates := []string{
+		filepath.Join(os.Getenv("HOME"), ".config", "antigravity-swiss", "profiles", "antigravity-swiss-custom", "DevToolsActivePort"),
+		filepath.Join(core.GetConfigDir(), "profiles", "antigravity-swiss-custom", "DevToolsActivePort"),
+	}
+	for _, f := range customCandidates {
+		if data, err := os.ReadFile(f); err == nil {
+			lines := strings.Split(string(data), "\n")
+			if len(lines) > 0 {
+				if p, err := strconv.Atoi(strings.TrimSpace(lines[0])); err == nil && p == port {
+					return "custom"
+				}
+			}
+		}
+	}
+	return "native"
+}
 
 // FindDevToolsPort reads the active remote debugging port of Antigravity and verifies it is responsive.
 func (inj *Injector) FindDevToolsPort() (int, error) {
@@ -92,15 +120,17 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 		}
 		devtoolsPortCacheMu.Lock()
 		cachedDevToolsPort = 0
+		cachedPortProfile = ""
 		cachedPortExpiresAt = time.Time{}
 		devtoolsPortCacheMu.Unlock()
 	} else {
 		devtoolsPortCacheMu.Unlock()
 	}
 
-	cacheSuccess := func(port int) int {
+	cacheSuccess := func(port int, profile string) int {
 		devtoolsPortCacheMu.Lock()
 		cachedDevToolsPort = port
+		cachedPortProfile = profile
 		cachedPortExpiresAt = time.Now().Add(5 * time.Second)
 		devtoolsPortCacheMu.Unlock()
 		return port
@@ -110,6 +140,8 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 	portCandidates := []string{
 		filepath.Join(core.GetAntigravityHostConfigDir(), "DevToolsActivePort"),
 		filepath.Join(os.Getenv("HOME"), ".config", "antigravity", "DevToolsActivePort"),
+		filepath.Join(os.Getenv("HOME"), ".config", "antigravity-swiss", "profiles", "antigravity-swiss-custom", "DevToolsActivePort"),
+		filepath.Join(core.GetConfigDir(), "profiles", "antigravity-swiss-custom", "DevToolsActivePort"),
 	}
 	for _, portFile := range portCandidates {
 		if data, err := os.ReadFile(portFile); err == nil {
@@ -118,7 +150,11 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 				portStr := strings.TrimSpace(lines[0])
 				if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
 					if inj.isPortLive(p) {
-						return cacheSuccess(p), nil
+						profile := "native"
+						if strings.Contains(portFile, "antigravity-swiss-custom") {
+							profile = "custom"
+						}
+						return cacheSuccess(p, profile), nil
 					}
 				}
 			}
@@ -129,7 +165,7 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 	if pStr := os.Getenv("ANTIGRAVITY_CDP_PORT"); pStr != "" {
 		if p, err := strconv.Atoi(pStr); err == nil && p > 0 {
 			if inj.isPortLive(p) {
-				return cacheSuccess(p), nil
+				return cacheSuccess(p, "native"), nil
 			}
 		}
 	}
@@ -137,7 +173,7 @@ func (inj *Injector) FindDevToolsPort() (int, error) {
 	// 3. Scan common DevTools debugging ports (9222-9230)
 	for p := 9222; p <= 9230; p++ {
 		if inj.isPortLive(p) {
-			return cacheSuccess(p), nil
+			return cacheSuccess(p, "native"), nil
 		}
 	}
 
@@ -383,7 +419,9 @@ func (inj *Injector) ApplyConfig(cfg *Config) (*ApplyResult, error) {
 		}, err
 	}
 
-	script := GenerateScript(cfg)
+	profile := inj.DetectPortProfile(port)
+	profilePrefix := fmt.Sprintf("window.__SWISS_WINDOW_PROFILE__ = %q;\n", profile)
+	script := profilePrefix + GenerateScript(cfg)
 	var lastErr error
 	appliedCount := 0
 

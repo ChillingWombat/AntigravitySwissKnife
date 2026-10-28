@@ -187,7 +187,7 @@ func (s *Server) allowLegacyAppPasswordAttempt(r *http.Request) bool {
 func isPublicPath(p string) bool {
 	clean := path.Clean(p)
 	// 1. Root and standard UI static assets
-	if clean == "." || clean == "/" || clean == "/index.html" || clean == "/health" || clean == "/healthz" {
+	if clean == "." || clean == "/" || clean == "/index.html" || clean == "/health" || clean == "/healthz" || clean == "/api/health" {
 		return true
 	}
 	if isPublicIconPath(clean) {

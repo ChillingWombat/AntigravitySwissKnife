@@ -55,9 +55,83 @@ export function segmentMetric(s: TokenTrendSegment, unit: TrendUnit): number {
 /** X-axis / tooltip label for a bucket start timestamp, honouring the range width. */
 export function bucketLabel(start: number, range: TokenRange): string {
   const d = new Date(start)
-  if (range === '24h') return `${d.getHours()}:00`
-  if (range === '7d') return d.toLocaleDateString(undefined, { weekday: 'short' })
+  const r = (range || '').toLowerCase()
+  if (r === '24h') return `${d.getHours()}:00`
+  if (r === '7d') return d.toLocaleDateString(undefined, { weekday: 'short' })
   return `${d.getMonth() + 1}/${d.getDate()}`
+}
+
+/**
+ * Generates 24 hourly buckets for the preceding 24 hours up to the current clock hour.
+ * Populates bucket metrics and model/project breakdowns from events if provided.
+ */
+export function generate24HourlyBuckets(
+  nowMs: number = Date.now(),
+  events: Array<{
+    timestamp: string
+    model?: string
+    project?: string
+    input_tokens?: number
+    cached_tokens?: number
+    output_tokens?: number
+    cost_usd?: number | null
+  }> = []
+): TokenTrendBucket[] {
+  const currentHour = Math.floor(nowMs / 3600_000) * 3600_000
+  const buckets: TokenTrendBucket[] = []
+
+  for (let i = 0; i < 24; i++) {
+    const start = currentHour - (23 - i) * 3600_000
+    const end = start + 3600_000
+
+    const eventsInHour = events.filter((e) => {
+      const t = new Date(e.timestamp).getTime()
+      return !isNaN(t) && t >= start && t < end
+    })
+
+    const modelsMap = new Map<string, { tokens: number; cost_usd: number; requests: number }>()
+    const projectsMap = new Map<string, { tokens: number; cost_usd: number; requests: number }>()
+    let freshTokens = 0
+    let cachedTokens = 0
+    let outputTokens = 0
+    let costUSD = 0
+
+    for (const ev of eventsInHour) {
+      const mName = ev.model || 'Unknown'
+      const pName = ev.project || 'Unknown'
+      const tok = (ev.input_tokens || 0) + (ev.output_tokens || 0)
+      const cost = ev.cost_usd || 0
+      freshTokens += Math.max(0, (ev.input_tokens || 0) - (ev.cached_tokens || 0))
+      cachedTokens += ev.cached_tokens || 0
+      outputTokens += ev.output_tokens || 0
+      costUSD += cost
+
+      const mAcc = modelsMap.get(mName) || { tokens: 0, cost_usd: 0, requests: 0 }
+      mAcc.tokens += tok
+      mAcc.cost_usd += cost
+      mAcc.requests += 1
+      modelsMap.set(mName, mAcc)
+
+      const pAcc = projectsMap.get(pName) || { tokens: 0, cost_usd: 0, requests: 0 }
+      pAcc.tokens += tok
+      pAcc.cost_usd += cost
+      pAcc.requests += 1
+      projectsMap.set(pName, pAcc)
+    }
+
+    buckets.push({
+      start,
+      fresh_tokens: freshTokens,
+      cached_tokens: cachedTokens,
+      output_tokens: outputTokens,
+      total_tokens: freshTokens + cachedTokens + outputTokens,
+      cost_usd: costUSD,
+      requests: eventsInHour.length,
+      models: Array.from(modelsMap.entries()).map(([name, val]) => ({ name, ...val })),
+      projects: Array.from(projectsMap.entries()).map(([name, val]) => ({ name, ...val })),
+    })
+  }
+  return buckets
 }
 
 /**

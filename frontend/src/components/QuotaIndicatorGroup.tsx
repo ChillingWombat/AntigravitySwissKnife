@@ -33,7 +33,7 @@ export const QuotaIndicatorGroup: React.FC<QuotaIndicatorGroupProps> = ({
     const hasValue = only?.fraction !== null && only?.fraction !== undefined && !isNaN(only.fraction as number)
     const pct = hasValue ? Math.max(0, Math.min(100, Math.round((only!.fraction as number) * 100))) : null
     const title = only?.value
-      ? `${only.label}: ${only.value}`
+      ? `${only.label}: ${only.value.replace(/\s*left$/i, '')}`
       : singleTitle || only?.label || 'N/A'
     return <CircularGauge percentage={pct} emptyGrey={!hasValue} title={title} size={size} strokeWidth={strokeWidth} />
   }
@@ -55,12 +55,12 @@ export const QuotaIndicatorGroup: React.FC<QuotaIndicatorGroupProps> = ({
           const pct = Math.max(0, Math.min(100, Math.round((b.fraction as number) * 100)))
           if (b.value && b.value.trim().length > 0) {
             const trimmed = b.value.trim()
-            valueText = trimmed.toLowerCase().endsWith('left') ? trimmed : `${trimmed} left`
+            valueText = trimmed.replace(/\s*left$/i, '')
           } else {
-            valueText = `${pct}% left`
+            valueText = `${pct}%`
           }
         } else {
-          valueText = b.value || 'N/A'
+          valueText = (b.value || 'N/A').replace(/\s*left$/i, '')
         }
 
         return (

@@ -56,12 +56,18 @@ type AccountQuotaState struct {
 	Quota5hClaudeGPT            float64  `json:"quota_5h_claude_gpt"`
 	QuotaWeeklyClaudeGPT        float64  `json:"quota_weekly_claude_gpt"`
 	ResetHorizonText            string   `json:"reset_horizon_text"`
-	ResetSeconds5hArgon         float64  `json:"reset_seconds_5h_argon"`
-	ResetHorizon5hArgonText     string   `json:"reset_horizon_5h_argon_text"`
-	ResetSecondsWeekly          float64  `json:"reset_seconds_weekly"`
-	ResetHorizonWeeklyText      string   `json:"reset_horizon_weekly_text"`
-	ResetSecondsWeeklyArgon     float64  `json:"reset_seconds_weekly_argon"`
-	ResetHorizonWeeklyArgonText string   `json:"reset_horizon_weekly_argon_text"`
+	ResetSeconds5hArgon         float64   `json:"reset_seconds_5h_argon"`
+	Reset5hArgonSeconds         float64   `json:"reset_5h_argon_seconds,omitempty"`
+	ResetHorizon5hArgonText     string    `json:"reset_horizon_5h_argon_text"`
+	ResetSecondsWeekly          float64   `json:"reset_seconds_weekly"`
+	ResetHorizonWeeklyText      string    `json:"reset_horizon_weekly_text"`
+	ResetSecondsWeeklyArgon     float64   `json:"reset_seconds_weekly_argon"`
+	ResetWeeklyArgonSeconds     float64   `json:"reset_weekly_argon_seconds,omitempty"`
+	ResetHorizonWeeklyArgonText string    `json:"reset_horizon_weekly_argon_text"`
+	ResetTime5hArgon            time.Time `json:"reset_time_5h_argon,omitempty"`
+	Reset5hArgonTime            time.Time `json:"reset_5h_argon_time,omitempty"`
+	ResetTimeWeeklyArgon        time.Time `json:"reset_time_weekly_argon,omitempty"`
+	ResetWeeklyArgonTime        time.Time `json:"reset_weekly_argon_time,omitempty"`
 	ErrorMessage                string   `json:"error_message,omitempty"`
 }
 
@@ -520,6 +526,8 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 		resWeeklyArgonText := ""
 		curSec5hArgon := 0.0
 		curSecWeeklyArgon := 0.0
+		var curResetTime5hArgon time.Time
+		var curResetTimeWeeklyArgon time.Time
 		tier := acc.PlanTier
 		credits := acc.Credits
 
@@ -628,23 +636,95 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 			if s.ResetHorizonText != "" {
 				resText = s.ResetHorizonText
 			}
-			if s.ResetSeconds5hArgon > 0 {
-				curSec5hArgon = s.ResetSeconds5hArgon
+			sec5hArgon, time5hArgon := getCachedReset5hArgon(s)
+			if !time5hArgon.IsZero() {
+				if time5hArgon.After(now) {
+					curSec5hArgon = time5hArgon.Sub(now).Seconds()
+					res5hArgonText = FormatResetHorizon(time5hArgon, now)
+					curResetTime5hArgon = time5hArgon
+				} else {
+					curSec5hArgon = 0
+					res5hArgonText = "Ready"
+					curResetTime5hArgon = time.Time{}
+					if cur5hArgon != nil {
+						val := 1.0
+						cur5hArgon = &val
+					}
+				}
+			} else if sec5hArgon > 0 && !s.LastPolled.IsZero() {
+				resetAt := s.LastPolled.Add(time.Duration(sec5hArgon * float64(time.Second)))
+				if resetAt.After(now) {
+					curSec5hArgon = resetAt.Sub(now).Seconds()
+					res5hArgonText = FormatResetHorizon(resetAt, now)
+					curResetTime5hArgon = resetAt
+				} else {
+					curSec5hArgon = 0
+					res5hArgonText = "Ready"
+					curResetTime5hArgon = time.Time{}
+					if cur5hArgon != nil {
+						val := 1.0
+						cur5hArgon = &val
+					}
+				}
+			} else if sec5hArgon > 0 {
+				curSec5hArgon = sec5hArgon
+				if s.ResetHorizon5hArgonText != "" {
+					res5hArgonText = s.ResetHorizon5hArgonText
+				}
+			} else if cur5hArgon != nil {
+				curSec5hArgon = 0
+				if res5hArgonText == "" || res5hArgonText == "Not Polled" {
+					res5hArgonText = "Ready"
+				}
 			}
-			if s.ResetHorizon5hArgonText != "" {
-				res5hArgonText = s.ResetHorizon5hArgonText
-			}
+
 			if s.ResetSecondsWeekly > 0 {
 				curSecWeekly = s.ResetSecondsWeekly
 			}
 			if s.ResetHorizonWeeklyText != "" && s.ResetHorizonWeeklyText != "Not Polled" {
 				resWeeklyText = s.ResetHorizonWeeklyText
 			}
-			if s.ResetSecondsWeeklyArgon > 0 {
-				curSecWeeklyArgon = s.ResetSecondsWeeklyArgon
-			}
-			if s.ResetHorizonWeeklyArgonText != "" {
-				resWeeklyArgonText = s.ResetHorizonWeeklyArgonText
+
+			secWeeklyArgon, timeWeeklyArgon := getCachedResetWeeklyArgon(s)
+			if !timeWeeklyArgon.IsZero() {
+				if timeWeeklyArgon.After(now) {
+					curSecWeeklyArgon = timeWeeklyArgon.Sub(now).Seconds()
+					resWeeklyArgonText = FormatResetHorizon(timeWeeklyArgon, now)
+					curResetTimeWeeklyArgon = timeWeeklyArgon
+				} else {
+					curSecWeeklyArgon = 0
+					resWeeklyArgonText = "Ready"
+					curResetTimeWeeklyArgon = time.Time{}
+					if curWeeklyArgon != nil {
+						val := 1.0
+						curWeeklyArgon = &val
+					}
+				}
+			} else if secWeeklyArgon > 0 && !s.LastPolled.IsZero() {
+				resetAt := s.LastPolled.Add(time.Duration(secWeeklyArgon * float64(time.Second)))
+				if resetAt.After(now) {
+					curSecWeeklyArgon = resetAt.Sub(now).Seconds()
+					resWeeklyArgonText = FormatResetHorizon(resetAt, now)
+					curResetTimeWeeklyArgon = resetAt
+				} else {
+					curSecWeeklyArgon = 0
+					resWeeklyArgonText = "Ready"
+					curResetTimeWeeklyArgon = time.Time{}
+					if curWeeklyArgon != nil {
+						val := 1.0
+						curWeeklyArgon = &val
+					}
+				}
+			} else if secWeeklyArgon > 0 {
+				curSecWeeklyArgon = secWeeklyArgon
+				if s.ResetHorizonWeeklyArgonText != "" {
+					resWeeklyArgonText = s.ResetHorizonWeeklyArgonText
+				}
+			} else if curWeeklyArgon != nil {
+				curSecWeeklyArgon = 0
+				if resWeeklyArgonText == "" || resWeeklyArgonText == "Not Polled" {
+					resWeeklyArgonText = "Ready"
+				}
 			}
 			if !s.ResetTimeWeekly.IsZero() && s.ResetTimeWeekly.After(now) {
 				curSecWeekly = s.ResetTimeWeekly.Sub(now).Seconds()
@@ -716,6 +796,8 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 			curSecWeeklyArgon = 0
 			res5hArgonText = ""
 			resWeeklyArgonText = ""
+			curResetTime5hArgon = time.Time{}
+			curResetTimeWeeklyArgon = time.Time{}
 		}
 
 		avail5h := ComputeEffective5hAvailable(cur5h, curSec)
@@ -844,11 +926,17 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 			QuotaWeeklyClaudeGPT:        curWeeklyClaude,
 			ResetHorizonText:            resText,
 			ResetSeconds5hArgon:         curSec5hArgon,
+			Reset5hArgonSeconds:         curSec5hArgon,
 			ResetHorizon5hArgonText:     res5hArgonText,
 			ResetSecondsWeekly:          curSecWeekly,
 			ResetHorizonWeeklyText:      resWeeklyText,
 			ResetSecondsWeeklyArgon:     curSecWeeklyArgon,
+			ResetWeeklyArgonSeconds:     curSecWeeklyArgon,
 			ResetHorizonWeeklyArgonText: resWeeklyArgonText,
+			ResetTime5hArgon:            curResetTime5hArgon,
+			Reset5hArgonTime:            curResetTime5hArgon,
+			ResetTimeWeeklyArgon:        curResetTimeWeeklyArgon,
+			ResetWeeklyArgonTime:        curResetTimeWeeklyArgon,
 			ErrorMessage:                errorMessage,
 		})
 	}

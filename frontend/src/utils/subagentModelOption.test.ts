@@ -131,7 +131,8 @@ describe('Subagent Custom Model Options in Switcher Settings', () => {
       assert.ok(sec4bBlock.includes("gap: '12px'"), 'Option grid must use 12px gap (3x 4px)')
       assert.ok(sec4bBlock.includes("padding: '14px'"), 'Option card must use 14px padding')
       assert.ok(sec4bBlock.includes("borderRadius: '8px'"), 'Option card must use 8px border radius (2x 4px)')
-      assert.ok(sec4bBlock.includes("margin: '0 0 16px'"), 'Card description must use 16px bottom margin (4x 4px)')
+      assert.ok(sec4bBlock.includes("marginBottom: '16px'"), 'Header must use 16px bottom margin directly separating from options (4x 4px)')
+      assert.ok(!sec4bBlock.includes('Configure how Gemini subagents use custom models'), 'Section 4b must not contain tutorial microcopy')
 
       // 6. Verify 1px subtle unselected border and 2px primary active border
       assert.ok(sec4bBlock.includes("border: subagentStrategy === 'default_custom_only' ? '2px solid var(--primary)' : '1px solid var(--border)'"))

@@ -28,19 +28,19 @@ import (
 // Preset identifiers. They are stable because persisted overrides are keyed by
 // them.
 const (
-	PresetAntigravity       = "agent-antigravity"
-	PresetAntigravityCLI    = "agent-antigravity-cli"
-	PresetAntigravityVSCode = "agent-antigravity-vscode"
-	// PresetAntigravityACP is this project's own adapter. It speaks ACP over stdio,
-	// so it has no endpoint to probe: presence of the binary is the whole state.
+	// PresetAntigravityACP is the unified Google Antigravity ACP adapter. It speaks
+	// ACP over stdio via ~/.local/bin/antigravity-acp with --surface auto.
 	PresetAntigravityACP = "agent-antigravity-acp"
-	PresetDevin          = "agent-devin"
-	PresetOpenCode       = "agent-opencode"
-	PresetDeepSeek       = "agent-deepseek-harness"
-	PresetPi             = "agent-pi"
-	PresetCodex          = "agent-codex"
-	PresetClaudeCode     = "agent-claude-code"
-	PresetCursor         = "agent-cursor"
+	// PresetAntigravity is retained as a compatibility alias pointing to PresetAntigravityACP.
+	PresetAntigravity = PresetAntigravityACP
+
+	PresetDevin      = "agent-devin"
+	PresetOpenCode   = "agent-opencode"
+	PresetDeepSeek   = "agent-deepseek-harness"
+	PresetPi         = "agent-pi"
+	PresetCodex      = "agent-codex"
+	PresetClaudeCode = "agent-claude-code"
+	PresetCursor     = "agent-cursor"
 )
 
 // Env carries the host-specific inputs used to compute OS defaults. It is a
@@ -110,46 +110,11 @@ type Preset struct {
 func Presets() []Preset {
 	return []Preset{
 		{
-			ID:      PresetAntigravity,
-			Name:    "Google Antigravity 2.0",
-			Type:    "Desktop IDE & Agent Core",
-			Version: "v1.2.0-draft",
-			Tools:   []string{"read_file", "write_file", "terminal", "mcp_proxy", "subagent_invoke"},
-			// Assumption: the desktop IDE exposes its ACP endpoint as a
-			// per-user socket on Linux and a named pipe on Windows.
-			SocketName:        "antigravity-acp.sock",
-			MacAppSupportDir:  "Antigravity",
-			BinaryLinux:       "/opt/Antigravity/antigravity",
-			BinaryDarwin:      "/Applications/Antigravity.app/Contents/MacOS/Antigravity",
-			BinaryWindows:     "%LOCALAPPDATA%/Programs/Antigravity/Antigravity.exe",
-			StatusWhenRunning: "active_hosting",
-		},
-		{
-			ID:                PresetAntigravityCLI,
-			Name:              "Antigravity CLI (agy)",
-			Type:              "Terminal Agent Daemon",
-			Version:           "v1.2.0-draft",
-			Tools:             []string{"terminal", "bash", "file_ops", "headless_prompt", "subagent_mesh"},
-			TCPAddr:           "127.0.0.1:35779",
-			BinaryLinux:       "~/.local/bin/agy",
-			BinaryWindows:     "~/.local/bin/agy.exe",
-			StatusWhenRunning: "connected",
-		},
-		{
-			ID:                PresetAntigravityVSCode,
-			Name:              "Antigravity VS Code Extension",
-			Type:              "VS Code Extension Agent",
-			Version:           "v1.2.0-draft",
-			Tools:             []string{"terminal", "bash", "file_ops", "headless_prompt", "subagent_mesh"},
-			BinaryLinux:       "~/.local/bin/antigravity-acp",
-			BinaryDarwin:      "~/.local/bin/antigravity-acp",
-			BinaryWindows:     "%USERPROFILE%/bin/antigravity-acp.exe",
-			StatusWhenRunning: "connected",
-		},
-		{
 			ID:            PresetAntigravityACP,
 			Name:          "Antigravity ACP Adapter",
-			Type:          "ACP stdio server",
+			Type:          "Desktop IDE & Agent Core (ACP)",
+			Version:       "v1.2.0-draft",
+			Tools:         []string{"read_file", "write_file", "terminal", "mcp_proxy", "subagent_invoke"},
 			BinaryLinux:   "~/.local/bin/antigravity-acp",
 			BinaryDarwin:  "~/.local/bin/antigravity-acp",
 			BinaryWindows: "%USERPROFILE%/bin/antigravity-acp.exe",
@@ -241,6 +206,10 @@ func Presets() []Preset {
 
 // PresetByID returns the preset with the given identifier.
 func PresetByID(id string) (Preset, bool) {
+	id = strings.TrimSpace(id)
+	if id == "agent-antigravity" || id == "antigravity" {
+		id = PresetAntigravityACP
+	}
 	for _, p := range Presets() {
 		if p.ID == id {
 			return p, true
@@ -288,9 +257,6 @@ func (p Preset) DefaultEndpoint(env Env) string {
 // DefaultBinaryPath returns the conventional executable location for the preset
 // on env.GOOS.
 func (p Preset) DefaultBinaryPath(env Env) string {
-	if p.ID == PresetAntigravity && env.AntigravityBinary != "" {
-		return toSlash(env.AntigravityBinary)
-	}
 	raw := p.BinaryLinux
 	switch env.GOOS {
 	case "windows":
@@ -375,6 +341,10 @@ func Merge(overrides []core.ACPAgentConfig, env Env) []Resolved {
 		id := strings.TrimSpace(o.ID)
 		if id == "" {
 			continue
+		}
+		if id == "agent-antigravity" || id == "antigravity" {
+			id = PresetAntigravityACP
+			o.ID = PresetAntigravityACP
 		}
 		byID[id] = o
 	}
@@ -461,20 +431,40 @@ func NormalizeAgentInput(in AgentInput, existingIDs map[string]bool) (core.ACPAg
 	name := strings.TrimSpace(in.Name)
 	endpoint := strings.TrimSpace(in.Endpoint)
 
-	if err := ValidateEndpoint(endpoint); err != nil {
-		return core.ACPAgentConfig{}, false, err
+	id := strings.TrimSpace(in.ID)
+	if id == "agent-antigravity" || id == "antigravity" {
+		id = PresetAntigravityACP
+	}
+	preset, isPreset := PresetByID(id)
+	custom := !isPreset
+
+	if strings.EqualFold(endpoint, "stdio") {
+		endpoint = ""
 	}
 
-	id := strings.TrimSpace(in.ID)
-	_, isPreset := PresetByID(id)
-	custom := !isPreset
-	if custom && name == "" {
-		return core.ACPAgentConfig{}, false, fmt.Errorf("name is required when adding a new agent")
-	}
-	// A known custom id is an edit: keep it. An empty or unknown id creates a
-	// fresh custom agent with a generated identifier.
-	if custom && (id == "" || !existingIDs[id]) {
-		id = GenerateCustomID(name, existingIDs)
+	if custom {
+		if err := ValidateEndpoint(endpoint); err != nil {
+			return core.ACPAgentConfig{}, false, err
+		}
+		if name == "" {
+			return core.ACPAgentConfig{}, false, fmt.Errorf("name is required when adding a new agent")
+		}
+		// A known custom id is an edit: keep it. An empty or unknown id creates a
+		// fresh custom agent with a generated identifier.
+		if id == "" || !existingIDs[id] {
+			id = GenerateCustomID(name, existingIDs)
+		}
+	} else {
+		// Preset: empty endpoint is only allowed if the preset uses stdio (e.g. PresetAntigravityACP)
+		if endpoint == "" {
+			if preset.TCPAddr != "" || preset.SocketName != "" {
+				return core.ACPAgentConfig{}, false, fmt.Errorf("endpoint is required for %s", preset.Name)
+			}
+		} else {
+			if err := ValidateEndpoint(endpoint); err != nil {
+				return core.ACPAgentConfig{}, false, err
+			}
+		}
 	}
 
 	return core.ACPAgentConfig{
@@ -550,13 +540,17 @@ func Slugify(name string) string {
 // bool reports whether an entry was removed.
 func RemoveAgent(overrides []core.ACPAgentConfig, id string) ([]core.ACPAgentConfig, bool) {
 	id = strings.TrimSpace(id)
+	if id == "agent-antigravity" || id == "antigravity" {
+		id = PresetAntigravityACP
+	}
 	if id == "" {
 		return overrides, false
 	}
 	out := make([]core.ACPAgentConfig, 0, len(overrides))
 	removed := false
 	for _, o := range overrides {
-		if strings.TrimSpace(o.ID) == id {
+		oID := strings.TrimSpace(o.ID)
+		if oID == id || (id == PresetAntigravityACP && (oID == "agent-antigravity" || oID == "antigravity")) {
 			removed = true
 			continue
 		}
@@ -567,10 +561,16 @@ func RemoveAgent(overrides []core.ACPAgentConfig, id string) ([]core.ACPAgentCon
 
 // UpsertAgent replaces the stored entry with the same id or appends it.
 func UpsertAgent(overrides []core.ACPAgentConfig, entry core.ACPAgentConfig) []core.ACPAgentConfig {
+	entryID := strings.TrimSpace(entry.ID)
+	if entryID == "agent-antigravity" || entryID == "antigravity" {
+		entry.ID = PresetAntigravityACP
+		entryID = PresetAntigravityACP
+	}
 	out := make([]core.ACPAgentConfig, 0, len(overrides)+1)
 	replaced := false
 	for _, o := range overrides {
-		if strings.TrimSpace(o.ID) == entry.ID {
+		oID := strings.TrimSpace(o.ID)
+		if oID == entryID || (entryID == PresetAntigravityACP && (oID == "agent-antigravity" || oID == "antigravity")) {
 			out = append(out, entry)
 			replaced = true
 			continue

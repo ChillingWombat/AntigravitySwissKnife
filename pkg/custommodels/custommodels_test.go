@@ -1,9 +1,11 @@
 package custommodels
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -1138,6 +1140,19 @@ func TestGenerateCustomModelsScript_BackupModelAutoSelection(t *testing.T) {
 	}
 }
 
+func TestGenerateCustomModelsScript_NativeModelSelectionProtection(t *testing.T) {
+	script := GenerateCustomModelsScript(nil)
+	for _, want := range []string{
+		"window.__swiss_native_model_selected = true",
+		"window.__swiss_native_model_selected = false",
+		"window.__swiss_native_model_selected === true",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("expected script to contain %q for native model selection protection", want)
+		}
+	}
+}
+
 // The Projects panel display-options menu, conversation menus and other host
 // surfaces are also [role="menu"]. The custom-model group may only be attached
 // to the model selector's own popover, otherwise it shows up in those menus.
@@ -1196,4 +1211,134 @@ func indexSubstring(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+func TestGenerateCustomModelsScript_CatalogIsolation(t *testing.T) {
+	// 1. Test that script contains getEffectiveCatalogMode helper
+	script := GenerateCustomModelsScript(nil)
+	if !strings.Contains(script, "function getEffectiveCatalogMode()") {
+		t.Fatalf("expected script to contain function getEffectiveCatalogMode()")
+	}
+	if !strings.Contains(script, `"mode":"profile_isolation"`) {
+		t.Errorf("expected default cfgJSON to contain profile_isolation mode")
+	}
+	if !strings.Contains(script, `"antigravity":{"source":"native","subagents":"app"}`) {
+		t.Errorf("expected default cfgJSON to contain antigravity app source native")
+	}
+
+	// 2. Test profile_isolation with native profile:
+	// - Reverts "Native Model" to "Model"
+	// - Removes custom group
+	// - Ensures native items are visible
+	// - Clears session custom model
+	// - Does not bind custom model label to trigger pill
+	if !strings.Contains(script, `const catalogMode = getEffectiveCatalogMode();`) {
+		t.Errorf("expected updateModelSelector to compute catalogMode")
+	}
+	if !strings.Contains(script, `if (catalogMode === "native_only") {`) {
+		t.Errorf("expected updateModelSelector to handle native_only mode")
+	}
+	if !strings.Contains(script, `existingCustomGroup.remove()`) {
+		t.Errorf("expected native_only mode to remove existingCustomGroup")
+	}
+	if !strings.Contains(script, `clearSessionCustomModel();`) {
+		t.Errorf("expected native_only mode to clear session custom model")
+	}
+
+	// 3. Test profile_isolation with custom profile:
+	// - Hides native model items
+	// - Hides effort groups and context window options
+	// - Sets custom header to "Model"
+	// - Ensures custom model pill is bound
+	if !strings.Contains(script, `if (catalogMode === "custom_only") {`) {
+		t.Errorf("expected updateModelSelector to handle custom_only mode")
+	}
+	if !strings.Contains(script, `!el.matches('[data-testid="model-selector-custom-item"]')`) {
+		t.Errorf("expected custom_only mode to filter out non-custom items")
+	}
+	if !strings.Contains(script, `popover.querySelectorAll('[data-testid="model-selector-effort-group"], [data-testid="model-selector-context-window-option"]').forEach`) {
+		t.Errorf("expected custom_only mode to query and hide native effort groups and context options")
+	}
+	if !strings.Contains(script, `customHeader.textContent = "Model"`) {
+		t.Errorf("expected customHeader textContent to be 'Model' in custom_only mode")
+	}
+
+	// 4. Test api_proxy keeps dual catalog with both "Native Model" and "Custom Model":
+	cfgAPIProxy := &Config{
+		Integration: IntegrationSettings{
+			Mode: IntegrationAPIProxy,
+		},
+	}
+	scriptAPIProxy := GenerateCustomModelsScript(cfgAPIProxy)
+	if !strings.Contains(scriptAPIProxy, `"mode":"api_proxy"`) {
+		t.Errorf("expected scriptAPIProxy cfgJSON to contain mode api_proxy")
+	}
+	if !strings.Contains(scriptAPIProxy, `nativeHeader.textContent = "Native Model"`) {
+		t.Errorf("expected scriptAPIProxy to rename nativeHeader to 'Native Model'")
+	}
+	if !strings.Contains(scriptAPIProxy, `customHeader.textContent = "Custom Model"`) {
+		t.Errorf("expected scriptAPIProxy to set customHeader to 'Custom Model'")
+	}
+}
+
+func TestGenerateCustomModelsScript_CatalogModeEvaluation(t *testing.T) {
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available; skipping node runtime verification")
+	}
+
+	script := GenerateCustomModelsScript(nil)
+	fnStart := strings.Index(script, "function getEffectiveCatalogMode()")
+	if fnStart == -1 {
+		t.Fatalf("getEffectiveCatalogMode not found in script")
+	}
+	fnEnd := strings.Index(script[fnStart:], "function getSwissAuthHeaders")
+	if fnEnd == -1 {
+		t.Fatalf("could not isolate getEffectiveCatalogMode")
+	}
+	helperCode := script[fnStart : fnStart+fnEnd]
+
+	testRunner := fmt.Sprintf(`
+let customConfig = {};
+%s
+const assert = require("assert");
+
+// Case 1: api_proxy mode -> hybrid
+customConfig = { integration: { mode: "api_proxy" } };
+assert.strictEqual(getEffectiveCatalogMode(), "hybrid");
+
+// Case 2: profile_isolation with window.__SWISS_WINDOW_PROFILE__ = "custom" -> custom_only
+customConfig = { integration: { mode: "profile_isolation" } };
+global.window = { __SWISS_WINDOW_PROFILE__: "custom" };
+assert.strictEqual(getEffectiveCatalogMode(), "custom_only");
+
+// Case 3: profile_isolation with window.__SWISS_WINDOW_PROFILE__ = "native" -> native_only
+global.window = { __SWISS_WINDOW_PROFILE__: "native" };
+assert.strictEqual(getEffectiveCatalogMode(), "native_only");
+
+// Case 4: process.env.AGY_LLM_GATEWAY_URL set -> custom_only
+delete global.window;
+process.env.AGY_LLM_GATEWAY_URL = "http://127.0.0.1:8765";
+assert.strictEqual(getEffectiveCatalogMode(), "custom_only");
+delete process.env.AGY_LLM_GATEWAY_URL;
+
+// Case 5: fallback to app source custom -> custom_only
+customConfig = { integration: { mode: "profile_isolation", apps: { antigravity: { source: "custom" } } } };
+assert.strictEqual(getEffectiveCatalogMode(), "custom_only");
+
+// Case 6: fallback to app source native -> native_only
+customConfig = { integration: { mode: "profile_isolation", apps: { antigravity: { source: "native" } } } };
+assert.strictEqual(getEffectiveCatalogMode(), "native_only");
+
+console.log("ALL_CATALOG_MODES_VERIFIED");
+`, helperCode)
+
+	cmd := exec.Command(nodePath, "-e", testRunner)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node verification failed: %v\nOutput: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "ALL_CATALOG_MODES_VERIFIED") {
+		t.Fatalf("unexpected node output: %s", string(out))
+	}
 }

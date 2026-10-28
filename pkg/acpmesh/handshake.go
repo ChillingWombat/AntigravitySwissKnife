@@ -150,12 +150,12 @@ func ProbeAgentHandshake(ctx context.Context, agent Resolved, expandedBin string
 		if bin == "" {
 			bin = lookPath("antigravity-acp")
 		}
-		return probeACPBin(ctx, agent, bin, []string{"--surface", "cli"}, TransportStdioACP)
+		return probeACPBin(ctx, agent, bin, []string{"--surface", "auto"}, TransportStdioACP)
 	case agent.ID == PresetPi:
 		return probePiHandshake(ctx, agent, expandedBin)
 	case strings.TrimSpace(agent.Endpoint) == "":
 		bin := resolveExecutable(expandedBin, agent.BinaryPath)
-		args := []string{"--surface", "cli"}
+		args := []string{"--surface", "auto"}
 		if strings.EqualFold(filepath.Base(bin), "pi-acp") {
 			args = nil
 		}
@@ -482,13 +482,13 @@ func PromptAgent(ctx context.Context, agent Resolved, expandedBin string, prompt
 		if bin == "" {
 			return nil, errors.New("antigravity-acp executable not found")
 		}
-		return promptACP(ctx, agent, bin, []string{"--surface", "cli"}, prompt, workDir)
+		return promptACP(ctx, agent, bin, []string{"--surface", "auto"}, prompt, workDir)
 	case strings.TrimSpace(agent.Endpoint) == "":
 		bin := resolveExecutable(expandedBin, agent.BinaryPath)
 		if bin == "" {
 			return nil, errors.New("agent stdio executable not found")
 		}
-		args := []string{"--surface", "cli"}
+		args := []string{"--surface", "auto"}
 		if strings.EqualFold(filepath.Base(bin), "pi-acp") {
 			args = nil
 		}

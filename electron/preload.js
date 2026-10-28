@@ -11,6 +11,7 @@ const electronAPI = {
   getSessionToken: () => ipcRenderer.invoke('desktop:get-session-token'),
   startDaemon: () => ipcRenderer.invoke('desktop:start-daemon'),
   retryDaemonConnection: () => ipcRenderer.invoke('desktop:retry-daemon-connection'),
+  quitApp: () => ipcRenderer.send('desktop:quit-app'),
   onNavigate: (callback) => {
     if (typeof callback === 'function') {
       const subscription = (_event, toolIndex) => callback(toolIndex);
@@ -29,7 +30,7 @@ const electronAPI = {
 
 if (process.contextIsolated) {
   contextBridge.exposeInMainWorld('electronAPI', electronAPI);
-} else {
+} else if (typeof window !== 'undefined') {
   window.electronAPI = electronAPI;
 }
 

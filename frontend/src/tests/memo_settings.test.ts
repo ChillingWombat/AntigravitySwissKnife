@@ -100,7 +100,7 @@ describe('Quick Memos settings — extraction mode and languages', () => {
     assert.equal(ocr!.value, 'auto')
 
     const text = view.container.textContent || ''
-    assert.ok(text.includes('Extract text per memo from the card buttons.'), 'manual description must render')
+    assert.ok(!text.includes('Extract text per memo from the card buttons.'), 'manual description must be eliminated per anti-UI slop')
   })
 
   it('persists auto_extract: true when Automatic is chosen', async () => {
@@ -115,8 +115,8 @@ describe('Quick Memos settings — extraction mode and languages', () => {
     assert.equal(posts.length, 1)
     assert.equal(posts[0].body.auto_extract, true)
     assert.ok(
-      (view.container.textContent || '').includes('Extract text as soon as a voice or image memo is saved.'),
-      'automatic description must render'
+      !(view.container.textContent || '').includes('Extract text as soon as a voice or image memo is saved.'),
+      'automatic description must be eliminated per anti-UI slop'
     )
   })
 

@@ -223,6 +223,7 @@ table,
 .btn-pill-tonal {
   background-color: var(--tonal);
   color: var(--on-primary-container);
+  border: 1px solid var(--border);
   border-radius: 20px;
   padding: 8px 16px;
   font-size: 13px;
@@ -233,6 +234,23 @@ table,
   white-space: nowrap;
 }
 .btn-pill-tonal:hover {
+  background-color: var(--tonal-hover);
+}
+
+.btn-pill-secondary {
+  background-color: var(--tonal);
+  color: var(--on-primary-container);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.btn-pill-secondary:hover {
   background-color: var(--tonal-hover);
 }
 

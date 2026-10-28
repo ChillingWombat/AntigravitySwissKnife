@@ -42,7 +42,8 @@ describe('Component DOM: QuotaIndicatorGroup (<QuotaIndicatorGroup />)', () => {
     assert.ok(text.includes('5H'), '5H window label must be visible')
     assert.ok(text.includes('7D'), '7D window label must be visible')
     assert.ok(text.includes('Monthly'), 'Monthly window label must be visible')
-    assert.ok(text.includes('70% left') && text.includes('5% left'), 'each window appends "left" when missing')
+    assert.ok(text.includes('70%') && text.includes('5%'), 'each window shows percentage without trailing "left"')
+    assert.ok(!text.includes('left'), 'must not render "left" suffix')
 
     const labels = querySelectorAll('span')
     assert.ok(
@@ -53,7 +54,7 @@ describe('Component DOM: QuotaIndicatorGroup (<QuotaIndicatorGroup />)', () => {
     unmount()
   })
 
-  it('normalizes percentage left text and eliminates duplicate percentage beside the bar', async () => {
+  it('normalizes percentage text without "left" and eliminates duplicate percentage beside the bar', async () => {
     const { querySelectorAll, container, unmount } = await mount(
       React.createElement(QuotaIndicatorGroup, {
         buckets: [
@@ -72,17 +73,17 @@ describe('Component DOM: QuotaIndicatorGroup (<QuotaIndicatorGroup />)', () => {
     const spanTexts = spans.map((s) => s.textContent?.trim())
     assert.deepEqual(spanTexts, [
       '5H',
-      '73% left',
+      '73%',
       '7D',
-      '40% left',
+      '40%',
       '30D',
-      '15% left',
+      '15%',
       'Monthly',
       'Unlimited',
     ])
 
     const text = container.textContent || ''
-    assert.ok(!text.includes('40% left left'), 'must not duplicate "left" suffix')
+    assert.ok(!text.includes('left'), 'must not contain "left" suffix')
 
     unmount()
   })

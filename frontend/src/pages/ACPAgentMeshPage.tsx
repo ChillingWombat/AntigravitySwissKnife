@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Activity,
-  CheckCircle2,
   ArrowRight,
   RefreshCw,
   Plus,
@@ -158,8 +157,6 @@ async function probeAcpAgents(id?: string): Promise<{
  */
 export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => {
   const [isPingingAll, setIsPingingAll] = useState(false)
-  const [acpFeedback, setAcpFeedback] = useState<string | null>(null)
-  const [acpFeedbackIsError, setAcpFeedbackIsError] = useState(false)
   const [agentInstances, setAgentInstances] = useState<AcpAgentInstance[]>([])
   const [handshakeLogs, setHandshakeLogs] = useState<AcpHandshakeLog[]>([])
   const [isLoadingMesh, setIsLoadingMesh] = useState<boolean>(true)
@@ -175,13 +172,8 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
   const [promptTargetId, setPromptTargetId] = useState('agent-pi')
   const [promptInput, setPromptInput] = useState('')
   const [isPrompting, setIsPrompting] = useState(false)
+  const [isSyncingRegistry, setIsSyncingRegistry] = useState(false)
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
-
-  const showFeedback = (message: string, isError = false) => {
-    setAcpFeedback(message)
-    setAcpFeedbackIsError(isError)
-    setTimeout(() => setAcpFeedback(null), 6000)
-  }
 
   const applyMesh = (res: AcpMeshResponse | null) => {
     if (res && res.agents) {
@@ -211,24 +203,26 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
 
   const handlePingAllAcp = async () => {
     setIsPingingAll(true)
-    setAcpFeedback(null)
     try {
       const probe = await probeAcpAgents()
       setAgentInstances(probe.agents)
-      const onlineCount = probe.results.filter((result) => result.reachable).length
-      setAcpFeedbackIsError(onlineCount === 0)
-      setAcpFeedback(
-        `ACP Handshake ping completed. ${onlineCount} active agent daemon${
-          onlineCount === 1 ? '' : 's'
-        } responded successfully.`
-      )
       setHandshakeLogs((prev) => [...probe.logs, ...prev])
     } catch (e: any) {
-      setAcpFeedbackIsError(true)
-      setAcpFeedback(`ACP Ping failed: ${e?.message || 'Network error'}`)
+      console.error('ACP Ping failed:', e)
     } finally {
       setIsPingingAll(false)
-      setTimeout(() => setAcpFeedback(null), 4000)
+    }
+  }
+
+  const handleSyncRegistry = async () => {
+    setIsSyncingRegistry(true)
+    try {
+      const res = await api.syncAcpRegistry()
+      applyMesh(res)
+    } catch (e: any) {
+      console.error('Failed to sync ACP registry:', e)
+    } finally {
+      setIsSyncingRegistry(false)
     }
   }
 
@@ -237,31 +231,20 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
     try {
       const probe = await probeAcpAgents(agent.id)
       setAgentInstances(probe.agents)
-      const updatedAgent = probe.agents.find((candidate) => candidate.id === agent.id) || agent
-      const result = probe.results.find((candidate) => candidate.agent_id === agent.id)
-      const isOnline = result?.reachable ?? acpAgentIsOnline(updatedAgent)
-      setAcpFeedbackIsError(!isOnline)
-      setAcpFeedback(
-        `ACP Handshake ping completed for ${agent.name}: ${isOnline ? 'Active & Healthy' : 'Offline'}`
-      )
       if (probe.logs.length > 0) {
         setHandshakeLogs((prev) => [...probe.logs, ...prev])
       }
     } catch (e: any) {
-      setAcpFeedbackIsError(true)
-      setAcpFeedback(`Ping ${agent.name} failed: ${e?.message || 'Network error'}`)
+      console.error(`Ping ${agent.name} failed:`, e)
     } finally {
       setPingingAgentId(null)
-      setTimeout(() => setAcpFeedback(null), 4000)
     }
   }
-
 
   const handleSendAcpPrompt = async () => {
     const trimmed = promptInput.trim()
     if (!trimmed || isPrompting) return
     setIsPrompting(true)
-    setAcpFeedback(null)
     try {
       const res = await api.promptAcpAgent(promptTargetId, trimmed)
       const targetName = agentInstances.find((a) => a.id === promptTargetId)?.name || promptTargetId
@@ -277,9 +260,19 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
       }
       setHandshakeLogs((prev) => [log, ...prev])
       setPromptInput('')
-      showFeedback(`Received response from ${targetName} (${res?.latency_ms ?? 0} ms).`)
     } catch (e: any) {
-      showFeedback(`Prompt failed: ${e?.message || 'Agent error'}`, true)
+      console.error('Prompt failed:', e)
+      const targetName = agentInstances.find((a) => a.id === promptTargetId)?.name || promptTargetId
+      const log: AcpHandshakeLog = {
+        id: `prompt-err-${Date.now()}-${promptTargetId}`,
+        timestamp: new Date().toLocaleTimeString(),
+        from_agent: 'Antigravity 2.0',
+        to_agent: targetName,
+        action: 'ACP_PROMPT / ERROR',
+        payload_summary: e?.message || 'Agent error',
+        status: 'error',
+      }
+      setHandshakeLogs((prev) => [log, ...prev])
     } finally {
       setIsPrompting(false)
     }
@@ -292,7 +285,12 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
 
   const openEditEditor = (agent: AcpAgentInstance) => {
     setEditorError(null)
-    setEditor({ open: true, mode: 'edit', agent })
+    const isAntigravity = agent.id === 'agent-antigravity-acp' || agent.id === 'agent-antigravity'
+    const agentToEdit =
+      isAntigravity && agent.name === 'Google Antigravity (ACP)'
+        ? { ...agent, name: 'Antigravity ACP Adapter' }
+        : agent
+    setEditor({ open: true, mode: 'edit', agent: agentToEdit })
   }
 
   const handleSaveAgent = async (input: AcpAgentInput) => {
@@ -302,7 +300,6 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
       const res = await api.saveAcpAgent(input)
       applyMesh(res)
       setEditor({ open: false, mode: 'create', agent: null })
-      showFeedback(`${input.id ? 'Saved' : 'Added'} agent ${input.name}.`)
     } catch (e: any) {
       setEditorError(e?.message || 'Failed to save agent')
     } finally {
@@ -315,11 +312,8 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
     try {
       const res = await api.deleteAcpAgent(agent.id)
       applyMesh(res)
-      showFeedback(
-        agent.custom ? `Removed custom agent ${agent.name}.` : `${agent.name} reset to its OS default endpoint.`
-      )
     } catch (e: any) {
-      showFeedback(`Delete failed: ${e?.message || 'Network error'}`, true)
+      console.error('Delete failed:', e)
     } finally {
       setConfirmBusy(false)
       setConfirm({ kind: null, agent: null })
@@ -350,7 +344,6 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
       })
       applyMesh(res)
       setDetect({ agent: null, result: null, loading: false, error: null })
-      showFeedback(`${agent.name} now uses ${candidate.endpoint}.`)
     } catch (e: any) {
       setDetect((prev) => ({ ...prev, loading: false, error: e?.message || 'Failed to save endpoint' }))
     }
@@ -377,97 +370,138 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
     )
   }
 
-  const addAgentButton = (
-    <button
-      id="btnAcpAddAgent"
-      className="btn-pill-primary"
-      onClick={openCreateEditor}
-      style={{ padding: '6px 14px', fontSize: '12px' }}
-    >
-      <Plus size={13} />
-      <span>Add Agent</span>
-    </button>
+  const topActions = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <button
+        id="btnAcpSyncRegistry"
+        type="button"
+        className="btn-pill-tonal"
+        onClick={handleSyncRegistry}
+        disabled={isSyncingRegistry}
+        style={{
+          padding: '6px 14px',
+          fontSize: '12px',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          whiteSpace: 'nowrap',
+          backgroundColor: 'var(--tonal)',
+          border: '1px solid var(--border)',
+          borderRadius: '20px',
+          color: 'var(--text)',
+          cursor: isSyncingRegistry ? 'not-allowed' : 'pointer',
+          opacity: isSyncingRegistry ? 0.7 : 1,
+        }}
+      >
+        <RefreshCw size={13} className={isSyncingRegistry ? 'animate-spin' : ''} />
+        <span>Sync Registry</span>
+      </button>
+      <button
+        id="btnAcpAddAgent"
+        type="button"
+        className="btn-pill-primary"
+        onClick={openCreateEditor}
+        style={{ padding: '6px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+      >
+        <Plus size={13} />
+        <span>Add Agent</span>
+      </button>
+    </div>
   )
+
+  const antigravityAgent = agentInstances.find(
+    (a) => a.id === 'agent-antigravity-acp' || a.id === 'agent-antigravity'
+  )
+  const otherAgents = agentInstances.filter(
+    (a) => a.id !== 'agent-antigravity-acp' && a.id !== 'agent-antigravity'
+  )
+
+  const isAntigravityOnline = acpAgentIsOnline(antigravityAgent)
+  const adapterSubSections = antigravityAgent
+    ? [
+        {
+          id: 'sub-antigravity-core',
+          name: 'Antigravity 2.0',
+          status: isAntigravityOnline ? 'ACTIVE' : null,
+          statusBg: isAntigravityOnline ? '#e6f4ea' : undefined,
+          statusColor: isAntigravityOnline ? '#137333' : undefined,
+          socket: isAntigravityOnline ? 'Pipe connected' : 'stdio (process pipe)',
+          integration: isAntigravityOnline ? 'Host Core Active' : 'Native Runtime Host',
+          handshake: antigravityAgent.last_handshake || (isAntigravityOnline ? 'Synchronized' : 'Offline'),
+        },
+        {
+          id: 'sub-antigravity-cli',
+          name: 'Antigravity CLI',
+          status: isAntigravityOnline
+            ? 'LINKED'
+            : antigravityAgent.status === 'installed_idle'
+              ? 'READY'
+              : 'STANDBY',
+          statusBg: isAntigravityOnline
+            ? '#e8f0fe'
+            : antigravityAgent.status === 'installed_idle'
+              ? '#fef7e0'
+              : '#f1f3f4',
+          statusColor: isAntigravityOnline
+            ? '#1a73e8'
+            : antigravityAgent.status === 'installed_idle'
+              ? '#b06000'
+              : '#5f6368',
+          socket: 'Subprocess stdio',
+          integration: 'CLI protocol bridge',
+          handshake: isAntigravityOnline ? 'Ready' : 'Offline',
+        },
+        {
+          id: 'sub-antigravity-vscode',
+          name: 'Antigravity IDE Extension',
+          status: isAntigravityOnline
+            ? 'REGISTERED'
+            : antigravityAgent.status === 'installed_idle'
+              ? 'READY'
+              : 'STANDBY',
+          statusBg: isAntigravityOnline
+            ? '#e8f0fe'
+            : antigravityAgent.status === 'installed_idle'
+              ? '#fef7e0'
+              : '#f1f3f4',
+          statusColor: isAntigravityOnline
+            ? '#1a73e8'
+            : antigravityAgent.status === 'installed_idle'
+              ? '#b06000'
+              : '#5f6368',
+          socket: 'Extension IPC pipe',
+          integration: 'Sidecar bridge',
+          handshake: isAntigravityOnline ? 'Protocol v1.2' : 'Offline',
+        },
+      ]
+    : []
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', ...style }}>
-      {portalTarget && createPortal(addAgentButton, portalTarget)}
-      <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {acpFeedback && (
-        <div
-          style={{
-            backgroundColor: acpFeedbackIsError ? '#fce8e6' : '#e6f4ea',
-            color: acpFeedbackIsError ? '#c5221f' : '#137333',
-            border: `1px solid ${acpFeedbackIsError ? 'var(--border-danger, #f5c6c2)' : 'var(--border-success)'}`,
-            borderRadius: '8px',
-            padding: '10px 16px',
-            fontSize: '13px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <CheckCircle2 size={16} />
-          {acpFeedback}
-        </div>
-      )}
-
-      {!portalTarget && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          {addAgentButton}
-        </div>
-      )}
-
-      {/* Agent Nodes Grid */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: '16px',
-        }}
-      >
-        {isLoadingMesh ? (
-          <div
-            style={{
-              gridColumn: '1 / -1',
-              backgroundColor: '#ffffff',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              padding: '32px',
-              textAlign: 'center',
-              color: 'var(--text-muted)',
-              fontSize: '13px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-            }}
-          >
-            <RefreshCw size={15} className="animate-spin" />
-            <span>Scanning local ACP Agent Mesh nodes...</span>
+      {portalTarget && createPortal(topActions, portalTarget)}
+      {/* Section 1: Antigravity ACP Host Adapter */}
+      {antigravityAgent && (
+        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: 'var(--text-muted)',
+                letterSpacing: '0.8px',
+                textTransform: 'uppercase',
+              }}
+            >
+              Antigravity ACP Host Adapter
+            </div>
           </div>
-        ) : agentInstances.length === 0 ? (
-          <div
-            style={{
-              gridColumn: '1 / -1',
-              backgroundColor: '#ffffff',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              padding: '32px',
-              textAlign: 'center',
-              color: 'var(--text-muted)',
-              fontSize: '13px',
-            }}
-          >
-            No active agent daemons or ACP nodes discovered on this system.
-          </div>
-        ) : (
-          agentInstances.map((agent) => {
-            const statusPres = getAcpStatusPresentation(agent.status)
+
+          {(() => {
+            const statusPres = getAcpStatusPresentation(antigravityAgent.status)
             return (
               <div
-                key={agent.id}
-                data-acp-agent-id={agent.id}
+                key={antigravityAgent.id}
+                data-acp-agent-id={antigravityAgent.id}
                 style={{
                   backgroundColor: '#ffffff',
                   border: `${ACP_CARD_LAYOUT_TOKENS.cardBorderWidth} solid var(--border)`,
@@ -476,8 +510,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                   boxShadow: ACP_CARD_LAYOUT_TOKENS.cardShadow,
                   display: 'flex',
                   flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  gap: '8px',
+                  gap: '12px',
                 }}
               >
                 <div>
@@ -486,67 +519,58 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
-                      alignItems: 'flex-start',
+                      alignItems: 'center',
                       marginBottom: ACP_CARD_LAYOUT_TOKENS.headerMarginBottom,
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                      {renderAgentAvatar(agent.id)}
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <h4
-                            style={{
-                              fontSize: '14px',
-                              fontWeight: 700,
-                              margin: '0 0 2px 0',
-                              color: 'var(--text)',
-                              whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
-                            }}
-                          >
-                            {agent.name}
-                          </h4>
-                          {agent.custom && (
-                            <span
-                              style={{
-                                fontSize: '10px',
-                                fontWeight: 700,
-                                textTransform: 'uppercase',
-                                padding: '1px 5px',
-                                borderRadius: '4px',
-                                backgroundColor: '#e8f0fe',
-                                color: '#1967d2',
-                              }}
-                            >
-                              Custom
-                            </span>
-                          )}
-                        </div>
-                        <span
+                      {renderAgentAvatar(antigravityAgent.id)}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <h4
                           style={{
-                            fontSize: '11px',
-                            color: 'var(--text-muted)',
+                            fontSize: '14px',
+                            fontWeight: 700,
+                            margin: 0,
+                            color: 'var(--text)',
                             whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
                           }}
                         >
-                          {agent.type} • PID {agent.pid || 'N/A'}
-                        </span>
+                          Antigravity ACP Adapter
+                        </h4>
+                        {antigravityAgent.custom && (
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              backgroundColor: '#e8f0fe',
+                              color: '#1967d2',
+                            }}
+                          >
+                            Custom
+                          </span>
+                        )}
                       </div>
                     </div>
 
-                    <span
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        backgroundColor: statusPres.bg,
-                        color: statusPres.color,
-                        textTransform: 'uppercase',
-                        whiteSpace: statusPres.whiteSpace,
-                      }}
-                    >
-                      {statusPres.label}
-                    </span>
+                    {statusPres.label && statusPres.label !== 'INSTALLED' && (
+                      <span
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          backgroundColor: statusPres.bg,
+                          color: statusPres.color,
+                          textTransform: 'uppercase',
+                          whiteSpace: statusPres.whiteSpace,
+                        }}
+                      >
+                        {statusPres.label}
+                      </span>
+                    )}
                   </div>
 
                   {/* Card Body Metadata */}
@@ -573,12 +597,12 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                             textAlign: 'right',
                           }}
                         >
-                          {agent.port_socket}
+                          {antigravityAgent.port_socket || (antigravityAgent.transport === 'stdio' ? 'stdio (process pipe)' : 'stdio (process pipe)')}
                         </span>
                         <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                          {agent.custom
+                          {antigravityAgent.custom
                             ? 'Custom agent'
-                            : agent.os_default
+                            : antigravityAgent.os_default
                               ? 'OS default'
                               : 'Custom endpoint'}
                         </span>
@@ -595,7 +619,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                           whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
                         }}
                       >
-                        {agent.acp_version}
+                        {antigravityAgent.acp_version}
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -606,13 +630,13 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                         style={{
                           fontWeight: 600,
                           color:
-                            (agent.ping_latency_ms ?? 0) > 0 && (agent.ping_latency_ms ?? 0) < 3
+                            (antigravityAgent.ping_latency_ms ?? 0) > 0 && (antigravityAgent.ping_latency_ms ?? 0) < 3
                               ? '#137333'
                               : '#b06000',
                           whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
                         }}
                       >
-                        {(agent.ping_latency_ms ?? 0) > 0 ? `${agent.ping_latency_ms} ms` : 'Unreachable'}
+                        {(antigravityAgent.ping_latency_ms ?? 0) > 0 ? `${antigravityAgent.ping_latency_ms} ms` : 'Unreachable'}
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -620,7 +644,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                         Last Handshake:
                       </span>
                       <span style={{ color: 'var(--text)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
-                        {agent.last_handshake}
+                        {antigravityAgent.last_handshake}
                       </span>
                     </div>
                   </div>
@@ -637,11 +661,11 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                         whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
                       }}
                     >
-                      Negotiated Tools Sharing ({agent.supported_tools.length})
+                      Negotiated Tools Sharing ({antigravityAgent.supported_tools.length})
                     </span>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: ACP_CARD_LAYOUT_TOKENS.tagGap }}>
-                      {agent.supported_tools.length > 0 ? (
-                        agent.supported_tools.map((t) => (
+                      {antigravityAgent.supported_tools.length > 0 ? (
+                        antigravityAgent.supported_tools.map((t) => (
                           <span
                             key={t}
                             style={{
@@ -671,13 +695,101 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                       )}
                     </div>
                   </div>
+
+                  {/* 1x3 Sub-sections */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                      gap: '12px',
+                      marginTop: '10px',
+                    }}
+                  >
+                    {adapterSubSections.map((sub) => (
+                      <div
+                        key={sub.id}
+                        style={{
+                          backgroundColor: 'var(--canvas, #f8f9fa)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '6px',
+                          padding: '10px 12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                          minWidth: 0,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '6px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                            <span
+                              style={{
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                color: 'var(--text)',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              {sub.name}
+                            </span>
+                          </div>
+                          {sub.status && sub.status !== 'INSTALLED' && (
+                            <span
+                              style={{
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                backgroundColor: sub.statusBg,
+                                color: sub.statusColor,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {sub.status}
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px' }}>
+                            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Socket / Pipe:</span>
+                            <span style={{ fontFamily: 'monospace', color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                              {sub.socket}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px' }}>
+                            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Integration:</span>
+                            <span style={{ color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                              {sub.integration}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px' }}>
+                            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Handshake:</span>
+                            <span style={{ color: 'var(--text)', whiteSpace: 'nowrap' }}>
+                              {sub.handshake}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Card Actions */}
                 <div
                   style={{
                     display: 'flex',
-                    justifyContent: 'flex-end',
+                    justifyContent: 'flex-start',
+                    alignItems: 'center',
                     flexWrap: 'wrap',
                     gap: '6px',
                     borderTop: '1px solid var(--border)',
@@ -687,53 +799,382 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                 >
                   <button
                     className="btn-pill-tonal"
-                    onClick={() => handlePingSingleAgent(agent)}
-                    disabled={pingingAgentId === agent.id}
-                    style={{ ...CARD_ACTION_STYLE, cursor: pingingAgentId === agent.id ? 'not-allowed' : 'pointer' }}
+                    onClick={() => handlePingSingleAgent(antigravityAgent)}
+                    disabled={pingingAgentId === antigravityAgent.id}
+                    style={{ ...CARD_ACTION_STYLE, cursor: pingingAgentId === antigravityAgent.id ? 'not-allowed' : 'pointer' }}
+                    aria-label={`Ping ${antigravityAgent.name}`}
                   >
                     <Activity
                       size={12}
-                      className={pingingAgentId === agent.id ? 'animate-spin' : ''}
+                      className={pingingAgentId === antigravityAgent.id ? 'animate-spin' : ''}
                     />
                     <span style={{ whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
-                      Ping {agent.name}
+                      Ping
                     </span>
                   </button>
                   <button
                     className="btn-pill-tonal"
-                    onClick={() => openDetect(agent)}
+                    onClick={() => openDetect(antigravityAgent)}
                     style={{ ...CARD_ACTION_STYLE, cursor: 'pointer' }}
-                    aria-label={`Auto-detect endpoint for ${agent.name}`}
+                    aria-label={`Auto-detect endpoint for ${antigravityAgent.name}`}
                   >
                     <Search size={12} />
                     <span>Auto-detect</span>
                   </button>
                   <button
                     className="btn-pill-tonal"
-                    onClick={() => openEditEditor(agent)}
+                    onClick={() => openEditEditor(antigravityAgent)}
                     style={{ ...CARD_ACTION_STYLE, cursor: 'pointer' }}
-                    aria-label={`Edit ${agent.name}`}
+                    aria-label={`Edit ${antigravityAgent.name}`}
                   >
                     <Pencil size={12} />
                     <span>Edit</span>
                   </button>
-                  {(agent.custom || agent.os_default === false) && (
+                  {(antigravityAgent.custom || antigravityAgent.os_default === false) && (
                     <button
                       className="btn-pill-tonal"
-                      onClick={() => setConfirm({ kind: 'delete', agent })}
+                      onClick={() => setConfirm({ kind: 'delete', agent: antigravityAgent })}
                       style={{ ...CARD_ACTION_STYLE, cursor: 'pointer', color: '#c5221f' }}
-                      aria-label={`${agent.custom ? 'Delete' : 'Reset'} ${agent.name}`}
+                      aria-label={`${antigravityAgent.custom ? 'Delete' : 'Reset'} ${antigravityAgent.name}`}
                     >
                       <Trash2 size={12} />
-                      <span>{agent.custom ? 'Delete' : 'Reset'}</span>
+                      <span>{antigravityAgent.custom ? 'Delete' : 'Reset'}</span>
                     </button>
                   )}
                 </div>
               </div>
             )
-          })
-        )}
-      </div>
+          })()}
+        </div>
+      )}
+
+      {/* Section 2: Connected Agent Nodes */}
+      <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+          <div
+            style={{
+              fontSize: '11px',
+              fontWeight: 700,
+              color: 'var(--text-muted)',
+              letterSpacing: '0.8px',
+              textTransform: 'uppercase',
+            }}
+          >
+            Connected Agent Nodes
+          </div>
+          {!portalTarget && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              {topActions}
+            </div>
+          )}
+        </div>
+
+        {isLoadingMesh ? (
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              padding: '32px',
+              textAlign: 'center',
+              color: 'var(--text-muted)',
+              fontSize: '13px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+            }}
+          >
+            <RefreshCw size={15} className="animate-spin" />
+            <span>Scanning local ACP Agent Mesh nodes...</span>
+          </div>
+        ) : otherAgents.length === 0 ? (
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              padding: '32px',
+              textAlign: 'center',
+              color: 'var(--text-muted)',
+              fontSize: '13px',
+            }}
+          >
+            {!antigravityAgent && otherAgents.length === 0
+              ? 'No active agent daemons or ACP nodes discovered on this system.'
+              : 'No connected agent nodes discovered on this system.'}
+          </div>
+        ) : (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+              gap: '16px',
+            }}
+          >
+            {otherAgents.map((agent) => {
+                const statusPres = getAcpStatusPresentation(agent.status)
+                return (
+                  <div
+                    key={agent.id}
+                    data-acp-agent-id={agent.id}
+                    style={{
+                      backgroundColor: '#ffffff',
+                      border: `${ACP_CARD_LAYOUT_TOKENS.cardBorderWidth} solid var(--border)`,
+                      borderRadius: ACP_CARD_LAYOUT_TOKENS.cardBorderRadius,
+                      padding: ACP_CARD_LAYOUT_TOKENS.cardPadding,
+                      boxShadow: ACP_CARD_LAYOUT_TOKENS.cardShadow,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                    }}
+                  >
+                    <div>
+                      {/* Card Header with Official Brand Avatar & Status */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: ACP_CARD_LAYOUT_TOKENS.headerMarginBottom,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                          {renderAgentAvatar(agent.id)}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <h4
+                              style={{
+                                fontSize: '14px',
+                                fontWeight: 700,
+                                margin: 0,
+                                color: 'var(--text)',
+                                whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                              }}
+                            >
+                              {agent.name}
+                            </h4>
+                            {agent.custom && (
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  backgroundColor: '#e8f0fe',
+                                  color: '#1967d2',
+                                }}
+                              >
+                                Custom
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <span
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            backgroundColor: statusPres.bg,
+                            color: statusPres.color,
+                            textTransform: 'uppercase',
+                            whiteSpace: statusPres.whiteSpace,
+                          }}
+                        >
+                          {statusPres.label}
+                        </span>
+                      </div>
+
+                      {/* Card Body Metadata */}
+                      <div
+                        style={{
+                          fontSize: '12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: ACP_CARD_LAYOUT_TOKENS.bodyGap,
+                          marginBottom: '8px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                            Socket / Endpoint:
+                          </span>
+                          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0 }}>
+                            <span
+                              style={{
+                                fontFamily: 'monospace',
+                                fontSize: '11px',
+                                color: 'var(--text)',
+                                wordBreak: 'break-all',
+                                textAlign: 'right',
+                              }}
+                            >
+                              {agent.port_socket || (agent.transport === 'stdio' ? 'stdio (process pipe)' : 'stdio')}
+                            </span>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                              {agent.custom
+                                ? 'Custom agent'
+                                : agent.os_default
+                                  ? 'OS default'
+                                  : 'Custom endpoint'}
+                            </span>
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                            Protocol Version:
+                          </span>
+                          <span
+                            style={{
+                              fontWeight: 600,
+                              color: 'var(--text)',
+                              whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                            }}
+                          >
+                            {agent.acp_version}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                            Ping Latency:
+                          </span>
+                          <span
+                            style={{
+                              fontWeight: 600,
+                              color:
+                                (agent.ping_latency_ms ?? 0) > 0 && (agent.ping_latency_ms ?? 0) < 3
+                                  ? '#137333'
+                                  : '#b06000',
+                              whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                            }}
+                          >
+                            {(agent.ping_latency_ms ?? 0) > 0 ? `${agent.ping_latency_ms} ms` : 'Unreachable'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                            Last Handshake:
+                          </span>
+                          <span style={{ color: 'var(--text)', whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                            {agent.last_handshake}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Shared Tools Tag List */}
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            color: 'var(--text-muted)',
+                            display: 'block',
+                            marginBottom: '4px',
+                            whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                          }}
+                        >
+                          Negotiated Tools Sharing ({agent.supported_tools.length})
+                        </span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: ACP_CARD_LAYOUT_TOKENS.tagGap }}>
+                          {agent.supported_tools.length > 0 ? (
+                            agent.supported_tools.map((t) => (
+                              <span
+                                key={t}
+                                style={{
+                                  backgroundColor: '#f1f3f4',
+                                  borderRadius: '4px',
+                                  padding: '1px 6px',
+                                  fontSize: '11px',
+                                  fontFamily: 'monospace',
+                                  color: '#3c4043',
+                                  whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                                }}
+                              >
+                                {t}
+                              </span>
+                            ))
+                          ) : (
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                color: 'var(--text-muted)',
+                                fontStyle: 'italic',
+                                whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
+                              }}
+                            >
+                              No tools shared
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Actions */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'flex-start',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '6px',
+                        borderTop: '1px solid var(--border)',
+                        paddingTop: '8px',
+                        marginTop: '4px',
+                      }}
+                    >
+                      <button
+                        className="btn-pill-tonal"
+                        onClick={() => handlePingSingleAgent(agent)}
+                        disabled={pingingAgentId === agent.id}
+                        style={{ ...CARD_ACTION_STYLE, cursor: pingingAgentId === agent.id ? 'not-allowed' : 'pointer' }}
+                        aria-label={`Ping ${agent.name}`}
+                      >
+                        <Activity
+                          size={12}
+                          className={pingingAgentId === agent.id ? 'animate-spin' : ''}
+                        />
+                        <span style={{ whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace }}>
+                          Ping
+                        </span>
+                      </button>
+                      <button
+                        className="btn-pill-tonal"
+                        onClick={() => openDetect(agent)}
+                        style={{ ...CARD_ACTION_STYLE, cursor: 'pointer' }}
+                        aria-label={`Auto-detect endpoint for ${agent.name}`}
+                      >
+                        <Search size={12} />
+                        <span>Auto-detect</span>
+                      </button>
+                      <button
+                        className="btn-pill-tonal"
+                        onClick={() => openEditEditor(agent)}
+                        style={{ ...CARD_ACTION_STYLE, cursor: 'pointer' }}
+                        aria-label={`Edit ${agent.name}`}
+                      >
+                        <Pencil size={12} />
+                        <span>Edit</span>
+                      </button>
+                      {(agent.custom || agent.os_default === false) && (
+                        <button
+                          className="btn-pill-tonal"
+                          onClick={() => setConfirm({ kind: 'delete', agent })}
+                          style={{ ...CARD_ACTION_STYLE, cursor: 'pointer', color: '#c5221f' }}
+                          aria-label={`${agent.custom ? 'Delete' : 'Reset'} ${agent.name}`}
+                        >
+                          <Trash2 size={12} />
+                          <span>{agent.custom ? 'Delete' : 'Reset'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
       </div>
 
       {/* Live Handshake Logs */}
@@ -795,11 +1236,18 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
             onChange={(e) => setPromptTargetId(e.target.value)}
             style={{ fontSize: '12px', padding: '6px 10px', borderRadius: '6px', minWidth: '180px' }}
           >
-            {agentInstances.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
+            {agentInstances.map((a) => {
+              const isAntigravity = a.id === 'agent-antigravity-acp' || a.id === 'agent-antigravity'
+              const displayName =
+                isAntigravity && (a.name === 'Google Antigravity (ACP)' || a.name === 'Google Antigravity 2.0')
+                  ? 'Antigravity ACP Adapter'
+                  : a.name
+              return (
+                <option key={a.id} value={a.id}>
+                  {displayName}
+                </option>
+              )
+            })}
           </select>
           <input
             type="text"
