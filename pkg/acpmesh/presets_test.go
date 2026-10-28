@@ -116,6 +116,7 @@ func TestDefaultBinaryPathPerOS(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("USERPROFILE", "")
 			preset, _ := PresetByID(tc.presetID)
 			if got := preset.DefaultBinaryPath(testEnv(tc.goos)); got != tc.want {
 				t.Fatalf("DefaultBinaryPath(%s) = %q, want %q", tc.goos, got, tc.want)

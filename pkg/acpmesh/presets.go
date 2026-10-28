@@ -291,9 +291,9 @@ func expandPath(raw string, env Env) string {
 		}
 		return path.Join(base, strings.TrimPrefix(raw, "%LOCALAPPDATA%/"))
 	case strings.HasPrefix(raw, "%USERPROFILE%/"):
-		base := strings.TrimSpace(env.Home)
+		base := strings.TrimSpace(os.Getenv("USERPROFILE"))
 		if base == "" {
-			base = strings.TrimSpace(os.Getenv("USERPROFILE"))
+			base = env.Home
 		}
 		base = toSlash(base)
 		if base == "" {
