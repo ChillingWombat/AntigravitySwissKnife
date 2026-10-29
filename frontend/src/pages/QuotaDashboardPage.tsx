@@ -862,13 +862,28 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 <CircularGauge percentage={gaugeWeeklyGemini} title="Gemini 7D" size={68} strokeWidth={8} />
               </div>
 
-              <div style={{ height: '1px', backgroundColor: 'var(--border)', width: '100%' }} />
-
-              <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
-                <CircularGauge percentage={gaugeWeeklyArgon} title="Argon 7D" size={68} strokeWidth={8} />
-              </div>
-
-              <div style={{ height: '1px', backgroundColor: 'var(--border)', width: '100%' }} />
+              {(hasArgon5h || hasArgon7d) && (
+                <>
+                  <div style={{ height: '1px', backgroundColor: 'var(--border)', width: '100%' }} />
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      flexWrap: 'nowrap',
+                      justifyContent: 'space-around',
+                      alignItems: 'center',
+                      gap: '12px',
+                    }}
+                  >
+                    {hasArgon5h && (
+                      <CircularGauge percentage={gauge5hArgon} title="Argon 5H" size={68} strokeWidth={8} />
+                    )}
+                    {hasArgon7d && (
+                      <CircularGauge percentage={gaugeWeeklyArgon} title="Argon 7D" size={68} strokeWidth={8} />
+                    )}
+                  </div>
+                </>
+              )}
 
               <div
                 style={{
@@ -884,25 +899,6 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 <CircularGauge percentage={gaugeWeeklyClaude} title="Non-Gemini 7D" size={72} strokeWidth={8} />
               </div>
             </div>
-          ) : hasArgon5h ? (
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'row',
-                flexWrap: 'nowrap',
-                alignItems: 'center',
-                justifyContent: 'space-around',
-                gap: '12px',
-              }}
-            >
-              <CircularGauge percentage={gauge5h} title="Gemini 5H" size={72} strokeWidth={8} />
-              <CircularGauge percentage={gaugeWeekly} title="Gemini 7D" size={72} strokeWidth={8} />
-              {hasArgon5h && (
-                <CircularGauge percentage={gauge5hArgon} title="Argon 5H" size={72} strokeWidth={8} />
-              )}
-              <CircularGauge percentage={gaugeWeeklyArgon} title="Argon 7D" size={72} strokeWidth={8} />
-            </div>
           ) : (
             <div
               style={{
@@ -915,9 +911,14 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                 gap: '12px',
               }}
             >
-              <CircularGauge percentage={gauge5h} title="Gemini 5H" size={78} strokeWidth={8} />
-              <CircularGauge percentage={gaugeWeekly} title="Gemini 7D" size={78} strokeWidth={8} />
-              <CircularGauge percentage={gaugeWeeklyArgon} title="Argon 7D" size={78} strokeWidth={8} />
+              <CircularGauge percentage={gauge5h} title="Gemini 5H" size={hasArgon5h && hasArgon7d ? 72 : 78} strokeWidth={8} />
+              <CircularGauge percentage={gaugeWeekly} title="Gemini 7D" size={hasArgon5h && hasArgon7d ? 72 : 78} strokeWidth={8} />
+              {hasArgon5h && (
+                <CircularGauge percentage={gauge5hArgon} title="Argon 5H" size={hasArgon5h && hasArgon7d ? 72 : 78} strokeWidth={8} />
+              )}
+              {hasArgon7d && (
+                <CircularGauge percentage={gaugeWeeklyArgon} title="Argon 7D" size={hasArgon5h && hasArgon7d ? 72 : 78} strokeWidth={8} />
+              )}
             </div>
           )}
         </div>
