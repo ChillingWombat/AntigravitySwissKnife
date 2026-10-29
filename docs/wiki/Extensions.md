@@ -16,7 +16,7 @@ The Extensions page provides a top header segmented switcher with two primary vi
 
 ## 1. Built-in Extension Gadgets
 
-Antigravity Swiss Knife includes five integrated extension gadgets:
+Antigravity Swiss Knife includes four integrated extension gadgets:
 
 ### Built-in Browser Enhancements
 Enhances Antigravity's native built-in browser with developer tools and visual annotation capabilities:
