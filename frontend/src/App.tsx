@@ -20,7 +20,7 @@ import { toAccountState } from './types'
 import { api, setSessionToken, getSessionToken, runSingleFlightPoll, shouldRunBackgroundPoll } from './api'
 
 export const App: React.FC = () => {
-  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: Agent Communication
+  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: ACP Adapter
   const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: FP, 2: Rules
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Auxiliary Panel
@@ -130,6 +130,9 @@ export const App: React.FC = () => {
             remote: 10,
             acpmesh: 11,
             'acp-mesh': 11,
+            'acp-adapter': 11,
+            acpadapter: 11,
+            adapter: 11,
             'agent-communication': 11,
             agentcommunication: 11,
             communication: 11,
@@ -256,7 +259,7 @@ export const App: React.FC = () => {
               )}
               {currentTool === 11 && (
                 <span style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                  Agent Communication
+                  ACP Adapter
                 </span>
               )}
               {currentTool === 4 && (

@@ -1,5 +1,5 @@
 // Package acpmesh resolves the ACP agent registry shown on the Utilities >
-// Agent Communication page.
+// ACP Adapter page.
 //
 // The package combines three inputs:
 //
