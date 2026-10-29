@@ -23,7 +23,7 @@ This roadmap outlines completed development milestones, ongoing stabilization ef
 
 ## 3. Planned Future Feature: Gemini Bridge (Utilities First Tab)
 
-**Gemini Bridge** will be added as the first tab in the **Utilities** section (`Utilities` $\rightarrow$ `Gemini Bridge`, ahead of Storage Manager, ACP Agent Mesh, and Chat & Project Importer). It establishes a two-way communication and control link between **Gemini App / Web (Gemini Spark)** and all local **Antigravity surfaces**:
+**Gemini Bridge** will be added as the first tab in the **Utilities** section (`Utilities` $\rightarrow$ `Gemini Bridge`, ahead of Storage Manager, Agent Communication, and Chat & Project Importer). It establishes a two-way communication and control link between **Gemini App / Web (Gemini Spark)** and all local **Antigravity surfaces**:
 - **Antigravity 2.0 Desktop App** (via Chrome DevTools Protocol injection and local `~/.gemini/antigravity/brain/` state inspection)
 - **Antigravity CLI (`agy`)**
 - **Antigravity VS Code Extension**
