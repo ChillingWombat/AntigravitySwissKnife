@@ -16,6 +16,7 @@ Canonical terminology for Antigravity Swiss Knife (`cmd/swiss`, `pkg/...`, `anti
 ## Protocols & Bridges
 
 - **ACP Adapter (`antigravity-acp`)**: Standalone stdio JSON-RPC 2.0 server (`antigravity-acp/cmd/antigravity-acp`) implementing the Agent Client Protocol over either the Antigravity Language Server (`ls` Connect RPC surface) or the `agy` CLI (`cli` stream-json surface).
-- **Agent Communication (`pkg/acpmesh`)**: Registry and protocol probe client that resolves built-in presets (`Google Antigravity 2.0`, `Antigravity ACP Adapter`, `Pi`, `Codex`, `Claude Code`, `OpenCode`, `Devin`, `Cursor`) and user overrides, executing live ACP `initialize` and Pi RPC `get_state` handshakes and prompt dispatch.
+- **ACP Adapter Registry (`pkg/acpmesh`)**:
+  (formerly Agent Communication / ACP Agent Mesh) Registry and protocol probe client Registry and protocol probe client that resolves built-in presets (`Google Antigravity 2.0`, `Antigravity ACP Adapter`, `Pi`, `Codex`, `Claude Code`, `OpenCode`, `Devin`, `Cursor`) and user overrides, executing live ACP `initialize` and Pi RPC `get_state` handshakes and prompt dispatch.
 - **Custom Model Gateway (`pkg/custommodels/gateway.go`)**: Loopback translation proxy that exposes OpenAI, Anthropic, Gemini API, and Vertex AI GCP models to Antigravity as Gemini-compatible streaming endpoints while enforcing SSRF IP-pinning validation.
 - **Remote & Channel Bridges (`pkg/bridge`)**: Authenticated tunnel and messaging relays (Remote Web Console, Gemini Bridge OAuth 2.0 / MCP, WhatsApp, Telegram, Discord Gateway v10) connecting external clients to local Antigravity sessions.

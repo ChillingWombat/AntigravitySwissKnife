@@ -11,7 +11,7 @@ import {
   getAcpStatusPresentation,
 } from './acpPresentation.ts'
 
-describe('Agent Communication & Official Brand SVG Icons (Requirement 3.1)', () => {
+describe('ACP Adapter & Official Brand SVG Icons (Requirement 3.1)', () => {
   const rootSrcDir = path.resolve(import.meta.dirname, '..')
   const acpPagePath = path.join(rootSrcDir, 'pages', 'ACPAgentMeshPage.tsx')
   const appPath = path.join(rootSrcDir, 'App.tsx')

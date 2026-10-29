@@ -1,4 +1,4 @@
-# Agent Communication Expansion
+# ACP Adapter Expansion
 
 The Agent Client Protocol (ACP) provides a standardized, local-first communication layer enabling AI coding agents to discover each other, negotiate capabilities, and delegate execution tasks on the developer's workstation.
 

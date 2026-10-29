@@ -159,7 +159,7 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
       'Custom Models',
       'Token Monitor',
       'Remote Connect',
-      'Agent Communication',
+      'ACP Adapter',
       'Extensions',
       'UI Enhancements',
       'Utilities',
@@ -171,7 +171,7 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
     assert.equal(querySelector('#btnNavArchivedProjects'), null)
 
     const acpButton = querySelector<HTMLButtonElement>('#btnNavACPAgentMesh')
-    assert.ok(acpButton, 'Agent Communication button must exist')
+    assert.ok(acpButton, 'ACP Adapter button must exist')
     await click(acpButton)
     assert.equal(selectedTools[selectedTools.length - 1], 11)
 

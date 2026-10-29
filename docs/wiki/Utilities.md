@@ -2,7 +2,7 @@
 
 [Features](Features.md) / Utilities
 
-The Utilities subsystem bundles maintenance and interoperability tools into three specialized tabs: Storage Manager, Agent Communication, and Chat & Project Importer.
+The Utilities subsystem bundles maintenance and interoperability tools into three specialized tabs: Storage Manager, ACP Adapter, and Chat & Project Importer.
 
 ---
 
@@ -12,7 +12,7 @@ Provides direct embedded access to the [Brain Cache Manager](Brain-Cache-Manager
 
 ---
 
-## 2. Agent Communication Inspector
+## 2. ACP Adapter Inspector
 
 The Agent Client Protocol (ACP) inspector provides observability into local agent runtimes communicating across the workstation:
 - **Registered Agent Directory**: Monitors active connections to 9 standard local agent nodes: Antigravity Desktop, Antigravity CLI (`agy`), Claude Code, Cursor, OpenCode, Codex, Devin, Pi, and DeepSeek Harness.

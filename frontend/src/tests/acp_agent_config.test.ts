@@ -142,7 +142,7 @@ describe('ACP agent registry API client', () => {
   })
 })
 
-describe('Agent Communication page configurability', () => {
+describe('ACP Adapter page configurability', () => {
   const originalFetch = globalThis.fetch
 
   afterEach(() => {
