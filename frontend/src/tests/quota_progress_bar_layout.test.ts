@@ -67,3 +67,21 @@ describe('QuotaDashboardPage model progress bar layout — 2x1 vertical stack', 
     )
   })
 })
+
+describe('QuotaDashboardPage Argon quota ring conditional rendering', () => {
+  const pageSrc = fs.readFileSync(
+    path.resolve(import.meta.dirname, '..', 'pages', 'QuotaDashboardPage.tsx'),
+    'utf8',
+  )
+
+  it('omits Argon progress rings when no Argon quota exists', () => {
+    assert.ok(
+      pageSrc.includes('{hasArgon7d && (\n                <CircularGauge percentage={gaugeWeeklyArgon} title="Argon 7D"'),
+      'Argon 7D ring in standard overview must be conditionally rendered with hasArgon7d',
+    )
+    assert.ok(
+      pageSrc.includes('{(hasArgon5h || hasArgon7d) && ('),
+      'Argon row in multi-model overview must be conditionally rendered when hasArgon5h or hasArgon7d is true',
+    )
+  })
+})
