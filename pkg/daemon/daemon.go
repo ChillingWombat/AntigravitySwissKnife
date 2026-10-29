@@ -117,17 +117,17 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Daemon{
-		Config:          cfg,
-		Keyring:         keyringStore,
-		Profiles:        fpStore,
-		GUIStore:        guiStore,
-		Shield:          shield,
-		Revival:         revEngine,
-		Inspector:       inspector,
-		Pruner:          pruner,
-		TOTP:            totpEngine,
-		Vault:           vault.NewManager("", ""),
-		Server:          server,
+		Config:    cfg,
+		Keyring:   keyringStore,
+		Profiles:  fpStore,
+		GUIStore:  guiStore,
+		Shield:    shield,
+		Revival:   revEngine,
+		Inspector: inspector,
+		Pruner:    pruner,
+		TOTP:      totpEngine,
+		Vault:     vault.NewManager("", ""),
+		Server:    server,
 		BoardPanel: boardpanel.NewWatcher(nil, boardpanel.DefaultPollInterval, func() bool {
 			return cfg.GetBoardOverviewAutoHide()
 		}),
@@ -426,7 +426,7 @@ func (d *Daemon) registerRPCHandlers() {
 				_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 				if !strings.EqualFold(prevActive, p.Email) && d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
 					if d.Revival != nil {
-						_, _ = d.Revival.CapturePreSwitchState(core.TargetAppDesktop)
+						_, _ = d.Revival.CapturePreSwitchIntents(core.TargetAppDesktop)
 					}
 					_ = gui.NewInjector(0).CaptureActiveConversationPath()
 					if err := d.Shield.RelaunchHostIDE(); err != nil {
@@ -479,7 +479,7 @@ func (d *Daemon) registerRPCHandlers() {
 				_ = d.Keyring.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
 				if d.Shield != nil && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
 					if d.Revival != nil {
-						_, _ = d.Revival.CapturePreSwitchState(core.TargetAppDesktop)
+						_, _ = d.Revival.CapturePreSwitchIntents(core.TargetAppDesktop)
 					}
 					_ = gui.NewInjector(0).CaptureActiveConversationPath()
 					if err := d.Shield.RelaunchHostIDE(); err != nil {
@@ -598,7 +598,7 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 
 		if shouldRelaunch && d.Revival != nil {
-			_, _ = d.Revival.CapturePreSwitchState(targetApp)
+			_, _ = d.Revival.CapturePreSwitchIntents(targetApp)
 		}
 
 		// Synchronize across relevant surfaces
@@ -788,7 +788,15 @@ func (d *Daemon) registerRPCHandlers() {
 		if err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
-		return status, nil
+		// Serialize every pending intent: the in-page dispatcher drains the list
+		// one conversation per pass, so a single field would strand the rest.
+		return map[string]interface{}{
+			"active_session":  status.ActiveSession,
+			"pending_intents": status.PendingIntents,
+			"pending_intent":  status.PendingIntent,
+			"last_revived_at": status.LastRevivedAt,
+			"success":         status.Success,
+		}, nil
 	}
 	d.Server.Register("swiss.getRevivalStatus", getRevivalStatusHandler)
 	d.Server.Register("conversations.getStatus", getRevivalStatusHandler)
@@ -797,6 +805,7 @@ func (d *Daemon) registerRPCHandlers() {
 	ackContinuationHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
 		var p struct {
 			CascadeID string `json:"cascade_id"`
+			IntentID  string `json:"intent_id"`
 		}
 		if len(params) > 0 {
 			_ = json.Unmarshal(params, &p)
@@ -807,7 +816,7 @@ func (d *Daemon) registerRPCHandlers() {
 		if err := d.Revival.AcknowledgeContinuation(p.CascadeID); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
-		return map[string]interface{}{"success": true}, nil
+		return map[string]interface{}{"success": true, "intent_id": p.IntentID}, nil
 	}
 	d.Server.Register("swiss.ackContinuation", ackContinuationHandler)
 	d.Server.Register("conversations.ack", ackContinuationHandler)
@@ -2055,7 +2064,7 @@ func (d *Daemon) runLoop() {
 								d.mu.Unlock()
 
 								if app == core.TargetAppDesktop && d.Revival != nil {
-									_, _ = d.Revival.CapturePreSwitchState(app)
+									_, _ = d.Revival.CapturePreSwitchIntents(app)
 								}
 
 								if cAcc, _ := d.Keyring.GetAccount(successor.Email); cAcc != nil {
@@ -2125,7 +2134,7 @@ func (d *Daemon) runLoop() {
 							d.mu.Unlock()
 
 							if d.Revival != nil {
-								_, _ = d.Revival.CapturePreSwitchState(core.TargetAppDesktop)
+								_, _ = d.Revival.CapturePreSwitchIntents(core.TargetAppDesktop)
 							}
 
 							if cAcc, _ := d.Keyring.GetAccount(successor.Email); cAcc != nil {

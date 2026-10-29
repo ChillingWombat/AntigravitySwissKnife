@@ -2571,22 +2571,35 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     let autoRevivalInFlight = false;
     let lastRevivalCheckTime = 0;
 
-    async function ackContinuation(cascadeId) {
+    async function ackContinuation(cascadeId, intentKey) {
       try {
         localStorage.removeItem("antigravity_swiss_pending_continuation");
         if (typeof window !== "undefined") {
-          window.__swissPendingContinuation = null;
-          window.postMessage({ type: "swiss-clear-pending-continuation", cascade_id: cascadeId }, "*");
+          // Ack by intent ID so the daemon clears exactly the intent that was
+          // dispatched and leaves the other interrupted conversations queued.
+          if (intentKey) {
+            window.postMessage({ type: "swiss-clear-pending-continuation", cascade_id: cascadeId, intent_id: intentKey }, "*");
+          }
+          const listed = Array.isArray(window.__swissPendingContinuations) ? window.__swissPendingContinuations : [];
+          const remaining = listed.filter(it => {
+            if (!it) return false;
+            if (intentKey && it.intent_id === intentKey) return false;
+            if (!intentKey) return (it.root_conversation_id || it.cascade_id) !== cascadeId;
+            return true;
+          });
+          window.__swissPendingContinuations = remaining;
+          window.__swissPendingContinuation = remaining.length > 0 ? remaining[0] : null;
         }
         if (typeof window !== "undefined" && window.fetch) {
           await fetch("http://127.0.0.1:8765/api/conversations/ack", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ cascade_id: cascadeId })
+            body: JSON.stringify({ cascade_id: cascadeId, intent_id: intentKey || "" })
           });
         }
       } catch (_) {}
     }
+
 
     function checkAndRecoverFromNonexistentConversation() {
       const curPath = window.location.pathname || "/";
@@ -2633,6 +2646,57 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }
     }
 
+    // clearStaleRevivalDraft removes a resume prompt left unsent in the composer.
+    //
+    // Double dispatch used to leave one copy sent in the transcript and a second
+    // copy still sitting in the composer (a second dispatcher re-typing the same
+    // text without sending). The draft is only cleared when it is exactly the
+    // resume prompt: a real user draft is never touched.
+    function clearStaleRevivalDraft() {
+      try {
+        const editor = document.querySelector('div[aria-label="Message input"][contenteditable="true"]') ||
+                       document.querySelector('[data-testid="agent-input-box"] [contenteditable="true"]') ||
+                       document.querySelector('[data-lexical-editor="true"][contenteditable="true"]') ||
+                       document.querySelector('.lexical-container [contenteditable="true"]') ||
+                       document.querySelector('[data-testid="chat-input-textarea"]') ||
+                       document.querySelector('textarea[placeholder*="Ask"]');
+        if (!editor) return;
+        const text = (editor.isContentEditable ? (editor.innerText || "") : (editor.value || "")).trim();
+        const resumeText = "Please continue ongoing tasks and subagents.";
+        if (text !== resumeText && !/^Please continue\b/i.test(text)) return;
+        if (editor.isContentEditable) {
+          const lex = editor.__lexicalEditor;
+          if (lex && typeof lex.update === "function" && lex._nodes) {
+            lex.update(() => {
+              const root = lex._editorState?._nodeMap?.get('root');
+              if (root) root.clear();
+            });
+          } else {
+            const sel = window.getSelection();
+            if (sel) {
+              const range = document.createRange();
+              range.selectNodeContents(editor);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+            document.execCommand("selectAll", false, null);
+            document.execCommand("delete", false, null);
+          }
+          if ((editor.innerText || "").trim().length > 0) {
+            editor.dispatchEvent(new InputEvent("beforeinput", {
+              inputType: "deleteContentBackward",
+              bubbles: true,
+              cancelable: true
+            }));
+          }
+        } else {
+          editor.value = "";
+        }
+        editor.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+        console.warn("[SwissKnife AutoRevival] Cleared a stale resume prompt left unsent in the composer.");
+      } catch (_) {}
+    }
+
     async function checkAndExecuteConversationRevival() {
       checkAndRecoverFromNonexistentConversation();
 
@@ -2655,7 +2719,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
       try {
-        let pending = null;
+        window.__swissDispatchedIntents = window.__swissDispatchedIntents || {};
+
+        // Candidate intents for this pass. An account switch can interrupt several
+        // conversations, so the daemon publishes a list; the single legacy fields
+        // remain supported for older daemons.
+        let candidates = [];
+        let fromDaemon = false;
         try {
           if (typeof window !== "undefined" && window.fetch) {
             let statusUrl = "http://127.0.0.1:8765/api/conversations/status";
@@ -2665,32 +2735,86 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             const res = await fetch(statusUrl);
             if (res.ok) {
               const data = await res.json();
-              if (data && data.pending_intent) {
-                pending = data.pending_intent;
+              if (data && Array.isArray(data.pending_intents)) {
+                candidates = data.pending_intents;
+                fromDaemon = true;
+              } else if (data && data.pending_intent) {
+                candidates = [data.pending_intent];
+                fromDaemon = true;
               } else if (data && (data.cascade_id || data.root_conversation_id)) {
-                pending = data;
+                candidates = [data];
+                fromDaemon = true;
               }
             }
           }
         } catch (_) {}
 
-        if (!pending && typeof window !== "undefined" && window.__swissPendingContinuation) {
-          pending = window.__swissPendingContinuation;
+        if (!fromDaemon && typeof window !== "undefined" && Array.isArray(window.__swissPendingContinuations)) {
+          candidates = window.__swissPendingContinuations;
+        }
+        if (!fromDaemon && (!candidates || candidates.length === 0) && typeof window !== "undefined" && window.__swissPendingContinuation) {
+          candidates = [window.__swissPendingContinuation];
         }
 
-        if (!pending) {
+        if (!candidates || candidates.length === 0) {
           try {
             const raw = localStorage.getItem("antigravity_swiss_pending_continuation");
-            if (raw) pending = JSON.parse(raw);
+            if (raw) candidates = [JSON.parse(raw)];
           } catch (_) {}
         }
 
-        if (!pending) return;
+        if (!candidates || candidates.length === 0) return;
+
+        // One intent per pass. Intents already dispatched in this page (or already
+        // revived in this tab) are skipped WITHOUT being acked, so an in-flight or
+        // unacked intent never blocks the queue; acked intents are simply absent.
+        const intentKeyOf = (it) => it.intent_id || ("auto-revive-" + (it.root_conversation_id || it.cascade_id));
+        const isDispatched = (it) => {
+          const key = intentKeyOf(it);
+          if (window.__swissDispatchedIntents[key]) return true;
+          try {
+            if (sessionStorage.getItem("antigravity_swiss_revived_intent_" + key)) return true;
+            const convID = it.root_conversation_id || it.cascade_id;
+            if (convID && sessionStorage.getItem("antigravity_swiss_revived_conv_" + convID)) return true;
+          } catch (_) {}
+          return false;
+        };
+
+        let pending = null;
+        for (const it of candidates) {
+          if (!it) continue;
+          if (it.resumed || it.status === "revived") continue;
+          if (isDispatched(it)) continue;
+          pending = it;
+          break;
+        }
+
+        if (!pending) {
+          // Everything left was already dispatched in this page. Conversations
+          // really revived in this tab are acked so the daemon stops re-publishing
+          // them; intents whose send is still in flight are left for the ack that
+          // follows their confirmed send.
+          clearStaleRevivalDraft();
+          for (const it of candidates) {
+            if (!it) continue;
+            const key = intentKeyOf(it);
+            const conv = it.root_conversation_id || it.cascade_id;
+            let revivedHere = false;
+            try {
+              revivedHere = Boolean(conv && sessionStorage.getItem("antigravity_swiss_revived_conv_" + conv));
+            } catch (_) {}
+            if (revivedHere) {
+              await ackContinuation(conv, key);
+            }
+          }
+          return;
+        }
 
         const convID = pending.root_conversation_id || pending.cascade_id;
-        if (!convID || pending.resumed || pending.status === "revived") return;
+        if (!convID) return;
 
         const intentKey = pending.intent_id || ("auto-revive-" + convID);
+
         window.__swissDispatchedIntents = window.__swissDispatchedIntents || {};
         if (window.__swissDispatchedIntents[intentKey]) {
           return;
@@ -2700,7 +2824,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         if (!uuidRegex.test(convID)) {
           console.warn("[SwissKnife AutoRevival] Rejecting invalid non-UUID intent:", convID);
           try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
-          await ackContinuation(convID);
+          await ackContinuation(convID, intentKey);
           return;
         }
 
@@ -2708,7 +2832,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           if (sessionStorage.getItem("antigravity_swiss_revived_intent_" + intentKey) ||
               sessionStorage.getItem("antigravity_swiss_revived_conv_" + convID)) {
             window.__swissDispatchedIntents[intentKey] = Date.now();
-            await ackContinuation(convID);
+            await ackContinuation(convID, intentKey);
             return;
           }
         } catch (_) {}
@@ -2718,7 +2842,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         const createdAt = pending.created_at ? new Date(pending.created_at).getTime() : (pending.timestamp ? Number(pending.timestamp) : 0);
         if (!createdAt || isNaN(createdAt) || (now - createdAt > ttl) || (createdAt > now + 60000)) {
           try { localStorage.removeItem("antigravity_swiss_pending_continuation"); } catch (_) {}
-          await ackContinuation(convID);
+          await ackContinuation(convID, intentKey);
           return;
         }
 
@@ -2828,7 +2952,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             } catch (_) {}
           }
 
-          await ackContinuation(convID);
+          await ackContinuation(convID, intentKey);
           return;
         }
 
@@ -2840,7 +2964,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
             sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
           } catch (_) {}
-          await ackContinuation(convID);
+          await ackContinuation(convID, intentKey);
           return;
         }
 
@@ -2854,7 +2978,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           } catch (_) {}
           autoRevivalInFlight = true;
           interactBtn.click();
-          await ackContinuation(convID);
+          await ackContinuation(convID, intentKey);
           autoRevivalInFlight = false;
           return;
         }
@@ -2873,7 +2997,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
               sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
             } catch (_) {}
-            await ackContinuation(convID);
+            await ackContinuation(convID, intentKey);
             return;
           }
           if (!curText.includes(promptText)) {
@@ -2925,7 +3049,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
               sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
             } catch (_) {}
-            await ackContinuation(convID);
+            await ackContinuation(convID, intentKey);
             return;
           }
           if (!curVal.includes(promptText)) {
@@ -2963,7 +3087,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                 sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
                 sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
               } catch (_) {}
-              await ackContinuation(convID);
+              await ackContinuation(convID, intentKey);
               return;
             }
 
@@ -3097,7 +3221,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                 sessionStorage.setItem("antigravity_swiss_revived_intent_" + intentKey, "true");
                 sessionStorage.setItem("antigravity_swiss_revived_conv_" + convID, "true");
               } catch (_) {}
-              await ackContinuation(convID);
+              await ackContinuation(convID, intentKey);
             }
           } catch (err) {
             console.warn("[SwissKnife AutoRevival] Send error:", err);

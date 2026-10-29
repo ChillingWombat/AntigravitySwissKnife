@@ -588,7 +588,7 @@ func (s *Shield) RelaunchHostIDE() error {
 	}
 
 	revEngine := s.getRevivalEngine()
-	revIntent, _ := revEngine.CapturePreSwitchState("desktop")
+	revIntents, _ := revEngine.CapturePreSwitchIntents("desktop")
 
 	// Phase 1: Graceful SIGTERM to main IDE processes so Electron triggers before-quit
 	for _, pid := range mainPIDs {
@@ -752,10 +752,12 @@ func (s *Shield) RelaunchHostIDE() error {
 		_ = cmd.Wait()
 	}()
 
-	if revIntent != nil {
-		go func(it *revival.RevivalIntent) {
-			_ = revEngine.ExecutePostRelaunchRevival(it)
-		}(revIntent)
+	if len(revIntents) > 0 {
+		go func(intents []*revival.RevivalIntent) {
+			for _, it := range intents {
+				_ = revEngine.ExecutePostRelaunchRevival(it)
+			}
+		}(revIntents)
 	} else if resumePath != "" {
 		go func(target string) {
 			_ = gui.NewInjector(0).RestoreConversationPath(target, 30*time.Second)
@@ -860,5 +862,3 @@ func isProcessAliveMatching(pid int, keywords ...string) bool {
 	}
 	return isSystemProcessAlive(pid)
 }
-
-

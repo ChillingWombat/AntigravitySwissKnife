@@ -1,9 +1,12 @@
 package revival
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,22 +17,140 @@ import (
 
 // Engine orchestrates active conversation and subagent revival across app restarts and account switches.
 type Engine struct {
-	Store         *Store
-	Detector      *SessionDetector
-	CDPTrigger    *CDPTrigger
-	mu            sync.RWMutex
+	Store      *Store
+	Detector   *SessionDetector
+	CDPTrigger *CDPTrigger
+	mu         sync.RWMutex
+	// lastRevivedAt drives the global 45s cooldown.
 	lastRevivedAt *time.Time
-	revivedMap    map[string]time.Time
+	// revivedMap drives the per-conversation 10-minute cooldown.
+	revivedMap map[string]time.Time
+	// cooldownPath is where revivedMap/lastRevivedAt persist, so a daemon
+	// restart does not re-arm conversations that were already revived.
+	cooldownPath string
 }
+
+// cooldownFile is the on-disk cooldown state.
+type cooldownFile struct {
+	LastRevivedAt *time.Time           `json:"last_revived_at,omitempty"`
+	Conversations map[string]time.Time `json:"conversations,omitempty"`
+}
+
+// CooldownFileName is the persisted cooldown filename inside the config dir.
+const CooldownFileName = "revival_cooldowns.json"
 
 // NewEngine creates a new Engine instance.
 func NewEngine(configDir string, customCDPPort int) *Engine {
-	return &Engine{
-		Store:         NewStore(configDir),
-		Detector:      NewSessionDetector(),
-		CDPTrigger:    NewCDPTrigger(customCDPPort),
-		revivedMap:    make(map[string]time.Time),
+	store := NewStore(configDir)
+	e := &Engine{
+		Store:        store,
+		Detector:     NewSessionDetector(),
+		CDPTrigger:   NewCDPTrigger(customCDPPort),
+		revivedMap:   make(map[string]time.Time),
+		cooldownPath: filepath.Join(store.dir, CooldownFileName),
 	}
+	e.loadCooldowns()
+	return e
+}
+
+// loadCooldowns restores the cooldown state persisted by a previous process.
+// A missing file simply means nothing was revived yet.
+func (e *Engine) loadCooldowns() {
+	if e.cooldownPath == "" {
+		return
+	}
+	data, err := os.ReadFile(e.cooldownPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "revival: failed to read cooldown state %s: %v\n", e.cooldownPath, err)
+		}
+		return
+	}
+
+	var state cooldownFile
+	if err := json.Unmarshal(data, &state); err != nil {
+		fmt.Fprintf(os.Stderr, "revival: failed to parse cooldown state %s: %v\n", e.cooldownPath, err)
+		return
+	}
+
+	now := time.Now()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for convID, at := range state.Conversations {
+		if now.Sub(at) <= RevivalCooldownDuration {
+			e.revivedMap[convID] = at
+		}
+	}
+	if state.LastRevivedAt != nil && now.Sub(*state.LastRevivedAt) <= RevivalCooldownDuration {
+		last := *state.LastRevivedAt
+		e.lastRevivedAt = &last
+	}
+}
+
+// saveCooldowns persists the cooldown state under the engine lock. Callers must
+// hold e.mu so the snapshot cannot tear.
+func (e *Engine) saveCooldownsLocked() {
+	if e.cooldownPath == "" {
+		return
+	}
+	state := cooldownFile{Conversations: make(map[string]time.Time, len(e.revivedMap))}
+	for convID, at := range e.revivedMap {
+		state.Conversations[convID] = at
+	}
+	if e.lastRevivedAt != nil {
+		last := *e.lastRevivedAt
+		state.LastRevivedAt = &last
+	}
+
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "revival: failed to serialize cooldown state: %v\n", err)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(e.cooldownPath), 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "revival: failed to create cooldown directory: %v\n", err)
+		return
+	}
+	tmpPath := fmt.Sprintf("%s.%d.tmp", e.cooldownPath, time.Now().UnixNano())
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "revival: failed to write cooldown state: %v\n", err)
+		return
+	}
+	if err := os.Rename(tmpPath, e.cooldownPath); err != nil {
+		_ = os.Remove(tmpPath)
+		fmt.Fprintf(os.Stderr, "revival: failed to commit cooldown state: %v\n", err)
+	}
+}
+
+// markRevived records a revival for the global and per-conversation cooldowns
+// and persists them.
+func (e *Engine) markRevived(convID string) {
+	now := time.Now()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.lastRevivedAt = &now
+	if e.revivedMap == nil {
+		e.revivedMap = make(map[string]time.Time)
+	}
+	if cleaned := cleanConversationID(convID); cleaned != "" {
+		e.revivedMap[cleaned] = now
+	}
+	e.saveCooldownsLocked()
+}
+
+// isSuppressed reports whether convID was revived too recently to be re-armed.
+func (e *Engine) isSuppressed(convID string) bool {
+	cleaned := cleanConversationID(convID)
+	if cleaned == "" {
+		return false
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	at, ok := e.revivedMap[cleaned]
+	if !ok {
+		return false
+	}
+	return time.Since(at) < RevivalCooldownDuration
 }
 
 func (e *Engine) getPrompt() string {
@@ -42,14 +163,103 @@ func (e *Engine) getPrompt() string {
 	return DefaultTriggerPrompt
 }
 
-// CapturePreSwitchState captures active conversation state before credential changes or app restarts,
-// persists a RevivalIntent to disk, and pins the layout in app_storage.json.
+// CapturePreSwitchState captures the primary (newest) interrupted conversation
+// state before a credential change or app restart, persists its RevivalIntent,
+// and pins the layout in app_storage.json.
+//
+// Delegates to CapturePreSwitchIntents so the single-intent callers keep working
+// while every interrupted conversation is still recorded.
 func (e *Engine) CapturePreSwitchState(targetApp string) (*RevivalIntent, error) {
-	session, err := e.Detector.Detect(targetApp)
-	if err != nil || session == nil || session.ConversationID == "" {
-		return nil, err
+	intents, err := e.CapturePreSwitchIntents(targetApp)
+	if len(intents) > 0 {
+		return intents[0], nil
+	}
+	return nil, err
+}
+
+// CapturePreSwitchIntents captures every genuinely interrupted conversation
+// before a credential change or app restart and persists one RevivalIntent per
+// conversation, newest first.
+//
+// A prompt is only attached to a conversation the persisted signals mark as
+// interrupted; everything else is recorded with a blank prompt, which restores
+// the route without injecting anything.
+func (e *Engine) CapturePreSwitchIntents(targetApp string) ([]*RevivalIntent, error) {
+	sessions, detectErr := e.Detector.DetectAll(targetApp)
+
+	// The single most relevant session is still captured even when nothing is
+	// interrupted: the desktop restore needs to know which conversation to
+	// reopen, and it does that with a blank prompt.
+	primary, primaryErr := e.Detector.Detect(targetApp)
+	if primaryErr != nil && detectErr != nil {
+		return nil, detectErr
 	}
 
+	seen := make(map[string]bool, len(sessions)+1)
+	intents := make([]*RevivalIntent, 0, len(sessions)+1)
+	var firstErr error
+
+	appendSession := func(session *ActiveSessionInfo) {
+		if session == nil || session.ConversationID == "" {
+			return
+		}
+		key := cleanConversationID(session.ConversationID)
+		if seen[key] {
+			return
+		}
+		intent, buildErr := e.buildIntent(targetApp, session)
+		if buildErr != nil {
+			if firstErr == nil {
+				firstErr = buildErr
+			}
+			return
+		}
+		if intent == nil {
+			// Already revived within the cooldown window.
+			seen[key] = true
+			return
+		}
+		if saveErr := e.Store.SaveIntent(intent); saveErr != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("failed to persist revival intent: %w", saveErr)
+			}
+			return
+		}
+		seen[key] = true
+		intents = append(intents, intent)
+	}
+
+	for _, session := range sessions {
+		appendSession(session)
+	}
+	if primary != nil {
+		appendSession(primary)
+	}
+
+	if len(intents) > 0 {
+		// Guarantee that app_storage.json has last conversation path set.
+		targetPath := intents[0].RootConversationID
+		if primary != nil && primary.TargetPath != "" {
+			targetPath = primary.TargetPath
+		} else {
+			targetPath = "/c/" + targetPath
+		}
+		gui.SaveLastConversationPath(targetPath)
+		return intents, nil
+	}
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if primaryErr != nil {
+		return nil, primaryErr
+	}
+	return nil, fmt.Errorf("no conversation detected to preserve across the switch")
+}
+
+// buildIntent turns one detected session into a persistable intent, falling back
+// to the pinned/latest conversation path when the detected ID is unusable.
+func (e *Engine) buildIntent(targetApp string, session *ActiveSessionInfo) (*RevivalIntent, error) {
 	if !gui.IsValidConversationID(session.ConversationID) {
 		if pinned := gui.LoadPinnedConversationPath(); gui.IsValidConversationPath(pinned) {
 			session.ConversationID = strings.TrimPrefix(pinned, "/c/")
@@ -62,15 +272,19 @@ func (e *Engine) CapturePreSwitchState(targetApp string) (*RevivalIntent, error)
 		}
 	}
 
-	intentID := fmt.Sprintf("intent-%d", time.Now().UnixNano())
-	now := time.Now()
+	// An already-revived conversation must not be re-armed, even across a restart.
+	if e.isSuppressed(session.ConversationID) {
+		return nil, nil
+	}
 
+	now := time.Now()
 	prompt := e.getPrompt()
 	if !session.NeedsRevival {
 		prompt = ""
 	}
-	intent := &RevivalIntent{
-		IntentID:           intentID,
+
+	return &RevivalIntent{
+		IntentID:           fmt.Sprintf("intent-%d-%s", now.UnixNano(), cleanConversationID(session.ConversationID)),
 		TargetApp:          targetApp,
 		RootConversationID: session.ConversationID,
 		ActiveSubagentID:   session.ActiveSubagentID,
@@ -84,33 +298,41 @@ func (e *Engine) CapturePreSwitchState(targetApp string) (*RevivalIntent, error)
 		MaxAttempts:        DefaultMaxAttempts,
 		TTLSeconds:         DefaultTTLSeconds,
 		Resumed:            false,
-	}
-
-	// Persist pending intent
-	if err := e.Store.SaveIntent(intent); err != nil {
-		return nil, fmt.Errorf("failed to persist revival intent: %w", err)
-	}
-
-	// Guarantee that app_storage.json has last conversation path set
-	targetPath := session.TargetPath
-	if targetPath == "" {
-		targetPath = "/c/" + session.ConversationID
-	}
-	gui.SaveLastConversationPath(targetPath)
-
-	return intent, nil
+	}, nil
 }
 
-// ExecutePostRelaunchRevival executes prompt injection and navigation continuation after IDE relaunch.
+// ExecutePostRelaunchRevival executes prompt injection and navigation continuation
+// after IDE relaunch.
+//
+// When intent is nil every pending intent is revived, one per interrupted
+// conversation. An explicit intent revives just that conversation.
 func (e *Engine) ExecutePostRelaunchRevival(intent *RevivalIntent) error {
-	var err error
-	if intent == nil {
-		intent, err = e.Store.LoadIntent()
-		if err != nil || intent == nil {
-			return err
-		}
+	if intent != nil {
+		return e.reviveIntent(intent)
 	}
 
+	intents, err := e.Store.LoadIntents()
+	if err != nil {
+		return err
+	}
+	if len(intents) == 0 {
+		return nil
+	}
+
+	errs := make([]error, 0, len(intents))
+	for _, pending := range intents {
+		if reviveErr := e.reviveIntent(pending); reviveErr != nil {
+			errs = append(errs, reviveErr)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// reviveIntent performs one conversation's revival and clears only that intent.
+func (e *Engine) reviveIntent(intent *RevivalIntent) error {
+	if intent == nil {
+		return nil
+	}
 	if intent.Resumed || intent.Status == IntentStatusRevived {
 		return nil
 	}
@@ -120,13 +342,18 @@ func (e *Engine) ExecutePostRelaunchRevival(intent *RevivalIntent) error {
 		maxAttempts = DefaultMaxAttempts
 	}
 	if intent.Attempts >= maxAttempts {
-		_ = e.Store.UpdateStatus(intent.IntentID, IntentStatusFailed)
+		if err := e.Store.UpdateStatus(intent.IntentID, IntentStatusFailed); err != nil {
+			return err
+		}
 		return fmt.Errorf("max revival attempts (%d) reached for intent %s", maxAttempts, intent.IntentID)
 	}
 
-	_ = e.Store.UpdateStatus(intent.IntentID, IntentStatusReviving)
+	if err := e.Store.UpdateStatus(intent.IntentID, IntentStatusReviving); err != nil {
+		return err
+	}
 	targetApp := strings.ToLower(strings.TrimSpace(intent.TargetApp))
 
+	var err error
 	switch targetApp {
 	case "agy":
 		err = e.executeCLIRevival(intent)
@@ -137,28 +364,25 @@ func (e *Engine) ExecutePostRelaunchRevival(intent *RevivalIntent) error {
 	}
 
 	if err != nil {
-		attempts, _ := e.Store.IncrementAttempts(intent.IntentID)
+		attempts, incErr := e.Store.IncrementAttempts(intent.IntentID)
+		if incErr != nil {
+			return errors.Join(err, incErr)
+		}
 		intent.Attempts = attempts
-		_ = e.Store.UpdateStatus(intent.IntentID, IntentStatusFailed, attempts)
+		if updateErr := e.Store.UpdateStatus(intent.IntentID, IntentStatusFailed, attempts); updateErr != nil {
+			return errors.Join(err, updateErr)
+		}
 		return err
 	}
 
-	now := time.Now()
-	e.mu.Lock()
-	e.lastRevivedAt = &now
-	if e.revivedMap == nil {
-		e.revivedMap = make(map[string]time.Time)
-	}
-	if intent.RootConversationID != "" {
-		cleaned := strings.TrimPrefix(intent.RootConversationID, "/c/")
-		e.revivedMap[cleaned] = now
-	}
-	e.mu.Unlock()
+	e.markRevived(intent.RootConversationID)
 
 	intent.Resumed = true
-	_ = e.Store.UpdateStatus(intent.IntentID, IntentStatusRevived)
-	_ = e.Store.ClearIntent()
-	return nil
+	if err := e.Store.UpdateStatus(intent.IntentID, IntentStatusRevived); err != nil {
+		return err
+	}
+	// Scoped: reviving one conversation must never discard the others.
+	return e.Store.ClearIntentFor(intent.RootConversationID)
 }
 
 // desktopRestoreRouteWait bounds how long the desktop revival waits for the
@@ -299,6 +523,262 @@ func (e *Engine) executeVSCodeRevival(intent *RevivalIntent) error {
 	return core.LaunchHiddenConsoleProcess(cmd)
 }
 
+// GetRevivalStatus retrieves the active session, every live pending revival
+// intent, and the last revived timestamp.
+//
+// PendingIntents is the authoritative list: an account switch that interrupted N
+// conversations reports N intents, each of which must be dispatched on its own.
+func (e *Engine) GetRevivalStatus(targetConvID ...string) (*RevivalStatus, error) {
+	target := ""
+	if len(targetConvID) > 0 {
+		target = cleanConversationID(targetConvID[0])
+	}
+
+	var session *ActiveSessionInfo
+	if target != "" {
+		session, _ = e.Detector.DetectForID(target)
+	} else {
+		session, _ = e.Detector.Detect("")
+	}
+
+	e.pruneCooldowns()
+
+	intents, err := e.Store.LoadIntents()
+	if err != nil {
+		return nil, err
+	}
+
+	intents, err = e.dropExhaustedFailedIntents(intents)
+	if err != nil {
+		return nil, err
+	}
+
+	intents, err = e.synthesizeMissingIntents(intents, session, target)
+	if err != nil {
+		return nil, err
+	}
+
+	// Only surface intents that are safe to dispatch right now. A conversation
+	// revived within the cooldown window must never be handed to a dispatcher
+	// again, and the global window keeps a burst of intents from firing at once.
+	var pendingIntents []*RevivalIntent
+	for _, intent := range intents {
+		if intent == nil {
+			continue
+		}
+		if e.isSuppressed(intent.RootConversationID) {
+			continue
+		}
+		pendingIntents = append(pendingIntents, intent)
+	}
+	if e.globalCooldownActive() {
+		pendingIntents = nil
+	}
+
+	var pending *RevivalIntent
+	// The legacy single field stays scoped to the queried conversation: a caller
+	// asking about conversation X must not be handed conversation Y's intent just
+	// because Y happens to be the newest interrupted one.
+	for _, candidate := range pendingIntents {
+		if target == "" || cleanConversationID(candidate.RootConversationID) == target {
+			pending = candidate
+			break
+		}
+	}
+
+	e.mu.RLock()
+	last := e.lastRevivedAt
+	e.mu.RUnlock()
+
+	var lastCopy *time.Time
+	if last != nil {
+		t := *last
+		lastCopy = &t
+	}
+	success := (pending != nil && pending.Status == IntentStatusRevived) ||
+		(last != nil && time.Since(*last) < GlobalRevivalCooldownDuration)
+
+	return &RevivalStatus{
+		ActiveSession:  session,
+		PendingIntents: pendingIntents,
+		PendingIntent:  pending,
+		LastRevivedAt:  lastCopy,
+		Success:        success,
+	}, nil
+}
+
+// pruneCooldowns drops per-conversation cooldown entries older than the window
+// and persists the pruning so a restart sees the same state.
+func (e *Engine) pruneCooldowns() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	now := time.Now()
+	pruned := false
+	for convID, at := range e.revivedMap {
+		if now.Sub(at) > RevivalCooldownDuration {
+			delete(e.revivedMap, convID)
+			pruned = true
+		}
+	}
+	if e.lastRevivedAt != nil && now.Sub(*e.lastRevivedAt) > RevivalCooldownDuration {
+		e.lastRevivedAt = nil
+		pruned = true
+	}
+	if pruned {
+		e.saveCooldownsLocked()
+	}
+}
+
+// globalCooldownActive reports whether the 45s global revival window is open.
+func (e *Engine) globalCooldownActive() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.lastRevivedAt != nil && time.Since(*e.lastRevivedAt) < GlobalRevivalCooldownDuration
+}
+
+// dropExhaustedFailedIntents removes intents that ran out of attempts and are
+// older than a minute, so a permanently failing conversation stops resurfacing.
+func (e *Engine) dropExhaustedFailedIntents(intents []*RevivalIntent) ([]*RevivalIntent, error) {
+	kept := make([]*RevivalIntent, 0, len(intents))
+	for _, intent := range intents {
+		if intent == nil {
+			continue
+		}
+		if intent.Status == IntentStatusFailed {
+			maxAttempts := intent.MaxAttempts
+			if maxAttempts <= 0 {
+				maxAttempts = DefaultMaxAttempts
+			}
+			exhausted := intent.Attempts >= maxAttempts
+			if exhausted && time.Since(intent.CreatedAt) > 60*time.Second {
+				if err := e.Store.ClearIntentFor(intent.RootConversationID); err != nil {
+					return nil, err
+				}
+				continue
+			}
+		}
+		kept = append(kept, intent)
+	}
+	return kept, nil
+}
+
+// synthesizeMissingIntents creates a pending intent for every interrupted
+// conversation that does not already have one.
+//
+// Synthesis is gated on the persisted interruption signals (DetectAll already
+// filtered to NeedsRevival) and on the cooldown windows, so a finished
+// conversation is never given a prompt just for being open.
+func (e *Engine) synthesizeMissingIntents(intents []*RevivalIntent, session *ActiveSessionInfo, target string) ([]*RevivalIntent, error) {
+	if e.globalCooldownActive() {
+		return intents, nil
+	}
+
+	have := make(map[string]bool, len(intents))
+	for _, intent := range intents {
+		if intent == nil {
+			continue
+		}
+		if intent.Status == IntentStatusRevived || intent.Resumed {
+			continue
+		}
+		have[cleanConversationID(intent.RootConversationID)] = true
+	}
+
+	candidates, err := e.Detector.DetectAll(sessionTargetApp(session))
+	if err != nil {
+		return nil, err
+	}
+	// The explicitly queried conversation is also a candidate: it may be the one
+	// the caller is looking at while it is not the newest interrupted row.
+	if target != "" && (session == nil || cleanConversationID(session.ConversationID) != target) {
+		if info, idErr := e.Detector.DetectForID(target); idErr == nil && info != nil && info.NeedsRevival {
+			candidates = append(candidates, info)
+		}
+	}
+
+	for _, info := range candidates {
+		if info == nil || !info.NeedsRevival {
+			continue
+		}
+		convID := cleanConversationID(info.ConversationID)
+		if convID == "" || have[convID] || e.isSuppressed(convID) {
+			continue
+		}
+
+		now := time.Now()
+		prompt := e.getPrompt()
+		intent := &RevivalIntent{
+			// Deterministic ID: every pass over the same conversation derives the
+			// same in-page dedupe key, so a repeated status poll cannot produce a
+			// second prompt through a different key.
+			IntentID:           "auto-revive-" + convID,
+			TargetApp:          info.TargetApp,
+			RootConversationID: convID,
+			ActiveSubagentID:   info.ActiveSubagentID,
+			TriggerPrompt:      prompt,
+			CreatedAt:          now,
+			Status:             IntentStatusPending,
+			CascadeID:          convID,
+			Prompt:             prompt,
+			Timestamp:          now.UnixMilli(),
+			Attempts:           0,
+			MaxAttempts:        DefaultMaxAttempts,
+			TTLSeconds:         DefaultTTLSeconds,
+			Resumed:            false,
+		}
+		if err := e.Store.SaveIntent(intent); err != nil {
+			return nil, fmt.Errorf("failed to persist synthesized revival intent: %w", err)
+		}
+		have[convID] = true
+		intents = append(intents, intent)
+	}
+
+	sortIntentsNewestFirst(intents)
+	return intents, nil
+}
+
+// sessionTargetApp returns the app type to enumerate for, defaulting to desktop.
+func sessionTargetApp(session *ActiveSessionInfo) string {
+	if session != nil && strings.TrimSpace(session.TargetApp) != "" {
+		return session.TargetApp
+	}
+	return "desktop"
+}
+
+// AcknowledgeContinuation marks one conversation's pending intent as resumed and
+// removes only that intent; the other pending conversations stay queued.
+func (e *Engine) AcknowledgeContinuation(cascadeID string) error {
+	cleanedTarget := cleanConversationID(cascadeID)
+	if cleanedTarget == "" {
+		return fmt.Errorf("cascadeID cannot be empty")
+	}
+
+	intents, err := e.Store.LoadIntents()
+	if err != nil {
+		return err
+	}
+
+	matched := false
+	for _, intent := range intents {
+		if intent == nil {
+			continue
+		}
+		cleanedRoot := cleanConversationID(intent.RootConversationID)
+		cleanedCascade := cleanConversationID(intent.CascadeID)
+		if cleanedTarget == cleanedRoot || cleanedTarget == cleanedCascade {
+			matched = true
+			break
+		}
+	}
+	if len(intents) > 0 && !matched {
+		return fmt.Errorf("acknowledged cascade ID %q does not match any pending intent", cleanedTarget)
+	}
+
+	e.markRevived(cleanedTarget)
+	return e.Store.ClearIntentFor(cleanedTarget)
+}
+
 // ReviveConversation manually or programmatically triggers continuation for the specified target.
 func (e *Engine) ReviveConversation(targetApp string, conversationID string, forcePrompt string) error {
 	if conversationID == "" {
@@ -326,7 +806,10 @@ func (e *Engine) ReviveConversation(targetApp string, conversationID string, for
 
 	now := time.Now()
 	intent := &RevivalIntent{
-		IntentID:           fmt.Sprintf("manual-revive-%d", now.UnixNano()),
+		// Deterministic per conversation: a repeated manual revive of the same
+		// conversation reuses one in-page dedupe key instead of minting a new one
+		// that would submit the prompt a second time.
+		IntentID:           "manual-revive-" + cleanConversationID(conversationID),
 		TargetApp:          targetApp,
 		RootConversationID: conversationID,
 		TriggerPrompt:      prompt,
@@ -345,131 +828,4 @@ func (e *Engine) ReviveConversation(targetApp string, conversationID string, for
 		return err
 	}
 	return e.ExecutePostRelaunchRevival(intent)
-}
-
-// GetRevivalStatus retrieves the active session, pending revival intent, and last revived timestamp.
-func (e *Engine) GetRevivalStatus(targetConvID ...string) (*RevivalStatus, error) {
-	var session *ActiveSessionInfo
-	if len(targetConvID) > 0 && strings.TrimSpace(targetConvID[0]) != "" {
-		session, _ = e.Detector.DetectForID(strings.TrimSpace(targetConvID[0]))
-	} else {
-		session, _ = e.Detector.Detect("")
-	}
-	pending, _ := e.Store.LoadIntent()
-
-	e.mu.Lock()
-	now := time.Now()
-	// Prune expired cooldown entries
-	for k, v := range e.revivedMap {
-		if now.Sub(v) > RevivalCooldownDuration {
-			delete(e.revivedMap, k)
-		}
-	}
-	last := e.lastRevivedAt
-	var targetRevivedAt *time.Time
-	if session != nil && session.ConversationID != "" && e.revivedMap != nil {
-		cleanID := strings.TrimPrefix(session.ConversationID, "/c/")
-		if t, ok := e.revivedMap[cleanID]; ok {
-			targetRevivedAt = &t
-		}
-	}
-	e.mu.Unlock()
-
-	// Enforce 10-minute cooldown expiration
-	convRevivedRecently := targetRevivedAt != nil && time.Since(*targetRevivedAt) < RevivalCooldownDuration
-	// Global cooldown (45s) after any revival action
-	globalCooldown := last != nil && time.Since(*last) < GlobalRevivalCooldownDuration
-	recentlyRevived := globalCooldown || convRevivedRecently
-
-	if recentlyRevived && pending != nil && strings.HasPrefix(pending.IntentID, "auto-revive-") {
-		_ = e.Store.ClearIntent()
-		pending = nil
-	}
-
-	canRetryFailed := false
-	if pending != nil && pending.Status == IntentStatusFailed {
-		maxAttempts := pending.MaxAttempts
-		if maxAttempts <= 0 {
-			maxAttempts = DefaultMaxAttempts
-		}
-		if pending.Attempts < maxAttempts && time.Since(pending.CreatedAt) > 15*time.Second {
-			canRetryFailed = true
-		} else if time.Since(pending.CreatedAt) > 60*time.Second {
-			_ = e.Store.ClearIntent()
-			pending = nil
-		}
-	}
-
-	// Synthesize and atomically persist intent if needed
-	if !recentlyRevived && (pending == nil || pending.Resumed || canRetryFailed) && session != nil && session.NeedsRevival && session.ConversationID != "" {
-		now := time.Now()
-		prompt := e.getPrompt()
-		pending = &RevivalIntent{
-			IntentID:           fmt.Sprintf("auto-revive-%s", strings.TrimPrefix(session.ConversationID, "/c/")),
-			TargetApp:          session.TargetApp,
-			RootConversationID: session.ConversationID,
-			ActiveSubagentID:   session.ActiveSubagentID,
-			TriggerPrompt:      prompt,
-			CreatedAt:          now,
-			Status:             IntentStatusPending,
-			CascadeID:          session.ConversationID,
-			Prompt:             prompt,
-			Timestamp:          now.UnixMilli(),
-			Attempts:           0,
-			MaxAttempts:        DefaultMaxAttempts,
-			TTLSeconds:         DefaultTTLSeconds,
-			Resumed:            false,
-		}
-		_ = e.Store.SaveIntent(pending)
-	}
-
-	var lastCopy *time.Time
-	if last != nil {
-		t := *last
-		lastCopy = &t
-	}
-	success := (pending != nil && pending.Status == IntentStatusRevived) || (last != nil && time.Since(*last) < GlobalRevivalCooldownDuration)
-
-	return &RevivalStatus{
-		ActiveSession: session,
-		PendingIntent: pending,
-		LastRevivedAt: lastCopy,
-		Success:       success,
-	}, nil
-}
-
-// AcknowledgeContinuation marks the pending intent as resumed and cleans up.
-func (e *Engine) AcknowledgeContinuation(cascadeID string) error {
-	cleanedTarget := strings.TrimPrefix(strings.TrimSpace(cascadeID), "/c/")
-	if cleanedTarget == "" {
-		return fmt.Errorf("cascadeID cannot be empty")
-	}
-
-	intent, err := e.Store.LoadIntent()
-	if err != nil {
-		return err
-	}
-	if intent == nil {
-		return nil
-	}
-
-	cleanedRoot := strings.TrimPrefix(strings.TrimSpace(intent.RootConversationID), "/c/")
-	cleanedCascade := strings.TrimPrefix(strings.TrimSpace(intent.CascadeID), "/c/")
-	if cleanedTarget != cleanedRoot && cleanedTarget != cleanedCascade {
-		return fmt.Errorf("acknowledged cascade ID %q does not match active intent %q", cleanedTarget, cleanedRoot)
-	}
-
-	now := time.Now()
-	e.mu.Lock()
-	e.lastRevivedAt = &now
-	if e.revivedMap == nil {
-		e.revivedMap = make(map[string]time.Time)
-	}
-	e.revivedMap[cleanedTarget] = now
-	e.mu.Unlock()
-
-	intent.Resumed = true
-	intent.Status = IntentStatusRevived
-	_ = e.Store.ClearIntent()
-	return nil
 }

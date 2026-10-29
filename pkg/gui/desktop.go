@@ -513,15 +513,31 @@ func generatePreloadLoaderScript() string {
             }
           } catch (_) {}
         }
-        let pendingContinuation = null;
-        const contPath = path.join(configDir, "pending_continuation.json");
-        if (fs.existsSync(contPath)) {
+        // Pending revival intents are a collection: an account switch can
+        // interrupt several conversations. Publish the array plus the legacy
+        // single scalar so in-page code from either generation keeps working.
+        const contPath = path.join(configDir, "pending_continuations.json");
+        const legacyContPath = path.join(configDir, "pending_continuation.json");
+        const readContinuations = (p) => {
+          if (!fs.existsSync(p)) return [];
           try {
-            pendingContinuation = JSON.parse(fs.readFileSync(contPath, "utf8"));
-          } catch (_) {}
+            const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+            if (Array.isArray(parsed)) return parsed;
+            if (parsed && Array.isArray(parsed.intents)) return parsed.intents;
+            if (parsed && (parsed.root_conversation_id || parsed.cascade_id || parsed.intent_id)) return [parsed];
+            return [];
+          } catch (_) {
+            return [];
+          }
+        };
+        let pendingContinuations = readContinuations(contPath);
+        if (pendingContinuations.length === 0) {
+          pendingContinuations = readContinuations(legacyContPath);
         }
+        const pendingContinuation = pendingContinuations.length > 0 ? pendingContinuations[0] : null;
         const diskBootstrap = 'window.__swissDiskSavedColors = ' + JSON.stringify(diskSavedColors) + ';\n' +
           'window.__swissDiskDeletedColors = ' + JSON.stringify(diskDeletedColors) + ';\n' +
+          'window.__swissPendingContinuations = ' + JSON.stringify(pendingContinuations) + ';\n' +
           'window.__swissPendingContinuation = ' + JSON.stringify(pendingContinuation) + ';\n';
         try {
           webFrame.executeJavaScript(diskBootstrap).catch(() => {});
@@ -603,9 +619,35 @@ func generatePreloadLoaderScript() string {
     window.addEventListener("message", (event) => {
       if (event.data && event.data.type === "swiss-clear-pending-continuation") {
         try {
-          const contPath = path.join(configDir, "pending_continuation.json");
+          const contPath = path.join(configDir, "pending_continuations.json");
+          const legacyContPath = path.join(configDir, "pending_continuation.json");
+          const ackedIntentID = event.data.intent_id || "";
+          const ackedConvID = String(event.data.cascade_id || "").replace(/^\/c\//, "").split(/[?#]/)[0].trim();
+
           if (fs.existsSync(contPath)) {
-            fs.unlinkSync(contPath);
+            let intents = [];
+            try {
+              const parsed = JSON.parse(fs.readFileSync(contPath, "utf8"));
+              intents = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.intents) ? parsed.intents : []);
+            } catch (_) {
+              intents = [];
+            }
+            const remaining = intents.filter((it) => {
+              if (!it) return false;
+              if (ackedIntentID) return it.intent_id !== ackedIntentID;
+              const conv = String(it.root_conversation_id || it.cascade_id || "").replace(/^\/c\//, "").split(/[?#]/)[0].trim();
+              return conv !== ackedConvID;
+            });
+            if (remaining.length > 0) {
+              fs.writeFileSync(contPath, JSON.stringify({ intents: remaining }, null, 2), "utf8");
+            } else if (fs.existsSync(contPath)) {
+              fs.unlinkSync(contPath);
+            }
+          }
+
+          // The legacy single-object file is fully superseded.
+          if (fs.existsSync(legacyContPath)) {
+            fs.unlinkSync(legacyContPath);
           }
         } catch (_) {}
       }
