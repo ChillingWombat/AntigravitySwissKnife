@@ -266,6 +266,9 @@ div:has(> .shrink-0.flex.items-center.border-b),
   height: 100%;
   overflow: hidden;
 }
+.swiss-builtin-browser-view {
+  position: relative;
+}
 .swiss-browser-toolbar {
   display: flex;
   flex-direction: column;
@@ -2346,12 +2349,6 @@ func GenerateAuxiliaryPluginsScript() string {
       // Define Swiss tabs with Antigravity-matching monochrome SVG stroke icons
       const allTabs = [
         {
-          id: "browser",
-          tabId: "swiss-browser",
-          label: "Preview Browser",
-          svg: '<svg class="swiss-aux-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
-        },
-        {
           id: "files",
           tabId: "swiss-files",
           label: "Files",
@@ -2415,7 +2412,7 @@ func GenerateAuxiliaryPluginsScript() string {
         }
       }
 
-      // Configure tabs matching data-tab-id="swiss-browser", data-tab-id="swiss-files", data-tab-id="swiss-memos", data-tab-id="swiss-github"
+      // Configure tabs matching data-tab-id="swiss-files", data-tab-id="swiss-memos", data-tab-id="swiss-github"
       const existingBtns = tabHeader.querySelectorAll('.swiss-aux-tab-btn');
       if (existingBtns.length > 0) {
         const curFmt = getAuxTabFormat();
@@ -2441,8 +2438,7 @@ func GenerateAuxiliaryPluginsScript() string {
             if (!curBtnGroup.querySelector('[data-swiss-tab="' + t.id + '"]')) {
               const btn = document.createElement("button");
               btn.className = "swiss-aux-tab-btn";
-              if (t.id === "browser") btn.setAttribute("data-tab-id", "swiss-browser");
-              else if (t.id === "files") btn.setAttribute("data-tab-id", "swiss-files");
+              if (t.id === "files") btn.setAttribute("data-tab-id", "swiss-files");
               else if (t.id === "memos") btn.setAttribute("data-tab-id", "swiss-memos");
               else if (t.id === "github") btn.setAttribute("data-tab-id", "swiss-github");
               else btn.setAttribute("data-tab-id", t.tabId || ("swiss-" + t.id));
@@ -2561,9 +2557,8 @@ func GenerateAuxiliaryPluginsScript() string {
         tabs.forEach(t => {
           const btn = document.createElement("button");
           btn.className = "swiss-aux-tab-btn";
-          // Contract: data-tab-id="swiss-browser" data-tab-id="swiss-files" data-tab-id="swiss-memos" data-tab-id="swiss-github"
-          if (t.id === "browser") btn.setAttribute("data-tab-id", "swiss-browser");
-          else if (t.id === "files") btn.setAttribute("data-tab-id", "swiss-files");
+          // Contract: data-tab-id="swiss-files" data-tab-id="swiss-memos" data-tab-id="swiss-github"
+          if (t.id === "files") btn.setAttribute("data-tab-id", "swiss-files");
           else if (t.id === "memos") btn.setAttribute("data-tab-id", "swiss-memos");
           else if (t.id === "github") btn.setAttribute("data-tab-id", "swiss-github");
           else btn.setAttribute("data-tab-id", t.tabId || ("swiss-" + t.id));
@@ -2738,8 +2733,7 @@ func GenerateAuxiliaryPluginsScript() string {
       }
       container.dataset.renderedTab = tabId;
       container.innerHTML = "";
-      if (tabId === "browser") renderBrowserView(container);
-      else if (tabId === "files") renderFilesView(container);
+      if (tabId === "files") renderFilesView(container);
       else if (tabId === "memos") renderMemosView(container);
       else if (tabId === "github") {
         if (typeof window.renderSwissGitHubWorkspaceView === "function") {
@@ -2849,7 +2843,7 @@ func GenerateAuxiliaryPluginsScript() string {
     // ----------------------------------------------------
     // 2. LIVE BROWSER & APP PREVIEWER WITH ANNOTATIONS
     // ----------------------------------------------------
-    function renderBrowserView(container) {
+    function renderBrowserView(container, existingWebview = null) {
       const wrap = document.createElement("div");
       wrap.className = "swiss-browser-view";
 
@@ -2940,32 +2934,38 @@ func GenerateAuxiliaryPluginsScript() string {
 
       // Embedded Webview or Iframe
       let isWebview = true;
-      let webview;
-      try {
-        webview = document.createElement("webview");
-        if (typeof webview.loadURL !== "function" && typeof webview.reload !== "function" && typeof process === "undefined") {
+      let webview = existingWebview;
+      if (!webview) {
+        try {
+          webview = document.createElement("webview");
+          if (typeof webview.loadURL !== "function" && typeof webview.reload !== "function" && typeof process === "undefined") {
+            webview = document.createElement("iframe");
+            isWebview = false;
+          }
+        } catch (e) {
           webview = document.createElement("iframe");
           isWebview = false;
         }
-      } catch (e) {
-        webview = document.createElement("iframe");
-        isWebview = false;
-      }
-      webview.id = "swiss-browser-element";
-      webview.style.width = "100%";
-      webview.style.height = "100%";
-      webview.style.border = "none";
+        webview.id = "swiss-browser-element";
+        webview.style.width = "100%";
+        webview.style.height = "100%";
+        webview.style.border = "none";
 
-      if (isWebview) {
-        // partition="persist:swiss-browser"
-        webview.setAttribute("partition", "persist:swiss-browser");
-        webview.setAttribute("allowpopups", "true");
-        webview.setAttribute("webpreferences", "allowRunningInsecureContent=yes, webSecurity=no, contextIsolation=no, nodeIntegration=no");
-        webview.src = currentBrowserUrl;
+        if (isWebview) {
+          webview.src = currentBrowserUrl;
+        } else {
+          webview.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups allow-modals");
+          webview.setAttribute("allow", "cross-origin-isolated");
+          webview.src = currentBrowserUrl;
+        }
       } else {
-        webview.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups allow-modals");
-        webview.setAttribute("allow", "cross-origin-isolated");
-        webview.src = currentBrowserUrl;
+        webview.id = webview.id || "swiss-browser-element";
+        if (typeof webview.tagName === "string" && webview.tagName.toLowerCase() !== "webview") {
+          isWebview = false;
+        }
+        if (webview.src && webview.src !== "about:blank") {
+          currentBrowserUrl = webview.src;
+        }
       }
 
       // Transparent Canvas for Annotations
@@ -2981,7 +2981,11 @@ func GenerateAuxiliaryPluginsScript() string {
       let canvasScaleX = 1;
       let canvasScaleY = 1;
 
-      screen.appendChild(webview);
+      if (existingWebview && existingWebview.parentElement && existingWebview.parentElement !== screen) {
+        screen.appendChild(existingWebview);
+      } else if (!existingWebview || existingWebview.parentElement !== screen) {
+        screen.appendChild(webview);
+      }
       screen.appendChild(canvas);
       frameBox.appendChild(notch);
       frameBox.appendChild(screen);
@@ -3110,6 +3114,18 @@ func GenerateAuxiliaryPluginsScript() string {
       toolbar.querySelector("#swiss-b-fwd").onclick = () => {
         if (webview.goForward) webview.goForward();
       };
+
+      const updateUrlFromWebview = (u) => {
+        if (!u || u === "about:blank") return;
+        currentBrowserUrl = u;
+        const inp = toolbar.querySelector("#swiss-b-url");
+        if (inp && document.activeElement !== inp) inp.value = u;
+        updateActivePortChip(u);
+      };
+      try {
+        webview.addEventListener("did-navigate", (e) => updateUrlFromWebview(e.url));
+        webview.addEventListener("did-navigate-in-page", (e) => updateUrlFromWebview(e.url));
+      } catch (_) {}
 
       // Quick Ports Management & localStorage persistence
       const QUICK_PORTS_KEY = "antigravity_swiss_quick_ports";
@@ -4478,8 +4494,74 @@ func GenerateAuxiliaryPluginsScript() string {
         window.removeEventListener("resize", applyDeviceScale);
         window.__swissResizeBound = false;
       };
-      container.__swissTabTeardown = teardownBrowserView;
+      if (container) container.__swissTabTeardown = teardownBrowserView;
+      wrap.__swissTeardown = teardownBrowserView;
+      if (webview) webview.__swissTeardown = teardownBrowserView;
     }
+
+    // ----------------------------------------------------
+    // Built-in Browser Enhancements Adapter
+    // ----------------------------------------------------
+    function isBrowserEnhancementEnabled() {
+      try {
+        const cfg = window.__SWISS_ENH_CONFIG__;
+        if (cfg && cfg.extensions && typeof cfg.extensions.browser?.aux_panel === "boolean") {
+          return cfg.extensions.browser.aux_panel;
+        }
+        const disabledExts = JSON.parse(localStorage.getItem("antigravity_swiss_disabled_extensions") || "[]");
+        if (Array.isArray(disabledExts) && disabledExts.includes("browser")) return false;
+        if (localStorage.getItem("antigravity_swiss_ext_browser_enabled") === "false") return false;
+      } catch (_) {}
+      return true;
+    }
+
+    function setupBuiltinBrowserEnhancements() {
+      if (!isBrowserEnhancementEnabled()) {
+        document.querySelectorAll(".swiss-browser-view.swiss-builtin-browser-view").forEach(v => {
+          if (typeof v.__swissTeardown === "function") {
+            try { v.__swissTeardown(); } catch (_) {}
+          }
+          v.remove();
+        });
+        return;
+      }
+
+      const webviews = Array.from(document.querySelectorAll("webview"));
+      webviews.forEach(wv => {
+        if (wv.hasAttribute("data-swiss-jail") ||
+            (wv.getAttribute("partition") && wv.getAttribute("partition").startsWith("persist:script-jail")) ||
+            wv.closest?.(".script-jail, .auth-modal, .modal-popup")) {
+          return;
+        }
+        if (wv.__swissEnhanced) {
+          const wrap = wv.closest(".swiss-browser-view");
+          if (wrap && wrap.isConnected) return;
+        }
+        attachBuiltinBrowserEnhancements(wv);
+      });
+    }
+
+    function attachBuiltinBrowserEnhancements(webview) {
+      if (!webview) return;
+      webview.__swissEnhanced = true;
+      const parent = webview.parentElement;
+      if (!parent) return;
+
+      const wrap = document.createElement("div");
+      wrap.className = "swiss-browser-view swiss-builtin-browser-view";
+      wrap.style.width = "100%";
+      wrap.style.height = "100%";
+      wrap.style.display = "flex";
+      wrap.style.flexDirection = "column";
+      wrap.style.position = "relative";
+      wrap.style.overflow = "hidden";
+
+      parent.insertBefore(wrap, webview);
+      renderBrowserView(wrap, webview);
+    }
+
+    window.setupBuiltinBrowserEnhancements = setupBuiltinBrowserEnhancements;
+    window.attachBuiltinBrowserEnhancements = attachBuiltinBrowserEnhancements;
 
     // ----------------------------------------------------
     // 3. LIGHTWEIGHT FILE EXPLORER & IN-PLACE EDITORS
@@ -8005,6 +8087,7 @@ func GenerateAuxiliaryPluginsScript() string {
     // Synchronous immediate initial setup
     setupAuxiliaryTabs();
     setupInChatTelemetry();
+    setupBuiltinBrowserEnhancements();
 
     // Periodic check & mutation observer with singleton cleanup
     if (window.__swissAuxIntervalId) {
@@ -8013,6 +8096,7 @@ func GenerateAuxiliaryPluginsScript() string {
     window.__swissAuxIntervalId = setInterval(() => {
       setupAuxiliaryTabs();
       setupInChatTelemetry();
+      setupBuiltinBrowserEnhancements();
       syncAuxProjectScope();
     }, 2500);
 
@@ -8032,6 +8116,9 @@ func GenerateAuxiliaryPluginsScript() string {
           if (t.classList?.contains("swiss-aux-tab-btn") || t.closest?.(".swiss-aux-tab-btn")) return false;
           if (t.classList?.contains("swiss-aux-tabs-divider") || t.closest?.(".swiss-aux-tabs-divider")) return false;
           if (t.classList?.contains("swiss-aux-btn-group") || t.closest?.(".swiss-aux-btn-group")) return false;
+          if (t.classList?.contains("swiss-browser-toolbar") || t.closest?.(".swiss-browser-toolbar")) return false;
+          if (t.classList?.contains("swiss-browser-canvas-overlay") || t.closest?.(".swiss-browser-canvas-overlay")) return false;
+          if (t.classList?.contains("swiss-builtin-browser-view") || t.closest?.(".swiss-builtin-browser-view")) return false;
         }
         return true;
       });
@@ -8043,6 +8130,7 @@ func GenerateAuxiliaryPluginsScript() string {
         document.querySelectorAll('[role="dialog"] .swiss-inchat-metrics, [aria-modal="true"] .swiss-inchat-metrics, .settings-tab-content .swiss-inchat-metrics, #swiss-aux-container .swiss-inchat-metrics, pre .swiss-inchat-metrics, code .swiss-inchat-metrics').forEach(el => el.remove());
         setupAuxiliaryTabs();
         setupInChatTelemetry();
+        setupBuiltinBrowserEnhancements();
         syncAuxProjectScope();
       });
     });

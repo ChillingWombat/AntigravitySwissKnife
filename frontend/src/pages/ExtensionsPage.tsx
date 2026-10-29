@@ -875,18 +875,23 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
         </div>
 
         {/* ========================================================================= */}
-        {/* GADGET 2: Preview Browser                                                 */}
+        {/* GADGET 2: Built-in Browser Enhancements                                   */}
         {/* ========================================================================= */}
         <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: (browserVis.aux_panel || browserVis.main_page) ? '14px' : 0, padding: '16px 20px' }}>
           {/* Header & Toggle Row */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Globe size={16} color="var(--text-muted)" />
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
-                Preview Browser
-              </h3>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                  Built-in Browser Enhancements
+                </h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Preview Browser capabilities on Antigravity's native browser
+                </span>
+              </div>
             </div>
-            {renderExtSwitches('browser', 'Preview Browser')}
+            {renderExtSwitches('browser', 'Built-in Browser')}
           </div>
 
           {/* Extension Settings */}
