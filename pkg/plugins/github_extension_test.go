@@ -1289,3 +1289,40 @@ func TestGitHubWorkspaceBlockedForRepoLessProjects(t *testing.T) {
 		}
 	}
 }
+
+func TestGitHubWorkspaceTabCountsOnlyOpenItems(t *testing.T) {
+	js := GenerateGitHubExtensionScript()
+
+	// Verify raw length is not used for Issues and PRs tab labels
+	if strings.Contains(js, "Issues (${cachedIssues.length})") {
+		t.Errorf("Stage view Issues tab must not use raw cachedIssues.length")
+	}
+	if strings.Contains(js, "PRs (${cachedPRs.length})") {
+		t.Errorf("Stage view PRs tab must not use raw cachedPRs.length")
+	}
+	if strings.Contains(js, "Issues (${effIssues.length})") {
+		t.Errorf("Aux view Issues tab must not use raw effIssues.length")
+	}
+	if strings.Contains(js, "PRs (${effPRs.length})") {
+		t.Errorf("Aux view PRs tab must not use raw effPRs.length")
+	}
+
+	// Verify open items filter is used for Issues and PRs tab labels
+	expectedStageIssues := "Issues (${cachedIssues.filter(it => it && (it.state || \"open\").toLowerCase() === \"open\").length})"
+	expectedStagePRs := "PRs (${cachedPRs.filter(it => it && (it.state || \"open\").toLowerCase() === \"open\").length})"
+	if !strings.Contains(js, expectedStageIssues) {
+		t.Errorf("Stage view Issues tab missing open items filter, expected %q", expectedStageIssues)
+	}
+	if !strings.Contains(js, expectedStagePRs) {
+		t.Errorf("Stage view PRs tab missing open items filter, expected %q", expectedStagePRs)
+	}
+
+	expectedAuxIssues := "Issues (${effIssues.filter(it => it && (it.state || \"open\").toLowerCase() === \"open\").length})"
+	expectedAuxPRs := "PRs (${effPRs.filter(it => it && (it.state || \"open\").toLowerCase() === \"open\").length})"
+	if !strings.Contains(js, expectedAuxIssues) {
+		t.Errorf("Aux view Issues tab missing open items filter, expected %q", expectedAuxIssues)
+	}
+	if !strings.Contains(js, expectedAuxPRs) {
+		t.Errorf("Aux view PRs tab missing open items filter, expected %q", expectedAuxPRs)
+	}
+}

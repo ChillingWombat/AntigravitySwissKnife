@@ -1471,8 +1471,8 @@ func GenerateGitHubExtensionScript() string {
       </div>
       <div class="swiss-gh-tabs-row">
         <button class="swiss-gh-tab-btn ${activeTab === "board" ? "active" : ""}" data-tab="board">Board</button>
-        <button class="swiss-gh-tab-btn ${activeTab === "issues" ? "active" : ""}" data-tab="issues">Issues (${effIssues.length})</button>
-        <button class="swiss-gh-tab-btn ${activeTab === "prs" ? "active" : ""}" data-tab="prs">PRs (${effPRs.length})</button>
+        <button class="swiss-gh-tab-btn ${activeTab === "issues" ? "active" : ""}" data-tab="issues">Issues (${effIssues.filter(it => it && (it.state || "open").toLowerCase() === "open").length})</button>
+        <button class="swiss-gh-tab-btn ${activeTab === "prs" ? "active" : ""}" data-tab="prs">PRs (${effPRs.filter(it => it && (it.state || "open").toLowerCase() === "open").length})</button>
         <button class="swiss-gh-tab-btn ${activeTab === "tasks" ? "active" : ""}" data-tab="tasks">AGY Agents (${effTasks.filter(t => !t.is_pruned && (t.not_fully_idle || t.status === "working")).length})</button>
       </div>
       <div class="swiss-gh-search-box" style="display: flex; align-items: center; gap: 6px;">
@@ -3031,10 +3031,10 @@ func GenerateGitHubExtensionScript() string {
                 Board
               </button>
               <button class="swiss-gh-view-btn ${stageViewMode === "list" && effListTab === "issues" ? "active" : ""}" id="swiss-stage-view-list" data-stage-tab="issues">
-                Issues (${cachedIssues.length})
+                Issues (${cachedIssues.filter(it => it && (it.state || "open").toLowerCase() === "open").length})
               </button>
               <button class="swiss-gh-view-btn ${stageViewMode === "list" && effListTab === "prs" ? "active" : ""}" data-stage-tab="prs">
-                PRs (${cachedPRs.length})
+                PRs (${cachedPRs.filter(it => it && (it.state || "open").toLowerCase() === "open").length})
               </button>
               <button class="swiss-gh-view-btn ${stageViewMode === "list" && effListTab === "tasks" ? "active" : ""}" data-stage-tab="tasks">
                 AGY Agents (${cachedAgentTasks.filter(t => !t.is_pruned && (t.not_fully_idle || t.status === "working")).length})
