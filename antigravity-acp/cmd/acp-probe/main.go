@@ -75,6 +75,7 @@ func (c *probeClient) WaitForTerminalExit(context.Context, acpsdk.WaitForTermina
 
 func main() {
 	server := flag.String("server", "antigravity-acp --surface ls", "agent command to spawn")
+	sessionID := flag.String("session", "", "existing conversation/session ID to load instead of creating one")
 	prompt := flag.String("prompt", "Reply with exactly: probe-ok", "prompt to send")
 	cwd := flag.String("cwd", ".", "session working directory")
 	timeout := flag.Duration("timeout", 180*time.Second, "overall deadline")
@@ -112,16 +113,31 @@ func main() {
 	}
 	fmt.Printf("agent: %s %s | protocol %d\n", init.AgentInfo.Name, init.AgentInfo.Version, init.ProtocolVersion)
 
-	session, err := conn.NewSession(ctx, acpsdk.NewSessionRequest{Cwd: *cwd, McpServers: []acpsdk.McpServer{}})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "session/new:", err)
-		os.Exit(1)
+	var session acpsdk.SessionId
+	if strings.TrimSpace(*sessionID) != "" {
+		session = acpsdk.SessionId(strings.TrimSpace(*sessionID))
+		if _, err := conn.LoadSession(ctx, acpsdk.LoadSessionRequest{
+			SessionId:  session,
+			Cwd:        *cwd,
+			McpServers: []acpsdk.McpServer{},
+		}); err != nil {
+			fmt.Fprintln(os.Stderr, "session/load:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("loaded session: %s\n", session)
+	} else {
+		newSession, err := conn.NewSession(ctx, acpsdk.NewSessionRequest{Cwd: *cwd, McpServers: []acpsdk.McpServer{}})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "session/new:", err)
+			os.Exit(1)
+		}
+		session = newSession.SessionId
+		fmt.Printf("session: %s\n", session)
 	}
-	fmt.Printf("session: %s\n", session.SessionId)
 
 	var blocks []acpsdk.ContentBlock
 	blocks = append(blocks, acpsdk.ContentBlock{Text: &acpsdk.ContentBlockText{Type: "text", Text: *prompt}})
-	result, err := conn.Prompt(ctx, acpsdk.PromptRequest{SessionId: session.SessionId, Prompt: blocks})
+	result, err := conn.Prompt(ctx, acpsdk.PromptRequest{SessionId: session, Prompt: blocks})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "\nprompt:", err)
 		os.Exit(1)

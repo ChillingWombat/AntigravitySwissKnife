@@ -12,6 +12,9 @@ const (
 	EventToolStart
 	EventToolUpdate
 	EventError
+	// EventUserText is a user turn replayed from history. Surfaces emit it only
+	// from History, never from Send, so live turns stay one-directional.
+	EventUserText
 )
 
 // Event is the adapter's own vocabulary. Translation into ACP updates lives in

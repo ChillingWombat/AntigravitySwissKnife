@@ -281,6 +281,38 @@ func TestLoadSessionRegistersSession(t *testing.T) {
 	}
 }
 
+// Replayed history must keep both sides of the conversation: a user turn
+// delivered as an agent message makes the transcript claim the agent said it.
+func TestLoadSessionReplaysBothSidesOfHistory(t *testing.T) {
+	s := &historyFakeSurface{
+		fakeSurface: &fakeSurface{},
+		events: []surface.Event{
+			{Kind: surface.EventUserText, Text: "remember BANANA7"},
+			{Kind: surface.EventText, Text: "stored"},
+			{Kind: surface.EventToolStart, ToolID: "tool-1", Tool: "read_file"},
+		},
+	}
+	agent := New(s)
+	updater := &recordingUpdater{}
+	agent.conn = updater
+
+	if _, err := agent.LoadSession(context.Background(), acpsdk.LoadSessionRequest{SessionId: "loaded"}); err != nil {
+		t.Fatalf("LoadSession: %v", err)
+	}
+
+	if len(updater.updates) != 2 {
+		t.Fatalf("replayed %d updates, want 2 (tool events carry no text)", len(updater.updates))
+	}
+	first := updater.updates[0].Update
+	if first.UserMessageChunk == nil {
+		t.Errorf("first update must be a user message, got %+v", first)
+	}
+	second := updater.updates[1].Update
+	if second.AgentMessageChunk == nil {
+		t.Errorf("second update must be an agent message, got %+v", second)
+	}
+}
+
 func TestPromptForwardsToolEvents(t *testing.T) {
 	s := &fakeSurface{
 		send: func(_ context.Context, _ string, _ string, emit func(surface.Event) error) (surface.StopReason, error) {

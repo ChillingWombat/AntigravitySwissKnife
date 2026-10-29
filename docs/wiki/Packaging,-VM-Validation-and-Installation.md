@@ -31,17 +31,21 @@ npm run install:linux
 ```
 
 This script:
-1. Compiles frontend assets and builds the Go companion daemon natively.
+1. Uses the current unpacked release or rebuilds frontend assets and the Go companion daemon.
 2. Stages the entire runtime out-of-tree into:
    ```
    ~/.local/share/antigravity-swiss-knife/app/
    ```
-3. Resolves absolute paths for binaries and application icons.
-4. Generates a standard FreeDesktop desktop entry at:
+3. Stops the running installed app only after staging succeeds, then replaces the application tree.
+4. Relaunches the installed build detached and waits for `/health` on `127.0.0.1:8765`.
+5. Resolves absolute paths for binaries and application icons.
+6. Generates a standard FreeDesktop desktop entry at:
    ```
    ~/.local/share/applications/antigravity-swiss-knife.desktop
    ```
-5. Updates the local desktop database (`update-desktop-database ~/.local/share/applications/`), making the application immediately searchable in GNOME, KDE, and other application menus.
+7. Updates the local desktop database (`update-desktop-database ~/.local/share/applications/`), making the application immediately searchable in GNOME, KDE, and other application menus.
+
+Use `--no-restart` to preserve the running app, or `--no-launch` to skip the post-install relaunch. CI and `ANTIGRAVITY_INSTALL_NO_LAUNCH=1` disable restart/launch by default.
 
 ---
 

@@ -21,7 +21,8 @@
  * ==============================================================================
  */
 
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
+const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -51,6 +52,140 @@ function canSudo() {
   } catch {
     return false;
   }
+}
+
+function isMainAppCommand(argv, appDir) {
+  if (!Array.isArray(argv) || argv.length === 0) {
+    return false;
+  }
+  if (argv.some((arg) => typeof arg === 'string' && arg.startsWith('--type='))) {
+    return false;
+  }
+  const executable = path.resolve(argv[0]);
+  return executable === path.join(appDir, 'antigravity-swiss-knife') ||
+    executable === path.join(appDir, 'antigravity-swiss-knife.bin');
+}
+
+function findInstalledMainAppPids(appDir) {
+  if (process.platform !== 'linux') {
+    return [];
+  }
+  const pids = [];
+  for (const entry of fs.readdirSync('/proc')) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    if (pid === process.pid || pid <= 1) continue;
+    try {
+      const argv = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean);
+      if (isMainAppCommand(argv, appDir)) {
+        pids.push(pid);
+      }
+    } catch {}
+  }
+  return pids;
+}
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return fs.existsSync(`/proc/${pid}`);
+  } catch {
+    return false;
+  }
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function stopInstalledApp(appDir) {
+  const pids = findInstalledMainAppPids(appDir);
+  if (pids.length === 0) {
+    log('No running installed app instance to stop.');
+    return;
+  }
+
+  log(`Stopping installed app instance${pids.length === 1 ? '' : 's'}: ${pids.join(', ')}`);
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {}
+  }
+
+  const deadline = Date.now() + 6000;
+  while (Date.now() < deadline) {
+    if (pids.every((pid) => !isProcessAlive(pid))) {
+      log('Installed app stopped cleanly.');
+      return;
+    }
+    sleepSync(200);
+  }
+
+  for (const pid of pids) {
+    if (!isProcessAlive(pid)) continue;
+    log(`Escalating stop for PID ${pid}`);
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {}
+  }
+}
+
+function launchInstalledApp(targetPaths) {
+  const launcher = path.join(targetPaths.appDir, 'antigravity-swiss-knife');
+  if (!fs.existsSync(launcher)) {
+    throw new Error(`Installed launcher missing: ${launcher}`);
+  }
+  const child = spawn(launcher, [], {
+    cwd: targetPaths.appDir,
+    detached: true,
+    stdio: 'ignore',
+    env: { ...process.env }
+  });
+  child.unref();
+  log(`Relaunched installed app detached (PID ${child.pid}).`);
+  return child.pid;
+}
+
+function probeDaemonHealth() {
+  return new Promise((resolve) => {
+    const req = http.get({
+      host: '127.0.0.1',
+      port: 8765,
+      path: '/health',
+      timeout: 750
+    }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        body += chunk;
+      });
+      res.on('end', () => {
+        try {
+          const status = JSON.parse(body);
+          resolve(res.statusCode === 200 && status.status === 'ok' && status.daemon_running === true);
+        } catch {
+          resolve(false);
+        }
+      });
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.on('error', () => resolve(false));
+  });
+}
+
+async function waitForDaemonHealth(timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await probeDaemonHealth()) {
+      log('Relaunched daemon is healthy on http://127.0.0.1:8765.');
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error('Relaunched app did not bring the daemon to healthy state within 15s');
 }
 
 function cleanStaleRootSymlinks() {
@@ -147,7 +282,7 @@ function resolveInstallPaths(mode = 'auto') {
   };
 }
 
-function stageAndInstallApp(targetPaths) {
+function stageAndInstallApp(targetPaths, options = {}) {
   const { appDir, parentDir } = targetPaths;
   ensureDir(parentDir);
 
@@ -203,6 +338,10 @@ function stageAndInstallApp(targetPaths) {
       }
     }
   } catch {}
+
+  if (typeof options.beforeReplace === 'function') {
+    options.beforeReplace();
+  }
 
   // Atomically replace app directory
   log(`Installing staged files to stable destination: ${appDir}`);
@@ -486,11 +625,15 @@ function verifyInstallation(targetPaths) {
 }
 
 function parseCliArgs() {
+  const nonInteractive = process.env.CI === 'true' ||
+    process.env.ANTIGRAVITY_INSTALL_NO_LAUNCH === '1';
   const args = process.argv.slice(2);
   const options = {
     mode: 'auto',
     forceRebuild: false,
     verifyOnly: false,
+    restart: !nonInteractive,
+    launch: !nonInteractive,
     help: false
   };
 
@@ -501,6 +644,10 @@ function parseCliArgs() {
       options.mode = 'system';
     } else if (arg === '--rebuild' || arg === '--force-build') {
       options.forceRebuild = true;
+    } else if (arg === '--no-restart') {
+      options.restart = false;
+    } else if (arg === '--no-launch') {
+      options.launch = false;
     } else if (arg === '--verify-only') {
       options.verifyOnly = true;
     } else if (arg === '--help' || arg === '-h') {
@@ -522,12 +669,14 @@ Options:
   --user          Install to user directory (~/.local/share/antigravity-swiss-knife/app)
   --system        Install to system directory (/opt/Antigravity Swiss Knife) [requires root]
   --rebuild       Force rebuilding unpacked release before installing
+  --no-restart    Do not stop an already-running installed app
+  --no-launch     Do not relaunch the installed app after installation
   --verify-only   Run integrity verification checks on current installation
   --help, -h      Display this help message
 `);
 }
 
-function main() {
+async function main() {
   const options = parseCliArgs();
   if (options.help) {
     printHelp();
@@ -546,26 +695,41 @@ function main() {
   }
 
   ensureBuildExists(options.forceRebuild);
-  stageAndInstallApp(targetPaths);
+  stageAndInstallApp(targetPaths, {
+    beforeReplace: options.restart && targetPaths.type === 'user'
+      ? () => stopInstalledApp(targetPaths.appDir)
+      : undefined
+  });
   installIcons(targetPaths);
   installDesktopEntry(targetPaths);
   installCliSymlink(targetPaths);
   installAcpCliSymlink(targetPaths);
   verifyInstallation(targetPaths);
 
+  if (options.launch && targetPaths.type === 'user') {
+    launchInstalledApp(targetPaths);
+    await waitForDaemonHealth();
+  } else if (targetPaths.type === 'system') {
+    log('System installation does not auto-launch the desktop app.');
+  }
+
   log('Installation completed successfully.');
 }
 
 if (require.main === module) {
-  try {
-    main();
-  } catch (err) {
+  main().catch((err) => {
     console.error(`[Install Fatal Error]: ${err.message}`);
     process.exit(1);
-  }
+  });
 }
 
 module.exports = {
+  isMainAppCommand,
+  findInstalledMainAppPids,
+  stopInstalledApp,
+  launchInstalledApp,
+  probeDaemonHealth,
+  parseCliArgs,
   resolveInstallPaths,
   stageAndInstallApp,
   installIcons,

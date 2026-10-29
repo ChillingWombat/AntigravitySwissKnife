@@ -75,7 +75,7 @@ To install directly from source into your user directory (`~/.local/share/antigr
 npm run install:linux
 ```
 
-This bundles the companion daemon, installs desktop icons, and configures the desktop menu entry.
+This stages the bundle, stops the running installed app, installs desktop assets, relaunches the new build, and waits for the companion daemon on `127.0.0.1:8765`. Use `-- --no-restart` to leave the current app running or `-- --no-launch` to install without relaunching.
 
 ### Building from Source
 
