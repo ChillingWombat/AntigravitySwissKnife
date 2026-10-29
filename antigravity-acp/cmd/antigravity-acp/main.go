@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"strings"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 
@@ -18,11 +19,13 @@ func main() {
 	agyBinary := flag.String("agy-binary", "agy", "path to the Antigravity CLI binary")
 	surfaceName := flag.String("surface", "auto", "surface to serve: auto, ls, or cli")
 	logPath := flag.String("ls-log", ls.DefaultLogPath(), "language server log used to find the port")
+	lsURL := flag.String("ls-url", os.Getenv("ANTIGRAVITY_LS_URL"), "direct URL to language server (bypasses discovery)")
+	lsCSRF := flag.String("ls-csrf", os.Getenv("ANTIGRAVITY_LS_CSRF"), "CSRF token for language server (bypasses argv inspection)")
 	flag.Parse()
 
 	log.SetOutput(os.Stderr) // stdout belongs to the protocol
 
-	surf := pickSurface(*surfaceName, *agyBinary, *logPath)
+	surf := pickSurface(*surfaceName, *agyBinary, *logPath, *lsURL, *lsCSRF)
 	agent := acp.New(surf)
 
 	conn := acpsdk.NewAgentSideConnection(agent, os.Stdout, os.Stdin)
@@ -34,12 +37,16 @@ func main() {
 // pickSurface prefers the language server because it is the same runtime the
 // desktop app and the VS Code extension use; the CLI is the fallback when no
 // server is running.
-func pickSurface(name, agyBinary, logPath string) surface.Surface {
+func pickSurface(name, agyBinary, logPath, lsURL, lsCSRF string) surface.Surface {
+	if strings.TrimSpace(lsURL) != "" {
+		log.Printf("antigravity-acp: direct language server at %s", lsURL)
+		return ls.New(lsURL, lsCSRF)
+	}
 	switch name {
 	case "cli":
 		return cli.New(agyBinary)
 	case "ls":
-		return mustLS(logPath)
+		return mustLS(logPath, lsURL, lsCSRF)
 	}
 	if baseURL, csrf, err := ls.Discover(logPath); err == nil {
 		log.Printf("antigravity-acp: language server at %s", baseURL)
@@ -50,7 +57,10 @@ func pickSurface(name, agyBinary, logPath string) surface.Surface {
 	return cli.New(agyBinary)
 }
 
-func mustLS(logPath string) surface.Surface {
+func mustLS(logPath, lsURL, lsCSRF string) surface.Surface {
+	if strings.TrimSpace(lsURL) != "" {
+		return ls.New(lsURL, lsCSRF)
+	}
 	baseURL, csrf, err := ls.Discover(logPath)
 	if err != nil {
 		log.Fatalf("antigravity-acp: language server discovery failed: %v", err)
