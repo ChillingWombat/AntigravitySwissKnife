@@ -70,7 +70,7 @@ type Config struct {
 	// VSCodeDebugPort is the loopback CDP port used when Swiss Knife launches VS Code.
 	VSCodeDebugPort int `json:"vscode_debug_port"`
 	// ACPAgents stores user overrides for the built-in ACP presets plus any
-	// custom agents added from the Utilities > ACP Agent Mesh page.
+	// custom agents added from the Utilities > Agent Communication page.
 	ACPAgents []ACPAgentConfig `json:"acp_agents,omitempty"`
 
 	mu sync.RWMutex `json:"-"`

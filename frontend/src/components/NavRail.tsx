@@ -16,7 +16,7 @@ import {
 import type { SystemStatus } from '../types'
 
 interface NavRailProps {
-  currentTool: number // 0: Switcher, 2: System Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: ACP Agent Mesh
+  currentTool: number // 0: Switcher, 2: System Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: Agent Communication
   onSelectTool: (idx: number) => void
   status: SystemStatus | null
 }
@@ -222,7 +222,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           }}
         >
           <Network size={18} color={currentTool === 11 ? 'var(--primary)' : 'var(--text-muted)'} />
-          ACP Agent Mesh
+          Agent Communication
         </button>
 
         {Boolean(status?.daemon_running) && (

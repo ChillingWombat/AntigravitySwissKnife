@@ -20,7 +20,7 @@ Every feature subsystem runs locally without external network proxies. The table
 | [Extensions](Extensions.md) | Rail `7` | Modular IDE gadgets with Built-in and Community tabs, and main-stage Overview panel auto-hiding | `~/.config/antigravity-swiss/enhancements.json` |
 | [Token Monitor](Token-Monitor.md) | Rail `8` | Real-time token consumption, TPS rates, cost accounting, pricing registry, and B (billions) unit formatting | SQLite `token_telemetry.db` / `pricing.json` |
 | [App Enhancements](App-Enhancements.md) | Rail `4` | Runtime CDP hooks for chat view navigation, token meters, and project color tags | `persistent_script.js` / `persistent_styles.css` |
-| [Utilities](Utilities.md) | Rail `9` | Cross-agent chat importer and ACP agent mesh inspector | Unix Domain Socket IPC / SQLite WAL |
+| [Utilities](Utilities.md) | Rail `9` | Cross-agent chat importer and Agent Communication inspector | Unix Domain Socket IPC / SQLite WAL |
 | [GitHub Workspace](GitHub-Workspace.md) | Rail `7` Gadget | Interactive Kanban board, issue/PR management, and subagent task tracking | Local Git repo / `github_workspace.json` |
 | [System Settings](System-Settings.md) | Rail `2` (Pinned Bottom) | Application lock screen password, runtime modes, storage paths, and diagnostics | `~/.config/antigravity-swiss/settings.json` |
 

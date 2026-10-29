@@ -41,7 +41,7 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(appContent.includes('<BridgePage'))
   })
 
-  it('promotes ACP Agent Mesh and keeps Utilities tabs in the required order', () => {
+  it('promotes Agent Communication and keeps Utilities tabs in the required order', () => {
     assert.ok(appContent.includes('currentTool === 11'))
     assert.ok(appContent.includes('id="acp-mesh-top-bar-portal"'))
     assert.ok(appContent.includes('<ACPAgentMeshPage />'))

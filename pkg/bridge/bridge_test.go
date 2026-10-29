@@ -713,3 +713,79 @@ func TestBridge_GetStatusUnmaskedToken(t *testing.T) {
 		t.Fatalf("expected ServeRemoteHTTP response to contain 'Antigravity Remote Control'")
 	}
 }
+
+func TestBridge_A2AMCPTools(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "gemini_bridge.json")
+	svc, err := NewService(cfgPath)
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+
+	manifest := svc.ToolManifest()
+	toolNames := make(map[string]bool)
+	for _, tool := range manifest {
+		toolNames[tool["name"].(string)] = true
+	}
+
+	for _, expected := range []string{
+		"a2a_assign_task",
+		"a2a_get_task_status",
+		"a2a_await_task",
+		"a2a_send_task_message",
+		"a2a_cancel_task",
+		"a2a_list_tasks",
+	} {
+		if !toolNames[expected] {
+			t.Errorf("expected tool manifest to contain %s", expected)
+		}
+	}
+
+	// Test CallTool for a2a_assign_task
+	assignOut, err := svc.CallTool("a2a_assign_task", map[string]interface{}{
+		"prompt": "Test high level task assignment over MCP",
+		"title":  "Test MCP Task",
+	})
+	if err != nil {
+		t.Fatalf("CallTool a2a_assign_task failed: %v", err)
+	}
+
+	var task A2ATask
+	if err := json.Unmarshal([]byte(assignOut), &task); err != nil {
+		t.Fatalf("failed to parse task JSON from CallTool: %v", err)
+	}
+	if task.ID == "" {
+		t.Fatalf("expected non-empty task ID")
+	}
+
+	// Test CallTool for a2a_get_task_status
+	statusOut, err := svc.CallTool("a2a_get_task_status", map[string]interface{}{
+		"task_id": task.ID,
+	})
+	if err != nil {
+		t.Fatalf("CallTool a2a_get_task_status failed: %v", err)
+	}
+	if !strings.Contains(statusOut, task.ID) {
+		t.Errorf("expected status output to contain task ID %s", task.ID)
+	}
+
+	// Test CallTool for a2a_list_tasks
+	listOut, err := svc.CallTool("a2a_list_tasks", map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("CallTool a2a_list_tasks failed: %v", err)
+	}
+	if !strings.Contains(listOut, task.ID) {
+		t.Errorf("expected list output to contain task ID %s", task.ID)
+	}
+
+	// Test CallTool for a2a_cancel_task
+	cancelOut, err := svc.CallTool("a2a_cancel_task", map[string]interface{}{
+		"task_id": task.ID,
+	})
+	if err != nil {
+		t.Fatalf("CallTool a2a_cancel_task failed: %v", err)
+	}
+	if !strings.Contains(cancelOut, "canceled") {
+		t.Errorf("expected canceled in output, got: %s", cancelOut)
+	}
+}

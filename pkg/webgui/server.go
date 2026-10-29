@@ -551,6 +551,15 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/bridge/test", s.handleBridgeTest)
 	mux.HandleFunc("/api/bridge/mcp", s.handleBridgeMCP)
 	mux.HandleFunc("/mcp", s.handleBridgeMCP)
+	// A2A (Agent-to-Agent Protocol) Discovery & High-Level Task Delegation
+	mux.HandleFunc("/.well-known/agent.json", s.handleA2AAgentCard)
+	mux.HandleFunc("/agent.json", s.handleA2AAgentCard)
+	mux.HandleFunc("/a2a/agent.json", s.handleA2AAgentCard)
+	mux.HandleFunc("/api/bridge/a2a/agent.json", s.handleA2AAgentCard)
+	mux.HandleFunc("/a2a/tasks", s.handleA2ATasks)
+	mux.HandleFunc("/a2a/tasks/", s.handleA2ATasks)
+	mux.HandleFunc("/api/bridge/a2a/tasks", s.handleA2ATasks)
+	mux.HandleFunc("/api/bridge/a2a/tasks/", s.handleA2ATasks)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", s.handleOAuthProtectedResource)
 	mux.HandleFunc("/.well-known/oauth-protected-resource/", s.handleOAuthProtectedResource)
 	mux.HandleFunc("/.well-known/oauth-authorization-server", s.handleOAuthMetadata)
@@ -795,6 +804,12 @@ func isExternalOriginAllowedPath(p string) bool {
 		return true
 	}
 	if clean == "/mcp" || strings.HasPrefix(clean, "/mcp/") {
+		return true
+	}
+	if clean == "/agent.json" || clean == "/a2a/agent.json" || clean == "/api/bridge/a2a/agent.json" {
+		return true
+	}
+	if clean == "/a2a/tasks" || strings.HasPrefix(clean, "/a2a/tasks/") || clean == "/api/bridge/a2a/tasks" || strings.HasPrefix(clean, "/api/bridge/a2a/tasks/") {
 		return true
 	}
 	if clean == "/remote" || strings.HasPrefix(clean, "/remote/") {
