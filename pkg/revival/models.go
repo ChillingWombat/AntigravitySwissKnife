@@ -37,7 +37,7 @@ const DefaultTriggerPrompt = "Please continue ongoing tasks and subagents."
 const (
 	DefaultTTLSeconds             = 600
 	DefaultMaxAttempts            = 2
-	RevivalCooldownDuration       = 10 * time.Minute
+	RevivalCooldownDuration       = 60 * time.Second
 	GlobalRevivalCooldownDuration = 45 * time.Second
 )
 
@@ -65,7 +65,12 @@ type RevivalIntent struct {
 // RevivalStatus represents the current status of conversation continuation and active revival intents.
 type RevivalStatus struct {
 	ActiveSession *ActiveSessionInfo `json:"active_session,omitempty"`
-	PendingIntent *RevivalIntent     `json:"pending_intent,omitempty"`
-	LastRevivedAt *time.Time         `json:"last_revived_at,omitempty"`
-	Success       bool               `json:"success"`
+	// PendingIntents holds every live pending intent. An account switch can
+	// interrupt several conversations, each of which needs its own prompt.
+	PendingIntents []*RevivalIntent `json:"pending_intents,omitempty"`
+	// PendingIntent mirrors the newest entry of PendingIntents for consumers
+	// that predate the collection.
+	PendingIntent *RevivalIntent `json:"pending_intent,omitempty"`
+	LastRevivedAt *time.Time     `json:"last_revived_at,omitempty"`
+	Success       bool           `json:"success"`
 }

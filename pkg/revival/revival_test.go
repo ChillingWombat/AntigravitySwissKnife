@@ -904,11 +904,11 @@ func TestEngine_RevivedMapExpiresAfter10Minutes(t *testing.T) {
 	engine := NewEngine(tmpDir, 0)
 	engine.Detector.BaseDir = tmpDir
 
-	// Simulate revived 11 minutes ago (exceeding 10-minute cooldown)
-	elevenMinAgo := time.Now().Add(-11 * time.Minute)
+	// Simulate a revival that is past the per-conversation cooldown window
+	pastCooldown := time.Now().Add(-RevivalCooldownDuration - time.Minute)
 	engine.mu.Lock()
-	engine.lastRevivedAt = &elevenMinAgo
-	engine.revivedMap[convID] = elevenMinAgo
+	engine.lastRevivedAt = &pastCooldown
+	engine.revivedMap[convID] = pastCooldown
 	engine.mu.Unlock()
 
 	status, err := engine.GetRevivalStatus(convID)
@@ -916,7 +916,7 @@ func TestEngine_RevivedMapExpiresAfter10Minutes(t *testing.T) {
 		t.Fatalf("GetRevivalStatus failed: %v", err)
 	}
 	if status.PendingIntent == nil {
-		t.Errorf("expected 11-minute-old cooldown to expire and allow new revival intent synthesis, got nil")
+		t.Errorf("expected an expired cooldown to allow new revival intent synthesis, got nil")
 	}
 
 	engine.mu.RLock()
@@ -1079,4 +1079,5 @@ func TestEngine_AcknowledgeContinuation_EmptyOrMismatchGuard(t *testing.T) {
 		t.Errorf("expected active intent to remain untouched after mismatched ack, got %v", loaded)
 	}
 }
+
 

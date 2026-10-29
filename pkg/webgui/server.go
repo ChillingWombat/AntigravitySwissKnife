@@ -1395,9 +1395,9 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		var revIntent *revival.RevivalIntent
+		var revIntents []*revival.RevivalIntent
 		if s.revivalEngine != nil {
-			revIntent, _ = s.revivalEngine.CapturePreSwitchState(targetApp)
+			revIntents, _ = s.revivalEngine.CapturePreSwitchIntents(targetApp)
 		}
 
 		var allEmails []string
@@ -1416,10 +1416,12 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 			if !shouldRelaunch {
 				if !core.IsRunningTests() && !gui.IsTestExecution() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
 					_, _ = gui.NewInjector(0).RefreshUserStatus()
-					if s.revivalEngine != nil && revIntent != nil {
-						go func(it *revival.RevivalIntent) {
-							_ = s.revivalEngine.ExecutePostRelaunchRevival(it)
-						}(revIntent)
+					if s.revivalEngine != nil && len(revIntents) > 0 {
+						go func(intents []*revival.RevivalIntent) {
+							for _, it := range intents {
+								_ = s.revivalEngine.ExecutePostRelaunchRevival(it)
+							}
+						}(revIntents)
 					}
 				}
 			}
@@ -6741,6 +6743,7 @@ func (s *Server) handleConversationsStatus(w http.ResponseWriter, r *http.Reques
 	resp := map[string]interface{}{
 		"success":         status.Success,
 		"active_session":  status.ActiveSession,
+		"pending_intents": status.PendingIntents,
 		"pending_intent":  status.PendingIntent,
 		"last_revived_at": status.LastRevivedAt,
 	}
@@ -6761,6 +6764,7 @@ func (s *Server) handleConversationsAck(w http.ResponseWriter, r *http.Request) 
 	}
 	var p struct {
 		CascadeID string `json:"cascade_id"`
+		IntentID  string `json:"intent_id"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&p)
 

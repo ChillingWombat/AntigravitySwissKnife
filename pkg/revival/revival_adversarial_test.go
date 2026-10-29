@@ -261,10 +261,13 @@ func TestAdversarial_DeterministicIntentKey(t *testing.T) {
 	}
 }
 
-// TestAdversarial_10MinuteCooldownExpiration verifies that per-conversation cooldown strictly
-// suppresses intent synthesis for 10 minutes, expires immediately thereafter, and does NOT block
+// TestAdversarial_CooldownExpiration verifies that the per-conversation cooldown strictly
+// suppresses intent synthesis for its window, expires immediately thereafter, and does NOT block
 // unrelated conversations from reviving after global cooldown (45s).
-func TestAdversarial_10MinuteCooldownExpiration(t *testing.T) {
+//
+// The window is deliberately shorter than a user's working session: under-reviving costs a
+// manual re-prompt, over-prompting injects text the user did not ask for.
+func TestAdversarial_CooldownExpiration(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := setupMockSummariesDB(t, tmpDir)
 	db, err := sql.Open("sqlite", dbPath)
@@ -291,11 +294,19 @@ func TestAdversarial_10MinuteCooldownExpiration(t *testing.T) {
 	engine.Detector.BaseDir = tmpDir
 	engine.Detector.LiveCDPEnabled = false
 
-	// Scenario 1: conv1 revived 5 minutes ago (< 10 minutes)
-	fiveMinAgo := time.Now().Add(-5 * time.Minute)
+	// The two windows must nest: unrelated conversations unlock before the revived
+	// conversation itself can be re-armed.
+	if GlobalRevivalCooldownDuration >= RevivalCooldownDuration {
+		t.Fatalf("global cooldown (%s) must be shorter than the per-conversation cooldown (%s)",
+			GlobalRevivalCooldownDuration, RevivalCooldownDuration)
+	}
+
+	// Scenario 1: conv1 revived at a point past the global cooldown but still inside its
+	// own window, so the suppression under test is the per-conversation one.
+	midCooldown := time.Now().Add(-(GlobalRevivalCooldownDuration + RevivalCooldownDuration) / 2)
 	engine.mu.Lock()
-	engine.lastRevivedAt = &fiveMinAgo
-	engine.revivedMap[conv1] = fiveMinAgo
+	engine.lastRevivedAt = &midCooldown
+	engine.revivedMap[conv1] = midCooldown
 	engine.mu.Unlock()
 
 	status1, err := engine.GetRevivalStatus(conv1)
@@ -303,16 +314,18 @@ func TestAdversarial_10MinuteCooldownExpiration(t *testing.T) {
 		t.Fatalf("GetRevivalStatus failed for conv1: %v", err)
 	}
 	if status1.PendingIntent != nil {
-		t.Fatalf("Expected conv1 to be suppressed within 10-minute cooldown (5m elapsed), but pending intent was synthesized: %v", status1.PendingIntent)
+		t.Fatalf("Expected conv1 to be suppressed inside the %s cooldown, but pending intent was synthesized: %v",
+			RevivalCooldownDuration, status1.PendingIntent)
 	}
 
-	// Scenario 2: conv2 (unrelated conversation) checked at 5m elapsed (> 45s global cooldown)
+	// Scenario 2: conv2 (unrelated conversation) checked past the global cooldown
+	// while conv1 is still suppressed on its own window.
 	status2, err := engine.GetRevivalStatus(conv2)
 	if err != nil {
 		t.Fatalf("GetRevivalStatus failed for conv2: %v", err)
 	}
 	if status2.PendingIntent == nil {
-		t.Fatalf("Expected conv2 to synthesize intent since conv1 cooldown must not block conv2 after 45s global cooldown")
+		t.Fatalf("Expected conv2 to synthesize intent since conv1 cooldown must not block conv2 after the global cooldown")
 	}
 	if status2.PendingIntent.RootConversationID != conv2 {
 		t.Fatalf("Expected intent for conv2, got %q", status2.PendingIntent.RootConversationID)
@@ -321,11 +334,11 @@ func TestAdversarial_10MinuteCooldownExpiration(t *testing.T) {
 	// Clear intent from conv2 for next test
 	_ = engine.Store.ClearIntent()
 
-	// Scenario 3: conv1 checked after 10m 1s elapsed (> 10-minute cooldown)
-	tenMinOneSecAgo := time.Now().Add(-10*time.Minute - 1*time.Second)
+	// Scenario 3: conv1 checked one second past the cooldown window
+	expired := time.Now().Add(-RevivalCooldownDuration - time.Second)
 	engine.mu.Lock()
-	engine.lastRevivedAt = &tenMinOneSecAgo
-	engine.revivedMap[conv1] = tenMinOneSecAgo
+	engine.lastRevivedAt = &expired
+	engine.revivedMap[conv1] = expired
 	engine.mu.Unlock()
 
 	status1Expired, err := engine.GetRevivalStatus(conv1)
@@ -333,7 +346,7 @@ func TestAdversarial_10MinuteCooldownExpiration(t *testing.T) {
 		t.Fatalf("GetRevivalStatus failed for conv1 after cooldown: %v", err)
 	}
 	if status1Expired.PendingIntent == nil {
-		t.Fatalf("Expected conv1 cooldown to expire after 10 minutes and synthesize new intent, got nil")
+		t.Fatalf("Expected conv1 cooldown to expire after %s and synthesize a new intent, got nil", RevivalCooldownDuration)
 	}
 
 	// Verify conv1 is pruned from revivedMap
