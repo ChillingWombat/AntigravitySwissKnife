@@ -16,13 +16,13 @@ The Extensions page provides a top header segmented switcher with two primary vi
 
 ## 1. Built-in Extension Gadgets
 
-Antigravity Swiss Knife includes five integrated extension gadgets:
+Antigravity Swiss Knife includes four integrated extension gadgets:
 
-### Preview Browser
-An embedded Chromium web view that renders local development servers in real time alongside active chat conversations:
-- **Default Port**: Targets `http://localhost:8765` or configurable local dev server URLs (Vite, Next.js, Django, Flask).
-- **Console & Network Sync**: Bridges frontend errors back to the agent session for automated debugging.
-- **Auto-Reload**: Triggers frame refreshes when files in the workspace change.
+### Built-in Browser Enhancements
+Enhances Antigravity's native built-in browser with developer tools and visual annotation capabilities:
+- **Quick Dev Ports**: One-click navigation to local development servers (`:8765`, `:5173`, `:3000`, `:8080`, `:4173`) with custom port presets.
+- **Responsive Device Emulation**: Test pages across mobile profiles (iPhone 16 Pro, Google Pixel 9, iPad) with orientation toggling, touch emulation, and viewport scaling.
+- **Visual Annotations & Chat Handoff**: Freehand red pen, box highlights, interactive DOM element inspection, and one-click capture to Antigravity's active chat prompt with screenshot attachments.
 
 ### File Explorer
 A lightweight filesystem browser integrated into the auxiliary inspection rail:

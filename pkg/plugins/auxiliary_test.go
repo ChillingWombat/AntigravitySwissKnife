@@ -49,6 +49,7 @@ func TestGenerateAuxiliaryPluginsCSS(t *testing.T) {
 		".swiss-device-home-bar",
 		".touch-emulation-active",
 		".swiss-browser-canvas-overlay",
+		".swiss-builtin-browser-view",
 		".swiss-files-view",
 		".swiss-editor-container",
 		".swiss-memos-view",
@@ -87,16 +88,15 @@ func TestGenerateAuxiliaryPluginsScript(t *testing.T) {
 		"swiss-aux-container",
 		"swiss-telemetry-badge",
 		"insertTextToChatInput",
-		`data-tab-id="swiss-browser"`,
+		"setupBuiltinBrowserEnhancements",
+		"attachBuiltinBrowserEnhancements",
 		`data-tab-id="swiss-files"`,
 		`data-tab-id="swiss-memos"`,
+		`data-tab-id="swiss-github"`,
 		"swiss-aux-tab-svg",
 		"getAuxTabFormat",
 		"icon-only",
 		"swiss-aux-tab-format-updated",
-		`partition="persist:swiss-browser"`,
-		`allowRunningInsecureContent=yes`,
-		`webSecurity=no`,
 		"swiss-port-chip",
 		"iphone-16-pro",
 		"pixel-9",
@@ -153,9 +153,9 @@ func TestAuxiliaryTabAttributes(t *testing.T) {
 	}
 
 	requiredAttributes := []string{
-		`data-tab-id="swiss-browser"`,
 		`data-tab-id="swiss-files"`,
 		`data-tab-id="swiss-memos"`,
+		`data-tab-id="swiss-github"`,
 		`btn.dataset.swissTab = t.id`,
 	}
 
@@ -248,9 +248,8 @@ func TestBrowserViewDeviceFramesAndPorts(t *testing.T) {
 		{"Pixel 9 height", js, "924"},
 		{"iPad width", js, "820"},
 		{"iPad height", js, "1180"},
-		{"Webview partition", js, "persist:swiss-browser"},
-		{"CORS relaxation", js, "webSecurity=no"},
-		{"Insecure content relaxation", js, "allowRunningInsecureContent=yes"},
+		{"Builtin browser setup", js, "setupBuiltinBrowserEnhancements"},
+		{"Builtin browser attach", js, "attachBuiltinBrowserEnhancements"},
 		{"Port 5173 chip", js, `data-port="5173"`},
 		{"Port 3000 chip", js, `data-port="3000"`},
 		{"Port 8080 chip", js, `data-port="8080"`},
@@ -501,6 +500,7 @@ assert.strictEqual(drawTool, "none", "postMessage SWISS_INSPECT_CANCEL should ex
 console.log("ALL_INSPECT_ESCAPE_TESTS_PASSED");
 `
 		cmd := exec.Command(nodePath, "-e", nodeTestScript)
+		cmd.Stdin = strings.NewReader(js)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("Node.js inspect escape test failed: %v\n%s", err, string(out))
@@ -3509,3 +3509,317 @@ assert(flipped.top + flipped.maxHeight <= 350 - 4, "flipped menu must clear the 
 	}
 }
 
+
+func TestBuiltinBrowserEnhancements(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	// 1. Verify custom browser tab was removed from allTabs
+	if strings.Contains(js, `data-tab-id="swiss-browser"`) {
+		t.Errorf("custom swiss-browser tab must be removed from auxiliary dock")
+	}
+
+	// 2. Verify built-in browser enhancer functions exist and are exposed on window
+	expectedFuncs := []string{
+		"setupBuiltinBrowserEnhancements",
+		"attachBuiltinBrowserEnhancements",
+		"window.setupBuiltinBrowserEnhancements = setupBuiltinBrowserEnhancements;",
+		"window.attachBuiltinBrowserEnhancements = attachBuiltinBrowserEnhancements;",
+		"window.renderSwissBrowserView = renderBrowserView;",
+	}
+	for _, fn := range expectedFuncs {
+		if !strings.Contains(js, fn) {
+			t.Errorf("expected script to contain %q", fn)
+		}
+	}
+
+	// 3. Verify built-in browser enhancer is invoked on initialization and in mutation observer
+	if !strings.Contains(js, "setupBuiltinBrowserEnhancements();") {
+		t.Errorf("expected setupBuiltinBrowserEnhancements() call in initialization loop")
+	}
+
+	// 4. Behavioral test in Node: drive the built-in browser enhancer end-to-end
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeTestScript := `
+const assert = require("assert");
+
+class MockElement {
+  constructor(tag) {
+    this.tagName = tag.toUpperCase();
+    this.id = "";
+    this.className = "";
+    this.classList = {
+      _set: new Set(),
+      add(c) { this._set.add(c); },
+      remove(c) { this._set.delete(c); },
+      toggle(c, force) {
+        if (force === true) this._set.add(c);
+        else if (force === false) this._set.delete(c);
+        else if (this._set.has(c)) this._set.delete(c);
+        else this._set.add(c);
+      },
+      contains(c) { return this._set.has(c); }
+    };
+    this.style = {};
+    this.dataset = {};
+    this.attributes = {};
+    this.children = [];
+    this.parentElement = null;
+    this.value = "";
+    this.src = "";
+    this.isConnected = true;
+    this._listeners = {};
+    this.onclick = null;
+    this.onkeydown = null;
+    this.onchange = null;
+  }
+  set innerHTML(html) {
+    this._innerHTML = html;
+    this.children = [];
+    const tagRegex = /<([a-zA-Z0-9]+)([^>]*)>/g;
+    let match;
+    while ((match = tagRegex.exec(html)) !== null) {
+      const tagName = match[1];
+      const attrStr = match[2];
+      const el = new MockElement(tagName);
+      const idMatch = attrStr.match(/id="([^"]+)"/);
+      if (idMatch) el.id = idMatch[1];
+      const classMatch = attrStr.match(/class="([^"]+)"/);
+      if (classMatch) {
+        el.className = classMatch[1];
+        classMatch[1].split(" ").filter(Boolean).forEach(c => el.classList.add(c));
+      }
+      const portMatch = attrStr.match(/data-port="([^"]+)"/);
+      if (portMatch) {
+        el.dataset.port = portMatch[1];
+        el.setAttribute("data-port", portMatch[1]);
+      }
+      const valueMatch = attrStr.match(/value="([^"]*)"/);
+      if (valueMatch) el.value = valueMatch[1];
+      this.appendChild(el);
+    }
+  }
+  get options() { return this.children.filter(c => c.tagName === "OPTION"); }
+  get innerHTML() { return this._innerHTML || ""; }
+  setAttribute(k, v) { this.attributes[k] = String(v); }
+  getAttribute(k) { return this.attributes[k] || null; }
+  hasAttribute(k) { return k in this.attributes; }
+  removeAttribute(k) { delete this.attributes[k]; }
+  appendChild(child) {
+    if (child.parentElement) {
+      child.parentElement.removeChild(child);
+    }
+    this.children.push(child);
+    child.parentElement = this;
+    child.isConnected = true;
+    return child;
+  }
+  removeChild(child) {
+    const idx = this.children.indexOf(child);
+    if (idx !== -1) {
+      this.children.splice(idx, 1);
+      child.parentElement = null;
+    }
+  }
+  insertBefore(newNode, refNode) {
+    if (newNode.parentElement) {
+      newNode.parentElement.removeChild(newNode);
+    }
+    const idx = this.children.indexOf(refNode);
+    if (idx !== -1) {
+      this.children.splice(idx, 0, newNode);
+    } else {
+      this.children.push(newNode);
+    }
+    newNode.parentElement = this;
+    newNode.isConnected = true;
+    return newNode;
+  }
+  addEventListener(event, fn) {
+    if (!this._listeners[event]) this._listeners[event] = [];
+    this._listeners[event].push(fn);
+  }
+  removeEventListener(event, fn) {
+    if (!this._listeners[event]) return;
+    this._listeners[event] = this._listeners[event].filter(f => f !== fn);
+  }
+  dispatchEvent(evt) {
+    const fns = this._listeners[evt.type] || [];
+    for (const fn of fns) fn(evt);
+  }
+  click() {
+    if (typeof this.onclick === "function") this.onclick({ stopPropagation() {} });
+    this.dispatchEvent({ type: "click", stopPropagation() {} });
+  }
+  querySelector(sel) {
+    return this.querySelectorAll(sel)[0] || null;
+  }
+  querySelectorAll(sel) {
+    const res = [];
+    const walk = (node) => {
+      for (const c of node.children) {
+        if (matches(c, sel)) res.push(c);
+        walk(c);
+      }
+    };
+    walk(this);
+    return res;
+  }
+  closest(sel) {
+    let cur = this;
+    while (cur) {
+      if (matches(cur, sel)) return cur;
+      cur = cur.parentElement;
+    }
+    return null;
+  }
+  remove() {
+    if (this.parentElement) this.parentElement.removeChild(this);
+    this.isConnected = false;
+  }
+  getBoundingClientRect() {
+    return { top: 0, left: 0, width: 800, height: 600, right: 800, bottom: 600 };
+  }
+  getContext() {
+    return {
+      clearRect() {},
+      beginPath() {},
+      moveTo() {},
+      lineTo() {},
+      stroke() {},
+      fillRect() {},
+      strokeRect() {},
+      setLineDash() {},
+      scale() {},
+      setTransform() {},
+      drawImage() {}
+    };
+  }
+}
+
+function matches(el, sel) {
+  if (!el || !el.tagName) return false;
+  if (sel.startsWith("#")) return el.id === sel.slice(1);
+  if (sel.startsWith(".")) {
+    const cls = sel.slice(1);
+    return el.classList.contains(cls) || (el.className && el.className.split(" ").includes(cls));
+  }
+  if (sel.startsWith("[data-port=")) {
+    const p = sel.replace("[data-port=\"", "").replace("\"]", "");
+    return el.dataset.port === p || el.getAttribute("data-port") === p;
+  }
+  if (sel.toLowerCase() === "webview") return el.tagName === "WEBVIEW";
+  return false;
+}
+
+// Global environment mocks
+global.window = {
+  addEventListener() {},
+  removeEventListener() {},
+  location: { href: "http://localhost:8765" },
+  __SWISS_SESSION_TOKEN__: "test-token"
+};
+global.localStorage = {
+  _store: {},
+  getItem(k) { return this._store[k] || null; },
+  setItem(k, v) { this._store[k] = String(v); },
+  removeItem(k) { delete this._store[k]; }
+};
+global.sessionStorage = global.localStorage;
+global.document = {
+  body: new MockElement("body"),
+  createElement(tag) { return new MockElement(tag); },
+  querySelector(sel) { return this.body.querySelector(sel); },
+  querySelectorAll(sel) { return this.body.querySelectorAll(sel); },
+  getElementById(id) { return this.body.querySelector("#" + id); },
+  addEventListener() {},
+  removeEventListener() {},
+  activeElement: null
+};
+global.ResizeObserver = class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+global.MutationObserver = class {
+  observe() {}
+  disconnect() {}
+};
+global.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+
+// Setup a mock Antigravity host container with a built-in webview
+const hostContainer = new MockElement("div");
+hostContainer.className = "antigravity-browser-panel";
+document.body.appendChild(hostContainer);
+
+const mockWebview = new MockElement("webview");
+mockWebview.src = "http://localhost:8765";
+let loadedUrls = [];
+let reloaded = 0;
+let backCalled = 0;
+let fwdCalled = 0;
+
+mockWebview.loadURL = (u) => { loadedUrls.push(u); mockWebview.src = u; };
+mockWebview.reload = () => { reloaded++; };
+mockWebview.goBack = () => { backCalled++; };
+mockWebview.goForward = () => { fwdCalled++; };
+mockWebview.canGoBack = () => true;
+mockWebview.canGoForward = () => true;
+mockWebview.capturePage = (cb) => cb({ toPNG: () => Buffer.from("fake-png") });
+mockWebview.executeJavaScript = async (code) => "mock-result";
+
+hostContainer.appendChild(mockWebview);
+
+const fs = require("fs");
+const jsCode = fs.readFileSync(0, "utf-8");
+eval(jsCode);
+
+// 1. Verify that setupBuiltinBrowserEnhancements attached to the built-in webview
+assert.strictEqual(mockWebview.__swissEnhanced, true, "built-in webview must be marked as swiss-enhanced");
+const wrap = hostContainer.querySelector(".swiss-browser-view");
+assert.ok(wrap, ".swiss-browser-view must wrap built-in webview");
+const toolbar = wrap.querySelector(".swiss-browser-toolbar");
+assert.ok(toolbar, ".swiss-browser-toolbar must be rendered in built-in browser view");
+const canvas = wrap.querySelector("#swiss-browser-canvas");
+assert.ok(canvas, "#swiss-browser-canvas overlay must be attached");
+
+// 2. Behavioral verification: Quick Ports clicking drives webview.loadURL
+const port5173 = toolbar.querySelector("[data-port=\"5173\"]");
+assert.ok(port5173, "Quick Port 5173 chip must exist in toolbar");
+port5173.click();
+assert.ok(loadedUrls.includes("http://localhost:5173"), "clicking :5173 must call webview.loadURL with http://localhost:5173");
+
+// 3. Behavioral verification: Navigation button handlers
+const reloadBtn = toolbar.querySelector("#swiss-b-refresh");
+assert.ok(reloadBtn, "#swiss-b-refresh reload button must exist");
+reloadBtn.click();
+assert.strictEqual(reloaded, 1, "clicking reload must invoke webview.reload");
+
+const backBtn = toolbar.querySelector("#swiss-b-back");
+assert.ok(backBtn, "#swiss-b-back back button must exist");
+backBtn.click();
+assert.strictEqual(backCalled, 1, "clicking back must invoke webview.goBack");
+
+// 4. Behavioral verification: Two-way URL synchronization from webview did-navigate
+mockWebview.dispatchEvent({ type: "did-navigate", url: "http://localhost:3000/app" });
+const urlInput = toolbar.querySelector("#swiss-b-url");
+assert.strictEqual(urlInput.value, "http://localhost:3000/app", "URL input must sync from webview did-navigate event");
+
+// 5. Behavioral verification: Idempotency (multiple calls don't duplicate wrappers)
+window.setupBuiltinBrowserEnhancements();
+const allToolbars = hostContainer.querySelectorAll(".swiss-browser-toolbar");
+assert.strictEqual(allToolbars.length, 1, "multiple setup runs must be idempotent and never duplicate toolbars");
+
+console.log("BUILTIN_BROWSER_BEHAVIORAL_TESTS_PASSED");
+process.exit(0);
+`
+		cmd := exec.Command(nodePath, "-e", nodeTestScript)
+		cmd.Stdin = strings.NewReader(js)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("Node.js builtin browser behavioral test failed: %v\n%s", err, string(out))
+		}
+		if !strings.Contains(string(out), "BUILTIN_BROWSER_BEHAVIORAL_TESTS_PASSED") {
+			t.Fatalf("expected behavioral tests to pass, got output:\n%s", string(out))
+		}
+	}
+}
