@@ -7,7 +7,7 @@ describe('QuotaDashboardPage model progress bar layout — 2x1 vertical stack', 
   const pageSrc = fs.readFileSync(
     path.resolve(import.meta.dirname, '..', 'pages', 'QuotaDashboardPage.tsx'),
     'utf8',
-  )
+  ).replace(/\r\n/g, '\n')
 
   it('renders 7D multi-model quota cell with Gemini and Argon in a 2x1 vertical stack', () => {
     const weeklySection = pageSrc.indexOf('{hasArgonWeeklyQuota ? (')
@@ -72,7 +72,7 @@ describe('QuotaDashboardPage Argon quota ring conditional rendering', () => {
   const pageSrc = fs.readFileSync(
     path.resolve(import.meta.dirname, '..', 'pages', 'QuotaDashboardPage.tsx'),
     'utf8',
-  )
+  ).replace(/\r\n/g, '\n')
 
   it('omits Argon progress rings when no Argon quota exists', () => {
     assert.ok(
