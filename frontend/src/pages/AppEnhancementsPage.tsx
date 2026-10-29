@@ -10,7 +10,6 @@ import {
   Split,
   CheckCircle2,
   FileText,
-  Globe,
   ChevronDown,
   ChevronUp,
   ChevronRight,
@@ -2161,22 +2160,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 border: '1px solid var(--border)',
               }}
             >
-              <div
-                style={{
-                  width: '24px',
-                  height: '24px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: '4px',
-                  backgroundColor: '#ffffff',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text)',
-                }}
-                title="Preview Browser"
-              >
-                <Globe size={14} />
-              </div>
+
               <div
                 style={{
                   width: '24px',
@@ -2269,24 +2253,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 border: '1px solid var(--border)',
               }}
             >
-              <div
-                style={{
-                  height: '24px',
-                  padding: '0 8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  borderRadius: '4px',
-                  backgroundColor: '#ffffff',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text)',
-                  fontSize: '11px',
-                  fontWeight: 500,
-                }}
-              >
-                <Globe size={13} />
-                <span>Preview Browser</span>
-              </div>
+
               <div
                 style={{
                   height: '24px',

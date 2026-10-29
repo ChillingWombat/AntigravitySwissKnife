@@ -47,7 +47,7 @@ The Project Panel category customizes project organization and workspace categor
 ## 4. Auxiliary Panel Enhancements
 
 The Auxiliary Panel category configures the right-hand inspection dock in Antigravity:
-- **Modular Docking**: Controls which extension gadgets (GitHub Workspace, Quick Memos, Preview Browser, File Explorer) appear in the auxiliary dock.
+- **Modular Docking**: Controls which extension gadgets (GitHub Workspace, Quick Memos, File Explorer) appear in the auxiliary dock.
 - **Dock Pinning & Auto-Collapse**: Allows developers to keep auxiliary tools permanently visible side-by-side with chat or collapse them into a slim 48px navigation strip.
 - **Responsive Width Splitting**: Configures default docking widths, allowing wide Kanban boards or preview viewports to expand without clipping conversation text.
 

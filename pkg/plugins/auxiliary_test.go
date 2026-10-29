@@ -49,6 +49,7 @@ func TestGenerateAuxiliaryPluginsCSS(t *testing.T) {
 		".swiss-device-home-bar",
 		".touch-emulation-active",
 		".swiss-browser-canvas-overlay",
+		".swiss-builtin-browser-view",
 		".swiss-files-view",
 		".swiss-editor-container",
 		".swiss-memos-view",
@@ -87,16 +88,15 @@ func TestGenerateAuxiliaryPluginsScript(t *testing.T) {
 		"swiss-aux-container",
 		"swiss-telemetry-badge",
 		"insertTextToChatInput",
-		`data-tab-id="swiss-browser"`,
+		"setupBuiltinBrowserEnhancements",
+		"attachBuiltinBrowserEnhancements",
 		`data-tab-id="swiss-files"`,
 		`data-tab-id="swiss-memos"`,
+		`data-tab-id="swiss-github"`,
 		"swiss-aux-tab-svg",
 		"getAuxTabFormat",
 		"icon-only",
 		"swiss-aux-tab-format-updated",
-		`partition="persist:swiss-browser"`,
-		`allowRunningInsecureContent=yes`,
-		`webSecurity=no`,
 		"swiss-port-chip",
 		"iphone-16-pro",
 		"pixel-9",
@@ -153,9 +153,9 @@ func TestAuxiliaryTabAttributes(t *testing.T) {
 	}
 
 	requiredAttributes := []string{
-		`data-tab-id="swiss-browser"`,
 		`data-tab-id="swiss-files"`,
 		`data-tab-id="swiss-memos"`,
+		`data-tab-id="swiss-github"`,
 		`btn.dataset.swissTab = t.id`,
 	}
 
@@ -248,9 +248,8 @@ func TestBrowserViewDeviceFramesAndPorts(t *testing.T) {
 		{"Pixel 9 height", js, "924"},
 		{"iPad width", js, "820"},
 		{"iPad height", js, "1180"},
-		{"Webview partition", js, "persist:swiss-browser"},
-		{"CORS relaxation", js, "webSecurity=no"},
-		{"Insecure content relaxation", js, "allowRunningInsecureContent=yes"},
+		{"Builtin browser setup", js, "setupBuiltinBrowserEnhancements"},
+		{"Builtin browser attach", js, "attachBuiltinBrowserEnhancements"},
 		{"Port 5173 chip", js, `data-port="5173"`},
 		{"Port 3000 chip", js, `data-port="3000"`},
 		{"Port 8080 chip", js, `data-port="8080"`},
@@ -3509,3 +3508,31 @@ assert(flipped.top + flipped.maxHeight <= 350 - 4, "flipped menu must clear the 
 	}
 }
 
+
+func TestBuiltinBrowserEnhancements(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+
+	// 1. Verify custom browser tab was removed from allTabs
+	if strings.Contains(js, `data-tab-id="swiss-browser"`) {
+		t.Errorf("custom swiss-browser tab must be removed from auxiliary dock")
+	}
+
+	// 2. Verify built-in browser enhancer functions exist and are exposed on window
+	expectedFuncs := []string{
+		"setupBuiltinBrowserEnhancements",
+		"attachBuiltinBrowserEnhancements",
+		"window.setupBuiltinBrowserEnhancements = setupBuiltinBrowserEnhancements;",
+		"window.attachBuiltinBrowserEnhancements = attachBuiltinBrowserEnhancements;",
+		"window.renderSwissBrowserView = renderBrowserView;",
+	}
+	for _, fn := range expectedFuncs {
+		if !strings.Contains(js, fn) {
+			t.Errorf("expected script to contain %q", fn)
+		}
+	}
+
+	// 3. Verify built-in browser enhancer is invoked on initialization and in mutation observer
+	if !strings.Contains(js, "setupBuiltinBrowserEnhancements();") {
+		t.Errorf("expected setupBuiltinBrowserEnhancements() call in initialization loop")
+	}
+}
