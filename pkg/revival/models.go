@@ -37,7 +37,7 @@ const DefaultTriggerPrompt = "Please continue ongoing tasks and subagents."
 const (
 	DefaultTTLSeconds             = 600
 	DefaultMaxAttempts            = 2
-	RevivalCooldownDuration       = 10 * time.Minute
+	RevivalCooldownDuration       = 60 * time.Second
 	GlobalRevivalCooldownDuration = 45 * time.Second
 )
 
