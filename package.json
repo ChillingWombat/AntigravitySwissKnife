@@ -10,7 +10,7 @@
     "desktop": "electron . --no-sandbox",
     "desktop:dev": "npm run build:frontend && electron . --no-sandbox",
     "desktop:minimized": "electron . --no-sandbox --minimized",
-    "test": "node --test electron/tray-account-menu.test.js electron/navigation-security.test.js scripts/install-linux.test.js && npm test --prefix frontend && go test ./pkg/...",
+    "test": "node --test electron/tray-account-menu.test.js electron/navigation-security.test.js scripts/install-linux.test.js scripts/isolated-daemon.test.js && npm test --prefix frontend && go test ./pkg/...",
     "frontend:build": "npm run build:frontend",
     "go:build": "npm run build:go",
     "pack": "npm run build && electron-builder --dir",
