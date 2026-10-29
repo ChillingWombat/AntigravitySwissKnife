@@ -40,6 +40,8 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
   const [repo, setRepo] = useState<any>(null)
   const [issues, setIssues] = useState<any[]>([])
   const [prs, setPRs] = useState<any[]>([])
+  const [openIssuesCount, setOpenIssuesCount] = useState<number>(0)
+  const [openPRsCount, setOpenPRsCount] = useState<number>(0)
   const [agentTasks, setAgentTasks] = useState<any[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('kanban')
@@ -223,23 +225,43 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
       }
       const issuesRes = await api.getGitHubIssues(wsPath, stateFilter)
       if (issuesRes.success && issuesRes.issues) {
-        const issues = issuesRes.issues
-        setIssues(issues)
-        if (issues.length > 0) {
-          setSelectedItem((prev: any) => prev ?? issues[0])
+        const loadedIssues = issuesRes.issues
+        setIssues(loadedIssues)
+        if (stateFilter === "open") {
+          setOpenIssuesCount(loadedIssues.filter((i: any) => i && (i.state || "open").toLowerCase() === "open").length)
+        }
+        if (loadedIssues.length > 0) {
+          setSelectedItem((prev: any) => prev ?? loadedIssues[0])
         }
       } else {
         setIssues([])
+        if (stateFilter === "open") setOpenIssuesCount(0)
       }
       const prsRes = await api.getGitHubPRs(wsPath, stateFilter)
       if (prsRes.success && prsRes.prs) {
-        const prs = prsRes.prs
-        setPRs(prs)
-        if (prs.length > 0) {
-          setSelectedItem((prev: any) => prev ?? prs[0])
+        const loadedPRs = prsRes.prs
+        setPRs(loadedPRs)
+        if (stateFilter === "open") {
+          setOpenPRsCount(loadedPRs.filter((p: any) => p && (p.state || "open").toLowerCase() === "open").length)
+        }
+        if (loadedPRs.length > 0) {
+          setSelectedItem((prev: any) => prev ?? loadedPRs[0])
         }
       } else {
         setPRs([])
+        if (stateFilter === "open") setOpenPRsCount(0)
+      }
+      if (stateFilter !== "open") {
+        api.getGitHubIssues(wsPath, "open").then((res: any) => {
+          if (res.success && res.issues) {
+            setOpenIssuesCount(res.issues.filter((i: any) => i && (i.state || "open").toLowerCase() === "open").length)
+          }
+        }).catch(() => {})
+        api.getGitHubPRs(wsPath, "open").then((res: any) => {
+          if (res.success && res.prs) {
+            setOpenPRsCount(res.prs.filter((p: any) => p && (p.state || "open").toLowerCase() === "open").length)
+          }
+        }).catch(() => {})
       }
       const tasksRes = await api.getGitHubAgentTasks(wsPath)
       if (tasksRes.success && tasksRes.tasks) {
@@ -802,7 +824,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                 boxShadow: viewMode === 'list' && activeTab === 'issues' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
               }}
             >
-              Issues ({issues.length})
+              Issues ({openIssuesCount})
             </button>
             <button
               onClick={() => {
@@ -825,7 +847,7 @@ export const GitHubWorkspacePage: React.FC<GitHubWorkspacePageProps> = ({ scope,
                 boxShadow: viewMode === 'list' && activeTab === 'prs' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
               }}
             >
-              Pull Requests ({prs.length})
+              Pull Requests ({openPRsCount})
             </button>
             <button
               onClick={() => {
