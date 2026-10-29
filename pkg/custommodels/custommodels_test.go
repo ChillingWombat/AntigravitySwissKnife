@@ -1342,3 +1342,44 @@ console.log("ALL_CATALOG_MODES_VERIFIED");
 		t.Fatalf("unexpected node output: %s", string(out))
 	}
 }
+
+func TestGenerateCustomModelsScript_CustomModelThinkingChevronBehavior(t *testing.T) {
+	script := GenerateCustomModelsScript(nil)
+
+	// 1. Initial chevron wrap must be hidden (display: none) for all thinking models, never display: flex
+	if strings.Contains(script, `<span class="swiss-custom-chevron-wrap" style="display: flex;`) {
+		t.Errorf("expected script NOT to render swiss-custom-chevron-wrap with initial 'display: flex'")
+	}
+	if !strings.Contains(script, `swiss-custom-chevron-wrap`) {
+		t.Fatalf("expected script to contain swiss-custom-chevron-wrap")
+	}
+
+	// 2. syncHoverState must control display of both chk and chv across active and inactive models
+	if !strings.Contains(script, `if (supportsThinking) {`) {
+		t.Errorf("expected syncHoverState to check supportsThinking regardless of isCurrentlyActive")
+	}
+
+	// 3. Chevron wrap must be wired to open thinking submenu on hover and click
+	if !strings.Contains(script, `chevronWrap.onmouseenter =`) {
+		t.Errorf("expected chevronWrap.onmouseenter to be wired")
+	}
+	if !strings.Contains(script, `chevronWrap.onclick =`) {
+		t.Errorf("expected chevronWrap.onclick to be wired")
+	}
+
+	// 4. itemEl.onmouseenter must NOT open thinking submenu directly
+	// itemEl.onmouseenter should sync hover state, not call openThinkingSubmenu()
+	itemEnterIdx := strings.Index(script, "itemEl.onmouseenter = () => {")
+	if itemEnterIdx == -1 {
+		t.Fatalf("expected script to define itemEl.onmouseenter")
+	}
+	itemEnterBody := script[itemEnterIdx : itemEnterIdx+250]
+	if strings.Contains(itemEnterBody, "openThinkingSubmenu()") {
+		t.Errorf("expected itemEl.onmouseenter NOT to call openThinkingSubmenu() directly")
+	}
+
+	// 5. itemEl.onclick must ignore clicks originating from chevronWrap
+	if !strings.Contains(script, `.closest(".swiss-custom-chevron-wrap")`) {
+		t.Errorf("expected itemEl.onclick to guard against clicks inside .swiss-custom-chevron-wrap")
+	}
+}

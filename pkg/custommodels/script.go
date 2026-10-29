@@ -731,10 +731,10 @@ func GenerateCustomModelsScript(cfg *Config) string {
               if (isCurrentlyActive) {
                 trailingIconHTML =
                   '<span class="swiss-custom-check-wrap" style="display: flex; align-items: center; justify-content: center; width: 14px; height: 14px;">' + FACTORY_CHECK_SVG + '</span>' +
-                  '<span class="swiss-custom-chevron-wrap" style="display: none; align-items: center; justify-content: center; width: 14px; height: 14px; opacity: 0.5;">' + FACTORY_CHEVRON_RIGHT_SVG + '</span>';
+                  '<span class="swiss-custom-chevron-wrap" role="button" aria-label="Change thinking level" title="Change thinking level" style="display: none; align-items: center; justify-content: center; width: 16px; height: 16px; opacity: 0.5; border-radius: 4px; cursor: pointer; flex-shrink: 0; transition: opacity 0.1s;">' + FACTORY_CHEVRON_RIGHT_SVG + '</span>';
               } else {
                 trailingIconHTML =
-                  '<span class="swiss-custom-chevron-wrap" style="display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; opacity: 0.5;">' + FACTORY_CHEVRON_RIGHT_SVG + '</span>';
+                  '<span class="swiss-custom-chevron-wrap" role="button" aria-label="Change thinking level" title="Change thinking level" style="display: none; align-items: center; justify-content: center; width: 16px; height: 16px; opacity: 0.5; border-radius: 4px; cursor: pointer; flex-shrink: 0; transition: opacity 0.1s;">' + FACTORY_CHEVRON_RIGHT_SVG + '</span>';
               }
             } else if (isCurrentlyActive) {
               trailingIconHTML =
@@ -753,10 +753,10 @@ func GenerateCustomModelsScript(cfg *Config) string {
             function syncHoverState(hovered) {
               itemEl.style.backgroundColor = (hovered || isCurrentlyActive) ? "var(--secondary, rgba(0, 0, 0, 0.06))" : "transparent";
               itemEl.style.color = (hovered || isCurrentlyActive) ? "var(--foreground, #101010)" : "var(--secondary-foreground, #334155)";
-              if (supportsThinking && isCurrentlyActive) {
+              if (supportsThinking) {
                 const chk = itemEl.querySelector(".swiss-custom-check-wrap");
                 const chv = itemEl.querySelector(".swiss-custom-chevron-wrap");
-                if (chk) chk.style.display = hovered ? "none" : "flex";
+                if (chk) chk.style.display = hovered ? "none" : (isCurrentlyActive ? "flex" : "none");
                 if (chv) chv.style.display = hovered ? "flex" : "none";
               }
             }
@@ -801,6 +801,11 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
             function openThinkingSubmenu() {
               clearSubmenuCloseTimer();
+              const curSubmenu = document.getElementById("swiss-custom-thinking-submenu");
+              if (curSubmenu && curSubmenu.__sourceItem === itemEl) {
+                syncHoverState(true);
+                return;
+              }
               removeCustomThinkingSubmenu();
               syncHoverState(true);
               const submenu = document.createElement("div");
@@ -852,41 +857,56 @@ func GenerateCustomModelsScript(cfg *Config) string {
                 clearSubmenuCloseTimer();
                 submenuCloseTimer = setTimeout(() => {
                   removeCustomThinkingSubmenu();
-                }, 120);
+                }, 150);
               };
               document.body.appendChild(submenu);
             }
 
+            const chevronWrap = itemEl.querySelector(".swiss-custom-chevron-wrap");
+            if (chevronWrap) {
+              chevronWrap.onmouseenter = (e) => {
+                e.stopPropagation();
+                clearSubmenuCloseTimer();
+                chevronWrap.style.opacity = "1";
+                openThinkingSubmenu();
+              };
+              chevronWrap.onmouseleave = () => {
+                chevronWrap.style.opacity = "0.5";
+              };
+              chevronWrap.onclick = (e) => {
+                e.stopPropagation();
+                clearSubmenuCloseTimer();
+                openThinkingSubmenu();
+              };
+            }
+
             itemEl.onmouseenter = () => {
               clearSubmenuCloseTimer();
-              if (supportsThinking) {
-                const curSubmenu = document.getElementById("swiss-custom-thinking-submenu");
-                if (curSubmenu && curSubmenu.__sourceItem === itemEl) {
-                  syncHoverState(true);
-                  return;
-                }
-                openThinkingSubmenu();
-              } else {
+              const curSubmenu = document.getElementById("swiss-custom-thinking-submenu");
+              if (curSubmenu && curSubmenu.__sourceItem !== itemEl) {
                 removeCustomThinkingSubmenu();
-                syncHoverState(true);
               }
+              syncHoverState(true);
             };
             itemEl.onmouseleave = (e) => {
               const curSubmenu = document.getElementById("swiss-custom-thinking-submenu");
-              if (curSubmenu && e.relatedTarget && curSubmenu.contains(e.relatedTarget)) {
-                return;
-              }
-              if (supportsThinking) {
+              if (curSubmenu && curSubmenu.__sourceItem === itemEl) {
+                if (e.relatedTarget && (curSubmenu.contains(e.relatedTarget) || itemEl.contains(e.relatedTarget))) {
+                  return;
+                }
                 clearSubmenuCloseTimer();
                 submenuCloseTimer = setTimeout(() => {
                   removeCustomThinkingSubmenu();
-                }, 120);
-              } else {
-                syncHoverState(false);
+                }, 150);
+                return;
               }
+              syncHoverState(false);
             };
 
-            itemEl.onclick = async () => {
+            itemEl.onclick = async (e) => {
+              if (e && e.target && e.target.closest && e.target.closest(".swiss-custom-chevron-wrap")) {
+                return;
+              }
               await selectCustomModelWithLevel(supportsThinking ? curLevel : "");
             };
 
