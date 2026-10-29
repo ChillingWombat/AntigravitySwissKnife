@@ -544,6 +544,41 @@ export const GeminiBridgePage: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {Boolean(activeEndpoint) && (
+          <div
+            style={{
+              marginTop: '12px',
+              backgroundColor: 'var(--canvas)',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+              padding: '10px 14px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '0', flex: 1 }}>
+              <Layers size={15} color="var(--primary)" />
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                A2A Agent Card:
+              </span>
+              <code style={{ fontSize: '12px', color: 'var(--text)', wordBreak: 'break-all' }}>
+                {activeEndpoint.replace(/\/api\/bridge\/mcp.*$/, '')}/.well-known/agent.json
+              </code>
+            </div>
+            <button
+              onClick={() => copyToClipboard(activeEndpoint.replace(/\/api\/bridge\/mcp.*$/, '') + '/.well-known/agent.json', setCopiedUrl)}
+              className="btn-pill-tonal"
+              style={{ padding: '4px 10px', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              <Copy size={12} />
+              <span>Copy A2A Card</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 2. Access Mode Tunneling */}

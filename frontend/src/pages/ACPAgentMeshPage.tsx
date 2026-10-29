@@ -886,7 +886,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
             }}
           >
             <RefreshCw size={15} className="animate-spin" />
-            <span>Scanning local ACP Agent Mesh nodes...</span>
+            <span>Scanning local Agent Communication nodes...</span>
           </div>
         ) : otherAgents.length === 0 ? (
           <div

@@ -205,6 +205,12 @@ func isPublicPath(p string) bool {
 	if clean == "/mcp" || strings.HasPrefix(clean, "/mcp/") {
 		return true
 	}
+	if clean == "/agent.json" || clean == "/a2a/agent.json" || clean == "/api/bridge/a2a/agent.json" {
+		return true
+	}
+	if clean == "/a2a/tasks" || strings.HasPrefix(clean, "/a2a/tasks/") || clean == "/api/bridge/a2a/tasks" || strings.HasPrefix(clean, "/api/bridge/a2a/tasks/") {
+		return true
+	}
 	if clean == "/api/bridge/mcp" || strings.HasPrefix(clean, "/api/bridge/mcp/") {
 		return true
 	}
