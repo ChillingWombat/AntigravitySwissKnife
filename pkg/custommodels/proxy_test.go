@@ -1,13 +1,17 @@
 package custommodels
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // newProxyFixture seeds a store with one custom model and returns a proxy whose
@@ -248,5 +252,222 @@ func TestProxyAppModelOverrideRoutesNativeToCustomModel(t *testing.T) {
 	}
 	if customProviderHit {
 		t.Errorf("custom provider should NOT have been called after clearing ActiveModelID")
+	}
+}
+
+const proxyValidCatalog = `{"models":{"gemini-3.8-flash":{"displayName":"Gemini 3.8 Flash"}}}`
+
+func proxyCatalogRequest(proxy *Proxy, ctx context.Context, token string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/v1internal:fetchAvailableModels", strings.NewReader(`{"project":"test-project"}`)).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rr, req)
+	return rr
+}
+
+func TestProxyCatalogSurvivesFirstCallerCancellation(t *testing.T) {
+	var calls atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release
+			_, _ = w.Write([]byte(proxyValidCatalog))
+			return
+		}
+		http.Error(w, "temporary catalog failure", http.StatusServiceUnavailable)
+	}))
+	defer upstream.Close()
+
+	_, proxy := newProxyFixture(t, upstream.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	firstDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		firstDone <- proxyCatalogRequest(proxy, ctx, "account-a")
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("upstream catalog refresh did not start")
+	}
+	cancel()
+	select {
+	case <-firstDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("canceled catalog caller did not return")
+	}
+	releaseOnce.Do(func() { close(release) })
+
+	rr := proxyCatalogRequest(proxy, context.Background(), "account-a")
+	if rr.Code != http.StatusOK || rr.Body.String() != proxyValidCatalog {
+		t.Fatalf("later caller did not get the completed catalog: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestProxyCatalogSharesRefreshAcrossConcurrentCallers(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		time.Sleep(300 * time.Millisecond)
+		_, _ = w.Write([]byte(proxyValidCatalog))
+	}))
+	defer upstream.Close()
+
+	_, proxy := newProxyFixture(t, upstream.URL)
+	const callerCount = 8
+	start := make(chan struct{})
+	results := make(chan *httptest.ResponseRecorder, callerCount)
+	var wg sync.WaitGroup
+	for range callerCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results <- proxyCatalogRequest(proxy, context.Background(), "account-a")
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("concurrent callers triggered %d upstream refreshes, want 1", got)
+	}
+	for rr := range results {
+		if rr.Code != http.StatusOK || rr.Body.String() != proxyValidCatalog {
+			t.Errorf("concurrent caller got status=%d body=%s", rr.Code, rr.Body.String())
+		}
+	}
+}
+
+func TestProxyCatalogSeparatesAccounts(t *testing.T) {
+	const accountACatalog = `{"models":{"account-a-model":{"displayName":"Account A"}}}`
+	var accountACalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Header.Get("Authorization") {
+		case "Bearer account-a":
+			if accountACalls.Add(1) == 1 {
+				_, _ = w.Write([]byte(accountACatalog))
+				return
+			}
+			http.Error(w, "catalog unavailable", http.StatusServiceUnavailable)
+		case "Bearer account-b":
+			http.Error(w, "forbidden", http.StatusForbidden)
+		default:
+			http.Error(w, "missing auth", http.StatusUnauthorized)
+		}
+	}))
+	defer upstream.Close()
+
+	_, proxy := newProxyFixture(t, upstream.URL)
+	if rr := proxyCatalogRequest(proxy, context.Background(), "account-a"); rr.Code != http.StatusOK || rr.Body.String() != accountACatalog {
+		t.Fatalf("account A seed failed: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr := proxyCatalogRequest(proxy, context.Background(), "account-b"); rr.Code != http.StatusForbidden {
+		t.Fatalf("account B must not receive account A's catalog: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr := proxyCatalogRequest(proxy, context.Background(), "account-a"); rr.Code != http.StatusOK || rr.Body.String() != accountACatalog {
+		t.Fatalf("account A cache was lost: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestProxyCatalogRejectsInvalidResponses(t *testing.T) {
+	cases := map[string]string{
+		"malformed":        `{"models":`,
+		"empty object":     `{}`,
+		"empty models":     `{"models":{}}`,
+		"empty model list": `{"models":[]}`,
+	}
+	for name, invalid := range cases {
+		t.Run(name, func(t *testing.T) {
+			var calls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if calls.Add(1) == 1 {
+					_, _ = w.Write([]byte(invalid))
+					return
+				}
+				_, _ = w.Write([]byte(proxyValidCatalog))
+			}))
+			defer upstream.Close()
+
+			_, proxy := newProxyFixture(t, upstream.URL)
+			_ = proxyCatalogRequest(proxy, context.Background(), "account-a")
+			rr := proxyCatalogRequest(proxy, context.Background(), "account-a")
+			if rr.Code != http.StatusOK || rr.Body.String() != proxyValidCatalog {
+				t.Fatalf("invalid catalog was cached: status=%d body=%s", rr.Code, rr.Body.String())
+			}
+			if got := calls.Load(); got != 2 {
+				t.Fatalf("upstream calls=%d, want a retry and no cache", got)
+			}
+		})
+	}
+}
+
+func TestProxyCatalogDoesNotCacheHTTPFailures(t *testing.T) {
+	for _, status := range []int{
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+	} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var calls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if calls.Add(1) == 1 {
+					http.Error(w, "catalog rejected", status)
+					return
+				}
+				_, _ = w.Write([]byte(proxyValidCatalog))
+			}))
+			defer upstream.Close()
+
+			_, proxy := newProxyFixture(t, upstream.URL)
+			_ = proxyCatalogRequest(proxy, context.Background(), "account-a")
+			rr := proxyCatalogRequest(proxy, context.Background(), "account-a")
+			if rr.Code != http.StatusOK || rr.Body.String() != proxyValidCatalog {
+				t.Fatalf("HTTP %d was cached: status=%d body=%s", status, rr.Code, rr.Body.String())
+			}
+			if got := calls.Load(); got != 2 {
+				t.Fatalf("upstream calls=%d, want a retry and no cache", got)
+			}
+		})
+	}
+}
+
+func TestProxyCatalogServesLastKnownGoodOnRefreshFailure(t *testing.T) {
+	var calls atomic.Int32
+	refreshStarted := make(chan struct{})
+	var refreshOnce sync.Once
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			_, _ = w.Write([]byte(proxyValidCatalog))
+			return
+		}
+		refreshOnce.Do(func() { close(refreshStarted) })
+		http.Error(w, "upstream overloaded", http.StatusServiceUnavailable)
+	}))
+	defer upstream.Close()
+
+	_, proxy := newProxyFixture(t, upstream.URL)
+	if rr := proxyCatalogRequest(proxy, context.Background(), "account-a"); rr.Code != http.StatusOK || rr.Body.String() != proxyValidCatalog {
+		t.Fatalf("seed catalog failed: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	rr := proxyCatalogRequest(proxy, context.Background(), "account-a")
+	if rr.Code != http.StatusOK || rr.Body.String() != proxyValidCatalog {
+		t.Fatalf("last-known-good catalog not served: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	select {
+	case <-refreshStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("background last-known-good refresh did not start")
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("upstream calls=%d, want one successful seed and one failed refresh", got)
 	}
 }

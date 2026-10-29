@@ -32,6 +32,7 @@ type Proxy struct {
 	// Upstream is the real Cloud Code endpoint (overridable in tests).
 	Upstream string
 	client   *http.Client
+	catalog  catalogCache
 }
 
 // NewProxy builds a proxy over the custom model store.
@@ -75,6 +76,11 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 		if p.tryCustomModel(w, r, body, action == "streamGenerateContent", strings.HasPrefix(r.URL.Path, "/v1internal")) {
 			return
 		}
+	}
+
+	if isCatalogAction(action) {
+		p.serveCatalog(w, r, body)
+		return
 	}
 
 	// Everything else: verbatim pass-through, including the model list, so the
