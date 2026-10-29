@@ -112,6 +112,7 @@ type Service struct {
 	directHdl *DirectHandler
 	leadHdl   *LeadHandler
 	cliHdl    *CLIHandler
+	a2aMgr    *A2ATaskManager
 	// Custom models are surfaced through the same model tools as native ones.
 	customModels    customModelProvider
 	activateCustom  customModelActivator
@@ -141,6 +142,12 @@ func DefaultConfig() Config {
 			"antigravity_bridge_set_mode",
 			"antigravity_bridge_get_mode",
 			"antigravity_bridge_set_agent",
+			"a2a_assign_task",
+			"a2a_get_task_status",
+			"a2a_await_task",
+			"a2a_send_task_message",
+			"a2a_cancel_task",
+			"a2a_list_tasks",
 			"antigravity_lead_create_conversation",
 			"antigravity_lead_send_message",
 			"antigravity_lead_get_status",
@@ -198,6 +205,9 @@ func NewService(configPath string) (*Service, error) {
 		remoteMgr:   NewRemoteManager(""),
 		channelsMgr: NewChannelsManager(""),
 	}
+	s.a2aMgr = NewA2ATaskManager(func() agentBackend {
+		return s.agent()
+	})
 	s.remoteMgr.SetLeadHandler(s.leadHdl)
 	// Custom models run on the local LLM gateway; the CLI is pointed at it per turn.
 	s.cliHdl.SetGatewayEnv(s.cliGatewayEnv)
@@ -874,9 +884,109 @@ func (s *Service) ToolManifest() []map[string]interface{} {
 		},
 	)
 
-	// Lead / Messenger tools
+	// Lead / Messenger & A2A Task tools
 	if mode == "hybrid" || mode == "lead" {
 		tools = append(tools,
+			map[string]interface{}{
+				"name":        "a2a_assign_task",
+				"description": "Delegates a high-level goal or task to Antigravity for autonomous planning, execution, and verification. Use this instead of micro-managing individual shell commands or file edits. Returns a task ID.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"prompt": map[string]interface{}{
+							"type":        "string",
+							"description": "High-level goal or task instructions to execute.",
+						},
+						"title": map[string]interface{}{
+							"type":        "string",
+							"description": "Short descriptive title for the task.",
+						},
+						"skill": map[string]interface{}{
+							"type":        "string",
+							"enum":        []string{SkillSoftwareEngineering, SkillCodeReview, SkillGeneralAutomation},
+							"description": "Optional skill domain (default: software_engineering).",
+						},
+					},
+					"required": []string{"prompt"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "a2a_get_task_status",
+				"description": "Checks the execution status, progress, and result of an autonomous A2A task.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"task_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Task ID returned by a2a_assign_task.",
+						},
+					},
+					"required": []string{"task_id"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "a2a_await_task",
+				"description": "Waits for an autonomous A2A task to finish and returns the final response and generated artifacts to forward to the user.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"task_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Task ID to wait on.",
+						},
+						"timeout_seconds": map[string]interface{}{
+							"type":        "integer",
+							"description": "Maximum seconds to wait (default 180).",
+						},
+					},
+					"required": []string{"task_id"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "a2a_send_task_message",
+				"description": "Sends follow-up guidance or user clarification to an ongoing autonomous A2A task.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"task_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Target task ID.",
+						},
+						"message": map[string]interface{}{
+							"type":        "string",
+							"description": "Message or clarification to dispatch.",
+						},
+					},
+					"required": []string{"task_id", "message"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "a2a_cancel_task",
+				"description": "Cancels an ongoing autonomous A2A task.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"task_id": map[string]interface{}{
+							"type":        "string",
+							"description": "Task ID to cancel.",
+						},
+					},
+					"required": []string{"task_id"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "a2a_list_tasks",
+				"description": "Lists recent autonomous A2A tasks and their execution states.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"status": map[string]interface{}{
+							"type":        "string",
+							"description": "Optional status filter (submitted, working, completed, failed, canceled).",
+						},
+					},
+				},
+			},
 			map[string]interface{}{
 				"name":        "antigravity_lead_create_conversation",
 				"description": "Creates a new conversation in local Google Antigravity 2.0 desktop app and submits the initial task prompt. Use this when the user asks you to instruct Antigravity or create a subagent/agent to work on a task.",
@@ -1302,7 +1412,7 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 
 	// Mode compatibility enforcement
 	isDirect := strings.HasPrefix(name, "local_") || name == "antigravity_inspect_workspace" || name == "antigravity_system_info" || name == "antigravity_computer_use"
-	isLead := strings.HasPrefix(name, "antigravity_lead_") || name == "antigravity_dispatch_task" || name == "antigravity_list_sessions" || name == "antigravity_fleet_switch_account"
+	isLead := strings.HasPrefix(name, "antigravity_lead_") || strings.HasPrefix(name, "a2a_") || name == "antigravity_dispatch_task" || name == "antigravity_list_sessions" || name == "antigravity_fleet_switch_account"
 	if currentMode == "lead" && isDirect {
 		return "", fmt.Errorf("tool %q is disabled in %q operational mode", name, currentMode)
 	}
@@ -1311,6 +1421,77 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 	}
 
 	switch name {
+	// A2A High-Level Task Delegation
+	case "a2a_assign_task":
+		prompt, _ := args["prompt"].(string)
+		title, _ := args["title"].(string)
+		skill, _ := args["skill"].(string)
+		task, cErr := s.a2aMgr.CreateTask(skill, prompt, title)
+		if cErr != nil {
+			err = cErr
+			break
+		}
+		data, _ := json.MarshalIndent(task, "", "  ")
+		result = string(data)
+		opMode = "a2a"
+
+	case "a2a_get_task_status":
+		taskID, _ := args["task_id"].(string)
+		task, gErr := s.a2aMgr.GetTask(taskID)
+		if gErr != nil {
+			err = gErr
+			break
+		}
+		data, _ := json.MarshalIndent(task, "", "  ")
+		result = string(data)
+		opMode = "a2a"
+
+	case "a2a_await_task":
+		taskID, _ := args["task_id"].(string)
+		timeoutSec, _ := args["timeout_seconds"].(float64)
+		if timeoutSec <= 0 {
+			timeoutSec = 180
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+		defer cancel()
+		task, aErr := s.a2aMgr.AwaitTask(ctx, taskID)
+		if aErr != nil {
+			err = aErr
+			break
+		}
+		data, _ := json.MarshalIndent(task, "", "  ")
+		result = string(data)
+		opMode = "a2a"
+
+	case "a2a_send_task_message":
+		taskID, _ := args["task_id"].(string)
+		msg, _ := args["message"].(string)
+		task, sErr := s.a2aMgr.SendTaskMessage(taskID, msg)
+		if sErr != nil {
+			err = sErr
+			break
+		}
+		data, _ := json.MarshalIndent(task, "", "  ")
+		result = string(data)
+		opMode = "a2a"
+
+	case "a2a_cancel_task":
+		taskID, _ := args["task_id"].(string)
+		task, cErr := s.a2aMgr.CancelTask(taskID)
+		if cErr != nil {
+			err = cErr
+			break
+		}
+		data, _ := json.MarshalIndent(task, "", "  ")
+		result = string(data)
+		opMode = "a2a"
+
+	case "a2a_list_tasks":
+		stFilter, _ := args["status"].(string)
+		tasks := s.a2aMgr.ListTasks(stFilter, 10)
+		data, _ := json.MarshalIndent(map[string]interface{}{"tasks": tasks}, "", "  ")
+		result = string(data)
+		opMode = "a2a"
 	// Mode Management
 	case "antigravity_bridge_set_mode":
 		mode, _ := args["mode"].(string)
@@ -1729,4 +1910,14 @@ func mergeDefaultAllowedTools(configured []string) []string {
 		}
 	}
 	return merged
+}
+
+// A2ATaskManager returns the A2A task manager instance.
+func (s *Service) A2ATaskManager() *A2ATaskManager {
+	return s.a2aMgr
+}
+
+// AgentCard returns the discoverable A2A Agent Card.
+func (s *Service) AgentCard(baseURL string) A2AAgentCard {
+	return DefaultA2AAgentCard(baseURL)
 }

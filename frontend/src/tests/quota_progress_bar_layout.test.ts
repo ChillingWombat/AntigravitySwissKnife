@@ -7,7 +7,7 @@ describe('QuotaDashboardPage model progress bar layout — 2x1 vertical stack', 
   const pageSrc = fs.readFileSync(
     path.resolve(import.meta.dirname, '..', 'pages', 'QuotaDashboardPage.tsx'),
     'utf8',
-  )
+  ).replace(/\r\n/g, '\n')
 
   it('renders 7D multi-model quota cell with Gemini and Argon in a 2x1 vertical stack', () => {
     const weeklySection = pageSrc.indexOf('{hasArgonWeeklyQuota ? (')
@@ -64,6 +64,24 @@ describe('QuotaDashboardPage model progress bar layout — 2x1 vertical stack', 
     assert.ok(
       headerWeeklySlice.includes("width: '180px'"),
       '7D Quota column width must be balanced at 180px',
+    )
+  })
+})
+
+describe('QuotaDashboardPage Argon quota ring conditional rendering', () => {
+  const pageSrc = fs.readFileSync(
+    path.resolve(import.meta.dirname, '..', 'pages', 'QuotaDashboardPage.tsx'),
+    'utf8',
+  ).replace(/\r\n/g, '\n')
+
+  it('omits Argon progress rings when no Argon quota exists', () => {
+    assert.ok(
+      pageSrc.includes('{hasArgon7d && (\n                <CircularGauge percentage={gaugeWeeklyArgon} title="Argon 7D"'),
+      'Argon 7D ring in standard overview must be conditionally rendered with hasArgon7d',
+    )
+    assert.ok(
+      pageSrc.includes('{(hasArgon5h || hasArgon7d) && ('),
+      'Argon row in multi-model overview must be conditionally rendered when hasArgon5h or hasArgon7d is true',
     )
   })
 })

@@ -586,6 +586,7 @@ describe('accountPresentation utility', () => {
       assert.ok(pageSrc.includes('const hasArgon5h = polledAccounts5hArgon.length > 0'), 'should detect fleet Argon 5H quota')
       assert.ok(pageSrc.includes('const hasArgon7d = polledAccountsWeeklyArgon.length > 0'), 'should detect fleet Argon 7D quota')
       assert.ok(pageSrc.includes('{hasArgon5h && ('), 'should omit the Argon 5H ring when no fleet Argon quota exists')
+      assert.ok(pageSrc.includes('{hasArgon7d && ('), 'should omit the Argon 7D ring when no fleet Argon quota exists')
       assert.ok(pageSrc.includes("flexDirection: 'row'"), 'should render quota rings in horizontal rows')
       assert.ok(pageSrc.includes("flexWrap: 'nowrap'"), 'should keep each quota row on one line')
       assert.ok(pageSrc.includes("gap: '12px'"), 'should use consistent spacing between quota rings and rows')
