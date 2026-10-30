@@ -6,6 +6,8 @@ import (
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/backend"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
@@ -21,10 +23,20 @@ func newTestServer(addr, socketPath string) *Server {
 	if err != nil {
 		panic(err)
 	}
+	customModelsStore, err := custommodels.NewStore("")
+	if err != nil {
+		panic(err)
+	}
+	enhancementsStore, err := enhancements.NewStore("")
+	if err != nil {
+		panic(err)
+	}
 	server, err := NewServer(addr, testBackend{
-		accounts: testAccountService{store: store},
-		quota:    testQuotaService{store: store},
-		gui:      &testGUIService{store: guiStore},
+		accounts:     testAccountService{store: store},
+		customModels: customModelsStore,
+		enhancements: enhancementsStore,
+		quota:        testQuotaService{store: store},
+		gui:          &testGUIService{store: guiStore},
 	}, ipc.NewClient(socketPath))
 	if err != nil {
 		panic(err)
@@ -33,14 +45,18 @@ func newTestServer(addr, socketPath string) *Server {
 }
 
 type testBackend struct {
-	accounts backend.AccountService
-	quota    backend.QuotaService
-	gui      backend.GUIService
+	accounts     backend.AccountService
+	customModels backend.CustomModelsService
+	enhancements backend.EnhancementsService
+	quota        backend.QuotaService
+	gui          backend.GUIService
 }
 
-func (b testBackend) Accounts() backend.AccountService { return b.accounts }
-func (b testBackend) Quota() backend.QuotaService      { return b.quota }
-func (b testBackend) GUI() backend.GUIService          { return b.gui }
+func (b testBackend) Accounts() backend.AccountService          { return b.accounts }
+func (b testBackend) CustomModels() backend.CustomModelsService { return b.customModels }
+func (b testBackend) Enhancements() backend.EnhancementsService { return b.enhancements }
+func (b testBackend) Quota() backend.QuotaService               { return b.quota }
+func (b testBackend) GUI() backend.GUIService                   { return b.gui }
 
 type testQuotaService struct {
 	store *keyring.Store

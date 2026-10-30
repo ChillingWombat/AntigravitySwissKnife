@@ -17,6 +17,7 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/cache"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
@@ -31,17 +32,19 @@ import (
 
 // Daemon coordinates background services, IPC JSON-RPC dispatch, and scheduler loops.
 type Daemon struct {
-	Config    *core.Config
-	Keyring   *keyring.Store
-	Profiles  *fingerprint.Store
-	GUIStore  *gui.Store
-	Shield    *process.Shield
-	Revival   *revival.Engine
-	Inspector *cache.Inspector
-	Pruner    *cache.Pruner
-	TOTP      *totp.Engine
-	Vault     *vault.Manager
-	Server    *ipc.Server
+	Config       *core.Config
+	Keyring      *keyring.Store
+	Profiles     *fingerprint.Store
+	CustomModels *custommodels.Store
+	Enhancements *enhancements.Store
+	GUIStore     *gui.Store
+	Shield       *process.Shield
+	Revival      *revival.Engine
+	Inspector    *cache.Inspector
+	Pruner       *cache.Pruner
+	TOTP         *totp.Engine
+	Vault        *vault.Manager
+	Server       *ipc.Server
 	// BoardPanel watches the live Antigravity IDE and collapses its Overview
 	// panel while the Swiss Knife board page is open.
 	BoardPanel *boardpanel.Watcher
@@ -68,6 +71,11 @@ type Daemon struct {
 
 	configUpdated chan struct{}
 }
+
+var (
+	newCustomModelsStore = custommodels.NewStore
+	newEnhancementsStore = enhancements.NewStore
+)
 
 // vscodeReinjectInterval throttles the periodic VS Code enhancement re-apply;
 // the CDP probe is cheap but evaluating the full script in every target is not.
@@ -108,9 +116,17 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init gui store: %w", err)
 	}
+	customModelsStore, err := newCustomModelsStore("")
+	if err != nil {
+		return nil, fmt.Errorf("failed to init custom-model store: %w", err)
+	}
+	enhancementsStore, err := newEnhancementsStore("")
+	if err != nil {
+		return nil, fmt.Errorf("failed to init enhancement store: %w", err)
+	}
 
 	_ = core.EnsureVSCodeWindowCloseGuard()
-	custommodels.AutoEnsureCLIGatewayIntegration(custommodels.GetGlobalStore())
+	custommodels.AutoEnsureCLIGatewayIntegration(customModelsStore)
 
 	if socketPath == "" {
 		socketPath = core.GetSocketPath()
@@ -120,17 +136,19 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Daemon{
-		Config:    cfg,
-		Keyring:   keyringStore,
-		Profiles:  fpStore,
-		GUIStore:  guiStore,
-		Shield:    shield,
-		Revival:   revEngine,
-		Inspector: inspector,
-		Pruner:    pruner,
-		TOTP:      totpEngine,
-		Vault:     vault.NewManager("", ""),
-		Server:    server,
+		Config:       cfg,
+		Keyring:      keyringStore,
+		Profiles:     fpStore,
+		CustomModels: customModelsStore,
+		Enhancements: enhancementsStore,
+		GUIStore:     guiStore,
+		Shield:       shield,
+		Revival:      revEngine,
+		Inspector:    inspector,
+		Pruner:       pruner,
+		TOTP:         totpEngine,
+		Vault:        vault.NewManager("", ""),
+		Server:       server,
 		BoardPanel: boardpanel.NewWatcher(nil, boardpanel.DefaultPollInterval, func() bool {
 			return cfg.GetBoardOverviewAutoHide()
 		}),
