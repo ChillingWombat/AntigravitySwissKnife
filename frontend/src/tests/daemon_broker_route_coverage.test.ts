@@ -24,46 +24,71 @@ const apiSourcePath = path.join(repoRoot, 'frontend', 'src', 'api.ts')
 const source = fs.readFileSync(apiSourcePath, 'utf8')
 const sourceFile = ts.createSourceFile(apiSourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
 
-function stringPaths(node: ts.Node | undefined): string[] {
-  const paths: string[] = []
+type StaticPaths = { paths: string[]; dynamic: boolean }
 
-  const walk = (candidate: ts.Node | undefined) => {
-    if (!candidate) return
-    if (ts.isStringLiteral(candidate) || ts.isNoSubstitutionTemplateLiteral(candidate)) {
-      paths.push(candidate.text)
-      return
-    }
-    if (ts.isTemplateExpression(candidate)) {
-      let value = candidate.head.text
-      for (const span of candidate.templateSpans) {
-        value += '${}' + span.literal.text
-      }
-      paths.push(value)
-      return
-    }
-    if (ts.isParenthesizedExpression(candidate) || ts.isAsExpression(candidate)) {
-      walk(candidate.expression)
-      return
-    }
-    ts.forEachChild(candidate, walk)
+function staticRoutePaths(node: ts.Node | undefined): StaticPaths {
+  if (!node) return { paths: [], dynamic: true }
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return { paths: [node.text], dynamic: false }
   }
-
-  walk(node)
-  return paths
+  if (ts.isTemplateExpression(node)) {
+    const pathHead = node.head.text.split('?')[0]
+    if (!node.head.text.includes('?') || !pathHead.startsWith('/api/')) {
+      return { paths: [], dynamic: true }
+    }
+    let value = node.head.text
+    for (const span of node.templateSpans) {
+      value += '${}' + span.literal.text
+    }
+    return { paths: [value], dynamic: false }
+  }
+  if (ts.isConditionalExpression(node)) {
+    const whenTrue = staticRoutePaths(node.whenTrue)
+    const whenFalse = staticRoutePaths(node.whenFalse)
+    return {
+      paths: [...whenTrue.paths, ...whenFalse.paths],
+      dynamic: whenTrue.dynamic || whenFalse.dynamic,
+    }
+  }
+  if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node)) {
+    return staticRoutePaths(node.expression)
+  }
+  return { paths: [], dynamic: true }
 }
 
 function methodFromOptions(node: ts.Node | undefined): DaemonMethod | null {
   if (!node) return 'GET'
   if (!ts.isObjectLiteralExpression(node)) return null
   let methodProperty: ts.PropertyAssignment | null = null
+  let methodIsFinal = false
+  let hasUncertainProperty = false
   for (const property of node.properties) {
-    if (!ts.isPropertyAssignment(property)) continue
-    const name = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
+    if (ts.isSpreadAssignment(property)) {
+      methodIsFinal = false
+      hasUncertainProperty = true
+      continue
+    }
+    const name = 'name' in property && property.name && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
       ? property.name.text
       : null
-    if (name === 'method') methodProperty = property
+    if (!name) {
+      methodIsFinal = false
+      hasUncertainProperty = true
+      continue
+    }
+    if (ts.isPropertyAssignment(property) && name === 'method') {
+      methodProperty = property
+      methodIsFinal = true
+      continue
+    }
+    if (name === 'method') {
+      methodProperty = null
+      methodIsFinal = false
+      hasUncertainProperty = true
+    }
   }
-  if (!methodProperty) return 'GET'
+  if (!methodProperty) return hasUncertainProperty ? null : 'GET'
+  if (!methodIsFinal) return null
   if (!ts.isStringLiteral(methodProperty.initializer)) return null
   const method = methodProperty.initializer.text.toUpperCase()
   return method === 'GET' || method === 'POST' || method === 'DELETE' ? method : null
@@ -76,22 +101,33 @@ type FrontendRoute = {
   line: number
 }
 
-function frontendDaemonRoutes(): { routes: FrontendRoute[]; unresolved: string[] } {
+function frontendDaemonRoutes(parsedSource: ts.SourceFile = sourceFile): { routes: FrontendRoute[]; unresolved: string[] } {
   const routes = new Map<string, FrontendRoute>()
   const unresolved: string[] = []
 
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
-      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
+      const line = parsedSource.getLineAndCharacterOfPosition(node.getStart()).line + 1
       const callee = ts.isIdentifier(node.expression) ? node.expression.text : null
       const isRequest = callee === 'request'
       const isFetch = callee === 'fetch'
 
       if (isRequest || isFetch) {
-        const paths = node.arguments[0] ? stringPaths(node.arguments[0]) : []
-        const daemonPaths = paths.filter((rawPath) => rawPath.startsWith('/api/'))
-        if (isRequest && daemonPaths.length === 0) {
+        const routeExpression = node.arguments[0] ? staticRoutePaths(node.arguments[0]) : { paths: [], dynamic: true }
+        const daemonPaths = routeExpression.paths.filter((rawPath) => rawPath.startsWith('/api/'))
+        if (isRequest && (daemonPaths.length === 0 || routeExpression.dynamic)) {
           unresolved.push(`L${line}: request route is not statically resolvable`)
+        }
+        if (isFetch && daemonPaths.length === 0) {
+          ts.forEachChild(node, visit)
+          return
+        }
+        if (isFetch && routeExpression.dynamic) {
+          unresolved.push(`L${line}: fetch route has a dynamic branch`)
+        }
+        if (routeExpression.dynamic) {
+          ts.forEachChild(node, visit)
+          return
         }
         const method = methodFromOptions(node.arguments[1])
         for (const rawPath of daemonPaths) {
@@ -113,7 +149,11 @@ function frontendDaemonRoutes(): { routes: FrontendRoute[]; unresolved: string[]
         ['includes', 'startsWith', 'endsWith', 'indexOf'].includes(node.expression.name.text)
       )) {
         for (const argument of node.arguments) {
-          for (const rawPath of stringPaths(argument)) {
+          const routeExpression = staticRoutePaths(argument)
+          if (routeExpression.dynamic && !routeExpression.paths.some((rawPath) => rawPath.startsWith('/api/'))) {
+            continue
+          }
+          for (const rawPath of routeExpression.paths) {
             if (rawPath.startsWith('/api/')) {
               unresolved.push(`L${line}: ${rawPath} bypasses request() or fetch()`)
             }
@@ -124,7 +164,7 @@ function frontendDaemonRoutes(): { routes: FrontendRoute[]; unresolved: string[]
     ts.forEachChild(node, visit)
   }
 
-  visit(sourceFile)
+  visit(parsedSource)
   return { routes: [...routes.values()], unresolved }
 }
 
@@ -138,6 +178,27 @@ describe('daemon broker route policy coverage', () => {
       return !ALLOWED_ROUTES[method].has(routePath) && !PRIVILEGED_ROUTES[method].has(routePath)
     })
     assert.deepEqual(missing, [])
+  })
+
+  it('fails closed on computed methods and partially dynamic routes', () => {
+    const fixturePath = path.join(repoRoot, 'frontend', 'src', 'route-policy-fixture.ts')
+    const fixture = ts.createSourceFile(
+      fixturePath,
+      `
+        request('/api/custom_models', { ...options })
+        request(flag ? '/api/status' : route)
+        request('/api/status', { method: 'PUT' })
+        request('/api/status', { [name]: 'POST' })
+        request('/api/status', { method })
+      `,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    )
+
+    const result = frontendDaemonRoutes(fixture)
+    assert.deepEqual(result.routes, [])
+    assert.equal(result.unresolved.length, 5)
   })
 
   it('preserves approval semantics for every query variant', () => {
