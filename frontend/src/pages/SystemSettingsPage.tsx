@@ -35,7 +35,7 @@ import { GithubIcon } from '../components/GithubIcon'
 import { api } from '../api'
 import { applyTheme, getStoredThemeMode, normalizeThemeMode, type ThemeMode } from '../theme'
 import { copyWithStatus } from '../utils/accountPresentation'
-import soloCanImg from '../assets/solo_can.png'
+import { soloCanUrl as soloCanImg } from '../assets/browserAssets'
 
 interface SystemSettingsPageProps {
   status: SystemStatus | null

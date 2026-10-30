@@ -1,4 +1,6 @@
 import React from 'react'
+import type { Tool } from '../navigation/routes'
+import type { Navigate } from '../navigation/useRouteNavigation'
 import {
   Users,
   Settings,
@@ -16,14 +18,14 @@ import {
 import type { SystemStatus } from '../types'
 
 interface NavRailProps {
-  currentTool: number // 0: Switcher, 2: System Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: ACP Adapter
-  onSelectTool: (idx: number) => void
+  currentTool: Tool
+  navigate: Navigate
   status: SystemStatus | null
 }
 
 export const NavRail: React.FC<NavRailProps> = ({
   currentTool,
-  onSelectTool,
+  navigate,
   status,
 }) => {
   return (
@@ -115,113 +117,113 @@ export const NavRail: React.FC<NavRailProps> = ({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
         <button
           id="btnNavAccountSwitcher"
-          onClick={() => onSelectTool(0)}
+          onClick={() => navigate({ tool: 'switcher', tab: 'dashboard' })}
           style={{
             width: '100%',
             textAlign: 'left',
             padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
-            fontWeight: currentTool === 0 ? 600 : 500,
-            color: currentTool === 0 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 0 ? 'var(--primary-container)' : 'transparent',
+            fontWeight: currentTool === 'switcher' ? 600 : 500,
+            color: currentTool === 'switcher' ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 'switcher' ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             whiteSpace: 'nowrap',
           }}
         >
-          <Users size={18} color={currentTool === 0 ? 'var(--primary)' : 'var(--text-muted)'} />
+          <Users size={18} color={currentTool === 'switcher' ? 'var(--primary)' : 'var(--text-muted)'} />
           Account Switcher
         </button>
 
         <button
           id="btnNavCustomModels"
-          onClick={() => onSelectTool(3)}
+          onClick={() => navigate({ tool: 'custom-models' })}
           style={{
             width: '100%',
             textAlign: 'left',
             padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
-            fontWeight: currentTool === 3 ? 600 : 500,
-            color: currentTool === 3 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 3 ? 'var(--primary-container)' : 'transparent',
+            fontWeight: currentTool === 'custom-models' ? 600 : 500,
+            color: currentTool === 'custom-models' ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 'custom-models' ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             whiteSpace: 'nowrap',
           }}
         >
-          <Cpu size={18} color={currentTool === 3 ? 'var(--primary)' : 'var(--text-muted)'} />
+          <Cpu size={18} color={currentTool === 'custom-models' ? 'var(--primary)' : 'var(--text-muted)'} />
           Custom Models
         </button>
 
         <button
           id="btnNavTokenMonitor"
-          onClick={() => onSelectTool(8)}
+          onClick={() => navigate({ tool: 'token-monitor', tab: 'overview' })}
           style={{
             width: '100%',
             textAlign: 'left',
             padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
-            fontWeight: currentTool === 8 ? 600 : 500,
-            color: currentTool === 8 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 8 ? 'var(--primary-container)' : 'transparent',
+            fontWeight: currentTool === 'token-monitor' ? 600 : 500,
+            color: currentTool === 'token-monitor' ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 'token-monitor' ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             whiteSpace: 'nowrap',
           }}
         >
-          <Coins size={18} color={currentTool === 8 ? 'var(--primary)' : 'var(--text-muted)'} />
+          <Coins size={18} color={currentTool === 'token-monitor' ? 'var(--primary)' : 'var(--text-muted)'} />
           Token Monitor
         </button>
 
         <button
           id="btnNavBridge"
           data-testid="btnNavRemoteConnect"
-          onClick={() => onSelectTool(10)}
+          onClick={() => navigate({ tool: 'remote-connect', tab: 'remote' })}
           style={{
             width: '100%',
             textAlign: 'left',
             padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
-            fontWeight: currentTool === 10 ? 600 : 500,
-            color: currentTool === 10 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 10 ? 'var(--primary-container)' : 'transparent',
+            fontWeight: currentTool === 'remote-connect' ? 600 : 500,
+            color: currentTool === 'remote-connect' ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 'remote-connect' ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             whiteSpace: 'nowrap',
           }}
         >
-          <Globe size={18} color={currentTool === 10 ? 'var(--primary)' : 'var(--text-muted)'} />
+          <Globe size={18} color={currentTool === 'remote-connect' ? 'var(--primary)' : 'var(--text-muted)'} />
           Remote Connect
         </button>
 
         <button
           id="btnNavACPAgentMesh"
           data-testid="btnNavACPAgentMesh"
-          onClick={() => onSelectTool(11)}
+          onClick={() => navigate({ tool: 'acp-adapter' })}
           style={{
             width: '100%',
             textAlign: 'left',
             padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
-            fontWeight: currentTool === 11 ? 600 : 500,
-            color: currentTool === 11 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 11 ? 'var(--primary-container)' : 'transparent',
+            fontWeight: currentTool === 'acp-adapter' ? 600 : 500,
+            color: currentTool === 'acp-adapter' ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 'acp-adapter' ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             whiteSpace: 'nowrap',
           }}
         >
-          <Network size={18} color={currentTool === 11 ? 'var(--primary)' : 'var(--text-muted)'} />
+          <Network size={18} color={currentTool === 'acp-adapter' ? 'var(--primary)' : 'var(--text-muted)'} />
           ACP Adapter
         </button>
 
@@ -229,67 +231,67 @@ export const NavRail: React.FC<NavRailProps> = ({
           <button
             id="btnNavExtensions"
             data-testid="btnNavExtensions"
-            onClick={() => onSelectTool(7)}
+            onClick={() => navigate({ tool: 'extensions', tab: 'built-in' })}
             style={{
               width: '100%',
               textAlign: 'left',
               padding: '9px 12px',
               borderRadius: '20px',
               fontSize: '13px',
-              fontWeight: currentTool === 7 ? 600 : 500,
-              color: currentTool === 7 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-              backgroundColor: currentTool === 7 ? 'var(--primary-container)' : 'transparent',
+              fontWeight: currentTool === 'extensions' ? 600 : 500,
+              color: currentTool === 'extensions' ? 'var(--on-primary-container)' : 'var(--text-muted)',
+              backgroundColor: currentTool === 'extensions' ? 'var(--primary-container)' : 'transparent',
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
               whiteSpace: 'nowrap',
             }}
           >
-            <Boxes size={18} color={currentTool === 7 ? 'var(--primary)' : 'var(--text-muted)'} />
+            <Boxes size={18} color={currentTool === 'extensions' ? 'var(--primary)' : 'var(--text-muted)'} />
             Extensions
           </button>
         )}
         <button
           id="btnNavEnhancements"
-          onClick={() => onSelectTool(4)}
+          onClick={() => navigate({ tool: 'enhancements', tab: 'chat-view' })}
           style={{
             width: '100%',
             textAlign: 'left',
             padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
-            fontWeight: currentTool === 4 ? 600 : 500,
-            color: currentTool === 4 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 4 ? 'var(--primary-container)' : 'transparent',
+            fontWeight: currentTool === 'enhancements' ? 600 : 500,
+            color: currentTool === 'enhancements' ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 'enhancements' ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             whiteSpace: 'nowrap',
           }}
         >
-          <Zap size={18} color={currentTool === 4 ? 'var(--primary)' : 'var(--text-muted)'} />
+          <Zap size={18} color={currentTool === 'enhancements' ? 'var(--primary)' : 'var(--text-muted)'} />
           UI Enhancements
         </button>
 
         <button
           id="btnNavUtilities"
-          onClick={() => onSelectTool(9)}
+          onClick={() => navigate({ tool: 'utilities', tab: 'cache' })}
           style={{
             width: '100%',
             textAlign: 'left',
             padding: '9px 12px',
             borderRadius: '20px',
             fontSize: '13px',
-            fontWeight: currentTool === 9 ? 600 : 500,
-            color: currentTool === 9 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-            backgroundColor: currentTool === 9 ? 'var(--primary-container)' : 'transparent',
+            fontWeight: currentTool === 'utilities' ? 600 : 500,
+            color: currentTool === 'utilities' ? 'var(--on-primary-container)' : 'var(--text-muted)',
+            backgroundColor: currentTool === 'utilities' ? 'var(--primary-container)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             whiteSpace: 'nowrap',
           }}
         >
-          <Wrench size={18} color={currentTool === 9 ? 'var(--primary)' : 'var(--text-muted)'} />
+          <Wrench size={18} color={currentTool === 'utilities' ? 'var(--primary)' : 'var(--text-muted)'} />
           Utilities
         </button>
       </div>
@@ -335,23 +337,23 @@ export const NavRail: React.FC<NavRailProps> = ({
       {/* Dedicated System Settings Button Pinned at Bottom-Left of Whole GUI */}
       <button
         id="btnNavSystemSettings"
-        onClick={() => onSelectTool(2)}
+        onClick={() => navigate({ tool: 'system-settings', tab: 'general' })}
         style={{
           width: '100%',
           textAlign: 'left',
           padding: '9px 12px',
           borderRadius: '20px',
           fontSize: '13px',
-          fontWeight: currentTool === 2 ? 600 : 500,
-          color: currentTool === 2 ? 'var(--on-primary-container)' : 'var(--text-muted)',
-          backgroundColor: currentTool === 2 ? 'var(--primary-container)' : 'transparent',
+          fontWeight: currentTool === 'system-settings' ? 600 : 500,
+          color: currentTool === 'system-settings' ? 'var(--on-primary-container)' : 'var(--text-muted)',
+          backgroundColor: currentTool === 'system-settings' ? 'var(--primary-container)' : 'transparent',
           display: 'flex',
           alignItems: 'center',
           gap: '10px',
           whiteSpace: 'nowrap',
         }}
       >
-        <Settings size={18} color={currentTool === 2 ? 'var(--primary)' : 'var(--text-muted)'} />
+        <Settings size={18} color={currentTool === 'system-settings' ? 'var(--primary)' : 'var(--text-muted)'} />
         System Settings
       </button>
       </div>
