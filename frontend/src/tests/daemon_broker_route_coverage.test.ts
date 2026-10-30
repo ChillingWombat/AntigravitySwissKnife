@@ -180,6 +180,24 @@ function productionSourceFiles(directory: string): string[] {
   })
 }
 
+function daemonPathLiteralLines(parsed: ts.SourceFile): number[] {
+  const lines: number[] = []
+  const visit = (node: ts.Node) => {
+    let value: string | null = null
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      value = node.text
+    } else if (ts.isTemplateExpression(node)) {
+      value = node.head.text + node.templateSpans.map((span) => '${}' + span.literal.text).join('')
+    }
+    if (value?.includes('/api/') && !/^https?:\/\//.test(value)) {
+      lines.push(parsed.getLineAndCharacterOfPosition(node.getStart()).line + 1)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  return lines
+}
+
 describe('daemon broker route policy coverage', () => {
   const { routes: frontendRoutes, unresolved } = frontendDaemonRoutes()
 
@@ -218,21 +236,27 @@ describe('daemon broker route policy coverage', () => {
     for (const file of productionSourceFiles(path.join(repoRoot, 'frontend', 'src'))) {
       if (file === apiSourcePath) continue
       const parsed = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-      const visit = (node: ts.Node) => {
-        if (ts.isCallExpression(node)) {
-          for (const argument of node.arguments) {
-            const routeExpression = staticRoutePaths(argument)
-            if (routeExpression.paths.some((rawPath) => rawPath.startsWith('/api/'))) {
-              const line = parsed.getLineAndCharacterOfPosition(node.getStart()).line + 1
-              violations.push(`${path.relative(repoRoot, file)}:${line}`)
-            }
-          }
-        }
-        ts.forEachChild(node, visit)
+      for (const line of daemonPathLiteralLines(parsed)) {
+        violations.push(`${path.relative(repoRoot, file)}:${line}`)
       }
-      visit(parsed)
     }
     assert.deepEqual(violations, [])
+  })
+
+  it('detects daemon paths stored in variables or string concatenations', () => {
+    const fixture = ts.createSourceFile(
+      path.join(repoRoot, 'frontend', 'src', 'route-centralization-fixture.ts'),
+      `
+        const route = '/api/status'
+        fetch(route)
+        fetch(base + '/api/accounts')
+        fetch(\`\${base}/api/quota\`)
+      `,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    )
+    assert.deepEqual(daemonPathLiteralLines(fixture), [2, 4, 5])
   })
 
   it('preserves approval semantics for every query variant', () => {
