@@ -18,7 +18,7 @@ describe('Launch Antigravity 2.0 Button in Switcher Status Gadget', () => {
 
   it('imports antigravityLogo in QuotaDashboardPage', () => {
     assert.ok(
-      pageSrc.includes("import antigravityLogo from '../assets/antigravity_logo.png'"),
+      pageSrc.includes("import { antigravityLogoUrl as antigravityLogo } from '../assets/browserAssets'"),
       'QuotaDashboardPage must import antigravityLogo from assets'
     )
   })
