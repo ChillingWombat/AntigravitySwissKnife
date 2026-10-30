@@ -38,7 +38,7 @@ const electronStub = {
   Menu: { buildFromTemplate: () => ({}), setApplicationMenu: noop },
   ipcMain: { handle: noop, on: noop, removeHandler: noop },
   shell: { openExternal: async () => {}, showItemInFolder: noop },
-  Notification: function Notification() {}, 
+  Notification: function Notification() {},
   nativeImage: { createFromPath: () => ({ isEmpty: () => true }), createEmpty: () => ({}) },
   session: { defaultSession: { webRequest: { onBeforeSendHeaders: noop } } },
   clipboard: { readText: () => '', writeText: noop },

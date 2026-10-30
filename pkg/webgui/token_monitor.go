@@ -90,6 +90,7 @@ type TokenTelemetryEvent struct {
 type cachedTranscriptStats struct {
 	modTimeNano       int64
 	size              int64
+	lastAccessed      time.Time
 	freshInput        int64
 	cachedInput       int64
 	outputTokens      int64
@@ -102,7 +103,8 @@ type cachedTranscriptStats struct {
 	// steps holds every token-bearing step with its own timestamp so the
 	// summary handler can aggregate over an arbitrary time window (range
 	// filter). All-time totals above are kept for cheap validity checks.
-	steps []rawStepEvent
+	steps        []rawStepEvent
+	droppedSteps int
 }
 
 type rawStepEvent struct {
@@ -131,11 +133,13 @@ type stepWithContext struct {
 }
 
 type cachedConvModel struct {
-	modTimeNano int64
-	size        int64
-	modelID     string
-	displayName string
-	provider    string
+	modTimeNano    int64
+	size           int64
+	lastAccessed   time.Time
+	modelID        string
+	displayName    string
+	provider       string
+	transcriptPath string
 }
 
 type protobufWireField struct {
@@ -145,11 +149,206 @@ type protobufWireField struct {
 	varint   uint64
 }
 
-var (
-	tokenCacheMu       sync.RWMutex
-	transcriptCacheMap = make(map[string]cachedTranscriptStats)
-	convModelCacheMap  = make(map[string]cachedConvModel)
+const (
+	tokenTranscriptCacheLimit = 256
+	tokenConvModelCacheLimit  = 512
+	tokenRetainedStepsLimit   = 2048
+	tokenTranscriptCacheTTL   = 15 * time.Minute
+	tokenConvModelCacheTTL    = 30 * time.Minute
 )
+
+type tokenCacheLimits struct {
+	TranscriptEntries    int   `json:"transcript_entries"`
+	ConvModelEntries     int   `json:"conv_model_entries"`
+	RetainedSteps        int   `json:"retained_steps"`
+	TranscriptTTLSeconds int64 `json:"transcript_ttl_seconds"`
+	ConvModelTTLSeconds  int64 `json:"conv_model_ttl_seconds"`
+}
+
+type tokenCacheDiagnostics struct {
+	TranscriptEntries    int              `json:"transcript_entries"`
+	ConvModelEntries     int              `json:"conv_model_entries"`
+	RetainedSteps        int              `json:"retained_steps"`
+	Limits               tokenCacheLimits `json:"limits"`
+	Evictions            int64            `json:"evictions"`
+	TruncatedTranscripts int              `json:"truncated_transcripts"`
+	DroppedSteps         int64            `json:"dropped_steps"`
+}
+
+type tokenCaches struct {
+	mu          sync.Mutex
+	transcripts map[string]cachedTranscriptStats
+	convModels  map[string]cachedConvModel
+	evictions   int64
+}
+
+var tokenCacheStore = newTokenCaches()
+
+func newTokenCaches() *tokenCaches {
+	return &tokenCaches{
+		transcripts: make(map[string]cachedTranscriptStats),
+		convModels:  make(map[string]cachedConvModel),
+	}
+}
+
+func normalizeTokenCacheKey(path string) string {
+	absolute, err := filepath.Abs(path)
+	if err == nil {
+		path = absolute
+	}
+	return filepath.Clean(path)
+}
+
+func trimTranscriptSteps(stats *cachedTranscriptStats) {
+	if extra := len(stats.steps) - tokenRetainedStepsLimit; extra > 0 {
+		stats.steps = append([]rawStepEvent(nil), stats.steps[extra:]...)
+		stats.droppedSteps += extra
+	}
+}
+
+func (c *tokenCaches) sweepLocked(now time.Time) {
+	for key, cached := range c.transcripts {
+		if now.Sub(cached.lastAccessed) >= tokenTranscriptCacheTTL {
+			delete(c.transcripts, key)
+			c.evictions++
+		}
+	}
+	for key, cached := range c.convModels {
+		if now.Sub(cached.lastAccessed) >= tokenConvModelCacheTTL {
+			delete(c.convModels, key)
+			c.evictions++
+		}
+	}
+}
+
+func (c *tokenCaches) getTranscript(key string, info os.FileInfo, now time.Time) (cachedTranscriptStats, bool) {
+	key = normalizeTokenCacheKey(key)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sweepLocked(now)
+	cached, ok := c.transcripts[key]
+	if !ok || cached.modTimeNano != info.ModTime().UnixNano() || cached.size != info.Size() {
+		return cachedTranscriptStats{}, false
+	}
+	cached.lastAccessed = now
+	c.transcripts[key] = cached
+	return cached, true
+}
+
+func (c *tokenCaches) putTranscript(key string, stats cachedTranscriptStats, now time.Time) {
+	key = normalizeTokenCacheKey(key)
+	trimTranscriptSteps(&stats)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sweepLocked(now)
+	if _, exists := c.transcripts[key]; !exists && len(c.transcripts) >= tokenTranscriptCacheLimit {
+		c.evictOldestTranscriptLocked()
+	}
+	stats.lastAccessed = now
+	c.transcripts[key] = stats
+}
+
+func (c *tokenCaches) evictOldestTranscriptLocked() {
+	var oldestKey string
+	var oldestTime time.Time
+	for key, cached := range c.transcripts {
+		if oldestKey == "" || cached.lastAccessed.Before(oldestTime) || (cached.lastAccessed.Equal(oldestTime) && key < oldestKey) {
+			oldestKey = key
+			oldestTime = cached.lastAccessed
+		}
+	}
+	if oldestKey != "" {
+		delete(c.transcripts, oldestKey)
+		c.evictions++
+	}
+}
+
+func (c *tokenCaches) getConvModel(key string, info os.FileInfo, now time.Time) (cachedConvModel, bool) {
+	key = normalizeTokenCacheKey(key)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sweepLocked(now)
+	cached, ok := c.convModels[key]
+	if !ok || cached.modTimeNano != info.ModTime().UnixNano() || cached.size != info.Size() {
+		return cachedConvModel{}, false
+	}
+	cached.lastAccessed = now
+	c.convModels[key] = cached
+	return cached, true
+}
+
+func (c *tokenCaches) putConvModel(key string, cached cachedConvModel, now time.Time) {
+	key = normalizeTokenCacheKey(key)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sweepLocked(now)
+	if _, exists := c.convModels[key]; !exists && len(c.convModels) >= tokenConvModelCacheLimit {
+		c.evictOldestConvModelLocked()
+	}
+	cached.lastAccessed = now
+	c.convModels[key] = cached
+}
+
+func (c *tokenCaches) evictOldestConvModelLocked() {
+	var oldestKey string
+	var oldestTime time.Time
+	for key, cached := range c.convModels {
+		if oldestKey == "" || cached.lastAccessed.Before(oldestTime) || (cached.lastAccessed.Equal(oldestTime) && key < oldestKey) {
+			oldestKey = key
+			oldestTime = cached.lastAccessed
+		}
+	}
+	if oldestKey != "" {
+		delete(c.convModels, oldestKey)
+		c.evictions++
+	}
+}
+
+func (c *tokenCaches) reconcileTranscriptScan(seen map[string]struct{}, now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sweepLocked(now)
+	for key := range c.transcripts {
+		if _, ok := seen[key]; !ok {
+			delete(c.transcripts, key)
+			c.evictions++
+		}
+	}
+	for key, cached := range c.convModels {
+		_, keySeen := seen[key]
+		_, transcriptSeen := seen[cached.transcriptPath]
+		if (!keySeen && cached.transcriptPath == "") || (cached.transcriptPath != "" && !transcriptSeen) {
+			delete(c.convModels, key)
+			c.evictions++
+		}
+	}
+}
+
+func (c *tokenCaches) diagnostics(now time.Time) tokenCacheDiagnostics {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sweepLocked(now)
+	diagnostics := tokenCacheDiagnostics{
+		TranscriptEntries: len(c.transcripts),
+		ConvModelEntries:  len(c.convModels),
+		Limits: tokenCacheLimits{
+			TranscriptEntries:    tokenTranscriptCacheLimit,
+			ConvModelEntries:     tokenConvModelCacheLimit,
+			RetainedSteps:        tokenRetainedStepsLimit,
+			TranscriptTTLSeconds: int64(tokenTranscriptCacheTTL / time.Second),
+			ConvModelTTLSeconds:  int64(tokenConvModelCacheTTL / time.Second),
+		},
+		Evictions: c.evictions,
+	}
+	for _, cached := range c.transcripts {
+		diagnostics.RetainedSteps += len(cached.steps)
+		diagnostics.DroppedSteps += int64(cached.droppedSteps)
+		if cached.droppedSteps > 0 {
+			diagnostics.TruncatedTranscripts++
+		}
+	}
+	return diagnostics
+}
 
 func readProtobufVarint(data []byte, offset *int) (uint64, bool) {
 	var value uint64
@@ -406,12 +605,10 @@ func (s *Server) syncTokenPricing(ctx context.Context, force bool) []custommodel
 }
 
 func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
-	tokenCacheMu.RLock()
-	if cached, ok := transcriptCacheMap[tPath]; ok && cached.modTimeNano == info.ModTime().UnixNano() && cached.size == info.Size() {
-		tokenCacheMu.RUnlock()
+	cacheKey := normalizeTokenCacheKey(tPath)
+	if cached, ok := tokenCacheStore.getTranscript(cacheKey, info, time.Now()); ok {
 		return cached
 	}
-	tokenCacheMu.RUnlock()
 
 	stats := cachedTranscriptStats{
 		modTimeNano: info.ModTime().UnixNano(),
@@ -593,9 +790,7 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 		})
 	}
 
-	tokenCacheMu.Lock()
-	transcriptCacheMap[tPath] = stats
-	tokenCacheMu.Unlock()
+	tokenCacheStore.putTranscript(cacheKey, stats, time.Now())
 	return stats
 }
 
@@ -939,6 +1134,13 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 			cacheSize = info.Size()
 		}
 	}
+	if cacheKey != "" {
+		cacheKey = normalizeTokenCacheKey(cacheKey)
+	}
+	transcriptPath := ""
+	if tPath != "" {
+		transcriptPath = normalizeTokenCacheKey(tPath)
+	}
 
 	var convID string
 	if convDBPath != "" && strings.HasSuffix(convDBPath, ".db") {
@@ -962,15 +1164,7 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 					}
 					prov := custommodels.NormalizePricingProvider(string(cm.ProviderType), cm.Name)
 					if cacheKey != "" {
-						tokenCacheMu.Lock()
-						convModelCacheMap[cacheKey] = cachedConvModel{
-							modTimeNano: cacheModTime,
-							size:        cacheSize,
-							modelID:     cm.Name,
-							displayName: disp,
-							provider:    prov,
-						}
-						tokenCacheMu.Unlock()
+						tokenCacheStore.putConvModel(cacheKey, cachedConvModel{modTimeNano: cacheModTime, size: cacheSize, modelID: cm.Name, displayName: disp, provider: prov, transcriptPath: transcriptPath}, time.Now())
 					}
 					return cm.Name, disp, prov
 				}
@@ -981,12 +1175,11 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 	// The sidecar can change without touching the transcript, so it must run
 	// before the transcript-keyed warm cache.
 	if cacheKey != "" {
-		tokenCacheMu.RLock()
-		if cached, ok := convModelCacheMap[cacheKey]; ok && cached.modTimeNano == cacheModTime && cached.size == cacheSize {
-			tokenCacheMu.RUnlock()
-			return cached.modelID, cached.displayName, cached.provider
+		if info, err := os.Stat(cacheKey); err == nil {
+			if cached, ok := tokenCacheStore.getConvModel(cacheKey, info, time.Now()); ok {
+				return cached.modelID, cached.displayName, cached.provider
+			}
 		}
-		tokenCacheMu.RUnlock()
 	}
 
 	// 1. Authoritative check: transcript.jsonl step 0 <USER_SETTINGS_CHANGE>
@@ -994,15 +1187,7 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 		if rawName, ok := extractModelFromTranscript(tPath); ok {
 			mID, mName, mProv := mapModelNameToMetadata(rawName, customModels, catalogModels)
 			if cacheKey != "" {
-				tokenCacheMu.Lock()
-				convModelCacheMap[cacheKey] = cachedConvModel{
-					modTimeNano: cacheModTime,
-					size:        cacheSize,
-					modelID:     mID,
-					displayName: mName,
-					provider:    mProv,
-				}
-				tokenCacheMu.Unlock()
+				tokenCacheStore.putConvModel(cacheKey, cachedConvModel{modTimeNano: cacheModTime, size: cacheSize, modelID: mID, displayName: mName, provider: mProv, transcriptPath: transcriptPath}, time.Now())
 			}
 			return mID, mName, mProv
 		}
@@ -1024,15 +1209,7 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 					}
 					prov := custommodels.NormalizePricingProvider(string(cm.ProviderType), cm.Name)
 					if cacheKey != "" {
-						tokenCacheMu.Lock()
-						convModelCacheMap[cacheKey] = cachedConvModel{
-							modTimeNano: cacheModTime,
-							size:        cacheSize,
-							modelID:     cm.Name,
-							displayName: disp,
-							provider:    prov,
-						}
-						tokenCacheMu.Unlock()
+						tokenCacheStore.putConvModel(cacheKey, cachedConvModel{modTimeNano: cacheModTime, size: cacheSize, modelID: cm.Name, displayName: disp, provider: prov, transcriptPath: transcriptPath}, time.Now())
 					}
 					return cm.Name, disp, prov
 				}
@@ -1046,15 +1223,7 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 	mProv := "gemini"
 
 	if cacheKey != "" {
-		tokenCacheMu.Lock()
-		convModelCacheMap[cacheKey] = cachedConvModel{
-			modTimeNano: cacheModTime,
-			size:        cacheSize,
-			modelID:     mID,
-			displayName: mName,
-			provider:    mProv,
-		}
-		tokenCacheMu.Unlock()
+		tokenCacheStore.putConvModel(cacheKey, cachedConvModel{modTimeNano: cacheModTime, size: cacheSize, modelID: mID, displayName: mName, provider: mProv, transcriptPath: transcriptPath}, time.Now())
 	}
 
 	return mID, mName, mProv
@@ -1550,6 +1719,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	var totalTimedOutputTokens int64
 
 	var allRecentSteps []stepWithContext
+	seenTranscripts := make(map[string]struct{})
 	// windowSteps holds every token step inside the selected range; the trend
 	// histogram is built from these real records (no synthetic interpolation).
 	var windowSteps []stepWithContext
@@ -1567,6 +1737,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			if err != nil || info.IsDir() {
 				continue
 			}
+			seenTranscripts[normalizeTokenCacheKey(tPath)] = struct{}{}
 
 			tStats := parseTranscriptFile(tPath, info)
 			if tStats.requests == 0 || (tStats.freshInput == 0 && tStats.cachedInput == 0 && tStats.outputTokens == 0) {
@@ -1923,6 +2094,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			PrimaryModel:  primaryModel,
 		})
 	}
+	tokenCacheStore.reconcileTranscriptScan(seenTranscripts, time.Now())
+
 	sort.Slice(projectBreakdowns, func(i, j int) bool {
 		if projectBreakdowns[i].TotalTokens != projectBreakdowns[j].TotalTokens {
 			return projectBreakdowns[i].TotalTokens > projectBreakdowns[j].TotalTokens
@@ -2062,6 +2235,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		},
 		"pricing_records": pricingRecords,
 		"models":          pricingRecords,
+		"cache":           tokenCacheStore.diagnostics(time.Now()),
 	})
 }
 

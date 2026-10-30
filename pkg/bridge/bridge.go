@@ -39,7 +39,7 @@ type Config struct {
 	// "auto" (CLI when installed), "app" (2.0 desktop app) or "cli".
 	AgentBackend string `json:"agent_backend"`
 	// HTTPAllowlistMode configures outbound HTTP filtering: "always_allow" (default) or "whitelist_only".
-	HTTPAllowlistMode    string                `json:"http_allowlist_mode"`
+	HTTPAllowlistMode string `json:"http_allowlist_mode"`
 	// HTTPAllowlist gates local_http_request. An agent may only reach hosts listed
 	// here; anything else lands in HTTPPendingApprovals and is never called.
 	HTTPAllowlist        []string              `json:"http_allowlist"`
@@ -84,14 +84,15 @@ type BridgeStatus struct {
 	OAuthClientID      string `json:"oauth_client_id"`
 	OAuthClientSecret  string `json:"oauth_client_secret"`
 	// Which Antigravity surface lead/model tools drive, requested vs resolved.
-	AgentBackend      string        `json:"agent_backend"`
-	ResolvedAgent     string        `json:"resolved_agent"`
-	Surfaces          SurfaceStatus `json:"surfaces"`
-	Tunnel            TunnelStatus  `json:"tunnel"`
-	ActiveLeadSession *LeadSession  `json:"active_lead_session,omitempty"`
-	RecentAttempts    []AuthAttempt `json:"recent_attempts,omitempty"`
-	InvocationsCount  int           `json:"invocations_count"`
-	RecentInvocations []Invocation  `json:"recent_invocations"`
+	AgentBackend      string             `json:"agent_backend"`
+	ResolvedAgent     string             `json:"resolved_agent"`
+	Surfaces          SurfaceStatus      `json:"surfaces"`
+	Tunnel            TunnelStatus       `json:"tunnel"`
+	ActiveLeadSession *LeadSession       `json:"active_lead_session,omitempty"`
+	RecentAttempts    []AuthAttempt      `json:"recent_attempts,omitempty"`
+	InvocationsCount  int                `json:"invocations_count"`
+	RecentInvocations []Invocation       `json:"recent_invocations"`
+	A2ARetention      A2ARetentionStatus `json:"a2a_retention"`
 	// Outbound HTTP gate: the mode, hosts agents may call, and the hosts they asked for.
 	HTTPAllowlistMode    string                `json:"http_allowlist_mode"`
 	HTTPAllowlist        []string              `json:"http_allowlist"`
@@ -129,17 +130,17 @@ type Service struct {
 // DefaultConfig initializes recommended default bridge settings.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:         false,
-		Port:            8765,
-		OperatingMode:   "hybrid",
-		AgentBackend:    AgentAuto,
+		Enabled:           false,
+		Port:              8765,
+		OperatingMode:     "hybrid",
+		AgentBackend:      AgentAuto,
 		HTTPAllowlistMode: "always_allow",
-		TunnelType:      "quick",
-		TunnelURL:       "",
-		AuthToken:       GenerateSecureToken(),
-		PairingPIN:      GeneratePairingPIN(),
-		OAuthClientID:   "antigravity-gemini-bridge",
-		AutoStartTunnel: false,
+		TunnelType:        "quick",
+		TunnelURL:         "",
+		AuthToken:         GenerateSecureToken(),
+		PairingPIN:        GeneratePairingPIN(),
+		OAuthClientID:     "antigravity-gemini-bridge",
+		AutoStartTunnel:   false,
 		AllowedTools: []string{
 			"antigravity_bridge_set_mode",
 			"antigravity_bridge_get_mode",
@@ -784,6 +785,10 @@ func (s *Service) GetStatus() BridgeStatus {
 		requestedAgent = AgentAuto
 	}
 	resolvedAgent := resolveAgentBackend(requestedAgent, s.cliHdl != nil && s.cliHdl.Available())
+	a2aRetention := A2ARetentionStatus{MaxTasks: a2aMaxTasks, TerminalTTLSeconds: int64(a2aTerminalTTL / time.Second)}
+	if s.a2aMgr != nil {
+		a2aRetention = s.a2aMgr.RetentionStats()
+	}
 
 	return BridgeStatus{
 		Enabled:              tunnelStatus.Active,
@@ -805,6 +810,7 @@ func (s *Service) GetStatus() BridgeStatus {
 		RecentAttempts:       s.authMgr.GetRecentAttempts(),
 		InvocationsCount:     len(s.invocations),
 		RecentInvocations:    recent,
+		A2ARetention:         a2aRetention,
 		HTTPAllowlistMode:    s.HTTPAllowlistMode(),
 		HTTPAllowlist:        append([]string{}, s.config.HTTPAllowlist...),
 		HTTPPendingApprovals: append([]HTTPApprovalRequest{}, s.config.HTTPPendingApprovals...),
@@ -1934,7 +1940,7 @@ func (s *Service) getFleetQuota(args ...map[string]interface{}) (string, error) 
 
 	res := map[string]interface{}{
 		"active_account":         active,
-		"active_session_model":  activeSessionModel,
+		"active_session_model":   activeSessionModel,
 		"active_model_exhausted": activeModelExhausted,
 		"active_model_warning":   activeModelWarning,
 		"refreshed_live":         refreshedLive,
