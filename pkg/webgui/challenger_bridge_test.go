@@ -138,6 +138,24 @@ func TestChallengerBridge_WebGUI_BridgeDispatch_LocalRunCommand(t *testing.T) {
 		"prompt": "echo bridge_dispatch_ok",
 		"target": "local_run_command",
 	})
+
+	// Machine-control tools stay denied until the user explicitly allows them.
+	reqDenied := httptest.NewRequest(http.MethodPost, "/api/bridge/dispatch", bytes.NewReader(body))
+	wDenied := httptest.NewRecorder()
+	server.handleBridgeDispatch(wDenied, reqDenied)
+	if wDenied.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 without explicit approval, got: %d (body: %s)", wDenied.Code, wDenied.Body.String())
+	}
+	if !strings.Contains(wDenied.Body.String(), "APPROVAL_REQUIRED") {
+		t.Fatalf("expected APPROVAL_REQUIRED without explicit approval, got: %s", wDenied.Body.String())
+	}
+
+	cfg := bridgeSvc.GetConfig()
+	cfg.AllowedTools = append(cfg.AllowedTools, "local_run_command")
+	if err := bridgeSvc.UpdateConfig(cfg); err != nil {
+		t.Fatalf("failed to explicitly allow local_run_command: %v", err)
+	}
+
 	req := httptest.NewRequest(http.MethodPost, "/api/bridge/dispatch", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	server.handleBridgeDispatch(w, req)

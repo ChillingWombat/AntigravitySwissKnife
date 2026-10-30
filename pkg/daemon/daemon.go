@@ -1324,109 +1324,24 @@ func (d *Daemon) registerRPCHandlers() {
 		if len(params) > 0 {
 			_ = json.Unmarshal(params, &p)
 		}
-		target := strings.TrimSpace(p.Email)
-		if target == "" {
-			target = d.Keyring.ActiveAccount()
+		summary, err := d.Backend().Quota().GetSummary(p.Email, p.Refresh)
+		if err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
-		normTarget := strings.ToLower(target)
-
-		if !p.Refresh {
-			d.quotaCacheMu.RLock()
-			cachedSum := d.quotaCache[normTarget]
-			d.quotaCacheMu.RUnlock()
-			if cachedSum != nil {
-				return *cachedSum, nil
-			}
-
-			diskCache := quota.LoadQuotaCache()
-			if cached, ok := diskCache[normTarget]; ok && cached != nil {
-				d.setQuotaSummary(target, cached)
-				return *cached, nil
-			}
-		}
-
-		acc, _ := d.Keyring.GetAccount(target)
-		now := time.Now()
-		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-			oldTok := acc.AccessToken
-			summary, err := quota.PollAndCacheAccount(acc, d.Keyring)
-			if summary != nil {
-				d.setQuotaSummary(target, summary)
-				if err == nil && strings.EqualFold(target, d.Keyring.ActiveAccount()) && acc.AccessToken != "" && acc.AccessToken != oldTok {
-					d.syncActiveAccountSurfaces(acc)
-				}
-				return *summary, nil
-			}
-		}
-		if !p.Refresh {
-			d.quotaCacheMu.RLock()
-			cachedSum := d.quotaCache[normTarget]
-			d.quotaCacheMu.RUnlock()
-			if cachedSum != nil {
-				return *cachedSum, nil
-			}
-		}
-		return quota.QuotaSummary{
-			AccountEmail:  target,
-			Models:        []quota.ModelQuota{},
-			MinFraction:   0.0,
-			OverallHealth: core.StatusExhausted,
-			LastPolled:    now,
-		}, nil
+		return *summary, nil
 	}
 	d.Server.Register("swiss.getQuotaSummary", getQuotaSummaryHandler)
 	d.Server.Register("quota.get_summary", getQuotaSummaryHandler)
 
 	// 13. Fleet Quota & Per-Account Horizon States
 	d.Server.Register("swiss.getFleetQuota", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
-		var allEmails []string
-		for _, a := range d.Keyring.ListAccounts() {
-			allEmails = append(allEmails, a.Email)
-		}
-		_, _ = d.Keyring.ReconcileActiveAccount(d.Config.AutoImportActiveAccount, allEmails, d.Profiles)
-
-		accounts := d.Keyring.ListAccounts()
-		active := d.Keyring.ActiveAccount()
-		summaries := d.getQuotaSummaries()
-
-		if len(summaries) == 0 && len(accounts) > 0 {
-			d.triggerQuotaRefreshAsync()
-		}
-
-		d.mu.RLock()
-		thresh := d.Config.AutoSwitchThreshold
-		threshWeekly := d.Config.AutoSwitchWeeklyThreshold
-		switchMode := d.Config.SwitchMode
-		allowNonGemini := d.Config.AllowNonGeminiNativeModels
-		d.mu.RUnlock()
-		if thresh <= 0 {
-			thresh = core.DefaultAutoSwitchThresholdFraction
-		}
-		if threshWeekly <= 0 {
-			threshWeekly = core.DefaultAutoSwitchWeeklyThresholdFraction
-		}
-		if switchMode == "" {
-			switchMode = core.DefaultSwitchMode
-		}
-		states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, thresh, threshWeekly, allowNonGemini)
-		states = quota.SortAccountQuotaStatesWithThresholds(states, active, thresh, threshWeekly, "auto", switchMode, allowNonGemini)
-		summary := quota.ComputeFleetSummary(states, active)
-		for i := range summary.Accounts {
-			summary.Accounts[i].Password = ""
-			summary.Accounts[i].TOTPSecret = ""
-			summary.Accounts[i].AccessToken = ""
-			if strings.TrimSpace(summary.Accounts[i].RefreshToken) != "" {
-				summary.Accounts[i].RefreshToken = "[REDACTED]"
-			}
-		}
-		d.pollingMu.Lock()
-		summary.Refreshing = d.isPollingFleet
-		d.pollingMu.Unlock()
-		return summary, nil
+		return *d.Backend().Quota().GetFleet(), nil
 	})
 
 	d.Server.Register("swiss.refreshFleetQuota", func(params json.RawMessage) (interface{}, *ipc.RPCError) {
-		d.triggerQuotaRefreshAsync()
+		if err := d.Backend().Quota().RefreshFleet(); err != nil {
+			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
+		}
 		return map[string]interface{}{"status": "refresh_started"}, nil
 	})
 

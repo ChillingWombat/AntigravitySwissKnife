@@ -119,6 +119,12 @@ func NewServer(addr string, service backend.BackendService, rpc RPCClient) (*Ser
 	if service == nil || service.Accounts() == nil {
 		return nil, errors.New("account backend is required")
 	}
+	if service.Quota() == nil {
+		return nil, errors.New("quota backend is required")
+	}
+	if service.GUI() == nil {
+		return nil, errors.New("GUI backend is required")
+	}
 	return newServer(addr, service, rpc)
 }
 
@@ -134,9 +140,13 @@ func newServer(addr string, service backend.BackendService, rpc RPCClient) (*Ser
 	if addr == "" {
 		addr = "127.0.0.1:8765"
 	}
-	guiStore, err := newGUIConfigStore("")
-	if err != nil {
-		return nil, fmt.Errorf("initialize GUI store: %w", err)
+	var guiStore *gui.Store
+	if service == nil {
+		var err error
+		guiStore, err = newGUIConfigStore("")
+		if err != nil {
+			return nil, fmt.Errorf("initialize GUI store: %w", err)
+		}
 	}
 	cmStore, err := custommodels.NewStore("")
 	if err != nil {
@@ -324,7 +334,7 @@ func (s *Server) getCustomModelsTester() *custommodels.Tester {
 func (s *Server) getGUIStore() *gui.Store {
 	s.lazyMu.Lock()
 	defer s.lazyMu.Unlock()
-	if s.guiStore == nil {
+	if s.guiStore == nil && s.backend == nil {
 		s.guiStore, _ = gui.NewStore("")
 	}
 	return s.guiStore
@@ -357,6 +367,11 @@ func (s *Server) SetAppReleaseManager(mgr *system.AppReleaseManager) {
 // SetGUIStore replaces the guiStore on the server (useful for testing with isolated temporary config directories).
 func (s *Server) SetGUIStore(store *gui.Store) {
 	s.guiStore = store
+	if s.backend != nil {
+		if setter, ok := s.backend.GUI().(interface{ SetStore(*gui.Store) }); ok {
+			setter.SetStore(store)
+		}
+	}
 }
 
 // SetGitHubService replaces the githubService on the server (useful for tests).
@@ -1310,6 +1325,20 @@ func (s *Server) accountService() backend.AccountService {
 	return s.backend.Accounts()
 }
 
+func (s *Server) quotaService() backend.QuotaService {
+	if s.backend == nil {
+		return nil
+	}
+	return s.backend.Quota()
+}
+
+func (s *Server) guiService() backend.GUIService {
+	if s.backend == nil {
+		return nil
+	}
+	return s.backend.GUI()
+}
+
 type accountBackendError struct {
 	operation string
 	err       error
@@ -1793,6 +1822,16 @@ func (s *Server) handleCacheConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleQuota(w http.ResponseWriter, r *http.Request) {
 	reqEmail := strings.TrimSpace(r.URL.Query().Get("email"))
 	refreshParam := r.URL.Query().Get("refresh") == "true" || r.URL.Query().Get("refresh") == "1"
+	if service := s.quotaService(); service != nil {
+		summary, err := service.GetSummary(reqEmail, refreshParam)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("quota backend summary failed: %v", err), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, *summary)
+		return
+	}
+
 	var q quota.QuotaSummary
 	params := map[string]interface{}{}
 	if reqEmail != "" {
@@ -1802,85 +1841,19 @@ func (s *Server) handleQuota(w http.ResponseWriter, r *http.Request) {
 		params["refresh"] = true
 	}
 	if err := s.client.Call("swiss.getQuotaSummary", params, &q); err != nil {
-		store, _ := keyring.NewStore("")
-		target := reqEmail
-		if target == "" && store != nil {
-			target = store.ActiveAccount()
-		}
-		if refreshParam && store != nil {
-			if acc, _ := store.GetAccount(target); acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-				if freshSum, _ := quota.PollAndCacheAccount(acc, store); freshSum != nil {
-					writeJSON(w, *freshSum)
-					return
-				}
-			}
-		}
-		diskCache := quota.LoadQuotaCache()
-		if cached, ok := diskCache[strings.ToLower(strings.TrimSpace(target))]; ok && cached != nil && !refreshParam {
-			writeJSON(w, *cached)
-			return
-		}
-		if store != nil {
-			if acc, _ := store.GetAccount(target); acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-				if freshSum, _ := quota.PollAndCacheAccount(acc, store); freshSum != nil {
-					writeJSON(w, *freshSum)
-					return
-				}
-			}
-		}
-		q = quota.QuotaSummary{
-			AccountEmail:  target,
-			Models:        []quota.ModelQuota{},
-			MinFraction:   0.0,
-			OverallHealth: core.StatusExhausted,
-			LastPolled:    time.Now(),
-		}
+		http.Error(w, fmt.Sprintf("quota RPC summary failed: %v", err), http.StatusBadGateway)
+		return
 	}
 	writeJSON(w, q)
 }
 
 func (s *Server) handleFleetQuota(w http.ResponseWriter, r *http.Request) {
 	var summary quota.FleetQuotaSummary
-	if err := s.client.Call("swiss.getFleetQuota", nil, &summary); err != nil {
-		store, _ := keyring.NewStore("")
-		var accounts []*keyring.Account
-		active := ""
-		if store != nil {
-			thresh := core.DefaultAutoSwitchThresholdFraction
-			threshWeekly := core.DefaultAutoSwitchWeeklyThresholdFraction
-			switchMode := core.DefaultSwitchMode
-			autoImport := false
-			allowNonGemini := false
-			if c, errCfg := core.LoadConfig(); errCfg == nil {
-				if c.AutoSwitchThreshold > 0 {
-					thresh = c.AutoSwitchThreshold
-				}
-				if c.AutoSwitchWeeklyThreshold > 0 {
-					threshWeekly = c.AutoSwitchWeeklyThreshold
-				}
-				if c.SwitchMode != "" {
-					switchMode = c.SwitchMode
-				}
-				autoImport = c.AutoImportActiveAccount
-				allowNonGemini = c.AllowNonGeminiNativeModels
-			}
-			var allEmails []string
-			for _, a := range store.ListAccounts() {
-				allEmails = append(allEmails, a.Email)
-			}
-			_, _ = store.ReconcileActiveAccount(autoImport, allEmails, nil)
-			accounts = store.ListAccounts()
-			active = store.ActiveAccount()
-			states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, nil, thresh, threshWeekly, allowNonGemini)
-			states = quota.SortAccountQuotaStatesWithThresholds(states, active, thresh, threshWeekly, "auto", switchMode, allowNonGemini)
-			summary = quota.ComputeFleetSummary(states, active)
-			summary.Refreshing = s.isQuotaPolling()
-			if len(quota.LoadQuotaCache()) == 0 && len(accounts) > 0 {
-				s.pollFleetFallback(accounts, store)
-			}
-		} else {
-			summary = quota.ComputeFleetSummary(nil, "")
-		}
+	if service := s.quotaService(); service != nil {
+		summary = *service.GetFleet()
+	} else if err := s.client.Call("swiss.getFleetQuota", nil, &summary); err != nil {
+		http.Error(w, fmt.Sprintf("quota RPC fleet failed: %v", err), http.StatusBadGateway)
+		return
 	}
 	for i := range summary.Accounts {
 		summary.Accounts[i].Password = ""
@@ -1898,13 +1871,18 @@ func (s *Server) handleQuotaRefresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if service := s.quotaService(); service != nil {
+		if err := service.RefreshFleet(); err != nil {
+			http.Error(w, fmt.Sprintf("quota backend refresh failed: %v", err), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, map[string]interface{}{"status": "refresh_started"})
+		return
+	}
+
 	var res map[string]interface{}
 	if err := s.client.Call("swiss.refreshFleetQuota", nil, &res); err != nil {
-		store, _ := keyring.NewStore("")
-		if store != nil {
-			s.pollFleetFallback(store.ListAccounts(), store)
-		}
-		writeJSON(w, map[string]interface{}{"status": "refresh_triggered_fallback"})
+		http.Error(w, fmt.Sprintf("quota RPC refresh failed: %v", err), http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, res)
@@ -2322,6 +2300,25 @@ func (s *Server) handleAutoSwitch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGUIConfig(w http.ResponseWriter, r *http.Request) {
+	if service := s.guiService(); service != nil {
+		if r.Method == http.MethodPost {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			updated, err := service.UpdateConfigPartial(bodyBytes)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("GUI backend config update failed: %v", err), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, updated)
+			return
+		}
+		writeJSON(w, service.GetConfig())
+		return
+	}
+
 	if r.Method == http.MethodPost {
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -2331,20 +2328,8 @@ func (s *Server) handleGUIConfig(w http.ResponseWriter, r *http.Request) {
 
 		var res gui.Config
 		if err := s.client.Call("swiss.setGUIConfig", json.RawMessage(bodyBytes), &res); err != nil {
-			if s.guiStore != nil {
-				updated, errUpdate := s.guiStore.UpdateConfigPartial(bodyBytes)
-				if errUpdate != nil {
-					http.Error(w, errUpdate.Error(), http.StatusInternalServerError)
-					return
-				}
-				writeJSON(w, updated)
-				return
-			}
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			http.Error(w, fmt.Sprintf("GUI RPC config update failed: %v", err), http.StatusBadGateway)
 			return
-		}
-		if s.guiStore != nil {
-			_ = s.guiStore.UpdateConfig(&res)
 		}
 		writeJSON(w, res)
 		return
@@ -2352,29 +2337,26 @@ func (s *Server) handleGUIConfig(w http.ResponseWriter, r *http.Request) {
 
 	var cfg gui.Config
 	if err := s.client.Call("swiss.getGUIConfig", nil, &cfg); err != nil {
-		if s.guiStore != nil {
-			writeJSON(w, s.guiStore.GetConfig())
-			return
-		}
-		writeJSON(w, gui.DefaultConfig())
+		http.Error(w, fmt.Sprintf("GUI RPC config failed: %v", err), http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, cfg)
 }
 
 func (s *Server) handleGUIProjects(w http.ResponseWriter, r *http.Request) {
-	var projects []gui.ProjectItem
-	if err := s.client.Call("swiss.getGUIProjects", nil, &projects); err != nil {
-		if s.guiStore != nil {
-			projs, errDetect := s.guiStore.DetectProjects()
-			if errDetect != nil {
-				http.Error(w, errDetect.Error(), http.StatusInternalServerError)
-				return
-			}
-			writeJSON(w, projs)
+	if service := s.guiService(); service != nil {
+		projects, err := service.DetectProjects()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("GUI backend projects failed: %v", err), http.StatusInternalServerError)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		writeJSON(w, projects)
+		return
+	}
+
+	var projects []gui.ProjectItem
+	if err := s.client.Call("swiss.getGUIProjects", nil, &projects); err != nil {
+		http.Error(w, fmt.Sprintf("GUI RPC projects failed: %v", err), http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, projects)
@@ -2394,17 +2376,17 @@ func (s *Server) handleGUIProjectColor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var res interface{}
-	if err := s.client.Call("swiss.setGUIProjectColor", p, &res); err != nil {
-		if s.guiStore != nil {
-			if errSet := s.guiStore.SetProjectColor(p.Name, p.Color); errSet != nil {
-				http.Error(w, errSet.Error(), http.StatusInternalServerError)
-				return
-			}
-			writeJSON(w, map[string]interface{}{"success": true, "name": p.Name, "color": p.Color})
+	if service := s.guiService(); service != nil {
+		if err := service.SetProjectColor(p.Name, p.Color); err != nil {
+			http.Error(w, fmt.Sprintf("GUI backend project color failed: %v", err), http.StatusInternalServerError)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		writeJSON(w, map[string]interface{}{"success": true, "name": p.Name, "color": p.Color})
+		return
+	}
+	var res interface{}
+	if err := s.client.Call("swiss.setGUIProjectColor", p, &res); err != nil {
+		http.Error(w, fmt.Sprintf("GUI RPC project color failed: %v", err), http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, res)
@@ -2423,20 +2405,18 @@ func (s *Server) handleGUIProjectDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if s.guiStore != nil {
-		if errDel := s.guiStore.DeleteProject(p.Name); errDel != nil {
-			http.Error(w, errDel.Error(), http.StatusInternalServerError)
+	if service := s.guiService(); service != nil {
+		if err := service.DeleteProject(p.Name); err != nil {
+			http.Error(w, fmt.Sprintf("GUI backend project delete failed: %v", err), http.StatusInternalServerError)
 			return
 		}
+		writeJSON(w, map[string]interface{}{"success": true, "name": p.Name})
+		return
 	}
 
 	var res interface{}
 	if err := s.client.Call("swiss.deleteGUIProject", p, &res); err != nil {
-		if s.guiStore != nil {
-			writeJSON(w, map[string]interface{}{"success": true, "name": p.Name})
-			return
-		}
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		http.Error(w, fmt.Sprintf("GUI RPC project delete failed: %v", err), http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, res)
@@ -2455,25 +2435,23 @@ func (s *Server) handleGUIProjectColorDelete(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if s.guiStore != nil {
-		if errRem := s.guiStore.RemoveProjectColor(p.Name); errRem != nil {
-			http.Error(w, errRem.Error(), http.StatusInternalServerError)
+	if service := s.guiService(); service != nil {
+		if err := service.RemoveProjectColor(p.Name); err != nil {
+			http.Error(w, fmt.Sprintf("GUI backend project color delete failed: %v", err), http.StatusInternalServerError)
 			return
 		}
+		writeJSON(w, map[string]interface{}{
+			"success":          true,
+			"name":             p.Name,
+			"reset_to_factory": false,
+			"color":            "",
+		})
+		return
 	}
 
 	var res interface{}
 	if err := s.client.Call("swiss.removeGUIProjectColor", p, &res); err != nil {
-		if s.guiStore != nil {
-			writeJSON(w, map[string]interface{}{
-				"success":          true,
-				"name":             p.Name,
-				"reset_to_factory": false,
-				"color":            "",
-			})
-			return
-		}
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		http.Error(w, fmt.Sprintf("GUI RPC project color delete failed: %v", err), http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, map[string]interface{}{
@@ -2485,6 +2463,18 @@ func (s *Server) handleGUIProjectColorDelete(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) handleGUIProjectsArchived(w http.ResponseWriter, r *http.Request) {
+	if service := s.guiService(); service != nil {
+		archived, err := service.GetArchivedProjects()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("GUI backend archived projects failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if archived == nil {
+			archived = []gui.ArchivedProjectItem{}
+		}
+		writeJSON(w, archived)
+		return
+	}
 	guiStore := s.getGUIStore()
 	if guiStore == nil {
 		writeJSON(w, []gui.ArchivedProjectItem{})
@@ -2522,7 +2512,12 @@ func (s *Server) handleGUIProjectsArchive(w http.ResponseWriter, r *http.Request
 		http.Error(w, "project name or id required", http.StatusBadRequest)
 		return
 	}
-	if s.guiStore != nil {
+	if service := s.guiService(); service != nil {
+		if err := service.ArchiveProject(target); err != nil {
+			http.Error(w, fmt.Sprintf("GUI backend project archive failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+	} else if s.guiStore != nil {
 		if err := s.guiStore.ArchiveProject(target); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -2552,7 +2547,12 @@ func (s *Server) handleGUIProjectsRestore(w http.ResponseWriter, r *http.Request
 		http.Error(w, "project name or id required", http.StatusBadRequest)
 		return
 	}
-	if s.guiStore != nil {
+	if service := s.guiService(); service != nil {
+		if err := service.RestoreProject(target); err != nil {
+			http.Error(w, fmt.Sprintf("GUI backend project restore failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+	} else if s.guiStore != nil {
 		if err := s.guiStore.RestoreProject(target); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -2582,7 +2582,12 @@ func (s *Server) handleGUIProjectsOpenSettings(w http.ResponseWriter, r *http.Re
 		http.Error(w, "project name or id required", http.StatusBadRequest)
 		return
 	}
-	if s.guiStore != nil {
+	if service := s.guiService(); service != nil {
+		if err := service.OpenProjectSettings(target); err != nil {
+			http.Error(w, fmt.Sprintf("GUI backend project settings failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+	} else if s.guiStore != nil {
 		if err := s.guiStore.OpenProjectSettings(target); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -2705,35 +2710,35 @@ func (s *Server) handleGUIProjectOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var res interface{}
-	if err := s.client.Call("swiss.updateGUIProjectOrder", p, &res); err != nil {
-		if s.guiStore != nil {
-			if errOrder := s.guiStore.UpdateProjectOrder(p.Order); errOrder != nil {
-				http.Error(w, errOrder.Error(), http.StatusInternalServerError)
-				return
-			}
-			writeJSON(w, map[string]interface{}{"success": true, "order": p.Order})
+	if service := s.guiService(); service != nil {
+		if err := service.UpdateProjectOrder(p.Order); err != nil {
+			http.Error(w, fmt.Sprintf("GUI backend project order failed: %v", err), http.StatusInternalServerError)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		writeJSON(w, map[string]interface{}{"success": true, "order": p.Order})
+		return
+	}
+	var res interface{}
+	if err := s.client.Call("swiss.updateGUIProjectOrder", p, &res); err != nil {
+		http.Error(w, fmt.Sprintf("GUI RPC project order failed: %v", err), http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, res)
 }
 
 func (s *Server) handleGUIApply(w http.ResponseWriter, r *http.Request) {
-	var res gui.ApplyResult
-	if err := s.client.Call("swiss.applyGUIStyles", nil, &res); err != nil {
-		if s.guiStore != nil {
-			applyRes, errApply := s.guiStore.Apply()
-			if errApply != nil && applyRes == nil {
-				http.Error(w, errApply.Error(), http.StatusInternalServerError)
-				return
-			}
-			writeJSON(w, applyRes)
+	if service := s.guiService(); service != nil {
+		applyRes, err := service.Apply()
+		if err != nil && applyRes == nil {
+			http.Error(w, fmt.Sprintf("GUI backend apply failed: %v", err), http.StatusInternalServerError)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		writeJSON(w, applyRes)
+		return
+	}
+	var res gui.ApplyResult
+	if err := s.client.Call("swiss.applyGUIStyles", nil, &res); err != nil {
+		http.Error(w, fmt.Sprintf("GUI RPC apply failed: %v", err), http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, res)

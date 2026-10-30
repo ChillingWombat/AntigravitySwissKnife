@@ -1,12 +1,16 @@
 package backend
 
 import (
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 )
 
 // BackendService owns the daemon-backed state used by the web UI.
 type BackendService interface {
 	Accounts() AccountService
+	Quota() QuotaService
+	GUI() GUIService
 }
 
 type AccountImport struct {
@@ -63,4 +67,25 @@ type AccountService interface {
 	SetTOTPSecret(email, secret string) error
 	ExportAccounts() []keyring.AccountExport
 	BatchImportAccounts(items []keyring.BatchImportItem) (int, error)
+}
+
+type QuotaService interface {
+	GetSummary(email string, refresh bool) (*quota.QuotaSummary, error)
+	GetFleet() *quota.FleetQuotaSummary
+	RefreshFleet() error
+}
+
+type GUIService interface {
+	GetConfig() gui.Config
+	UpdateConfigPartial(rawJSON []byte) (*gui.GUIConfig, error)
+	DetectProjects() ([]gui.ProjectItem, error)
+	SetProjectColor(projectName, hexColor string) error
+	DeleteProject(projectName string) error
+	RemoveProjectColor(projectName string) error
+	UpdateProjectOrder(order []string) error
+	Apply() (*gui.ApplyResult, error)
+	GetArchivedProjects() ([]gui.ArchivedProjectItem, error)
+	ArchiveProject(projectName string) error
+	RestoreProject(projectName string) error
+	OpenProjectSettings(projectName string) error
 }
