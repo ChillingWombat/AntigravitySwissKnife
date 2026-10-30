@@ -72,6 +72,33 @@ func TestA2ATerminalTTLProtectsActiveAndSubscribedTasks(t *testing.T) {
 	assertRetentionOrder(t, manager)
 }
 
+func TestA2ATerminalTTLProtectsTasksWhileAllEventsSubscriberActive(t *testing.T) {
+	base := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
+	manager := NewA2ATaskManager(func() agentBackend { return nil })
+	manager.now = func() time.Time { return base.Add(2 * time.Hour) }
+	addRetentionTask(manager, retentionTask("terminal", TaskStatusCompleted, base))
+
+	_, unsubscribe := manager.SubscribeAllEvents()
+	tasks := manager.ListTasks("", 0)
+	if len(tasks) != 1 || tasks[0].ID != "terminal" {
+		t.Fatalf("expected terminal task retained for all-events stream, got %+v", tasks)
+	}
+	stats := manager.RetentionStats()
+	if stats.Total != 1 || stats.Terminal != 1 || stats.Subscribers != 1 {
+		t.Fatalf("unexpected all-events retention stats: %+v", stats)
+	}
+	assertRetentionOrder(t, manager)
+
+	unsubscribe()
+	if _, err := manager.GetTask("terminal"); err == nil {
+		t.Fatal("terminal task survived after all-events stream unsubscribed")
+	}
+	if stats := manager.RetentionStats(); stats.Total != 0 || stats.Subscribers != 0 {
+		t.Fatalf("unexpected stats after all-events unsubscribe: %+v", stats)
+	}
+	assertRetentionOrder(t, manager)
+}
+
 func TestA2ACapacityRejectsProtectedTasksAndPrunesExpiredTerminal(t *testing.T) {
 	base := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
 	manager := NewA2ATaskManager(func() agentBackend { return newMockBackend() })

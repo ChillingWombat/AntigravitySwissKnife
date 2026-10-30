@@ -240,16 +240,6 @@ func (m *A2ATaskManager) CreateTask(skill, prompt, title string) (*A2ATask, erro
 	taskID := generateA2ATaskID()
 	now := m.now()
 
-	task := &A2ATask{
-		ID:        taskID,
-		Skill:     skill,
-		Status:    TaskStatusSubmitted,
-		Prompt:    prompt,
-		Title:     title,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
 	m.mu.Lock()
 	m.sweepTerminalLocked(now)
 	if len(m.tasks) >= a2aMaxTasks {
@@ -257,9 +247,19 @@ func (m *A2ATaskManager) CreateTask(skill, prompt, title string) (*A2ATask, erro
 		return nil, errors.New("A2A task capacity reached; wait for terminal tasks to expire")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	task.cancelFunc = cancel
+	task := &A2ATask{
+		ID:         taskID,
+		Skill:      skill,
+		Status:     TaskStatusSubmitted,
+		Prompt:     prompt,
+		Title:      title,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		cancelFunc: cancel,
+	}
 	m.tasks[taskID] = task
 	m.order = append([]string{taskID}, m.order...)
+	created := m.cloneTask(task)
 	m.mu.Unlock()
 
 	m.broadcastEvent(A2AEvent{
@@ -271,17 +271,22 @@ func (m *A2ATaskManager) CreateTask(skill, prompt, title string) (*A2ATask, erro
 	})
 
 	// Launch background autonomous execution loop
-	go m.executeTask(ctx, task)
+	go m.executeTask(ctx, created)
 
-	return m.cloneTask(task), nil
+	return created, nil
 }
 
 func (m *A2ATaskManager) executeTask(ctx context.Context, task *A2ATask) {
-	m.updateTaskStatus(task.ID, TaskStatusWorking, "Agent actively working on task", nil)
+	if ctx.Err() != nil || !m.updateTaskStatus(task.ID, TaskStatusWorking, "Agent actively working on task", nil) {
+		return
+	}
 
 	backend := m.getBackend()
 	if backend == nil {
 		m.failTask(task.ID, errors.New("no active agent backend configured"))
+		return
+	}
+	if ctx.Err() != nil {
 		return
 	}
 
@@ -311,9 +316,21 @@ func (m *A2ATaskManager) executeTask(ctx context.Context, task *A2ATask) {
 	convID := parsed.ConversationID
 	if convID != "" {
 		m.mu.Lock()
-		task.ConversationID = convID
-		task.UpdatedAt = time.Now()
+		if current, ok := m.tasks[task.ID]; ok {
+			current.ConversationID = convID
+			if current.Status != TaskStatusCanceled {
+				current.UpdatedAt = m.now()
+			}
+		}
 		m.mu.Unlock()
+	}
+	if ctx.Err() != nil {
+		if convID != "" {
+			_, _ = backend.StopConversation(map[string]interface{}{
+				"conversation_id": convID,
+			})
+		}
+		return
 	}
 
 	// If the backend already completed in one turn (e.g. single-turn CLI)
@@ -577,12 +594,12 @@ func isTerminalStatus(st string) bool {
 	return st == TaskStatusCompleted || st == TaskStatusFailed || st == TaskStatusCanceled
 }
 
-func (m *A2ATaskManager) updateTaskStatus(taskID, status, msg string, data interface{}) {
+func (m *A2ATaskManager) updateTaskStatus(taskID, status, msg string, data interface{}) bool {
 	m.mu.Lock()
 	task, ok := m.tasks[taskID]
-	if !ok {
+	if !ok || task.Status == TaskStatusCanceled {
 		m.mu.Unlock()
-		return
+		return false
 	}
 	updatedAt := m.now()
 	task.Status = status
@@ -600,13 +617,14 @@ func (m *A2ATaskManager) updateTaskStatus(taskID, status, msg string, data inter
 		Data:      data,
 		Timestamp: updatedAt,
 	})
+	return true
 }
 
 func (m *A2ATaskManager) completeTask(taskID string, res *A2ATaskResult) {
 	now := m.now()
 	m.mu.Lock()
 	task, ok := m.tasks[taskID]
-	if !ok {
+	if !ok || task.Status == TaskStatusCanceled {
 		m.mu.Unlock()
 		return
 	}
@@ -631,7 +649,7 @@ func (m *A2ATaskManager) failTask(taskID string, err error) {
 	now := m.now()
 	m.mu.Lock()
 	task, ok := m.tasks[taskID]
-	if !ok {
+	if !ok || task.Status == TaskStatusCanceled {
 		m.mu.Unlock()
 		return
 	}
@@ -691,7 +709,7 @@ func (m *A2ATaskManager) sweepTerminalLocked(now time.Time) {
 		if !ok {
 			continue
 		}
-		if isTerminalStatus(task.Status) && len(m.subscribers[id]) == 0 && m.terminalExpiredLocked(task, now) {
+		if isTerminalStatus(task.Status) && len(m.allSubscribers) == 0 && len(m.subscribers[id]) == 0 && m.terminalExpiredLocked(task, now) {
 			delete(m.tasks, id)
 			delete(m.subscribers, id)
 			continue
@@ -749,6 +767,7 @@ func (m *A2ATaskManager) SubscribeAllEvents() (<-chan A2AEvent, func()) {
 				break
 			}
 		}
+		m.sweepTerminalLocked(m.now())
 	}
 	return ch, unsub
 }
