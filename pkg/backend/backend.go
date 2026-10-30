@@ -3,9 +3,12 @@ package backend
 import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/github"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/revival"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/vault"
 )
 
 // BackendService owns the daemon-backed state used by the web UI.
@@ -15,6 +18,9 @@ type BackendService interface {
 	Enhancements() EnhancementsService
 	Quota() QuotaService
 	GUI() GUIService
+	GitHub() GitHubService
+	Vault() VaultService
+	Revival() RevivalService
 }
 
 // CustomModelsService is the daemon-owned custom-model state group.
@@ -22,6 +28,15 @@ type CustomModelsService = *custommodels.Store
 
 // EnhancementsService is the daemon-owned enhancement state group.
 type EnhancementsService = *enhancements.Store
+
+// GitHubService is the daemon-owned GitHub integration group.
+type GitHubService = *github.Service
+
+// VaultService is the daemon-owned conversation vault group.
+type VaultService = *vault.Manager
+
+// RevivalService is the daemon-owned conversation revival group.
+type RevivalService = *revival.Engine
 
 type AccountImport struct {
 	Email        string `json:"email"`
