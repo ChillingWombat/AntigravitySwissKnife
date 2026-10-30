@@ -16,6 +16,7 @@ import (
 const (
 	shellRCBeginMarker = "# >>> Antigravity Swiss Knife CLI Integration >>>"
 	shellRCEndMarker   = "# <<< Antigravity Swiss Knife CLI Integration <<<"
+	shellRCGuardName   = ".swiss-shell-rc.guard"
 )
 
 type shellRCMarkerPair struct {
@@ -77,6 +78,19 @@ func CleanShellRCHooks() error {
 	if home == "" {
 		return nil
 	}
+	guardPath := filepath.Join(home, shellRCGuardName)
+	guard, err := os.OpenFile(guardPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("open shell RC guard %s: %w", guardPath, err)
+	}
+	if err := core.LockFile(guard); err != nil {
+		_ = guard.Close()
+		return fmt.Errorf("lock shell RC guard %s: %w", guardPath, err)
+	}
+	defer func() {
+		_ = core.UnlockFile(guard)
+		_ = guard.Close()
+	}()
 
 	var plans []shellRCFilePlan
 	var planErrors []error
