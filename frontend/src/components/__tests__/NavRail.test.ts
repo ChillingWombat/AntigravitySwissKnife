@@ -12,13 +12,14 @@ import React from 'react'
 import { mount } from '../../test-dom'
 import { NavRail } from '../NavRail'
 import type { SystemStatus } from '../../types'
+import type { Route } from '../../navigation/routes'
 
 describe('Component DOM: NavRail (<NavRail />)', () => {
   it('renders brand header typography with Antigravity title and SWISS KNIFE subtitle', async () => {
     const { querySelector, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: () => {},
+        currentTool: 'switcher',
+        navigate: () => {},
         status: null,
       })
     )
@@ -34,13 +35,13 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
     unmount()
   })
 
-  it('renders active tool highlight on selected tab and triggers onSelectTool on click', async () => {
-    const selectedTools: number[] = []
+  it('renders active tool highlight on selected tab and navigates to semantic routes on click', async () => {
+    const selectedTools: Route[] = []
     const { querySelector, click, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: (idx: number) => {
-          selectedTools.push(idx)
+        currentTool: 'switcher',
+        navigate: (route: Route) => {
+          selectedTools.push(route)
         },
         status: null,
       })
@@ -50,19 +51,19 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
     const btnCustomModels = querySelector<HTMLButtonElement>('#btnNavCustomModels')
     assert.ok(btnCustomModels, 'btnNavCustomModels button must exist')
     await click(btnCustomModels)
-    assert.equal(selectedTools[selectedTools.length - 1], 3, 'Clicking Custom Models must fire onSelectTool(3)')
+    assert.deepEqual(selectedTools[selectedTools.length - 1], { tool: 'custom-models' }, 'Clicking Custom Models must navigate to custom-models')
 
     // Click Remote Connect / Bridge (tool 10)
     const btnBridge = querySelector<HTMLButtonElement>('#btnNavBridge')
     assert.ok(btnBridge, 'btnNavBridge button must exist')
     await click(btnBridge)
-    assert.equal(selectedTools[selectedTools.length - 1], 10, 'Clicking Bridge must fire onSelectTool(10)')
+    assert.deepEqual(selectedTools[selectedTools.length - 1], { tool: 'remote-connect' }, 'Clicking Bridge must navigate to remote-connect')
 
     // Click Token Monitor (tool 8)
     const btnTokens = querySelector<HTMLButtonElement>('#btnNavTokenMonitor')
     assert.ok(btnTokens, 'btnNavTokenMonitor button must exist')
     await click(btnTokens)
-    assert.equal(selectedTools[selectedTools.length - 1], 8, 'Clicking Token Monitor must fire onSelectTool(8)')
+    assert.deepEqual(selectedTools[selectedTools.length - 1], { tool: 'token-monitor' }, 'Clicking Token Monitor must navigate to token-monitor')
 
     unmount()
   })
@@ -77,8 +78,8 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
 
     const { querySelector, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: () => {},
+        currentTool: 'switcher',
+        navigate: () => {},
         status: offlineStatus,
       })
     )
@@ -89,7 +90,7 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
     unmount()
   })
 
-  it('renders Extensions button when daemon is online and dispatches onSelectTool(7)', async () => {
+  it('renders Extensions button when daemon is online and navigates to extensions', async () => {
     const onlineStatus: SystemStatus = {
       daemon_running: true,
       daemon_version: '0.2.0',
@@ -97,12 +98,12 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
       total_accounts: 1,
     } as unknown as SystemStatus
 
-    const selectedTools: number[] = []
+    const selectedTools: Route[] = []
     const { querySelector, click, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: (idx: number) => {
-          selectedTools.push(idx)
+        currentTool: 'switcher',
+        navigate: (route: Route) => {
+          selectedTools.push(route)
         },
         status: onlineStatus,
       })
@@ -112,7 +113,7 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
     assert.ok(btnExtensions, 'Extensions button must render when daemon is online')
 
     await click(btnExtensions)
-    assert.equal(selectedTools[selectedTools.length - 1], 7, 'Clicking Extensions must fire onSelectTool(7)')
+    assert.deepEqual(selectedTools[selectedTools.length - 1], { tool: 'extensions' }, 'Clicking Extensions must navigate to extensions')
 
     unmount()
   })
@@ -120,8 +121,8 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
   it('enforces white-space: nowrap and renders Lucide SVG icons on navigation buttons', async () => {
     const { querySelectorAll, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: () => {},
+        currentTool: 'switcher',
+        navigate: () => {},
         status: null,
       })
     )
@@ -145,11 +146,11 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
       active_account: null,
       total_accounts: 0,
     } as unknown as SystemStatus
-    const selectedTools: number[] = []
+    const selectedTools: Route[] = []
     const { querySelector, querySelectorAll, click, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: (idx: number) => selectedTools.push(idx),
+        currentTool: 'switcher',
+        navigate: (route: Route) => selectedTools.push(route),
         status: onlineStatus,
       })
     )
@@ -173,7 +174,7 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
     const acpButton = querySelector<HTMLButtonElement>('#btnNavACPAgentMesh')
     assert.ok(acpButton, 'ACP Adapter button must exist')
     await click(acpButton)
-    assert.equal(selectedTools[selectedTools.length - 1], 11)
+    assert.deepEqual(selectedTools[selectedTools.length - 1], { tool: 'acp-adapter' })
 
     unmount()
   })

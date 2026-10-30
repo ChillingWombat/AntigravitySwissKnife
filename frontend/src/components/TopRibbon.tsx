@@ -1,20 +1,22 @@
 import React from 'react'
+import type { SwitcherTab } from '../navigation/routes'
+import type { Navigate } from '../navigation/useRouteNavigation'
 
 interface TopRibbonProps {
-  currentTab: number
-  onSelectTab: (idx: number) => void
+  currentTab: SwitcherTab
+  navigate: Navigate
   activeAccount?: string | null
 }
 
 const TABS = [
-  'Dashboard',
-  'Fingerprints',
-  'Settings',
-]
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'fingerprints', label: 'Fingerprints' },
+  { id: 'switcher-settings', label: 'Settings' },
+] as const satisfies ReadonlyArray<{ id: SwitcherTab; label: string }>
 
 export const TopRibbon: React.FC<TopRibbonProps> = ({
   currentTab,
-  onSelectTab,
+  navigate,
   activeAccount,
 }) => {
   return (
@@ -41,12 +43,12 @@ export const TopRibbon: React.FC<TopRibbonProps> = ({
           gap: '2px',
         }}
       >
-        {TABS.map((tab, idx) => {
-          const isActive = currentTab === idx
+        {TABS.map(({ id, label }) => {
+          const isActive = currentTab === id
           return (
             <button
-              key={tab}
-              onClick={() => onSelectTab(idx)}
+              key={id}
+              onClick={() => navigate({ tool: 'switcher', tab: id })}
               style={{
                 borderRadius: '6px',
                 padding: '6px 16px',
@@ -61,7 +63,7 @@ export const TopRibbon: React.FC<TopRibbonProps> = ({
                 transition: 'all 0.15s ease',
               }}
             >
-              {tab}
+              {label}
             </button>
           )
         })}

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react'
+import { routeFromNavigationTarget, routeToTool } from './navigation/routes'
+import { useRouteNavigation } from './navigation/useRouteNavigation'
 import { ArrowRightLeft, FolderArchive, HardDrive } from 'lucide-react'
 import { NavRail } from './components/NavRail'
 import { TopRibbon } from './components/TopRibbon'
@@ -20,13 +22,14 @@ import { toAccountState } from './types'
 import { api, getSessionToken, runSingleFlightPoll, shouldRunBackgroundPoll } from './api'
 
 export const App: React.FC = () => {
-  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: ACP Adapter
-  const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: FP, 2: Rules
+  const { route, navigate } = useRouteNavigation()
+  const currentTool = routeToTool(route)
+  const currentTab = route.tool === 'switcher' ? route.tab : 'dashboard'
+  const utilitiesTab = route.tool === 'utilities' ? route.tab : 'cache'
   const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
   const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Auxiliary Panel
   const [extensionsTab, setExtensionsTab] = useState<number>(0) // 0: Built-in, 1: Community
   const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; color: string; order: number; is_archived: boolean }>>([])
-  const [utilitiesTab, setUtilitiesTab] = useState<'cache' | 'archives' | 'import'>('cache')
   const [bridgeTab, setBridgeTab] = useState<number>(0) // 0: Remote, 1: Gemini, 2: WhatsApp, 3: Telegram, 4: Discord
   const [tokenMonitorTab, setTokenMonitorTab] = useState<number>(0) // 0: Overview, 1: Telemetry & Logs, 2: Token Price
   const [status, setStatus] = useState<SystemStatus | null>(null)
@@ -108,52 +111,9 @@ export const App: React.FC = () => {
     let unsubNavigate: (() => void) | undefined
     const electronAPI = (window as any).electronAPI
     if (electronAPI?.onNavigate) {
-      unsubNavigate = electronAPI.onNavigate((target: number | string) => {
-        if (typeof target === 'string') {
-          const namedRouteMap: Record<string, number> = {
-            quota: 0,
-            dashboard: 0,
-            switcher: 0,
-            fingerprints: 0,
-            settings: 2,
-            models: 3,
-            custommodels: 3,
-            enhancements: 4,
-            archived: 6,
-            extensions: 7,
-            tokenmonitor: 8,
-            tokens: 8,
-            utilities: 9,
-            bridge: 10,
-            remote: 10,
-            acpmesh: 11,
-            'acp-mesh': 11,
-            'acp-adapter': 11,
-            acpadapter: 11,
-            adapter: 11,
-            'agent-communication': 11,
-            agentcommunication: 11,
-            communication: 11,
-          }
-          const lower = target.toLowerCase()
-          if (namedRouteMap[lower] !== undefined) {
-            if (lower === 'fingerprints') {
-              setCurrentTab(1)
-            }
-            setCurrentTool(namedRouteMap[lower])
-            return
-          }
-        }
-        if (typeof target === 'number' && !isNaN(target) && target >= 0 && target <= 11) {
-          if (target === 1 || target === 6) {
-            setUtilitiesTab('archives')
-            setCurrentTool(9)
-          } else if (target === 5) {
-            setCurrentTool(0)
-          } else {
-            setCurrentTool(target)
-          }
-        }
+      unsubNavigate = electronAPI.onNavigate((target: unknown) => {
+        const nextRoute = routeFromNavigationTarget(target)
+        if (nextRoute) navigate(nextRoute)
       })
     }
     // Poll status and fleet metrics periodically without overlapping requests.
@@ -178,7 +138,7 @@ export const App: React.FC = () => {
         document.removeEventListener('visibilitychange', handleVisibilityChange)
       }
     }
-  }, [])
+  }, [navigate])
 
   useEffect(() => {
     // A 401 that could not be auto-recovered means interactive unlock is needed.
@@ -186,15 +146,6 @@ export const App: React.FC = () => {
     window.addEventListener('swiss:auth-required', onAuthRequired)
     return () => window.removeEventListener('swiss:auth-required', onAuthRequired)
   }, [])
-
-  useEffect(() => {
-    if (currentTool === 1 || currentTool === 6) {
-      setUtilitiesTab('archives')
-      setCurrentTool(9)
-    } else if (currentTool === 5) {
-      setCurrentTool(0)
-    }
-  }, [currentTool])
 
   if (isLocked) {
     return (
@@ -212,7 +163,7 @@ export const App: React.FC = () => {
       {/* 1. Left Navigation Rail (Fixed 200px) */}
       <NavRail
         currentTool={currentTool}
-        onSelectTool={setCurrentTool}
+        navigate={navigate}
         status={status}
       />
 
@@ -228,13 +179,13 @@ export const App: React.FC = () => {
         }}
       >
         {/* Top Header / Ribbon */}
-        {currentTool === 0 ? (
+        {currentTool === 'switcher' ? (
           <TopRibbon
             currentTab={currentTab}
-            onSelectTab={setCurrentTab}
+            navigate={navigate}
             activeAccount={status?.active_account || fleet?.active_account || null}
           />
-        ) : (currentTool !== 6) ? (
+        ) : (
           <header
             style={{
               height: '72px',
@@ -249,19 +200,19 @@ export const App: React.FC = () => {
             }}
           >
             <div id="top-bar-left" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              {currentTool === 3 && (
+              {currentTool === 'custom-models' && (
                 <div
                   id="custom-models-top-bar-portal"
                   style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
                 />
               )}
-              {currentTool === 11 && (
+              {currentTool === 'acp-adapter' && (
                 <div
                   id="acp-adapter-top-bar-portal"
                   style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
                 />
               )}
-              {currentTool === 4 && (
+              {currentTool === 'enhancements' && (
                 /* UI Enhancement Segmented Tabs */
                 <div
                   style={{
@@ -299,7 +250,7 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {currentTool === 7 && (
+              {currentTool === 'extensions' && (
                 /* Extensions Segmented Tabs */
                 <div
                   style={{
@@ -337,7 +288,7 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {currentTool === 8 && (
+              {currentTool === 'token-monitor' && (
                 /* Token Monitor Segmented Tabs */
                 <div
                   style={{
@@ -375,7 +326,7 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {currentTool === 9 && (
+              {currentTool === 'utilities' && (
                 /* Utilities Segmented Tabs */
                 <div
                   style={{
@@ -395,7 +346,7 @@ export const App: React.FC = () => {
                     return (
                       <button
                         key={id}
-                        onClick={() => setUtilitiesTab(id)}
+                        onClick={() => navigate({ tool: 'utilities', tab: id })}
                         style={{
                           borderRadius: '6px',
                           padding: '6px 16px',
@@ -420,7 +371,7 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {currentTool === 10 && (
+              {currentTool === 'remote-connect' && (
                 /* Remote Connect Segmented Tabs */
                 <div
                   style={{
@@ -458,7 +409,7 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {currentTool === 2 && (
+              {currentTool === 'system-settings' && (
                 /* System Settings Category Tabs */
                 <div
                   style={{
@@ -499,7 +450,7 @@ export const App: React.FC = () => {
             </div>
 
             <div id="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {currentTool === 11 && (
+              {currentTool === 'acp-adapter' && (
                 <div
                   id="acp-mesh-top-bar-portal"
                   style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
@@ -507,7 +458,7 @@ export const App: React.FC = () => {
               )}
             </div>
           </header>
-        ) : null}
+        )}
 
         {/* Scrollable Feature Page View (Whole Page Scrolls) */}
         <main
@@ -518,9 +469,9 @@ export const App: React.FC = () => {
           }}
         >
           <ErrorBoundary>
-            {currentTool === 0 && (
+            {currentTool === 'switcher' && (
               <ErrorBoundary>
-                {currentTab === 0 && (
+                {currentTab === 'dashboard' && (
                   <QuotaDashboardPage
                     fleet={fleet}
                     directAccounts={directAccounts}
@@ -533,10 +484,10 @@ export const App: React.FC = () => {
                     }}
                   />
                 )}
-                {currentTab === 1 && (
+                {currentTab === 'fingerprints' && (
                   <FingerprintsPage accounts={effectiveAccounts} />
                 )}
-                {currentTab === 2 && (
+                {currentTab === 'switcher-settings' && (
                   <SwitcherSettingsPage
                     initialRules={rules}
                     onSaved={loadAllData}
@@ -545,7 +496,7 @@ export const App: React.FC = () => {
               </ErrorBoundary>
             )}
 
-            {currentTool === 2 && (
+            {currentTool === 'system-settings' && (
               <ErrorBoundary>
                 <SystemSettingsPage
                   status={status}
@@ -555,17 +506,17 @@ export const App: React.FC = () => {
                 />
               </ErrorBoundary>
             )}
-            {currentTool === 3 && (
+            {currentTool === 'custom-models' && (
               <ErrorBoundary>
                 <CustomModelsPage />
               </ErrorBoundary>
             )}
-            {currentTool === 4 && (
+            {currentTool === 'enhancements' && (
               <ErrorBoundary>
                 <AppEnhancementsPage activeCategoryTab={enhancementTab} />
               </ErrorBoundary>
             )}
-            {currentTool === 7 && (
+            {currentTool === 'extensions' && (
               <ErrorBoundary>
                 <ExtensionsPage
                   activeTab={extensionsTab}
@@ -574,7 +525,7 @@ export const App: React.FC = () => {
                 />
               </ErrorBoundary>
             )}
-            {currentTool === 8 && (
+            {currentTool === 'token-monitor' && (
               <ErrorBoundary>
                 <TokenMonitorPage
                   activeTab={tokenMonitorTab}
@@ -582,15 +533,15 @@ export const App: React.FC = () => {
                 />
               </ErrorBoundary>
             )}
-            {currentTool === 9 && (
+            {currentTool === 'utilities' && (
               <ErrorBoundary>
                 <UtilitiesPage
                   activeTab={utilitiesTab}
-                  onTabChange={setUtilitiesTab}
+                  onTabChange={(tab) => navigate({ tool: 'utilities', tab })}
                 />
               </ErrorBoundary>
             )}
-            {currentTool === 10 && (
+            {currentTool === 'remote-connect' && (
               <ErrorBoundary>
                 <BridgePage
                   activeTab={bridgeTab}
@@ -598,7 +549,7 @@ export const App: React.FC = () => {
                 />
               </ErrorBoundary>
             )}
-            {currentTool === 11 && (
+            {currentTool === 'acp-adapter' && (
               <ErrorBoundary>
                 <ACPAgentMeshPage />
               </ErrorBoundary>

@@ -20,6 +20,7 @@ import { ToggleSwitch } from '../ToggleSwitch'
 import { CircularGauge } from '../CircularGauge'
 import { HorizontalQuotaBar } from '../HorizontalQuotaBar'
 import { NavRail } from '../NavRail'
+import type { Route } from '../../navigation/routes'
 import type { SystemStatus } from '../../types'
 
 describe('Adversarial Stress: ErrorBoundary Exception Handling & Recovery', () => {
@@ -245,7 +246,7 @@ describe('Adversarial Stress: HorizontalQuotaBar Edge Cases', () => {
 })
 
 describe('Adversarial Stress: NavRail Exhaustive Tab Dispatch & Layout Invariants', () => {
-  it('verifies all interactive navigation buttons trigger correct onSelectTool indices', async () => {
+  it('verifies all interactive navigation buttons emit their semantic routes', async () => {
     const onlineStatus: SystemStatus = {
       daemon_running: true,
       daemon_version: '0.2.0',
@@ -253,12 +254,12 @@ describe('Adversarial Stress: NavRail Exhaustive Tab Dispatch & Layout Invariant
       total_accounts: 2,
     } as unknown as SystemStatus
 
-    const selectedToolCalls: number[] = []
+    const selectedToolCalls: Route[] = []
     const { querySelector, querySelectorAll, click, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: (idx: number) => {
-          selectedToolCalls.push(idx)
+        currentTool: 'switcher',
+        navigate: (route: Route) => {
+          selectedToolCalls.push(route)
         },
         status: onlineStatus,
       })
@@ -269,27 +270,27 @@ describe('Adversarial Stress: NavRail Exhaustive Tab Dispatch & Layout Invariant
     const firstBtn = buttons[0]
     assert.ok(firstBtn.textContent?.includes('Account Switcher'))
     await click(firstBtn)
-    assert.equal(selectedToolCalls[selectedToolCalls.length - 1], 0)
+    assert.deepEqual(selectedToolCalls[selectedToolCalls.length - 1], { tool: 'switcher', tab: 'dashboard' })
 
-    const expectedButtons: { id: string; toolIdx: number }[] = [
-      { id: '#btnNavCustomModels', toolIdx: 3 },
-      { id: '#btnNavEnhancements', toolIdx: 4 },
-      { id: '#btnNavExtensions', toolIdx: 7 },
-      { id: '#btnNavBridge', toolIdx: 10 },
-      { id: '#btnNavTokenMonitor', toolIdx: 8 },
-      { id: '#btnNavUtilities', toolIdx: 9 },
-      { id: '#btnNavACPAgentMesh', toolIdx: 11 },
-      { id: '#btnNavSystemSettings', toolIdx: 2 },
+    const expectedButtons: { id: string; route: Route }[] = [
+      { id: '#btnNavCustomModels', route: { tool: 'custom-models' } },
+      { id: '#btnNavEnhancements', route: { tool: 'enhancements' } },
+      { id: '#btnNavExtensions', route: { tool: 'extensions' } },
+      { id: '#btnNavBridge', route: { tool: 'remote-connect' } },
+      { id: '#btnNavTokenMonitor', route: { tool: 'token-monitor' } },
+      { id: '#btnNavUtilities', route: { tool: 'utilities', tab: 'cache' } },
+      { id: '#btnNavACPAgentMesh', route: { tool: 'acp-adapter' } },
+      { id: '#btnNavSystemSettings', route: { tool: 'system-settings' } },
     ]
 
     for (const item of expectedButtons) {
       const btn = querySelector<HTMLButtonElement>(item.id)
       assert.ok(btn, `Button ${item.id} must exist in NavRail`)
       await click(btn)
-      assert.equal(
+      assert.deepEqual(
         selectedToolCalls[selectedToolCalls.length - 1],
-        item.toolIdx,
-        `Clicking ${item.id} must call onSelectTool(${item.toolIdx})`
+        item.route,
+        `Clicking ${item.id} must navigate to ${JSON.stringify(item.route)}`
       )
     }
 
@@ -306,8 +307,8 @@ describe('Adversarial Stress: NavRail Exhaustive Tab Dispatch & Layout Invariant
 
     const { querySelectorAll, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: () => {},
+        currentTool: 'switcher',
+        navigate: () => {},
         status: onlineStatus,
       })
     )

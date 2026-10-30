@@ -141,7 +141,7 @@ test('non-Electron privileged requests use an already scoped browser token', asy
   const originalWindow = (globalThis as any).window
   const originalLocalStorage = (globalThis as any).localStorage
   const storage = new Map<string, string>()
-  let requestHeaders: Headers | null = null
+  let requestHeaders = new Headers()
 
   ;(globalThis as any).window = {
     location: { href: 'http://127.0.0.1:8765/', origin: 'http://127.0.0.1:8765' },
