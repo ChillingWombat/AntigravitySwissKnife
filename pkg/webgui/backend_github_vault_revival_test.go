@@ -3,8 +3,6 @@ package webgui
 import (
 	"encoding/json"
 	"net/url"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,39 +23,28 @@ func (r *backendModeRPC) Call(string, interface{}, interface{}) error {
 	return nil
 }
 
+type fakeGitHubHandlerService struct {
+	githubHandlerService
+	repo        *github.RepoInfo
+	issues      []github.Issue
+	workspace   string
+	detectCalls int
+	listCalls   int
+}
+
+func (f *fakeGitHubHandlerService) DetectRepository(workspacePath string) (*github.RepoInfo, error) {
+	f.detectCalls++
+	f.workspace = workspacePath
+	return f.repo, nil
+}
+
+func (f *fakeGitHubHandlerService) ListIssues(_ *github.RepoInfo, _, _ string) ([]github.Issue, error) {
+	f.listCalls++
+	return f.issues, nil
+}
+
 func TestGitHubHandlersUseBackendOwnedService(t *testing.T) {
 	root := t.TempDir()
-	repoDir := filepath.Join(root, "repo")
-	if err := os.MkdirAll(repoDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	runGitCommand(t, repoDir, "init")
-	runGitCommand(t, repoDir, "remote", "add", "origin", "https://github.com/acme/demo.git")
-
-	binDir := filepath.Join(root, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	ghPath := filepath.Join(binDir, "gh")
-	ghScript := `#!/bin/sh
-case "$1" in
-  issue)
-    printf '%s\n' '[{"number":7,"title":"Backend issue","state":"OPEN","url":"https://github.com/acme/demo/issues/7","labels":[],"assignees":[],"createdAt":"2026-10-30T00:00:00Z","updatedAt":"2026-10-30T00:00:00Z"}]'
-    ;;
-  repo)
-    printf '%s\n' '{"nameWithOwner":"acme/demo","owner":{"login":"acme"},"name":"demo","url":"https://github.com/acme/demo","isPrivate":false,"defaultBranchRef":{"name":"main"}}'
-    ;;
-  *)
-    exit 1
-    ;;
-esac
-`
-	if err := os.WriteFile(ghPath, []byte(ghScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("GH_TOKEN", "test-token")
-
 	store, err := github.NewStore(filepath.Join(root, "github.json"))
 	if err != nil {
 		t.Fatalf("github.NewStore: %v", err)
@@ -74,7 +61,13 @@ esac
 		t.Fatal("server did not retain the backend-owned GitHub service")
 	}
 
-	repoRec := callJSONHandler(t, server.handleGitHubRepo, "GET", "/api/github/repo?workspace_path="+url.QueryEscape(repoDir), nil)
+	fake := &fakeGitHubHandlerService{
+		repo:   &github.RepoInfo{},
+		issues: []github.Issue{{Number: 7}},
+	}
+	server.githubService = fake
+	workspace := t.TempDir()
+	repoRec := callJSONHandler(t, server.handleGitHubRepo, "GET", "/api/github/repo?workspace_path="+url.QueryEscape(workspace), nil)
 	var repoResp struct {
 		Success bool             `json:"success"`
 		HasRepo bool             `json:"has_repo"`
@@ -87,7 +80,7 @@ esac
 		t.Fatalf("repo response = %s", repoRec.Body.String())
 	}
 
-	issuesRec := callJSONHandler(t, server.handleGitHubIssues, "GET", "/api/github/issues?workspace_path="+url.QueryEscape(repoDir), nil)
+	issuesRec := callJSONHandler(t, server.handleGitHubIssues, "GET", "/api/github/issues?workspace_path="+url.QueryEscape(workspace), nil)
 	var issuesResp struct {
 		Success bool           `json:"success"`
 		Issues  []github.Issue `json:"issues"`
@@ -97,6 +90,9 @@ esac
 	}
 	if !issuesResp.Success || len(issuesResp.Issues) != 1 || issuesResp.Issues[0].Number != 7 {
 		t.Fatalf("issues response = %s", issuesRec.Body.String())
+	}
+	if fake.workspace != workspace || fake.detectCalls != 2 || fake.listCalls != 1 {
+		t.Fatalf("injected service calls = workspace:%q detect:%d list:%d", fake.workspace, fake.detectCalls, fake.listCalls)
 	}
 	if rpc.calls != 0 {
 		t.Fatalf("backend-mode GitHub handlers made %d RPC calls", rpc.calls)
@@ -193,13 +189,5 @@ func TestReviveBackendModeDoesNotFallBackToRPC(t *testing.T) {
 	}
 	if rpc.calls != 0 {
 		t.Fatalf("backend-mode revive made %d RPC calls", rpc.calls)
-	}
-}
-
-func runGitCommand(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }

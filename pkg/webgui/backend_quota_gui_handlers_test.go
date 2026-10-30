@@ -142,7 +142,7 @@ func TestGUIConfigMutationThroughHTTPVisibleThroughRPC(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-	socketPath := filepath.Join(configDir, "daemon.sock")
+	socketPath := shortDaemonSocketPath(t)
 	d, err := daemon.NewDaemon(core.DefaultConfig(), socketPath)
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)
@@ -203,7 +203,7 @@ func TestGUIAutoArchiveThroughHTTPUsesDaemonOwnedGUIState(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-	socketPath := filepath.Join(configDir, "daemon.sock")
+	socketPath := shortDaemonSocketPath(t)
 	d, err := daemon.NewDaemon(core.DefaultConfig(), socketPath)
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)

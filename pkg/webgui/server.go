@@ -65,6 +65,26 @@ type RPCClient interface {
 	Call(method string, params interface{}, out interface{}) error
 }
 
+type githubHandlerService interface {
+	DetectRepository(workspacePath string) (*github.RepoInfo, error)
+	DetectRepositoryStrict(workspacePath string) (*github.RepoInfo, error)
+	ListIssues(repo *github.RepoInfo, state string, search string) ([]github.Issue, error)
+	GetIssue(repo *github.RepoInfo, number int) (*github.IssueDetail, error)
+	UpdateIssue(repo *github.RepoInfo, number int, req github.UpdateIssueRequest) (*github.Issue, error)
+	AddIssueComment(repo *github.RepoInfo, number int, body string) error
+	CreateIssue(repo *github.RepoInfo, req github.CreateIssueRequest) (*github.Issue, error)
+	ListPullRequests(repo *github.RepoInfo, state string) ([]github.PullRequest, error)
+	GetPullRequest(repo *github.RepoInfo, number int) (*github.PullRequestDetail, error)
+	ListProjects(repo *github.RepoInfo) ([]github.ProjectBoard, error)
+	GetKanbanBoard(repo *github.RepoInfo, projectNumber int) (*github.KanbanBoard, error)
+	MoveKanbanCard(repo *github.RepoInfo, req *github.MoveKanbanCardRequest) error
+	GetAgentTasks(workspacePath string) ([]github.AgentTaskSummary, error)
+	BindTask(convID string, issueNumber int, agentLabel string) error
+	SetAgentLabel(convID string, label string) error
+	ReportAgentTask(workspacePath string, task github.SelfReportedTask) error
+	FormatContextForChat(itemType string, number int, repo *github.RepoInfo) (string, error)
+}
+
 // Server serves the minimalist light theme web UI and REST API.
 type Server struct {
 	client                    RPCClient
@@ -78,7 +98,7 @@ type Server struct {
 	appReleaseManager         *system.AppReleaseManager
 	enhancementsStore         *enhancements.Store
 	oauthMgr                  *keyring.GoogleOAuthManager
-	githubService             *github.Service
+	githubService             githubHandlerService
 	vaultManager              *vault.Manager
 	revivalEngine             *revival.Engine
 	bridgeService             *bridge.Service
@@ -166,7 +186,7 @@ func newServer(addr string, service backend.BackendService, rpc RPCClient) (*Ser
 		guiStore  *gui.Store
 		cmStore   *custommodels.Store
 		enhStore  *enhancements.Store
-		ghService *github.Service
+		ghService githubHandlerService
 		vaultMgr  *vault.Manager
 		revEngine *revival.Engine
 		err       error
@@ -418,7 +438,7 @@ func (s *Server) SetGUIStore(store *gui.Store) {
 }
 
 // SetGitHubService replaces the githubService on the server (useful for tests).
-func (s *Server) SetGitHubService(svc *github.Service) {
+func (s *Server) SetGitHubService(svc githubHandlerService) {
 	s.githubService = svc
 }
 

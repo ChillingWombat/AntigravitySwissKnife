@@ -224,10 +224,9 @@ func splitShellRCLines(data []byte) [][]byte {
 	return lines
 }
 
+// Marker matching ignores indentation and line terminators; rewritten lines retain their raw bytes.
 func shellRCLineText(raw []byte) string {
-	line := strings.TrimSuffix(string(raw), "\n")
-	line = strings.TrimSuffix(line, "\r")
-	return strings.TrimSpace(line)
+	return strings.TrimSpace(string(raw))
 }
 
 func shellRCFindBegin(line string) (shellRCMarkerPair, bool) {

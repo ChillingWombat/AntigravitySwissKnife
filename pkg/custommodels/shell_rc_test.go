@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +37,24 @@ func TestPlanShellRCRewrite(t *testing.T) {
 			data:  "before\r\n" + shellRCBeginMarker + "\r\nexport AGY_LLM_GATEWAY_URL=\"http://127.0.0.1:8765\"\r\n" + shellRCEndMarker + "\r\nafter",
 			want:  "before\r\nafter",
 			owned: true, changed: true,
+		},
+		{
+			name:  "crlf legacy block removed and unrelated lines byte-preserved",
+			data:  "alias keep='x' \r\n# Antigravity Swiss Knife - CLI Integration Environment\r\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\r\nexport AGY_LLM_GATEWAY_URL=\"http://127.0.0.1:8765\"\r\nalias after='y'\r\nexport CLOUD_CODE_URL=\"https://example.test\"\r\n",
+			want:  "alias keep='x' \r\nalias after='y'\r\nexport CLOUD_CODE_URL=\"https://example.test\"\r\n",
+			owned: true, changed: true, legacy: true,
+		},
+		{
+			name:  "indented managed markers with CRLF",
+			data:  "before\r\n\t" + shellRCBeginMarker + "  \r\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\r\n  " + shellRCEndMarker + "\r\nafter\r\n",
+			want:  "before\r\nafter\r\n",
+			owned: true, changed: true,
+		},
+		{
+			name:  "indented legacy block with CRLF",
+			data:  "alias keep=1\r\n\t# Antigravity Swiss Knife - CLI Integration Environment\r\n  export CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\r\nexport AGY_LLM_GATEWAY_URL=\"http://127.0.0.1:8765\"\r\nalias after=1\r\n",
+			want:  "alias keep=1\r\nalias after=1\r\n",
+			owned: true, changed: true, legacy: true,
 		},
 		{
 			name:  "legacy block removed once",
@@ -91,37 +110,45 @@ func TestPlanShellRCRewrite(t *testing.T) {
 func TestCleanSingleShellRCPreservesMetadataAndAtomicReplace(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "zshrc-target")
-	link := filepath.Join(dir, ".zshrc")
 	content := "alias ls='ls --color=auto'\n" + shellRCBeginMarker + "\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\n" + shellRCEndMarker + "\nexport CLOUD_CODE_URL=\"https://example.test\"\n"
 	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
+	rcPath := target
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(dir, ".zshrc")
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		rcPath = link
 	}
 
-	if err := cleanSingleShellRC(link); err != nil {
+	if err := cleanSingleShellRC(rcPath); err != nil {
 		t.Fatalf("cleanSingleShellRC: %v", err)
 	}
-	linkInfo, err := os.Lstat(link)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if linkInfo.Mode()&os.ModeSymlink == 0 {
-		t.Fatal("shell RC symlink was replaced")
-	}
-	resolved, err := filepath.EvalSymlinks(link)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resolved != target {
-		t.Fatalf("symlink target = %q, want %q", resolved, target)
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(dir, ".zshrc")
+		linkInfo, err := os.Lstat(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if linkInfo.Mode()&os.ModeSymlink == 0 {
+			t.Fatal("shell RC symlink was replaced")
+		}
+		resolved, err := filepath.EvalSymlinks(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolved != target {
+			t.Fatalf("symlink target = %q, want %q", resolved, target)
+		}
 	}
 	info, err := os.Stat(target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows does not preserve Unix permission semantics consistently.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode = %o, want 600", info.Mode().Perm())
 	}
 	data, err := os.ReadFile(target)
@@ -136,7 +163,7 @@ func TestCleanSingleShellRCPreservesMetadataAndAtomicReplace(t *testing.T) {
 		t.Fatalf("temporary files left behind: %v", matches)
 	}
 
-	if err := cleanSingleShellRC(link); err != nil {
+	if err := cleanSingleShellRC(rcPath); err != nil {
 		t.Fatalf("second clean: %v", err)
 	}
 	again, err := os.Stat(target)
@@ -299,21 +326,26 @@ func TestCleanShellRCHooksCommitsBothValidRCs(t *testing.T) {
 	t.Setenv("HOME", home)
 	zshrc := filepath.Join(home, ".zshrc")
 	bashLink := filepath.Join(home, ".bashrc")
-	dotfiles := filepath.Join(home, "dotfiles")
-	bashTarget := filepath.Join(dotfiles, "bashrc")
-	if err := os.MkdirAll(dotfiles, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	bashTarget := bashLink
 	zshContent := "before\n" + shellRCBeginMarker + "\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\n" + shellRCEndMarker + "\nafter\n"
 	bashContent := "alias keep=1\n" + shellRCBeginMarker + "\nexport AGY_LLM_GATEWAY_URL=\"http://127.0.0.1:8765\"\n" + shellRCEndMarker + "\n"
+	if runtime.GOOS != "windows" {
+		dotfiles := filepath.Join(home, "dotfiles")
+		bashTarget = filepath.Join(dotfiles, "bashrc")
+		if err := os.MkdirAll(dotfiles, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := os.WriteFile(zshrc, []byte(zshContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(bashTarget, []byte(bashContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(bashTarget, bashLink); err != nil {
-		t.Fatal(err)
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(bashTarget, bashLink); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if err := CleanShellRCHooks(); err != nil {
@@ -328,12 +360,14 @@ func TestCleanShellRCHooksCommitsBothValidRCs(t *testing.T) {
 			t.Fatalf("%s still contains managed markers: %q", path, string(data))
 		}
 	}
-	info, err := os.Lstat(bashLink)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		t.Fatal("shell RC symlink was replaced")
+	if runtime.GOOS != "windows" {
+		info, err := os.Lstat(bashLink)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatal("shell RC symlink was replaced")
+		}
 	}
 }
 

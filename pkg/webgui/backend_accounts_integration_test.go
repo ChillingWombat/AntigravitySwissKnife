@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +19,16 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
 
+func shortDaemonSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "sw")
+	if err != nil {
+		t.Fatalf("create short daemon socket dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Join(dir, "d.sock")
+}
+
 func TestAccountSwitchThroughHTTPUsesDaemonState(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", configDir)
@@ -26,7 +37,7 @@ func TestAccountSwitchThroughHTTPUsesDaemonState(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-	socketPath := filepath.Join(configDir, "daemon.sock")
+	socketPath := shortDaemonSocketPath(t)
 	d, err := daemon.NewDaemon(core.DefaultConfig(), socketPath)
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)
@@ -110,7 +121,7 @@ func TestStandaloneWebServerUsesExplicitRPCClient(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 
-	socketPath := filepath.Join(configDir, "daemon.sock")
+	socketPath := shortDaemonSocketPath(t)
 	d, err := daemon.NewDaemon(core.DefaultConfig(), socketPath)
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)
