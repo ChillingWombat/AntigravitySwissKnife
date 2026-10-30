@@ -4,13 +4,20 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const {
   ALLOWED_ROUTES,
   APPROVAL_BODY_PREVIEW_LIMIT,
+  DAEMON_ORIGIN,
+  LEGACY_SESSION_TOKEN_STORAGE_KEY,
+  PRIVILEGED_ROUTES,
   buildApprovalBodyPreview,
   createDaemonBroker,
+  installLegacySessionTokenCleanup,
   isApprovalRoute,
+  purgeLegacySessionToken,
   shouldAttachDaemonSessionHeader,
+  shouldCancelDaemonSubFrameNavigation,
 } = require('./daemon-broker');
 
 function fakeResponse(status, body, headers = {}) {
@@ -50,13 +57,19 @@ test('broker pins loopback, ignores caller auth, and attaches the main-process t
 });
 
 test('broker rejects unknown methods, paths, bodies, and redirects with typed errors', async () => {
+  let daemonCalls = 0;
   const broker = createDaemonBroker({
     getToken: () => 'token',
-    fetchImpl: async () => fakeResponse(302, '', { Location: 'http://example.com/' }),
+    fetchImpl: async () => {
+      daemonCalls += 1;
+      return fakeResponse(302, '', { Location: 'http://example.com/' });
+    },
   });
 
   await assert.rejects(() => broker.request({ method: 'DELETE', path: '/api/status' }), { code: 'METHOD_NOT_ALLOWED' });
   await assert.rejects(() => broker.request({ method: 'GET', path: '/api/bridge/tools' }), { code: 'ROUTE_NOT_ALLOWED' });
+  await assert.rejects(() => broker.request({ method: 'POST', path: '/api/not-a-real-route' }), { code: 'ROUTE_NOT_ALLOWED' });
+  assert.equal(daemonCalls, 0);
   await assert.rejects(() => broker.request({ method: 'GET', path: '//example.com/api/status' }), { code: 'INVALID_REQUEST' });
   await assert.rejects(() => broker.request({ method: 'GET', path: '/api/status', body: '{}' }), { code: 'INVALID_REQUEST' });
   await assert.rejects(() => broker.request({ method: 'GET', path: '/api/status' }), { code: 'REDIRECT_REJECTED' });
@@ -71,14 +84,97 @@ test('broker allowlist contains approved reads and exact mutation routes', () =>
   }
   assert.equal(ALLOWED_ROUTES.GET.has('/api/files/write'), false);
   assert.equal(ALLOWED_ROUTES.POST.has('/api/files/write'), false);
+  assert.equal(PRIVILEGED_ROUTES.POST.has('/api/files/write'), true);
+  assert.equal(PRIVILEGED_ROUTES.POST.has('/api/not-a-real-route'), false);
 });
 
-test('session auth headers are limited to document and static resource loads', () => {
-  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'mainFrame' }), true);
-  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'script' }), true);
-  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'xhr' }), false);
-  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'fetch' }), false);
+test('session auth headers are limited to top-level daemon document and static loads', () => {
+  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'mainFrame', url: `${DAEMON_ORIGIN}/` }), true);
+  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'script', url: `${DAEMON_ORIGIN}/assets/app.js` }), true);
+  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'subFrame', url: `${DAEMON_ORIGIN}/frame` }), false);
+  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'subFrame', url: `${DAEMON_ORIGIN}/api/status` }), false);
+  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'xhr', url: `${DAEMON_ORIGIN}/health` }), false);
+  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'fetch', url: `${DAEMON_ORIGIN}/health` }), false);
+  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'mainFrame', url: `${DAEMON_ORIGIN}/api/status` }), false);
+  assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'mainFrame', url: 'https://example.com/' }), false);
+  assert.equal(shouldAttachDaemonSessionHeader({
+    resourceType: 'script',
+    url: `${DAEMON_ORIGIN}/assets/app.js`,
+    frame: { parent: {} },
+  }), false);
   assert.equal(shouldAttachDaemonSessionHeader({}), false);
+});
+
+test('daemon API subframe navigations are cancelled while ordinary frames are not', () => {
+  assert.equal(shouldCancelDaemonSubFrameNavigation({
+    resourceType: 'subFrame',
+    url: `${DAEMON_ORIGIN}/api/status`,
+  }), true);
+  assert.equal(shouldCancelDaemonSubFrameNavigation({
+    resourceType: 'subFrame',
+    url: `${DAEMON_ORIGIN}/frame`,
+  }), false);
+  assert.equal(shouldCancelDaemonSubFrameNavigation({
+    resourceType: 'mainFrame',
+    url: `${DAEMON_ORIGIN}/api/status`,
+  }), false);
+  assert.equal(shouldCancelDaemonSubFrameNavigation({
+    resourceType: 'subFrame',
+    url: `${DAEMON_ORIGIN}/apiary`,
+  }), false);
+});
+
+test('startup cleanup script removes the legacy token from both web storages', () => {
+  const localStorage = new Map([[LEGACY_SESSION_TOKEN_STORAGE_KEY, 'legacy-local']]);
+  const sessionStorage = new Map([[LEGACY_SESSION_TOKEN_STORAGE_KEY, 'legacy-session']]);
+  const window = {
+    localStorage: { removeItem: (key) => localStorage.delete(key) },
+    sessionStorage: { removeItem: (key) => sessionStorage.delete(key) },
+  };
+  let cleanupScript = '';
+  const webContents = {
+    executeJavaScript: async (script) => {
+      cleanupScript = script;
+      vm.runInNewContext(script, { window });
+    },
+  };
+
+  assert.equal(purgeLegacySessionToken(webContents), true);
+  assert.equal(localStorage.has(LEGACY_SESSION_TOKEN_STORAGE_KEY), false);
+  assert.equal(sessionStorage.has(LEGACY_SESSION_TOKEN_STORAGE_KEY), false);
+  assert.doesNotMatch(cleanupScript, /console\./);
+});
+
+test('startup cleanup is registered for every webContents at did-finish-load', () => {
+  const localStorage = new Map([[LEGACY_SESSION_TOKEN_STORAGE_KEY, 'legacy-local']]);
+  const sessionStorage = new Map([[LEGACY_SESSION_TOKEN_STORAGE_KEY, 'legacy-session']]);
+  const window = {
+    localStorage: { removeItem: (key) => localStorage.delete(key) },
+    sessionStorage: { removeItem: (key) => sessionStorage.delete(key) },
+  };
+  let createdListener;
+  let finishListener;
+  const webContents = {
+    isLoading: () => true,
+    once: (event, listener) => {
+      assert.equal(event, 'did-finish-load');
+      finishListener = listener;
+    },
+    executeJavaScript: async (script) => {
+      vm.runInNewContext(script, { window });
+    },
+  };
+
+  assert.equal(installLegacySessionTokenCleanup({
+    on: (event, listener) => {
+      assert.equal(event, 'web-contents-created');
+      createdListener = listener;
+    },
+  }), true);
+  createdListener({}, webContents);
+  finishListener();
+  assert.equal(localStorage.has(LEGACY_SESSION_TOKEN_STORAGE_KEY), false);
+  assert.equal(sessionStorage.has(LEGACY_SESSION_TOKEN_STORAGE_KEY), false);
 });
 
 test('preload exposes swiss.request and no raw-token getter', () => {
@@ -87,6 +183,7 @@ test('preload exposes swiss.request and no raw-token getter', () => {
   assert.doesNotMatch(preload, /getSessionToken|desktop:get-session-token/);
   const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
   assert.doesNotMatch(main, /desktop:get-session-token/);
+  assert.match(main, /installLegacySessionTokenCleanup\(app\)/);
 });
 
 

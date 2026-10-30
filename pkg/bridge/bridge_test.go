@@ -185,7 +185,8 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 
 	// 5. Test Direct Mode tools: machine control is explicitly enabled here.
 	svc.mu.Lock()
-	svc.config.AllowedTools = append(svc.config.AllowedTools, "local_write_file", "local_run_command")
+	svc.config.AllowedTools = append(svc.config.AllowedTools,
+		"local_read_file", "local_search_files", "local_write_file", "local_run_command")
 	svc.mu.Unlock()
 	testFile := filepath.Join(tmpDir, "test_remote.txt")
 	writeRes, err := svc.CallTool("local_write_file", map[string]interface{}{
@@ -343,12 +344,15 @@ func TestBridge_LoadConfigMergesDefaultTools(t *testing.T) {
 		"antigravity_lead_stop_conversation",
 		"antigravity_fleet_get_quota",
 		"antigravity_fleet_switch_account",
-		"local_search_files",
+		"antigravity_session_model_list",
 		"custom_tool",
 	} {
 		if !allowed[name] {
 			t.Errorf("expected loaded AllowedTools to include %s", name)
 		}
+	}
+	if allowed["local_search_files"] {
+		t.Error("default migration must not allow local_search_files")
 	}
 	persistedData, err := os.ReadFile(cfgPath)
 	if err != nil {
@@ -367,11 +371,14 @@ func TestBridge_LoadConfigMergesDefaultTools(t *testing.T) {
 		"antigravity_lead_stop_conversation",
 		"antigravity_fleet_get_quota",
 		"antigravity_fleet_switch_account",
-		"local_search_files",
+		"antigravity_session_model_list",
 	} {
 		if !persistedAllowed[name] {
 			t.Errorf("expected migrated config on disk to include %s", name)
 		}
+	}
+	if persistedAllowed["local_search_files"] {
+		t.Error("migrated config on disk must not allow local_search_files")
 	}
 }
 
@@ -796,11 +803,19 @@ func TestBridge_A2AMCPTools(t *testing.T) {
 
 func TestMachineControlToolsDefaultDeny(t *testing.T) {
 	machineTools := []string{
+		"local_read_file",
+		"local_list_directory",
+		"local_search_files",
+		"local_obsidian_read_note",
+		"local_obsidian_search",
+		"local_obsidian_list_vaults",
 		"local_run_command",
 		"local_write_file",
 		"local_computer_use",
 		"local_http_request",
 		"local_obsidian_write_note",
+		"antigravity_inspect_workspace",
+		"antigravity_computer_use",
 	}
 	defaultAllowed := map[string]bool{}
 	for _, name := range DefaultConfig().AllowedTools {

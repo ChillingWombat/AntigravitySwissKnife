@@ -75,27 +75,21 @@ function hasSwissDaemonBroker(): boolean {
 
 // --- Session token management -----------------------------------------------
 // The daemon enforces loopback auth (P0-50). The Electron renderer never receives
-// the daemon token; the browser fallback uses the unlock flow below. Tokens are
-// never written to sessionStorage, logs, or URLs.
+// the daemon token; the browser fallback keeps its unlocked token in memory only.
 const SESSION_TOKEN_KEY = 'swiss_session_token'
 
+try { globalThis.localStorage?.removeItem(SESSION_TOKEN_KEY) } catch {}
+try { globalThis.sessionStorage?.removeItem(SESSION_TOKEN_KEY) } catch {}
+
 let sessionToken: string | null = null
-if (!hasSwissDaemonBroker()) {
-  try { sessionToken = localStorage.getItem(SESSION_TOKEN_KEY) } catch {}
-}
 
 export function setSessionToken(token: string | null) {
   const clean = token && token.trim() ? token.trim() : null
   if (hasSwissDaemonBroker()) {
     sessionToken = null
-    try { localStorage.removeItem(SESSION_TOKEN_KEY) } catch {}
     return
   }
   sessionToken = clean
-  try {
-    if (clean) localStorage.setItem(SESSION_TOKEN_KEY, clean)
-    else localStorage.removeItem(SESSION_TOKEN_KEY)
-  } catch {}
 }
 
 export function getSessionToken(): string | null {

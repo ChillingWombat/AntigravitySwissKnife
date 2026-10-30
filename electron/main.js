@@ -252,6 +252,13 @@ const daemonBroker = createDaemonBroker({
   },
 });
 
+const {
+  installLegacySessionTokenCleanup,
+  isDaemonApiUrl,
+  shouldCancelDaemonSubFrameNavigation,
+} = require('./daemon-broker');
+installLegacySessionTokenCleanup(app);
+
 function getDaemonSessionToken(maxAgeMs = 3000) {
   const now = Date.now();
   if (cachedSessionToken && now - cachedSessionTokenAt < maxAgeMs) {
@@ -275,6 +282,9 @@ function attachDaemonAuthHeaders() {
     return;
   }
   const filter = { urls: [`${DAEMON_URL}/*`] };
+  session.defaultSession.webRequest.onBeforeRequest(filter, (details, callback) => {
+    callback({ cancel: shouldCancelDaemonSubFrameNavigation(details) });
+  });
   session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
     const requestHeaders = details.requestHeaders || {};
     for (const key of Object.keys(requestHeaders)) {
@@ -1244,7 +1254,7 @@ async function createWindow(options = {}) {
 
   // Security: Prevent subframes from navigating away from local daemon origin (P1-16)
   mainWindow.webContents.on('will-frame-navigate', (event) => {
-    if (event.url && !isTrustedDaemonOrigin(event.url)) {
+    if (event.url && (!isTrustedDaemonOrigin(event.url) || isDaemonApiUrl(event.url))) {
       event.preventDefault();
     }
   });

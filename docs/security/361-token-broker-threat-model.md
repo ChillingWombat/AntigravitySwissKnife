@@ -18,13 +18,13 @@ Issue: #361. Scope: the Electron renderer, preload bridge, Electron main process
 | Bridge to host tools | Explicit user allowlist and typed approval failures. | MCP callers and model-generated tool arguments. |
 | Browser fallback to daemon | Unlock flow and scoped session token. | Hostile or unauthenticated pages. |
 
-The renderer receives `window.swiss.request` only. It never receives a raw session-token getter, page-global token, session-storage token, token URL, or token-bearing error.
+The renderer receives `window.swiss.request` only. It never receives a raw session-token getter, page-global token, token URL, or token-bearing error. Browser fallback tokens stay in memory, and startup purges the legacy `swiss_session_token` key from both local storage and session storage.
 
 ## Threats
 
 ### Local XSS
 
-XSS can invoke every broker route available to the renderer and can alter the visible UI. It cannot read the daemon token from the renderer. Read routes remain exact-allowlisted. Every non-allowlisted `/api/*` POST one-shot asks the user through a native Electron dialog showing the exact method and path, with a bounded and redacted body preview. XSS can request a prompt but cannot silently approve it.
+XSS can invoke every broker route available to the renderer and can alter the visible UI. It cannot read the daemon token from the renderer. Safe and privileged routes are explicit method-and-path tables. Unknown routes fail with `ROUTE_NOT_ALLOWED` before the broker reads a token or calls the daemon. Privileged POST routes ask through a native Electron dialog showing the exact method and path, with a bounded and redacted body preview. XSS can request a prompt but cannot silently approve it.
 
 ### Compromised browser extension
 
@@ -32,7 +32,7 @@ An extension with access to the Antigravity renderer has the same broker capabil
 
 ### Hostile page or navigation
 
-The broker pins requests to `http://127.0.0.1:8765`, rejects absolute and protocol-relative paths, strips caller authentication headers, and rejects redirects. Renderer fetch/XHR requests do not receive the startup token through the Electron session interceptor. A hostile page cannot turn the broker into an arbitrary-origin proxy.
+The broker pins requests to `http://127.0.0.1:8765`, rejects absolute and protocol-relative paths, strips caller authentication headers, and rejects redirects. The session interceptor attaches the startup token only to top-level daemon document and static loads. Renderer fetch/XHR requests and daemon `/api` subframe navigations do not receive the token; subframe navigations to that API are cancelled. A hostile page cannot turn the broker into an arbitrary-origin proxy.
 
 ### Replay and prompt reuse
 
@@ -40,14 +40,14 @@ Approval is one request only and is never cached. Tokens are sent in the `X-Sess
 
 ### Confused deputy
 
-The renderer can ask the privileged main process to act. The broker limits the origin and route shape, and the native dialog binds the approval to the exact method and path. Machine tools in the Go bridge require an explicit entry in `allowed_tools`; `CallTool` returns `APPROVAL_REQUIRED` instead of treating an empty allowlist as unrestricted.
+The renderer can ask the privileged main process to act. The broker limits the origin and exact route, and the native dialog binds the approval to the method and path. Filesystem, Obsidian, computer-use, HTTP, file-write, and command tools in the Go bridge require an explicit entry in `allowed_tools`; new defaults omit them, and `CallTool` returns `APPROVAL_REQUIRED` instead of treating an empty allowlist as unrestricted. Existing explicit allowlist entries remain intact.
 
 ## Residual Risks
 
 - A compromised Electron main process or preload script is outside this boundary and can read the token.
 - Approval fatigue can cause a user to accept a dangerous command or path.
 - Body previews redact known sensitive fields and opaque content, but arbitrary secrets can still appear in displayed path names or other short values.
-- Existing non-machine mutation routes already allowlisted by the broker remain silent, one-shot user approval is required only for other mutating routes.
-- The non-Electron browser fallback stores its unlocked session token in origin-scoped local storage. Local XSS in that browser mode can read it. The fallback now fails closed without a token and never puts the token in a URL.
+- Safe broker mutation routes remain silent; only the explicit privileged POST set requires one-shot native approval.
+- The non-Electron browser fallback keeps its unlocked session token only in page memory, so reloads require another unlock. Local XSS in that browser mode can still read the in-memory token during the unlocked session.
 - The daemon token is long-lived on disk; rotation and secure storage depend on the daemon installation.
 - An extension or screen-control malware that can click the native dialog defeats user approval.

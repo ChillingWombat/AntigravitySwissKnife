@@ -1,6 +1,49 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
+test('frontend module init unconditionally purges the legacy token from both storages', async () => {
+  const local = new Map<string, string>([['swiss_session_token', 'existing-local-token']])
+  const session = new Map<string, string>([['swiss_session_token', 'existing-session-token']])
+  const originalWindow = (globalThis as any).window
+  const originalLocalStorage = (globalThis as any).localStorage
+  const originalSessionStorage = (globalThis as any).sessionStorage
+
+  ;(globalThis as any).window = {
+    swiss: {
+      request: async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: '{}',
+      }),
+    },
+  }
+  ;(globalThis as any).localStorage = {
+    getItem: (key: string) => local.get(key) ?? null,
+    setItem: (key: string, value: string) => local.set(key, value),
+    removeItem: (key: string) => local.delete(key),
+  }
+  ;(globalThis as any).sessionStorage = {
+    getItem: (key: string) => session.get(key) ?? null,
+    setItem: (key: string, value: string) => session.set(key, value),
+    removeItem: (key: string) => session.delete(key),
+  }
+
+  try {
+    const api = await import('../api')
+    assert.equal(local.has('swiss_session_token'), false)
+    assert.equal(session.has('swiss_session_token'), false)
+    api.setSessionToken('must-not-be-persisted')
+    assert.equal(local.has('swiss_session_token'), false)
+    assert.equal(session.has('swiss_session_token'), false)
+  } finally {
+    ;(globalThis as any).window = originalWindow
+    ;(globalThis as any).localStorage = originalLocalStorage
+    ;(globalThis as any).sessionStorage = originalSessionStorage
+  }
+})
+
 test('frontend daemon requests use the Electron broker without calling fetch', async () => {
   const calls: Array<{ method: string; path: string; body?: string; timeoutMs?: number }> = []
   const storage = new Map<string, string>()

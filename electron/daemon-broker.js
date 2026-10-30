@@ -5,7 +5,6 @@ const DEFAULT_TIMEOUT_MS = 15000;
 const MAX_TIMEOUT_MS = 60000;
 const DAEMON_SESSION_RESOURCE_TYPES = new Set([
   'mainFrame',
-  'subFrame',
   'stylesheet',
   'script',
   'image',
@@ -60,9 +59,49 @@ const POST_PATHS = Object.freeze([
   '/api/github/kanban/move',
 ]);
 
+const PRIVILEGED_POST_PATHS = Object.freeze([
+  '/api/files/write',
+  '/api/files/create',
+  '/api/files/delete',
+  '/api/files/rename',
+  '/api/files/copy',
+  '/api/files/move',
+  '/api/files/reveal',
+  '/api/files/terminal',
+  '/api/files/open_ide',
+  '/api/files/ide/config',
+  '/api/utilities/import',
+  '/api/utilities/acp/sync-registry',
+  '/api/utilities/acp/agents',
+  '/api/utilities/acp/detect',
+  '/api/utilities/acp/ping',
+  '/api/utilities/acp/prompt',
+  '/api/tokens/pricing',
+  '/api/github/issues/create',
+  '/api/bridge/http-allowlist',
+  '/api/bridge/config',
+  '/api/bridge/dispatch',
+  '/api/bridge/test',
+  '/api/bridge/tunnel/start',
+  '/api/bridge/tunnel/stop',
+  '/api/bridge/token/rotate',
+  '/api/bridge/agent',
+  '/api/bridge/mode',
+  '/api/bridge/remote/config',
+  '/api/bridge/remote/pin/rotate',
+  '/api/bridge/remote/tunnel/start',
+  '/api/bridge/remote/tunnel/stop',
+  '/api/bridge/channels/config',
+  '/api/bridge/channels/test',
+  '/api/settings/factory-reset',
+]);
+
 const ALLOWED_ROUTES = Object.freeze({
   GET: new Set(GET_PATHS),
   POST: new Set(POST_PATHS),
+});
+const PRIVILEGED_ROUTES = Object.freeze({
+  POST: new Set(PRIVILEGED_POST_PATHS),
 });
 
 const APPROVAL_BODY_PREVIEW_LIMIT = 400;
@@ -73,7 +112,7 @@ const OPAQUE_BODY_KEY = /^(content|body|data|text|value)$/i;
 const SECRET_IN_TEXT = /(bearer\s+|token|secret|password|api[_-]?key)/i;
 
 function isApprovalRoute(method, pathname) {
-  return method === 'POST' && pathname.startsWith('/api/') && pathname.length > 5 && !ALLOWED_ROUTES.POST.has(pathname);
+  return method === 'POST' && PRIVILEGED_ROUTES.POST.has(pathname);
 }
 
 function previewBodyValue(value, depth = 0) {
@@ -140,8 +179,68 @@ class DaemonBrokerError extends Error {
   }
 }
 
+function isDaemonApiUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    return url.origin === DAEMON_ORIGIN && (url.pathname === '/api' || url.pathname.startsWith('/api/'));
+  } catch {
+    return false;
+  }
+}
+
 function shouldAttachDaemonSessionHeader(details) {
-  return Boolean(details && DAEMON_SESSION_RESOURCE_TYPES.has(details.resourceType));
+  if (!details || !DAEMON_SESSION_RESOURCE_TYPES.has(details.resourceType)) return false;
+  if (details.frame && details.frame.parent) return false;
+  try {
+    const url = new URL(details.url);
+    return url.origin === DAEMON_ORIGIN && !isDaemonApiUrl(details.url);
+  } catch {
+    return false;
+  }
+}
+
+function shouldCancelDaemonSubFrameNavigation(details) {
+  return Boolean(details && details.resourceType === 'subFrame' && isDaemonApiUrl(details.url));
+}
+
+const LEGACY_SESSION_TOKEN_STORAGE_KEY = 'swiss_session_token';
+const LEGACY_SESSION_TOKEN_CLEANUP_SCRIPT = `(() => {
+  for (const storageName of ['localStorage', 'sessionStorage']) {
+    try {
+      window[storageName].removeItem(${JSON.stringify(LEGACY_SESSION_TOKEN_STORAGE_KEY)});
+    } catch {}
+  }
+})();`;
+
+function purgeLegacySessionToken(webContents) {
+  if (!webContents || typeof webContents.executeJavaScript !== 'function') return false;
+  try {
+    const pending = webContents.executeJavaScript(LEGACY_SESSION_TOKEN_CLEANUP_SCRIPT, true);
+    if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function registerLegacySessionTokenCleanup(webContents) {
+  if (!webContents || typeof webContents.once !== 'function') return false;
+  if (typeof webContents.isDestroyed === 'function' && webContents.isDestroyed()) return false;
+
+  const cleanup = () => {
+    purgeLegacySessionToken(webContents);
+  };
+  webContents.once('did-finish-load', cleanup);
+  if (typeof webContents.isLoading === 'function' && !webContents.isLoading()) cleanup();
+  return true;
+}
+
+function installLegacySessionTokenCleanup(app) {
+  if (!app || typeof app.on !== 'function') return false;
+  app.on('web-contents-created', (_event, webContents) => {
+    registerLegacySessionTokenCleanup(webContents);
+  });
+  return true;
 }
 
 function invalid(message) {
@@ -173,7 +272,9 @@ function validateRequest(request, defaultTimeoutMs) {
     invalid('Daemon request must stay on the fixed loopback origin');
   }
   const requiresApproval = isApprovalRoute(method, url.pathname);
-  if (!ALLOWED_ROUTES[method].has(url.pathname) && !requiresApproval) {
+  const routeIsAllowed = ALLOWED_ROUTES[method].has(url.pathname) ||
+    (method === 'POST' && PRIVILEGED_ROUTES.POST.has(url.pathname));
+  if (!routeIsAllowed) {
     throw new DaemonBrokerError('ROUTE_NOT_ALLOWED', 'Daemon route is not allowlisted', 403);
   }
 
@@ -280,9 +381,16 @@ module.exports = {
   APPROVAL_BODY_PREVIEW_LIMIT,
   DAEMON_ORIGIN,
   DaemonBrokerError,
+  LEGACY_SESSION_TOKEN_STORAGE_KEY,
+  PRIVILEGED_ROUTES,
   buildApprovalBodyPreview,
   createDaemonBroker,
+  installLegacySessionTokenCleanup,
   isApprovalRoute,
+  isDaemonApiUrl,
+  purgeLegacySessionToken,
+  registerLegacySessionTokenCleanup,
   shouldAttachDaemonSessionHeader,
+  shouldCancelDaemonSubFrameNavigation,
   validateRequest,
 };

@@ -162,14 +162,8 @@ func DefaultConfig() Config {
 			"antigravity_session_model_list",
 			"antigravity_session_model_get",
 			"antigravity_session_model_set",
-			"local_read_file",
-			"local_list_directory",
-			"local_search_files",
 			"local_system_info",
 			"local_http_allowlist",
-			"local_obsidian_list_vaults",
-			"local_obsidian_search",
-			"local_obsidian_read_note",
 		},
 	}
 }
@@ -189,12 +183,19 @@ func (e *MachineControlApprovalRequiredError) Code() string {
 }
 
 var machineControlTools = map[string]struct{}{
-	"local_run_command":         {},
-	"local_write_file":          {},
-	"local_computer_use":        {},
-	"local_http_request":        {},
-	"local_obsidian_write_note": {},
-	"antigravity_computer_use":  {},
+	"local_read_file":               {},
+	"local_list_directory":          {},
+	"local_search_files":            {},
+	"local_obsidian_read_note":      {},
+	"local_obsidian_search":         {},
+	"local_obsidian_list_vaults":    {},
+	"local_computer_use":            {},
+	"local_http_request":            {},
+	"local_write_file":              {},
+	"local_run_command":             {},
+	"local_obsidian_write_note":     {},
+	"antigravity_inspect_workspace": {},
+	"antigravity_computer_use":      {},
 }
 
 func isMachineControlTool(name string) bool {
