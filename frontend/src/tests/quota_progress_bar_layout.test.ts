@@ -1,107 +1,54 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import path from 'node:path'
+import React from 'react'
+import { QuotaIndicatorGroup } from '../components/QuotaIndicatorGroup'
+import { mount } from '../test-dom'
 
-describe('QuotaDashboardPage model progress bar layout — 2x1 vertical stack', () => {
-  const pageSrc = fs.readFileSync(
-    path.resolve(import.meta.dirname, '..', 'pages', 'QuotaDashboardPage.tsx'),
-    'utf8',
-  ).replace(/\r\n/g, '\n')
+const renderedBarWidths = (container: Element): string[] => (
+  Array.from(container.querySelectorAll<HTMLElement>('div'))
+    .map((element) => element.style.width)
+    .filter((width) => width.endsWith('%') && width !== '100%')
+)
 
-  it('renders 7D multi-model quota cell with Gemini and Argon in a 2x1 vertical stack', () => {
-    const weeklySection = pageSrc.indexOf('{hasArgonWeeklyQuota ? (')
-    assert.ok(weeklySection > 0, '{hasArgonWeeklyQuota ? ( block not found')
-    const blockEnd = pageSrc.indexOf(') : (', weeklySection)
-    const block = pageSrc.slice(weeklySection, blockEnd)
+describe('Quota progress rendered behavior', () => {
+  it('renders Gemini and Argon 7D bars with remaining-percentage widths', async () => {
+    const rendered = await mount(
+      React.createElement(QuotaIndicatorGroup, {
+        buckets: [
+          { label: 'Gemini 7D', fraction: 0.42, value: '42% remaining' },
+          { label: 'Argon 7D', fraction: 0.67, value: '67% remaining' },
+        ],
+      }),
+    )
 
-    assert.ok(
-      block.includes("flexDirection: 'column'"),
-      '7D multi-model cell must use flexDirection: "column" (2x1 vertical stack)',
-    )
-    assert.ok(
-      block.includes("gap: '6px'"),
-      '7D multi-model cell must use 6px gap between Gemini and Argon rows',
-    )
-    assert.ok(
-      block.indexOf('<span>Gemini</span>') < block.indexOf('<span>Argon</span>'),
-      'Gemini row must be positioned above Argon row in the 2x1 stack',
-    )
+    const text = rendered.container.textContent || ''
+    assert.match(text, /Gemini 7D/)
+    assert.match(text, /Argon 7D/)
+    assert.match(text, /42% remaining/)
+    assert.match(text, /67% remaining/)
+    assert.deepEqual(renderedBarWidths(rendered.container), ['42%', '67%'])
+    assert.equal(rendered.querySelectorAll('svg').length, 0)
+
+    rendered.unmount()
   })
 
-  it('renders 5H multi-model quota cell with Gemini and Argon in a 2x1 vertical stack', () => {
-    const section5h = pageSrc.indexOf('if (hasArgon5hQuota) {')
-    assert.ok(section5h > 0, 'if (hasArgon5hQuota) block not found')
-    const blockEnd = pageSrc.indexOf('if (hasArgonWeeklyQuota)', section5h)
-    const block = pageSrc.slice(section5h, blockEnd)
-
-    assert.ok(
-      block.includes("flexDirection: 'column'"),
-      '5H multi-model cell must use flexDirection: "column" (2x1 vertical stack)',
-    )
-    assert.ok(
-      block.includes("gap: '6px'"),
-      '5H multi-model cell must use 6px gap between Gemini and Argon rows',
-    )
-    assert.ok(
-      block.indexOf('<span>Gemini</span>') < block.indexOf('<span>Argon</span>'),
-      'Gemini row must be positioned above Argon row in the 2x1 stack',
-    )
-  })
-
-  it('uses balanced 180px column widths on 5H Quota and 7D Quota headers', () => {
-    const header5h = pageSrc.indexOf("setSortMode('quota_5h')")
-    assert.ok(header5h > 0, '5H header not found')
-    const header5hSlice = pageSrc.slice(header5h, header5h + 200)
-    assert.ok(
-      header5hSlice.includes("width: '180px'"),
-      '5H Quota column width must be 180px',
+  it('omits an absent Argon window while keeping both reported quota bars', async () => {
+    const rendered = await mount(
+      React.createElement(QuotaIndicatorGroup, {
+        buckets: [
+          { label: 'Gemini 5H', fraction: 0.55 },
+          { label: 'Gemini 7D', fraction: 0.80 },
+        ],
+      }),
     )
 
-    const headerWeekly = pageSrc.indexOf("setSortMode('quota_weekly')")
-    assert.ok(headerWeekly > 0, '7D header not found')
-    const headerWeeklySlice = pageSrc.slice(headerWeekly, headerWeekly + 200)
-    assert.ok(
-      headerWeeklySlice.includes("width: '180px'"),
-      '7D Quota column width must be balanced at 180px',
-    )
-  })
+    const text = rendered.container.textContent || ''
+    assert.match(text, /Gemini 5H/)
+    assert.match(text, /Gemini 7D/)
+    assert.doesNotMatch(text, /Argon/)
+    assert.deepEqual(renderedBarWidths(rendered.container), ['55%', '80%'])
+    assert.equal(rendered.querySelectorAll('svg').length, 0)
 
-  it('aligns 5H and 7D cells to top with verticalAlign: "top" for horizontal progress bar alignment', () => {
-    assert.ok(
-      pageSrc.includes("<td style={{ padding: '12px', verticalAlign: 'top' }}>"),
-      '5H and 7D table cells must use verticalAlign: "top" to align quota bars horizontally across columns',
-    )
-  })
-
-  it('omits Argon 5H progress bar when account has no 5H Argon quota but has 7D Argon quota', () => {
-    const section5hWeekly = pageSrc.indexOf('if (hasArgonWeeklyQuota) {')
-    assert.ok(section5hWeekly > 0, 'if (hasArgonWeeklyQuota) block not found in 5H cell')
-    const nextBlock = pageSrc.indexOf('if (showGeminiLabel)', section5hWeekly)
-    const block = pageSrc.slice(section5hWeekly, nextBlock)
-
-    assert.ok(
-      !block.includes('<span>Argon</span>'),
-      '5H cell must not show an Argon progress bar or label when Argon 5H quota is null',
-    )
-    assert.ok(block.includes('<span>Gemini</span>'), '5H cell must retain Gemini label to align with 7D cell')
-  })
-})
-
-describe('QuotaDashboardPage Argon quota ring conditional rendering', () => {
-  const pageSrc = fs.readFileSync(
-    path.resolve(import.meta.dirname, '..', 'pages', 'QuotaDashboardPage.tsx'),
-    'utf8',
-  ).replace(/\r\n/g, '\n')
-
-  it('omits Argon progress rings when no Argon quota exists', () => {
-    assert.ok(
-      pageSrc.includes('{hasArgon7d && (\n                <CircularGauge percentage={gaugeWeeklyArgon} title="Argon 7D"'),
-      'Argon 7D ring in standard overview must be conditionally rendered with hasArgon7d',
-    )
-    assert.ok(
-      pageSrc.includes('{(hasArgon5h || hasArgon7d) && ('),
-      'Argon row in multi-model overview must be conditionally rendered when hasArgon5h or hasArgon7d is true',
-    )
+    rendered.unmount()
   })
 })
