@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage, session, clipboard, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage, session, clipboard, screen, dialog } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -112,42 +112,45 @@ function setRuntimeModeSetting(mode) {
 let teardownPromise = null;
 
 // Teardown routing depending on runtime mode
-async function teardownDaemonForAppExit() {
+async function teardownDaemonForAppExit(options = {}) {
   if (teardownPromise) {
     return teardownPromise;
   }
   teardownPromise = (async () => {
     isStoppingDaemon = true;
-    const mode = getRuntimeModeSetting();
+    const mode = options.mode || getRuntimeModeSetting();
+    const requestRestore = options.requestRestore || (() => requestDaemonJsonWithAuth(
+      '/api/custom_models/restore_native',
+      { validateResponse: isNativeRestoreResponse }
+    ));
+    const stopDaemon = options.stopDaemon || (() => daemonManager.stop({ force: true }));
+    const detachDaemon = options.detachDaemon || (() => daemonManager.detach());
+    const failures = [];
+
     console.log(`[App] Teardown daemon for app exit. Runtime mode: ${mode}`);
-    // Gracefully restore native mode for any running Antigravity apps if proxy was active
     try {
-      await new Promise((resolve) => {
-        const req = http.request(
-          {
-            hostname: DAEMON_HOST,
-            port: DAEMON_PORT,
-            path: '/api/custom_models/restore_native',
-            method: 'POST',
-            timeout: 2000,
-          },
-          (res) => {
-            res.resume();
-            resolve();
-          }
-        );
-        req.on('error', () => resolve());
-        req.on('timeout', () => {
-          req.destroy();
-          resolve();
-        });
-        req.end();
-      });
-    } catch (_) {}
-    if (mode === 'daemon') {
-      daemonManager.detach();
-    } else {
-      await daemonManager.stop({ force: true });
+      await requestRestore();
+    } catch (err) {
+      console.warn('[App] Failed to restore native Antigravity mode:', err.message || err);
+      failures.push(err);
+    }
+
+    try {
+      if (mode === 'daemon') {
+        await detachDaemon();
+      } else {
+        await stopDaemon();
+      }
+    } catch (err) {
+      console.warn('[App] Failed to stop daemon during app exit:', err.message || err);
+      failures.push(err);
+    }
+
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'daemon teardown failed');
     }
   })();
   return teardownPromise;
@@ -273,6 +276,62 @@ function daemonAuthHeaders(extra = {}, maxAgeMs = 3000) {
     headers['X-Session-Token'] = token;
   }
   return headers;
+}
+
+function isNativeRestoreResponse(payload) {
+  return Boolean(payload) &&
+    typeof payload === 'object' &&
+    payload.success === true &&
+    payload.restored_native === true;
+}
+
+async function requestDaemonJsonWithAuth(path, options = {}) {
+  const baseUrl = options.baseUrl || DAEMON_URL;
+  const timeoutMs = options.timeoutMs ?? 2000;
+  const authHeaders = options.authHeaders || daemonAuthHeaders;
+  const requestUrl = new URL(path, baseUrl).toString();
+
+  const send = async (headers) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(requestUrl, {
+        method: 'POST',
+        headers,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new Error(`daemon request timed out after ${timeoutMs}ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  let response = await send(authHeaders());
+  if (response.status === 401) {
+    response = await send(authHeaders({}, 0));
+  }
+  if (response.status === 401) {
+    throw new Error('daemon authentication failed after token refresh (401)');
+  }
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`daemon responded ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`);
+  }
+
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (_) {
+    throw new Error('daemon returned invalid JSON');
+  }
+  if (typeof options.validateResponse === 'function' && !options.validateResponse(payload)) {
+    throw new Error('daemon returned unexpected response contract');
+  }
+  return payload;
 }
 
 // Module State
@@ -1779,7 +1838,15 @@ if (app && typeof app.on === 'function') {
         ),
       ]);
     } catch (err) {
-      console.warn('[App] Warning during daemon stop on before-quit:', err.message || err);
+      const detail = err && err.message ? err.message : String(err);
+      console.warn('[App] Warning during daemon stop on before-quit:', detail);
+      try {
+        if (dialog && typeof dialog.showErrorBox === 'function') {
+          dialog.showErrorBox('Antigravity Swiss exit cleanup failed', detail);
+        }
+      } catch (dialogErr) {
+        console.error('[App] Failed to show teardown error:', dialogErr.message || dialogErr);
+      }
     } finally {
       teardownCompleted = true;
       try {
@@ -1866,6 +1933,8 @@ module.exports = {
   getRuntimeModeSetting,
   setRuntimeModeSetting,
   teardownDaemonForAppExit,
+  requestDaemonJsonWithAuth,
+  isNativeRestoreResponse,
   isAccountExcludedFromSwitchMenu,
   rankAndFilterAccountsForTray,
   buildSwitchMenuItems,

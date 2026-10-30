@@ -88,6 +88,21 @@ type Server struct {
 	lifetimeCostsCache        map[string]float64
 	lifetimeCostsExp          time.Time
 	syncLSURLStop             chan struct{}
+	restoreNativeDeps         restoreNativeDeps
+}
+
+type restoreNativeDeps struct {
+	syncURL     func(string) error
+	restartApps func() error
+}
+
+type restoreNativeOutcome struct {
+	SyncErr    error
+	RestartErr error
+}
+
+func (o restoreNativeOutcome) err() error {
+	return errors.Join(o.SyncErr, o.RestartErr)
 }
 
 // NewServer initializes the web UI server.
@@ -675,7 +690,6 @@ func (s *Server) Start() error {
 
 // Stop gracefully shuts down the web server.
 func (s *Server) Stop() error {
-	var stopErr error
 	if s.syncLSURLStop != nil {
 		select {
 		case <-s.syncLSURLStop:
@@ -717,13 +731,15 @@ func (s *Server) Stop() error {
 		close(s.syncLSURLStop)
 		s.syncLSURLStop = nil
 	}
+	var stopErrs []error
 	if s.isProxyModeActive() {
 		if err := custommodels.CleanShellRCHooks(); err != nil {
 			log.Printf("[webgui] shell RC cleanup failed during stop: %v", err)
-			stopErr = errors.Join(stopErr, fmt.Errorf("clean shell RC hooks during stop: %w", err))
+			stopErrs = append(stopErrs, fmt.Errorf("clean shell RC hooks during stop: %w", err))
 		}
-		_ = languageServerURLSyncer("")
-		_ = process.RestartAntigravityAppsToNative(process.NewShield(0))
+		if err := s.restoreNative().err(); err != nil {
+			stopErrs = append(stopErrs, err)
+		}
 	}
 	if s.bridgeService != nil {
 		s.bridgeService.Stop()
@@ -731,9 +747,11 @@ func (s *Server) Stop() error {
 	if s.httpServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		stopErr = errors.Join(stopErr, s.httpServer.Shutdown(ctx))
+		if err := s.httpServer.Shutdown(ctx); err != nil {
+			stopErrs = append(stopErrs, err)
+		}
 	}
-	return stopErr
+	return errors.Join(stopErrs...)
 }
 
 func (s *Server) syncLanguageServerCloudCodeURL() {
@@ -3582,15 +3600,45 @@ func (s *Server) handleCustomModelRestoreNative(w http.ResponseWriter, r *http.R
 	}
 	if err := custommodels.CleanShellRCHooks(); err != nil {
 		log.Printf("[webgui] shell RC cleanup failed while restoring native mode: %v", err)
-		http.Error(w, "failed to clean shell RC hooks", http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		writeJSON(w, map[string]interface{}{
+			"success":         false,
+			"restored_native": false,
+			"error":           fmt.Sprintf("failed to clean shell RC hooks: %v", err),
+		})
 		return
 	}
-	_ = languageServerURLSyncer("")
-	_ = process.RestartAntigravityAppsToNative(process.NewShield(0))
+	if err := s.restoreNative().err(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		writeJSON(w, map[string]interface{}{
+			"success":         false,
+			"restored_native": false,
+			"error":           err.Error(),
+		})
+		return
+	}
 	writeJSON(w, map[string]interface{}{
 		"success":         true,
 		"restored_native": true,
 	})
+}
+
+func (s *Server) restoreNative() restoreNativeOutcome {
+	deps := s.restoreNativeDeps
+	if deps.syncURL == nil {
+		deps.syncURL = languageServerURLSyncer
+	}
+	if deps.restartApps == nil {
+		deps.restartApps = func() error {
+			return process.RestartAntigravityAppsToNative(process.NewShield(0))
+		}
+	}
+
+	outcome := restoreNativeOutcome{SyncErr: deps.syncURL("")}
+	outcome.RestartErr = deps.restartApps()
+	return outcome
 }
 
 // handleCustomModelActive records which custom model the app should use. Empty
