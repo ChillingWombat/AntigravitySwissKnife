@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -65,17 +66,29 @@ func LaunchAntigravityWithCloudCodeProxy(endpoint string, restart bool, shield *
 		if !restart {
 			return procs[0].PID, fmt.Errorf("Antigravity is already running (PID %d); restart it to pick up the Cloud Code proxy", procs[0].PID)
 		}
+		var killErrs []error
 		for _, proc := range procs {
 			if err := shield.SafeKill(proc.PID, syscall.SIGTERM); err != nil {
 				// Windows does not implement SIGTERM for os.Process.
-				_ = shield.SafeKill(proc.PID, syscall.SIGKILL)
+				if killErr := shield.SafeKill(proc.PID, syscall.SIGKILL); killErr != nil {
+					killErrs = append(killErrs, fmt.Errorf("stop Antigravity PID %d: %w", proc.PID, killErr))
+				}
 			}
 		}
+		if err := errors.Join(killErrs...); err != nil {
+			return 0, err
+		}
 		deadline := time.Now().Add(10 * time.Second)
-		for time.Now().Before(deadline) {
+		for {
 			remaining, findErr := shield.FindAntigravityProcesses()
-			if findErr != nil || len(remaining) == 0 {
+			if findErr != nil {
+				return 0, fmt.Errorf("verify Antigravity shutdown: %w", findErr)
+			}
+			if len(remaining) == 0 {
 				break
+			}
+			if time.Now().After(deadline) {
+				return 0, fmt.Errorf("Antigravity did not stop after restart request")
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
@@ -94,6 +107,29 @@ func LaunchAntigravityWithCloudCodeProxy(endpoint string, restart bool, shield *
 // RestartAntigravityAppsToNative detects any running Antigravity IDE instances
 // and agy language servers, terminates them, and if the desktop app was running,
 // relaunches it cleanly with native Google Cloud Code configuration (no proxy variables).
+type restartNativeDeps struct {
+	desktopRunning func(*Shield) (bool, error)
+	relaunch       func(*Shield) error
+	terminate      func(*Shield) error
+}
+
+func defaultRestartNativeDeps() restartNativeDeps {
+	return restartNativeDeps{
+		desktopRunning: func(shield *Shield) (bool, error) {
+			procs, err := shield.FindAntigravityProcesses()
+			if err != nil {
+				return false, err
+			}
+			return len(procs) > 0, nil
+		},
+		relaunch: func(shield *Shield) error {
+			_, err := LaunchAntigravityWithCloudCodeProxy("", true, shield)
+			return err
+		},
+		terminate: terminateAgyLanguageServers,
+	}
+}
+
 func RestartAntigravityAppsToNative(shield *Shield) error {
 	if shield == nil {
 		shield = NewShield(0)
@@ -104,27 +140,32 @@ func RestartAntigravityAppsToNative(shield *Shield) error {
 		return nil
 	}
 
-	// 1. Check if Antigravity Desktop IDE is currently running
-	procs, err := shield.FindAntigravityProcesses()
-	wasDesktopRunning := (err == nil && len(procs) > 0)
-
-	// 2. If desktop app was running, cleanly restart it with empty endpoint (native Cloud Code)
-	if wasDesktopRunning {
-		_, _ = LaunchAntigravityWithCloudCodeProxy("", true, shield)
-	}
-
-	// 3. Terminate any active agy language servers (e.g. agy --hub spawned by VS Code extension)
-	// so the editor/supervisor respawns them with clean native configuration.
-	terminateAgyLanguageServers(shield)
-
-	return nil
+	return restartAntigravityAppsToNative(shield, defaultRestartNativeDeps())
 }
 
-func terminateAgyLanguageServers(shield *Shield) {
+func restartAntigravityAppsToNative(shield *Shield, deps restartNativeDeps) error {
+	var restartErrs []error
+	running, err := deps.desktopRunning(shield)
+	if err != nil {
+		restartErrs = append(restartErrs, fmt.Errorf("detect running Antigravity apps: %w", err))
+	}
+	if running {
+		if err := deps.relaunch(shield); err != nil {
+			restartErrs = append(restartErrs, fmt.Errorf("relaunch Antigravity natively: %w", err))
+		}
+	}
+	if err := deps.terminate(shield); err != nil {
+		restartErrs = append(restartErrs, fmt.Errorf("terminate Antigravity language servers: %w", err))
+	}
+	return errors.Join(restartErrs...)
+}
+
+func terminateAgyLanguageServers(shield *Shield) error {
 	entries, err := ListProcesses()
 	if err != nil {
-		return
+		return fmt.Errorf("list processes: %w", err)
 	}
+	var killErrs []error
 	for _, entry := range entries {
 		if entry.PID <= 0 || shield.IsProtected(entry.PID) || isZombieProcess(entry.PID) {
 			continue
@@ -135,7 +176,10 @@ func terminateAgyLanguageServers(shield *Shield) {
 		isAgyHub := (strings.Contains(cmdline, "agy") || strings.Contains(comm, "agy")) && strings.Contains(cmdline, "--hub")
 		isLS := strings.Contains(cmdline, "language_server") && (strings.Contains(cmdline, "antigravity") || strings.Contains(cmdline, "subclient_type hub"))
 		if isAgyHub || isLS {
-			_ = shield.SafeKill(entry.PID, syscall.SIGTERM)
+			if err := shield.SafeKill(entry.PID, syscall.SIGTERM); err != nil {
+				killErrs = append(killErrs, fmt.Errorf("terminate PID %d: %w", entry.PID, err))
+			}
 		}
 	}
+	return errors.Join(killErrs...)
 }
