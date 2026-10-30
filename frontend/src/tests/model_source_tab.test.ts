@@ -295,4 +295,30 @@ describe('Custom model navigation and integration mode layout', () => {
     assert.equal(await navigator.clipboard.readText(), 'http://127.0.0.1:8765/v1beta')
     assert.equal(copyButtons[1].title, 'Copied')
   })
+
+  it('shows a configured PIN without returning the secret to the renderer', async () => {
+    initDOM()
+    const externalIntegration = {
+      mode: 'api_proxy',
+      apps: {
+        antigravity: { source: 'native', subagents: 'app' },
+        vscode: { source: 'native', subagents: 'app' },
+      },
+      proxy: { scope: 'external', pin: '' },
+    }
+
+    globalThis.fetch = (async () => jsonResponse({
+      integration: externalIntegration,
+      endpoint: 'http://127.0.0.1:8765/v1',
+      gemini_base: 'http://127.0.0.1:8765/v1beta',
+      pin_set: true,
+    })) as typeof fetch
+
+    view = await mount(React.createElement(ModelSourceTab))
+    await flush()
+
+    const privateKeyInput = view.querySelector<HTMLInputElement>('input[placeholder="Configured"]')
+    assert.ok(privateKeyInput, 'Configured PIN placeholder must render')
+    assert.equal(privateKeyInput.value, '', 'Stored PIN must not be sent to the renderer')
+  })
 })

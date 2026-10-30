@@ -52,7 +52,8 @@ The renderer can ask the privileged main process to act. The broker limits the o
 - Approval fatigue can cause a user to accept a dangerous command or path.
 - Body previews redact known sensitive fields and opaque content, but arbitrary secrets can still appear in displayed path names or other short values.
 - Safe broker mutation routes remain silent; every privileged GET, POST, or DELETE route requires one-shot native approval.
-- Sensitive reads such as account export, TOTP, custom-model keys, integration secrets, CLI gateway status, import scans, remote bridge config, and unredacted channel config require approval. Redacted channel config remains a safe read.
+- Sensitive reads such as account export, TOTP, custom-model keys, import scans, remote bridge config, and unredacted channel config require approval. Model Source integration and CLI status are safe reads after the daemon redacts the PIN and gateway token. Channel pages load redacted configuration, and writes preserve existing secrets when the redacted placeholder or an empty value is submitted.
+- Custom-model connection, quota, catalog, and security-audit operations are approval-gated because they can send stored credentials to external endpoints. GitHub issue updates, comments, labels, task bindings, and kanban moves are approval-gated external writes.
 - A filesystem race can replace a checked path after approval and before the daemon opens it. The daemon still accepts sensitive reads when called directly with a valid session token.
 - The non-Electron browser fallback keeps its unlocked session token only in page memory, so reloads require another unlock. Local XSS in that browser mode can still read the in-memory token during the unlocked session.
 - The daemon token is long-lived on disk; rotation and secure storage depend on the daemon installation.

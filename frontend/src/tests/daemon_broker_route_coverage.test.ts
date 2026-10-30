@@ -168,6 +168,18 @@ function frontendDaemonRoutes(parsedSource: ts.SourceFile = sourceFile): { route
   return { routes: [...routes.values()], unresolved }
 }
 
+function productionSourceFiles(directory: string): string[] {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(directory, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === 'tests') return []
+      return productionSourceFiles(entryPath)
+    }
+    if (entry.name.includes('.test.')) return []
+    return entry.name.endsWith('.ts') || entry.name.endsWith('.tsx') ? [entryPath] : []
+  })
+}
+
 describe('daemon broker route policy coverage', () => {
   const { routes: frontendRoutes, unresolved } = frontendDaemonRoutes()
 
@@ -199,6 +211,28 @@ describe('daemon broker route policy coverage', () => {
     const result = frontendDaemonRoutes(fixture)
     assert.deepEqual(result.routes, [])
     assert.equal(result.unresolved.length, 5)
+  })
+
+  it('keeps direct daemon calls centralized in api.ts', () => {
+    const violations: string[] = []
+    for (const file of productionSourceFiles(path.join(repoRoot, 'frontend', 'src'))) {
+      if (file === apiSourcePath) continue
+      const parsed = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+      const visit = (node: ts.Node) => {
+        if (ts.isCallExpression(node)) {
+          for (const argument of node.arguments) {
+            const routeExpression = staticRoutePaths(argument)
+            if (routeExpression.paths.some((rawPath) => rawPath.startsWith('/api/'))) {
+              const line = parsed.getLineAndCharacterOfPosition(node.getStart()).line + 1
+              violations.push(`${path.relative(repoRoot, file)}:${line}`)
+            }
+          }
+        }
+        ts.forEachChild(node, visit)
+      }
+      visit(parsed)
+    }
+    assert.deepEqual(violations, [])
   })
 
   it('preserves approval semantics for every query variant', () => {
