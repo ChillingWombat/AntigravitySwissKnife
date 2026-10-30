@@ -181,4 +181,11 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.match(auditSection, /height:\s*'340px'/, 'Audit gadget card must specify fixed height 340px')
     assert.match(auditSection, /overflowY:\s*'auto'/, 'Audit log table wrapper must specify overflowY auto')
   })
+
+  it('provides Gemini Web tool approval and Auto mode guidance', () => {
+    assert.ok(content.includes('Gemini Web Tool Approvals:'))
+    assert.ok(content.includes('Review permissions'))
+    assert.ok(content.includes('Always allow'))
+    assert.ok(content.includes('Auto mode'))
+  })
 })

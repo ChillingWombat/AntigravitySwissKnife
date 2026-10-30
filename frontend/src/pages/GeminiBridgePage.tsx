@@ -867,9 +867,13 @@ export const GeminiBridgePage: React.FC = () => {
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
           Gemini Operating Role & Mode
         </div>
-        <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)' }}>
+        <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
           Configure whether Gemini in your chat works directly on the local machine or acts as a lead/messenger dispatching tasks to Antigravity and forwarding responses.
         </p>
+
+        <div style={{ padding: '10px 12px', borderRadius: '6px', backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', marginBottom: '16px', fontSize: '12px', color: 'var(--text-muted)' }}>
+          <strong style={{ color: 'var(--text)' }}>Gemini Web Tool Approvals:</strong> Click <code style={{ fontSize: '11px' }}>Review permissions</code> on any tool confirmation card in Gemini Web to enable <code style={{ fontSize: '11px' }}>Always allow</code> across all AGY Bridge tools. For software tasks, <strong style={{ color: 'var(--text)' }}>Lead Mode</strong> uses Antigravity 2.0&apos;s native Auto mode, executing terminal commands and edits autonomously without per-action confirmations.
+        </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
           {/* Hybrid Mode */}

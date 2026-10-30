@@ -7,9 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 )
 
 func TestBridge_InitializeIconAndInstructions(t *testing.T) {
@@ -121,12 +118,10 @@ func TestBridge_FleetQuotaRealtimeAndModelBreakdown(t *testing.T) {
 }
 
 func TestBridge_LeadAwaitResponse_QuotaExhaustionDetection(t *testing.T) {
-	// Create mock brain directory with a conversation that has no new steps
 	tempDir := t.TempDir()
 	brainDir := filepath.Join(tempDir, "brain")
 	convID := "test-hang-conv-123"
-	logsDir := filepath.Join(brainDir, convID, ".system_generated", "logs")
-	if err := os.MkdirAll(logsDir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, convID, ".system_generated", "logs"), 0755); err != nil {
 		t.Fatalf("mkdir logs: %v", err)
 	}
 
@@ -139,29 +134,17 @@ func TestBridge_LeadAwaitResponse_QuotaExhaustionDetection(t *testing.T) {
 		UpdatedAt:      time.Now(),
 	}
 
-	// Setup mock quota cache indicating exhausted Claude quota
-	mockEmail := "exhausted-test@example.com"
-	store, _ := keyring.NewStore(filepath.Join(tempDir, "keyring.db"))
-	if store != nil {
-		_ = store.AddOrUpdateAccount(&keyring.Account{
-			Email:  mockEmail,
-			Status: "ACTIVE",
-		})
-		_ = store.SetActiveAccount(mockEmail)
+	origChecker := activeModelExhaustedChecker
+	defer func() { activeModelExhaustedChecker = origChecker }()
+	activeModelExhaustedChecker = func() (bool, map[string]interface{}) {
+		return true, map[string]interface{}{
+			"model_family":              "Claude / Opus",
+			"claude_gpt_5h_percent":     float64(0),
+			"claude_gpt_weekly_percent": float64(0),
+			"account":                   "exhausted-tester@example.com",
+		}
 	}
 
-	quotaZero := float64(0)
-	_ = quota.SaveQuotaCache(map[string]*quota.QuotaSummary{
-		mockEmail: {
-			AccountEmail:              mockEmail,
-			Quota5hClaudeGPT:          quotaZero,
-			QuotaWeeklyClaudeGPT:      quotaZero,
-			ClaudeWeeklyBucketPresent: true,
-			LastPolled:                time.Now(),
-		},
-	})
-
-	// Calling AwaitResponse with 0 timeout (immediate timeout path)
 	respJSON, err := lh.AwaitResponse(map[string]interface{}{
 		"conversation_id": convID,
 		"timeout_seconds": float64(1),
@@ -175,14 +158,15 @@ func TestBridge_LeadAwaitResponse_QuotaExhaustionDetection(t *testing.T) {
 		t.Fatalf("unmarshal AwaitResponse: %v", err)
 	}
 
-	// Must detect QUOTA_EXHAUSTED instead of looping or reporting IN_PROGRESS
 	if resp["status"] != "QUOTA_EXHAUSTED" {
-		t.Errorf("expected status QUOTA_EXHAUSTED, got: %v", resp["status"])
+		t.Fatalf("expected status QUOTA_EXHAUSTED, got: %v", resp["status"])
 	}
-	if !strings.Contains(resp["error"].(string), "Claude / Opus") {
+	errText, _ := resp["error"].(string)
+	if !strings.Contains(errText, "Claude / Opus") {
 		t.Errorf("expected error to identify Claude / Opus model quota, got: %v", resp["error"])
 	}
-	if !strings.Contains(resp["actionable_suggestion"].(string), "antigravity_session_model_set") {
+	suggestion, _ := resp["actionable_suggestion"].(string)
+	if !strings.Contains(suggestion, "antigravity_session_model_set") {
 		t.Errorf("expected actionable suggestion with antigravity_session_model_set, got: %v", resp["actionable_suggestion"])
 	}
 }

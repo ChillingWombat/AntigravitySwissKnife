@@ -16,6 +16,9 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 )
 
+// activeModelExhaustedChecker is a test seam around the live quota probe.
+var activeModelExhaustedChecker = checkActiveModelExhausted
+
 func checkActiveModelExhausted() (bool, map[string]interface{}) {
 	store, err := keyring.NewStore("")
 	if err != nil {
@@ -569,7 +572,7 @@ func (lh *LeadHandler) AwaitResponse(args map[string]interface{}) (string, error
 
 		// Detect Antigravity stuck on "Connecting..." due to exhausted Claude/Opus quota:
 		if iterations >= 10 && len(strings.TrimSpace(content)) == 0 && stepIndex == baselineStep {
-			if exhausted, info := checkActiveModelExhausted(); exhausted {
+			if exhausted, info := activeModelExhaustedChecker(); exhausted {
 				res := map[string]interface{}{
 					"status":                "QUOTA_EXHAUSTED",
 					"conversation_id":       convID,
@@ -589,7 +592,7 @@ func (lh *LeadHandler) AwaitResponse(args map[string]interface{}) (string, error
 	// Timeout reached while still in progress
 	stepIndex, _, partialContent, _ := lh.readTranscriptTail(convID)
 	if len(strings.TrimSpace(partialContent)) == 0 && stepIndex == baselineStep {
-		if exhausted, info := checkActiveModelExhausted(); exhausted {
+		if exhausted, info := activeModelExhaustedChecker(); exhausted {
 			res := map[string]interface{}{
 				"status":                "QUOTA_EXHAUSTED",
 				"conversation_id":       convID,
