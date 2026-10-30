@@ -2700,7 +2700,6 @@ func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) str
 	var tokenScript string
 	// Install the broker bridge before any injected module issues a fetch.
 	tokenScript += plugins.SwissAuthInterceptorScript
-	tokenScript += plugins.SwissOnboardingAutoAcceptScript
 
 	baseScript := generateBaseScript(cfg)
 

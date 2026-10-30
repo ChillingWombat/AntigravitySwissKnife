@@ -1,5 +1,7 @@
 package plugins
 
+import "github.com/ChillingWombat/antigravity-swiss-knife/pkg/injected"
+
 // GenerateAuxiliaryPluginsCSS provides the Google-style minimalist CSS for in-app auxiliary panel tabs,
 // browser preview, file explorer, code editor, memo cards, and in-chat token telemetry badges.
 func GenerateAuxiliaryPluginsCSS() string {
@@ -1983,7 +1985,7 @@ func GenerateAuxiliaryPluginsScript() string {
 	var tokenScript string
 	// Install the broker bridge before any injected module issues a fetch.
 	tokenScript += SwissAuthInterceptorScript
-	tokenScript += SwissOnboardingAutoAcceptScript
+	tokenScript += string(injected.RuntimeBundle())
 
 	return tokenScript + `(() => {
   try {

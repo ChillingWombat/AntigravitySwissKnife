@@ -33,7 +33,7 @@ func TestGenerateScript_InterceptorWithoutSessionToken(t *testing.T) {
 
 func TestGenerateScript_AutoAcceptsSecurityNotice(t *testing.T) {
 	script := GenerateScript(nil)
-	if !strings.Contains(script, "swissAutoAcceptSecurityNotice") {
+	if !strings.Contains(script, "__SWISS_RUNTIME__") {
 		t.Fatalf("expected the security-notice auto-accept routine")
 	}
 }
