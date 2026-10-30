@@ -55,6 +55,18 @@ function installFetch(initialExtensions: CommunityExtension[] = []): {
       payload = { success: true, preferred_ide: 'code' }
     } else if (target.startsWith('/api/memos/config')) {
       payload = { success: true, config: {} }
+    } else if (target.startsWith('/api/auth/status')) {
+      payload = { password_required: false }
+    } else if (target.startsWith('/api/status')) {
+      payload = { daemon_running: true, active_account: 'extensions-test@example.com' }
+    } else if (target.includes('/api/quota/fleet')) {
+      payload = { accounts: [], active_account: null }
+    } else if (target.includes('/api/rules')) {
+      payload = {}
+    } else if (target.includes('/api/gui/projects') || target.includes('/api/projects')) {
+      payload = []
+    } else if (target.includes('/api/accounts')) {
+      payload = []
     } else if (target.startsWith('/api/extensions/community')) {
       if (method === 'GET') {
         payload = { success: true, extensions }
@@ -80,7 +92,13 @@ function installFetch(initialExtensions: CommunityExtension[] = []): {
         payload = { success: true, deleted: id, extensions }
       }
     }
-    return { ok: true, status: 200, json: async () => payload } as any
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => payload,
+      text: async () => JSON.stringify(payload),
+    } as any
   }) as any
 
   return {
@@ -93,6 +111,18 @@ const flush = async () => {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+}
+
+const activeTabId = (view: RenderResult): string | null =>
+  view.querySelector<HTMLElement>('[data-route-tab][aria-pressed="true"]')?.dataset.routeTab ?? null
+
+const renderAppAt = async (hash: string): Promise<RenderResult> => {
+  testWindow.history.replaceState(null, '', hash)
+  const { App } = await import('../App')
+  const mounted = await mount(React.createElement(App))
+  await flush()
+  await flush()
+  return mounted
 }
 
 const findButton = (view: RenderResult, label: string): HTMLButtonElement | undefined =>
@@ -130,22 +160,50 @@ describe('Extensions top tab switcher & Community Extensions UI (#203)', () => {
     cancelAllInFlightRequests()
   })
 
-  it('1. App.tsx renders typed Built-in and Community routes', () => {
+  it('1. App restores typed Built-in and Community extension routes', async () => {
     assert.deepEqual([...EXTENSIONS_TABS], ['built-in', 'community'])
     for (const tab of EXTENSIONS_TABS) {
       const hash = serializeRoute({ tool: 'extensions', tab })
       assert.deepEqual(parseHash(hash), { tool: 'extensions', tab })
     }
 
-    const __dirname = path.dirname(fileURLToPath(import.meta.url))
-    const appSrc = fs.readFileSync(path.resolve(__dirname, '../App.tsx'), 'utf8')
-    assert.ok(appSrc.includes("route.tool === 'extensions' ? route.tab"))
-    assert.ok(appSrc.includes("navigate({ tool: 'extensions', tab })"))
-    assert.ok(appSrc.includes('data-route-tab={id}'))
-    assert.ok(appSrc.includes('<ExtensionsPage'))
+    installFetch()
+    view = await renderAppAt('#/extensions/community')
+
+    assert.equal(
+      view.querySelector<HTMLElement>('[data-active-tool]')?.dataset.activeTool,
+      'extensions'
+    )
+    assert.equal(activeTabId(view), 'community')
+    assert.match(view.container.textContent || '', /Community Extensions/)
   })
 
-  it('2. ExtensionsPage defaults to Built-in (activeTab === 0) and renders all built-in gadgets', async () => {
+  it('2. switching Extensions tabs updates the hash and rendered panel', async () => {
+    installFetch()
+    view = await renderAppAt('#/extensions/community')
+
+    await view.click(view.querySelector('[data-route-tab="built-in"]'))
+    await flush()
+
+    assert.equal(testWindow.location.hash, '#/extensions')
+    assert.equal(activeTabId(view), 'built-in')
+    assert.match(view.container.textContent || '', /Left Panel Extensions Access Mode/)
+    assert.doesNotMatch(view.container.textContent || '', /No community extensions installed\./)
+  })
+
+  it('3. malformed Extensions tabs fall back to the canonical default', async () => {
+    installFetch()
+    assert.deepEqual(parseHash('#/extensions/not-a-tab'), { tool: 'switcher', tab: 'dashboard' })
+    view = await renderAppAt('#/extensions/not-a-tab')
+
+    assert.equal(
+      view.querySelector<HTMLElement>('[data-active-tool]')?.dataset.activeTool,
+      'switcher'
+    )
+    assert.equal(activeTabId(view), 'dashboard')
+  })
+
+  it('4. ExtensionsPage defaults to Built-in (activeTab === 0) and renders all built-in gadgets', async () => {
     installFetch()
     view = await mount(React.createElement(ExtensionsPage))
     await flush()
@@ -179,7 +237,7 @@ describe('Extensions top tab switcher & Community Extensions UI (#203)', () => {
     )
   })
 
-  it('3. ExtensionsPage with activeTab={1} renders Community tab, empty state, and handles create, vis toggle, import, and delete', async () => {
+  it('5. ExtensionsPage with activeTab={1} renders Community tab, empty state, and handles create, vis toggle, import, and delete', async () => {
     const { calls } = installFetch([])
     view = await mount(React.createElement(ExtensionsPage, { activeTab: 1 }))
     await flush()
