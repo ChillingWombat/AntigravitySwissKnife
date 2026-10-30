@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const { DaemonManager } = require('./daemon-manager');
+const { createDaemonBroker, shouldAttachDaemonSessionHeader } = require('./daemon-broker');
 const {
   isAccountExcludedFromSwitchMenu,
   rankAndFilterAccountsForTray,
@@ -231,6 +232,39 @@ function getSwissConfigDir() {
   return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'antigravity-swiss');
 }
 
+const daemonBroker = createDaemonBroker({
+  getToken: () => getDaemonSessionToken(),
+  requestApproval: async ({ method, path, bodyPreview, resolvedPath, denialReason }) => {
+    const { dialog } = require('electron');
+    const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null;
+    const denied = Boolean(denialReason);
+    const detail = [
+      resolvedPath ? `Resolved path:\n${resolvedPath}` : '',
+      denied ? `Denied: ${denialReason}` : '',
+      !resolvedPath && !denied ? 'This request can change files or control applications on this machine.' : '',
+      bodyPreview ? `Body preview:\n${bodyPreview}` : '',
+    ].filter(Boolean).join('\n\n');
+    const result = await dialog.showMessageBox(owner, {
+      type: 'warning',
+      buttons: denied ? ['OK'] : ['Deny', 'Approve'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      title: denied ? 'File access denied' : resolvedPath ? 'Approve file access?' : 'Approve machine control?',
+      message: `${method} ${path}`,
+      detail,
+    });
+    return !denied && result.response === 1;
+  },
+});
+
+const {
+  installLegacySessionTokenCleanup,
+  isDaemonApiUrl,
+  shouldCancelDaemonSubFrameNavigation,
+} = require('./daemon-broker');
+installLegacySessionTokenCleanup(app);
+
 function getDaemonSessionToken(maxAgeMs = 3000) {
   const now = Date.now();
   if (cachedSessionToken && now - cachedSessionTokenAt < maxAgeMs) {
@@ -254,11 +288,20 @@ function attachDaemonAuthHeaders() {
     return;
   }
   const filter = { urls: [`${DAEMON_URL}/*`] };
+  session.defaultSession.webRequest.onBeforeRequest(filter, (details, callback) => {
+    callback({ cancel: shouldCancelDaemonSubFrameNavigation(details) });
+  });
   session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
     const requestHeaders = details.requestHeaders || {};
-    // Always use the daemon's current startup token. The renderer keeps a copy in
-    // localStorage that goes stale after a daemon restart; letting it win caused
-    // 401s until the silent-unlock round-trip completed.
+    for (const key of Object.keys(requestHeaders)) {
+      if (key.toLowerCase() === 'x-session-token') delete requestHeaders[key];
+    }
+    if (!shouldAttachDaemonSessionHeader(details)) {
+      callback({ requestHeaders });
+      return;
+    }
+    // Document/static loads need the startup token; renderer XHR/fetch must use
+    // the allowlisted IPC broker instead of receiving this credential implicitly.
     const token = getDaemonSessionToken();
     if (token) {
       requestHeaders['X-Session-Token'] = token;
@@ -1273,7 +1316,7 @@ async function createWindow(options = {}) {
 
   // Security: Prevent subframes from navigating away from local daemon origin (P1-16)
   mainWindow.webContents.on('will-frame-navigate', (event) => {
-    if (event.url && !isTrustedDaemonOrigin(event.url)) {
+    if (event.url && (!isTrustedDaemonOrigin(event.url) || isDaemonApiUrl(event.url))) {
       event.preventDefault();
     }
   });
@@ -1511,13 +1554,17 @@ function registerIpcHandlers() {
     }
   });
 
-  // Expose the local daemon session token so the renderer can authenticate
-  // directly (bypasses the need for the App Password lock screen in desktop mode).
-  ipcMain.handle('desktop:get-session-token', async (event) => {
+  ipcMain.handle('desktop:swiss-daemon-request', async (event, request) => {
     if (!isTrustedSender(event)) {
-      return null;
+      return { error: { code: 'UNTRUSTED_SENDER', message: 'Untrusted IPC sender' } };
     }
-    return getDaemonSessionToken();
+    try {
+      return await daemonBroker.request(request);
+    } catch (error) {
+      const code = error && typeof error.code === 'string' ? error.code : 'DAEMON_BROKER_ERROR';
+      const message = error && typeof error.message === 'string' ? error.message : 'Daemon broker request failed';
+      return { error: { code, message } };
+    }
   });
 
   ipcMain.handle('desktop:retry-daemon-connection', async (event) => {

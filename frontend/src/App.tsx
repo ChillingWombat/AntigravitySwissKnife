@@ -17,7 +17,7 @@ import { AppLockScreen } from './components/AppLockScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import type { AccountState, FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
 import { toAccountState } from './types'
-import { api, setSessionToken, getSessionToken, runSingleFlightPoll, shouldRunBackgroundPoll } from './api'
+import { api, getSessionToken, runSingleFlightPoll, shouldRunBackgroundPoll } from './api'
 
 export const App: React.FC = () => {
   const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: ACP Adapter
@@ -50,14 +50,12 @@ export const App: React.FC = () => {
 
   const checkAuth = async () => {
     try {
-      // Desktop shell: bootstrap the daemon session token directly via IPC so the
-      // lock screen is never needed in the Electron app (it is a browser-access guard).
       const electronAPI = (window as any).electronAPI
-      if (electronAPI?.getSessionToken) {
-        try {
-          const injected = await electronAPI.getSessionToken()
-          if (injected) setSessionToken(injected)
-        } catch {}
+      const usesDaemonBroker = electronAPI?.isElectron === true &&
+        typeof (window as any).swiss?.request === 'function'
+      if (usesDaemonBroker) {
+        setIsLocked(false)
+        return
       }
       const res = await api.getAuthStatus()
       if (res.password_required) {

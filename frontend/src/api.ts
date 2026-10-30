@@ -50,46 +50,56 @@ function formatErrorMessage(rawText: string, status: number): string {
   return singleLine.slice(0, 200) || `Request failed with status ${status}`
 }
 
+interface SwissDaemonBrokerResult {
+  ok: boolean
+  status: number
+  statusText: string
+  headers: Record<string, string>
+  body: string
+  error?: { code: string; message: string }
+}
+
+interface SwissDaemonBroker {
+  request(request: { method: string; path: string; body?: string; timeoutMs?: number }): Promise<SwissDaemonBrokerResult>
+}
+
+function getSwissDaemonBroker(): SwissDaemonBroker | null {
+  if (typeof window === 'undefined') return null
+  const broker = (window as Window & { swiss?: SwissDaemonBroker }).swiss
+  return broker && typeof broker.request === 'function' ? broker : null
+}
+
+function hasSwissDaemonBroker(): boolean {
+  return getSwissDaemonBroker() !== null
+}
+
 // --- Session token management -----------------------------------------------
-// The daemon enforces loopback auth (P0-50). Web clients authenticate by
-// presenting a session token obtained from /api/auth/unlock, a ?token= one-time
-// link, or the Electron shell. The token is persisted in localStorage so page
-// refreshes keep working; stale tokens are detected via 401, silently re-acquired
-// when no App Password is set, otherwise the lock screen is requested.
+// The daemon enforces loopback auth (P0-50). The Electron renderer never receives
+// the daemon token; the browser fallback keeps its unlocked token in memory only.
 const SESSION_TOKEN_KEY = 'swiss_session_token'
 
+try { globalThis.localStorage?.removeItem(SESSION_TOKEN_KEY) } catch {}
+try { globalThis.sessionStorage?.removeItem(SESSION_TOKEN_KEY) } catch {}
+
 let sessionToken: string | null = null
-try { sessionToken = localStorage.getItem(SESSION_TOKEN_KEY) } catch {}
 
 export function setSessionToken(token: string | null) {
   const clean = token && token.trim() ? token.trim() : null
+  if (hasSwissDaemonBroker()) {
+    sessionToken = null
+    return
+  }
   sessionToken = clean
-  try {
-    if (clean) localStorage.setItem(SESSION_TOKEN_KEY, clean)
-    else localStorage.removeItem(SESSION_TOKEN_KEY)
-  } catch {}
 }
 
 export function getSessionToken(): string | null {
   return sessionToken
 }
 
-// One-time ?token= link support (e.g. prepared URLs opened in an external or IDE
-// built-in browser). Capture once, then strip it from the address bar.
-try {
-  const parsedUrl = new URL(window.location.href)
-  const urlToken = parsedUrl.searchParams.get('token')
-  if (urlToken) {
-    setSessionToken(urlToken)
-    parsedUrl.searchParams.delete('token')
-    const rest = parsedUrl.searchParams.toString()
-    window.history.replaceState({}, '', parsedUrl.pathname + (rest ? `?${rest}` : '') + parsedUrl.hash)
-  }
-} catch {}
-
 let silentTokenRefresh: Promise<boolean> | null = null
 
 async function trySilentTokenRefresh(): Promise<boolean> {
+  if (hasSwissDaemonBroker()) return false
   if (!silentTokenRefresh) {
     silentTokenRefresh = (async () => {
       try {
@@ -208,6 +218,54 @@ export function isAbortError(err: unknown): boolean {
  * @param url Target endpoint URL
  * @param options Request options including HTTP method, headers, timeout, and cancellation controls
  */
+function isPublicDaemonPath(pathname: string): boolean {
+  return pathname === '/health' || pathname.startsWith('/api/auth/')
+}
+
+async function fetchDaemon(url: string, fetchOptions: RequestInit, timeoutMs: number): Promise<Response> {
+  const broker = getSwissDaemonBroker()
+  let parsed: URL
+  try {
+    parsed = new URL(url, window.location.href)
+  } catch {
+    return fetch(url, fetchOptions)
+  }
+  const isDaemonRequest = parsed.origin === 'http://127.0.0.1:8765' || parsed.origin === window.location.origin
+  if (!broker) {
+    if (isDaemonRequest && !isPublicDaemonPath(parsed.pathname)) {
+      const headers = new Headers(fetchOptions.headers || {})
+      if (!sessionToken && !headers.has('X-Session-Token')) {
+        const error = new Error('Daemon authentication is required; unlock this browser session or use the Electron app')
+        ;(error as Error & { code?: string }).code = 'DAEMON_AUTH_REQUIRED'
+        throw error
+      }
+    }
+    return fetch(url, fetchOptions)
+  }
+  if (!isDaemonRequest) {
+    return fetch(url, fetchOptions)
+  }
+
+  const method = String(fetchOptions.method || 'GET').toUpperCase()
+  const body = typeof fetchOptions.body === 'string' ? fetchOptions.body : undefined
+  const result = await broker.request({
+    method,
+    path: parsed.pathname + parsed.search,
+    body,
+    timeoutMs,
+  })
+  if (result.error) {
+    const error = new Error(result.error.message)
+    ;(error as Error & { code?: string }).code = result.error.code
+    throw error
+  }
+  return new Response(result.body, {
+    status: result.status,
+    statusText: result.statusText,
+    headers: result.headers,
+  })
+}
+
 export async function request<T>(url: string, options?: RequestOptions): Promise<T> {
   const method = (options?.method || 'GET').toUpperCase()
   const isGet = method === 'GET'
@@ -261,10 +319,19 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
         headers,
         signal: controller.signal,
       }
-      return fetch(url, fetchOptions)
+      return fetchDaemon(url, fetchOptions, timeoutMs)
     }
 
-    let res = await doFetch()
+    let res: Response
+    try {
+      res = await doFetch()
+    } catch (error) {
+      const code = (error as Error & { code?: string })?.code
+      if (code !== 'DAEMON_AUTH_REQUIRED' || !(await trySilentTokenRefresh())) {
+        throw error
+      }
+      res = await doFetch()
+    }
 
     if (res.status === 401) {
       if (await trySilentTokenRefresh()) {

@@ -1,10 +1,12 @@
 package plugins
 
+import "github.com/ChillingWombat/antigravity-swiss-knife/pkg/rendererbroker"
+
 // GenerateGitHubExtensionScript returns client-side JavaScript injected into Antigravity 2.0
 // providing the Left Panel Extensions Bar, GitHub Workspace, Drag & Drop to Chat,
 // In-Place Editor, Agent Task Correlation, and Main Stage View.
 func GenerateGitHubExtensionScript() string {
-	return `/* Antigravity Swiss Knife - Left Panel Extensions & Main Stage Engine */
+	return rendererbroker.FetchScript + `/* Antigravity Swiss Knife - Left Panel Extensions & Main Stage Engine */
 (() => {
   if (typeof window === "undefined") return;
   const existingStageContainer = document.getElementById("swiss-main-stage-container");
@@ -167,11 +169,6 @@ func GenerateGitHubExtensionScript() string {
 
   function getSwissAuthHeaders(customHeaders = {}) {
     const headers = { "Content-Type": "application/json", ...customHeaders };
-    const tok = (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) ||
-      (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
-    if (tok) {
-      headers["X-Session-Token"] = tok;
-    }
     return headers;
   }
 

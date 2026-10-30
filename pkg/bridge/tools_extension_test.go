@@ -18,6 +18,11 @@ func newTestBridge(t *testing.T) *Service {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
+	svc.mu.Lock()
+	svc.config.AllowedTools = append(svc.config.AllowedTools,
+		"local_run_command", "local_write_file", "local_computer_use",
+		"local_http_request", "local_obsidian_write_note")
+	svc.mu.Unlock()
 	return svc
 }
 
@@ -373,8 +378,8 @@ func TestToolManifestExposesFullToolset(t *testing.T) {
 		}
 	}
 
-	// Every exposed tool must also be allowed, otherwise it is listed but callable
-	// only by name-error.
+	// Exposed tools are callable only after an explicit entry, except machine-control
+	// tools, which remain listed for opt-in but are denied by default.
 	allowed := map[string]bool{}
 	for _, name := range svc.GetConfig().AllowedTools {
 		allowed[name] = true
@@ -383,8 +388,20 @@ func TestToolManifestExposesFullToolset(t *testing.T) {
 		if name == "antigravity_dispatch_task" || name == "antigravity_list_sessions" {
 			continue
 		}
+		if _, gated := machineControlTools[name]; gated {
+			continue
+		}
 		if !allowed[name] {
 			t.Errorf("tool %q is exposed but missing from allowed_tools", name)
+		}
+	}
+	defaultAllowed := map[string]bool{}
+	for _, name := range DefaultConfig().AllowedTools {
+		defaultAllowed[name] = true
+	}
+	for name := range machineControlTools {
+		if defaultAllowed[name] {
+			t.Errorf("machine-control tool %q must not be allowed by default", name)
 		}
 	}
 }

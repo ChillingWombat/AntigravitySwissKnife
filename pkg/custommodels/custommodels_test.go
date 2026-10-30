@@ -1101,8 +1101,11 @@ func TestGenerateCustomModelsScript_AuthHeaders(t *testing.T) {
 	if !strings.Contains(script, "headers: getSwissAuthHeaders()") {
 		t.Errorf("expected script to attach getSwissAuthHeaders to fetch calls")
 	}
-	if !strings.Contains(script, "X-Session-Token") {
-		t.Errorf("expected getSwissAuthHeaders to set X-Session-Token")
+	if !strings.Contains(script, "window.swiss") {
+		t.Errorf("expected daemon requests to use the Electron broker")
+	}
+	if strings.Contains(script, "X-Session-Token") {
+		t.Errorf("custom model script must not expose daemon authentication headers")
 	}
 }
 
