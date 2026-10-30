@@ -15,7 +15,6 @@ import {
   type UtilitiesTab,
 } from './navigation/routes'
 import { useRouteNavigation } from './navigation/useRouteNavigation'
-import { ArrowRightLeft, FolderArchive, HardDrive, type LucideIcon } from 'lucide-react'
 import { NavRail } from './components/NavRail'
 import { TopRibbon } from './components/TopRibbon'
 import { QuotaDashboardPage } from './pages/QuotaDashboardPage'
@@ -44,7 +43,6 @@ import {
 interface SecondaryTabOption<T extends string> {
   id: T
   label: string
-  Icon?: LucideIcon
 }
 
 interface SecondaryTabsProps<T extends string> {
@@ -64,7 +62,7 @@ function SecondaryTabs<T extends string>({ options, activeId, onSelect }: Second
         gap: '2px',
       }}
     >
-      {options.map(({ id, label, Icon }) => {
+      {options.map(({ id, label }) => {
         const isActive = activeId === id
         return (
           <button
@@ -87,10 +85,7 @@ function SecondaryTabs<T extends string>({ options, activeId, onSelect }: Second
               transition: 'all 0.15s ease',
             }}
           >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {Icon ? <Icon size={13} /> : null}
-              {label}
-            </span>
+            {label}
           </button>
         )
       })}
@@ -123,9 +118,9 @@ const TOKEN_MONITOR_TAB_OPTIONS = [
 ] as const satisfies ReadonlyArray<SecondaryTabOption<TokenMonitorTab>>
 
 const UTILITIES_TAB_OPTIONS = [
-  { id: 'cache', label: 'Storage Manager', Icon: HardDrive },
-  { id: 'archives', label: 'Archived Projects', Icon: FolderArchive },
-  { id: 'import', label: 'Chat & Project Importer', Icon: ArrowRightLeft },
+  { id: 'cache', label: 'Storage Manager' },
+  { id: 'archives', label: 'Archived Projects' },
+  { id: 'import', label: 'Chat & Project Importer' },
 ] as const satisfies ReadonlyArray<SecondaryTabOption<UtilitiesTab>>
 
 const BRIDGE_TAB_OPTIONS = [
