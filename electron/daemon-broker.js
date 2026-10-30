@@ -19,6 +19,9 @@ const DAEMON_SESSION_RESOURCE_TYPES = new Set([
 const GET_PATHS = Object.freeze([
   '/health',
   '/api/status',
+  '/api/accounts',
+  '/api/quota/fleet',
+  '/api/rules',
   '/api/gui/config',
   '/api/gui/projects',
   '/api/gui/conversations/pruned',

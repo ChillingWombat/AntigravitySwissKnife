@@ -57,6 +57,31 @@ test('broker pins loopback, ignores caller auth, and attaches the main-process t
   assert.equal(calls[0].options.redirect, 'manual');
 });
 
+test('broker allows read-only dashboard account, fleet, and rules routes', async () => {
+  for (const path of ['/api/accounts', '/api/quota/fleet', '/api/rules']) {
+    assert.ok(ALLOWED_ROUTES.GET.has(path), `${path} must be in the GET allowlist`);
+  }
+
+  const calls = [];
+  const broker = createDaemonBroker({
+    getToken: () => 'main-process-secret',
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return fakeResponse(200, '{}', { 'Content-Type': 'application/json' });
+    },
+  });
+
+  for (const path of ['/api/accounts', '/api/quota/fleet', '/api/rules']) {
+    const result = await broker.request({ method: 'GET', path });
+    assert.equal(result.status, 200);
+  }
+  assert.deepEqual(calls, [
+    'http://127.0.0.1:8765/api/accounts',
+    'http://127.0.0.1:8765/api/quota/fleet',
+    'http://127.0.0.1:8765/api/rules',
+  ]);
+});
+
 test('broker rejects unknown methods, paths, bodies, and redirects with typed errors', async () => {
   let daemonCalls = 0;
   const broker = createDaemonBroker({
