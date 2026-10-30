@@ -181,6 +181,21 @@ func DefaultA2AAgentCard(baseURL string) A2AAgentCard {
 	}
 }
 
+const (
+	a2aMaxTasks    = 256
+	a2aTerminalTTL = time.Hour
+)
+
+// A2ARetentionStatus reports bounded terminal-task retention state.
+type A2ARetentionStatus struct {
+	Total              int   `json:"total"`
+	Active             int   `json:"active"`
+	Terminal           int   `json:"terminal"`
+	Subscribers        int   `json:"subscribers"`
+	MaxTasks           int   `json:"max_tasks"`
+	TerminalTTLSeconds int64 `json:"terminal_ttl_seconds"`
+}
+
 // A2ATaskManager manages lifecycle and real-time execution of A2A tasks.
 type A2ATaskManager struct {
 	mu             sync.RWMutex
@@ -189,6 +204,7 @@ type A2ATaskManager struct {
 	subscribers    map[string][]chan A2AEvent
 	allSubscribers []chan A2AEvent
 	getBackend     func() agentBackend
+	now            func() time.Time
 }
 
 // NewA2ATaskManager initializes an A2A Task Manager.
@@ -198,6 +214,7 @@ func NewA2ATaskManager(getBackend func() agentBackend) *A2ATaskManager {
 		order:       make([]string, 0),
 		subscribers: make(map[string][]chan A2AEvent),
 		getBackend:  getBackend,
+		now:         time.Now,
 	}
 }
 
@@ -221,22 +238,26 @@ func (m *A2ATaskManager) CreateTask(skill, prompt, title string) (*A2ATask, erro
 	}
 
 	taskID := generateA2ATaskID()
-	now := time.Now()
-
-	ctx, cancel := context.WithCancel(context.Background())
+	now := m.now()
 
 	task := &A2ATask{
-		ID:         taskID,
-		Skill:      skill,
-		Status:     TaskStatusSubmitted,
-		Prompt:     prompt,
-		Title:      title,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-		cancelFunc: cancel,
+		ID:        taskID,
+		Skill:     skill,
+		Status:    TaskStatusSubmitted,
+		Prompt:    prompt,
+		Title:     title,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	m.mu.Lock()
+	m.sweepTerminalLocked(now)
+	if len(m.tasks) >= a2aMaxTasks {
+		m.mu.Unlock()
+		return nil, errors.New("A2A task capacity reached; wait for terminal tasks to expire")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	task.cancelFunc = cancel
 	m.tasks[taskID] = task
 	m.order = append([]string{taskID}, m.order...)
 	m.mu.Unlock()
@@ -359,6 +380,7 @@ func (m *A2ATaskManager) TaskForContext(taskID, contextID string) *A2ATask {
 	if taskID == "" && contextID == "" {
 		return nil
 	}
+	m.sweepTerminal()
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -379,6 +401,7 @@ func (m *A2ATaskManager) TaskForContext(taskID, contextID string) *A2ATask {
 
 // GetTask returns a copy of the task by ID.
 func (m *A2ATaskManager) GetTask(taskID string) (*A2ATask, error) {
+	m.sweepTerminal()
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	task, ok := m.tasks[taskID]
@@ -390,6 +413,7 @@ func (m *A2ATaskManager) GetTask(taskID string) (*A2ATask, error) {
 
 // ListTasks returns tasks filtered by optional status, ordered most-recent first.
 func (m *A2ATaskManager) ListTasks(status string, limit int) []*A2ATask {
+	m.sweepTerminal()
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -432,7 +456,7 @@ func (m *A2ATaskManager) SendTaskMessage(taskID, message string) (*A2ATask, erro
 	ctx, cancel := context.WithCancel(context.Background())
 	task.cancelFunc = cancel
 	task.Status = TaskStatusWorking
-	task.UpdatedAt = time.Now()
+	task.UpdatedAt = m.now()
 	convID := task.ConversationID
 	m.mu.Unlock()
 
@@ -449,7 +473,7 @@ func (m *A2ATaskManager) SendTaskMessage(taskID, message string) (*A2ATask, erro
 		TaskID:    taskID,
 		Status:    TaskStatusWorking,
 		Message:   "Follow-up message sent; waiting for response",
-		Timestamp: time.Now(),
+		Timestamp: m.now(),
 	})
 
 	go func() {
@@ -497,10 +521,11 @@ func (m *A2ATaskManager) CancelTask(taskID string) (*A2ATask, error) {
 		task.cancelFunc()
 	}
 
-	now := time.Now()
+	now := m.now()
 	task.Status = TaskStatusCanceled
 	task.UpdatedAt = now
 	task.CompletedAt = &now
+	m.sweepTerminalLocked(now)
 	convID := task.ConversationID
 	m.mu.Unlock()
 
@@ -559,8 +584,12 @@ func (m *A2ATaskManager) updateTaskStatus(taskID, status, msg string, data inter
 		m.mu.Unlock()
 		return
 	}
+	updatedAt := m.now()
 	task.Status = status
-	task.UpdatedAt = time.Now()
+	task.UpdatedAt = updatedAt
+	if isTerminalStatus(status) {
+		m.sweepTerminalLocked(updatedAt)
+	}
 	m.mu.Unlock()
 
 	m.broadcastEvent(A2AEvent{
@@ -569,12 +598,12 @@ func (m *A2ATaskManager) updateTaskStatus(taskID, status, msg string, data inter
 		Status:    status,
 		Message:   msg,
 		Data:      data,
-		Timestamp: time.Now(),
+		Timestamp: updatedAt,
 	})
 }
 
 func (m *A2ATaskManager) completeTask(taskID string, res *A2ATaskResult) {
-	now := time.Now()
+	now := m.now()
 	m.mu.Lock()
 	task, ok := m.tasks[taskID]
 	if !ok {
@@ -585,6 +614,7 @@ func (m *A2ATaskManager) completeTask(taskID string, res *A2ATaskResult) {
 	task.Result = res
 	task.UpdatedAt = now
 	task.CompletedAt = &now
+	m.sweepTerminalLocked(now)
 	m.mu.Unlock()
 
 	m.broadcastEvent(A2AEvent{
@@ -598,7 +628,7 @@ func (m *A2ATaskManager) completeTask(taskID string, res *A2ATaskResult) {
 }
 
 func (m *A2ATaskManager) failTask(taskID string, err error) {
-	now := time.Now()
+	now := m.now()
 	m.mu.Lock()
 	task, ok := m.tasks[taskID]
 	if !ok {
@@ -609,6 +639,7 @@ func (m *A2ATaskManager) failTask(taskID string, err error) {
 	task.Error = err.Error()
 	task.UpdatedAt = now
 	task.CompletedAt = &now
+	m.sweepTerminalLocked(now)
 	m.mu.Unlock()
 
 	m.broadcastEvent(A2AEvent{
@@ -637,8 +668,69 @@ func (m *A2ATaskManager) SubscribeTaskEvents(taskID string) (<-chan A2AEvent, fu
 				break
 			}
 		}
+		if len(m.subscribers[taskID]) == 0 {
+			delete(m.subscribers, taskID)
+		}
+		m.sweepTerminalLocked(m.now())
 	}
 	return ch, unsub
+}
+
+func (m *A2ATaskManager) terminalExpiredLocked(task *A2ATask, now time.Time) bool {
+	terminalAt := task.UpdatedAt
+	if task.CompletedAt != nil {
+		terminalAt = *task.CompletedAt
+	}
+	return !terminalAt.IsZero() && !now.Before(terminalAt.Add(a2aTerminalTTL))
+}
+
+func (m *A2ATaskManager) sweepTerminalLocked(now time.Time) {
+	kept := m.order[:0]
+	for _, id := range m.order {
+		task, ok := m.tasks[id]
+		if !ok {
+			continue
+		}
+		if isTerminalStatus(task.Status) && len(m.subscribers[id]) == 0 && m.terminalExpiredLocked(task, now) {
+			delete(m.tasks, id)
+			delete(m.subscribers, id)
+			continue
+		}
+		kept = append(kept, id)
+	}
+	m.order = kept
+}
+
+func (m *A2ATaskManager) sweepTerminal() {
+	now := m.now()
+	m.mu.Lock()
+	m.sweepTerminalLocked(now)
+	m.mu.Unlock()
+}
+
+// RetentionStats returns current task and stream counts after applying terminal TTL.
+func (m *A2ATaskManager) RetentionStats() A2ARetentionStatus {
+	now := m.now()
+	m.mu.Lock()
+	m.sweepTerminalLocked(now)
+	stats := A2ARetentionStatus{
+		Total:              len(m.tasks),
+		Subscribers:        len(m.allSubscribers),
+		MaxTasks:           a2aMaxTasks,
+		TerminalTTLSeconds: int64(a2aTerminalTTL / time.Second),
+	}
+	for _, task := range m.tasks {
+		if isTerminalStatus(task.Status) {
+			stats.Terminal++
+		} else {
+			stats.Active++
+		}
+	}
+	for _, subscribers := range m.subscribers {
+		stats.Subscribers += len(subscribers)
+	}
+	m.mu.Unlock()
+	return stats
 }
 
 // SubscribeAllEvents returns an event channel for all tasks.
