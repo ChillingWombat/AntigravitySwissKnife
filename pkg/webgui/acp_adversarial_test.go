@@ -17,7 +17,7 @@ import (
 // 2. agy CLI daemon does NOT report Antigravity IDE PID
 // 3. Differentiates process arguments like --app_data_dir=antigravity
 func TestAdversarial_ACPProcessAndPIDIntegrity(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestAdversarial_ProcessFilterStressMatrix(t *testing.T) {
 // 4. ?id=agent-windsurf routes cleanly to agent-devin
 // 5. Unknown agent IDs return empty slice without panic
 func TestAdversarial_9NodeFleetValidation(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -358,7 +358,7 @@ func TestAdversarial_9NodeFleetValidation(t *testing.T) {
 // 1. Probing dead or unbound sockets does NOT hang the HTTP request.
 // 2. Individual socket timeout is strictly bounded to <= 20ms (tested with non-existent unix socket, closed tcp port, and blackhole IP).
 func TestAdversarial_SocketHandlingAndLatency(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}

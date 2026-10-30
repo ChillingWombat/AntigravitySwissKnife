@@ -1,0 +1,198 @@
+package webgui
+
+import (
+	"strings"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/backend"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
+)
+
+func newTestServer(addr, socketPath string) *Server {
+	store, err := keyring.NewStore("")
+	if err != nil {
+		panic(err)
+	}
+	server, err := NewServer(addr, testBackend{accounts: testAccountService{store: store}}, ipc.NewClient(socketPath))
+	if err != nil {
+		panic(err)
+	}
+	return server
+}
+
+type testBackend struct {
+	accounts backend.AccountService
+}
+
+func (b testBackend) Accounts() backend.AccountService         { return b.accounts }
+func (b testBackend) Quota() backend.QuotaService              { return nil }
+func (b testBackend) CustomModels() backend.CustomModelService { return nil }
+func (b testBackend) Enhancements() backend.EnhancementService { return nil }
+func (b testBackend) GitHub() backend.GitHubService            { return nil }
+func (b testBackend) Vault() backend.VaultService              { return nil }
+func (b testBackend) Revival() backend.RevivalService          { return nil }
+
+type testAccountService struct {
+	store *keyring.Store
+}
+
+func (s testAccountService) ListAccounts() []*keyring.Account {
+	if store, err := keyring.NewStore(""); err == nil {
+		return store.ListAccounts()
+	}
+	return s.store.ListAccounts()
+}
+
+func (s testAccountService) GetAccount(email string) (*keyring.Account, error) {
+	if store, err := keyring.NewStore(""); err == nil {
+		return store.GetAccount(email)
+	}
+	return s.store.GetAccount(email)
+}
+
+func (s testAccountService) ScanAccounts() ([]keyring.DiscoveredAccount, error) {
+	return keyring.NewScanner(s.store).Scan()
+}
+
+func (s testAccountService) ImportAccount(req backend.AccountImport) (*keyring.Account, error) {
+	account, err := s.store.ImportAccount(req.Email, req.RefreshToken, req.AccessToken, req.Label, req.TOTPSecret)
+	if err != nil {
+		return nil, err
+	}
+	if account != nil && (account.AccessToken != "" || account.RefreshToken != "") {
+		_, _ = quota.PollAndCacheAccount(account, s.store)
+		if refreshed, getErr := s.store.GetAccount(req.Email); getErr == nil {
+			account = refreshed
+		}
+	}
+	return account, nil
+}
+
+func (s testAccountService) UpdateAccount(req backend.AccountUpdate) (map[string]interface{}, error) {
+	existing, _ := s.store.GetAccount(req.Email)
+	if existing != nil {
+		if req.Password == "[REDACTED]" || req.Password == "" {
+			req.Password = existing.Password
+		}
+		if req.TOTPSecret == "[REDACTED]" || req.TOTPSecret == "" {
+			req.TOTPSecret = existing.TOTPSecret
+		}
+		if req.RefreshToken == "[REDACTED]" {
+			req.RefreshToken = existing.RefreshToken
+		}
+		if req.AccessToken == "[REDACTED]" {
+			req.AccessToken = existing.AccessToken
+		}
+	}
+	prevActive := s.store.ActiveAccount()
+	if err := s.store.UpdateAccountFull(req.Email, req.Label, req.PlanTier, req.Status, req.Priority, req.Notes, req.Password, req.TOTPSecret, req.RefreshToken, req.Credits, req.EnableCreditOverages, req.AllowClaudeGPT, req.SetActive); err != nil {
+		return nil, err
+	}
+	if req.AccessToken != "" && req.AccessToken != "[REDACTED]" {
+		if err := s.store.SetAccessToken(req.Email, req.AccessToken); err != nil {
+			return nil, err
+		}
+	}
+	account, _ := s.store.GetAccount(req.Email)
+	var summary *quota.QuotaSummary
+	if account != nil && (account.AccessToken != "" || account.RefreshToken != "") {
+		summary, _ = quota.PollAndCacheAccount(account, s.store)
+		if refreshed, getErr := s.store.GetAccount(req.Email); getErr == nil {
+			account = refreshed
+		}
+	}
+	if req.SetActive && account != nil {
+		var allEmails []string
+		for _, item := range s.store.ListAccounts() {
+			allEmails = append(allEmails, item.Email)
+		}
+		_ = keyring.SyncAllSurfaces(account, allEmails, nil)
+		_ = prevActive
+	}
+	result := map[string]interface{}{"success": true, "email": req.Email}
+	if account != nil {
+		result["plan_tier"] = account.PlanTier
+		result["credits"] = account.Credits
+		result["status"] = account.Status
+		result["error_message"] = account.ErrorMessage
+	}
+	if summary != nil {
+		result["quota"] = summary
+	}
+	return result, nil
+}
+
+func (s testAccountService) RemoveAccount(email string) (map[string]interface{}, error) {
+	prevActive := s.store.ActiveAccount()
+	if err := s.store.RemoveAccount(email); err != nil {
+		return nil, err
+	}
+	active := s.store.ActiveAccount()
+	result := map[string]interface{}{"success": true, "removed": email, "active_account": active}
+	if active != "" && !strings.EqualFold(prevActive, active) {
+		var allEmails []string
+		for _, item := range s.store.ListAccounts() {
+			allEmails = append(allEmails, item.Email)
+		}
+		if account, err := s.store.GetAccount(active); err == nil {
+			_ = keyring.SyncAllSurfaces(account, allEmails, nil)
+		}
+	}
+	return result, nil
+}
+
+func (s testAccountService) SwitchAccount(req backend.AccountSwitch) (backend.AccountSwitchResult, error) {
+	store, err := keyring.NewStore("")
+	if err != nil {
+		return backend.AccountSwitchResult{}, err
+	}
+	if err := store.SetActiveAccount(req.Email); err != nil {
+		return backend.AccountSwitchResult{}, err
+	}
+	account, err := store.GetAccount(req.Email)
+	if err != nil {
+		return backend.AccountSwitchResult{}, err
+	}
+	var allEmails []string
+	for _, item := range store.ListAccounts() {
+		allEmails = append(allEmails, item.Email)
+	}
+	targetApp := strings.TrimSpace(req.TargetApp)
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		return backend.AccountSwitchResult{}, err
+	}
+	if targetApp == "" || strings.EqualFold(targetApp, core.TargetAppAll) || cfg.GetMultiAppSyncMode() != core.MultiAppSyncModeIndividual {
+		_ = keyring.SyncAllSurfaces(account, allEmails, nil)
+		targetApp = core.TargetAppAll
+	} else {
+		_ = keyring.SyncSurface(targetApp, account, allEmails, nil)
+	}
+	if err := cfg.SetActiveAppAccount(targetApp, account.Email); err != nil {
+		return backend.AccountSwitchResult{}, err
+	}
+	shouldRelaunch := true
+	if req.RelaunchIDE != nil {
+		shouldRelaunch = *req.RelaunchIDE
+	}
+	return backend.AccountSwitchResult{
+		Switched:          true,
+		Account:           account.Email,
+		Success:           true,
+		ActiveAccount:     account.Email,
+		RelaunchIDE:       shouldRelaunch,
+		TargetApp:         targetApp,
+		MultiAppSyncMode:  cfg.GetMultiAppSyncMode(),
+		ActiveAppAccounts: cfg.GetActiveAppAccounts(),
+	}, nil
+}
+
+func (s testAccountService) ExportAccounts() []keyring.AccountExport {
+	return s.store.ExportAccounts()
+}
+
+func (s testAccountService) BatchImportAccounts(items []keyring.BatchImportItem) (int, error) {
+	return s.store.BatchImportAccounts(items)
+}

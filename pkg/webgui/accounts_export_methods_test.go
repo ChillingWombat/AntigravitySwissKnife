@@ -10,7 +10,7 @@ func newAccountsExportMethodHandler(t *testing.T) http.Handler {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
-	return NewServer("127.0.0.1:0", "").setupRoutes()
+	return newTestServer("127.0.0.1:0", "").setupRoutes()
 }
 
 func TestAccountsExportAllowsGetAndHead(t *testing.T) {

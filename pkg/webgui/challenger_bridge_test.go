@@ -391,7 +391,7 @@ func TestChallengerBridge_ExternalOriginAllowedOnOAuthAndMCP(t *testing.T) {
 		t.Fatalf("failed to create bridge service: %v", err)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	srv.bridgeService = bridgeSvc
 	mux := srv.setupRoutes()
 	handler := srv.corsMiddleware(srv.authMiddleware(mux))

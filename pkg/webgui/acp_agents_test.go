@@ -44,7 +44,7 @@ func agentByID(t *testing.T, mesh acpMeshResponse, id string) map[string]interfa
 func TestACPAgentRegistryEndpoints(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestACPAgentRegistryEndpoints(t *testing.T) {
 func TestACPAgentDetectEndpoint(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}

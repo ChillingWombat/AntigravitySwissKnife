@@ -26,7 +26,7 @@ func TestSecurityRegression_DefaultDenyAuthEnforcement(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	srv.daemonSessionToken = "daemon-secret-test-token-777"
 	mux := srv.setupRoutes()
 	handler := srv.authMiddleware(mux)
@@ -198,7 +198,7 @@ func TestSecurityRegression_CredentialScrubbingContract(t *testing.T) {
 		APIKey:  "sk-custom-secret-key-99999",
 	})
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	srv.daemonSessionToken = "sec-token-12345"
 	srv.customModelsStore = cmStore
 	mux := srv.setupRoutes()

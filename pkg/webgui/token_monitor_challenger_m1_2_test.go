@@ -297,7 +297,7 @@ func TestChallenger_OutOfOrderTimestamps(t *testing.T) {
 
 	t0 := time.Date(2026, 10, 10, 10, 0, 10, 0, time.UTC)
 	t1 := time.Date(2026, 10, 10, 10, 0, 5, 0, time.UTC) // 5 seconds in the past!
-	t2 := time.Date(2026, 10, 10, 9, 50, 0, 0, time.UTC)  // 10 minutes in the past!
+	t2 := time.Date(2026, 10, 10, 9, 50, 0, 0, time.UTC) // 10 minutes in the past!
 
 	step0 := fmt.Sprintf(`{"step_index":0,"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"%s","input_tokens":1000,"output_tokens":500}`,
 		t0.Format(time.RFC3339Nano))
@@ -418,7 +418,7 @@ func TestChallenger_HTTPAPISummaryBounds(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(convDir, s.convID+".db"), []byte("SQLite format 3\x00"), 0644)
 	}
 
-	server := NewServer("127.0.0.1:0", "")
+	server := newTestServer("127.0.0.1:0", "")
 	server.SetAntigravityDataDir(tmpDir)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tokens/summary", nil)

@@ -162,7 +162,7 @@ func TestACPPingRouteReturnsMeasuredHandshake(t *testing.T) {
 	bin := writeWebGUIFakeACP(t)
 	configureFakeAntigravityACP(t, bin)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	mux := srv.setupRoutes()
 	req := httptest.NewRequest(http.MethodPost, "/api/utilities/acp/ping", bytes.NewBufferString(`{"id":"agent-antigravity-acp"}`))
 	rec := httptest.NewRecorder()
@@ -213,7 +213,7 @@ func TestACPPromptRouteDispatchesACP(t *testing.T) {
 	bin := writeWebGUIFakeACP(t)
 	configureFakeAntigravityACP(t, bin)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	mux := srv.setupRoutes()
 	body := `{"id":"agent-antigravity-acp","prompt":"Reply from the route","cwd":"` + strings.ReplaceAll(t.TempDir(), `\`, `\\`) + `"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/utilities/acp/prompt", bytes.NewBufferString(body))

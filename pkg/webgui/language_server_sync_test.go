@@ -20,7 +20,7 @@ func TestLanguageServerURLSyncDisabledDuringTests(t *testing.T) {
 		return nil
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	srv.addr = "127.0.0.1:33721"
 	srv.syncLanguageServerCloudCodeURL()
 	srv.startLanguageServerURLSync()
@@ -35,7 +35,7 @@ func TestLanguageServerURLSyncDisabledDuringTests(t *testing.T) {
 }
 
 func TestHandleCustomModelRestoreNative(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	srv.restoreNativeDeps = restoreNativeDeps{
 		syncURL:     func(string) error { return nil },
 		restartApps: func() error { return nil },
@@ -69,7 +69,7 @@ func TestHandleCustomModelRestoreNativeFailures(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			srv := NewServer("127.0.0.1:0", "")
+			srv := newTestServer("127.0.0.1:0", "")
 			syncCalls := 0
 			restartCalls := 0
 			srv.restoreNativeDeps = restoreNativeDeps{

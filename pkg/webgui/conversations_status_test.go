@@ -16,7 +16,7 @@ import (
 // dispatcher drains one conversation per pass from that array.
 func TestConversationsStatus_EmitsEveryPendingIntent(t *testing.T) {
 	tmpDir := t.TempDir()
-	srv := NewServer("127.0.0.1:0", filepath.Join(tmpDir, "isolated.sock"))
+	srv := newTestServer("127.0.0.1:0", filepath.Join(tmpDir, "isolated.sock"))
 	engine := revival.NewEngine(tmpDir, 0)
 	// Point the detector at the temp dir: the default detector reads the real
 	// Antigravity data dir, which would make the test depend on whatever the
@@ -110,7 +110,7 @@ func TestConversationsStatus_EmitsEveryPendingIntent(t *testing.T) {
 // reviving one conversation must not silently discard the others.
 func TestConversationsAck_ClearsOnlyTheAckedIntent(t *testing.T) {
 	tmpDir := t.TempDir()
-	srv := NewServer("127.0.0.1:0", filepath.Join(tmpDir, "isolated.sock"))
+	srv := newTestServer("127.0.0.1:0", filepath.Join(tmpDir, "isolated.sock"))
 	engine := revival.NewEngine(tmpDir, 0)
 	// Point the detector at the temp dir: the default detector reads the real
 	// Antigravity data dir, which would make the test depend on whatever the

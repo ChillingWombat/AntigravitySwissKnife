@@ -78,7 +78,7 @@ func TestAdversarial_ModelDetection_PromptPoisoning(t *testing.T) {
 			"step_index": 1,
 			"source":     "USER",
 			"type":       "USER_MESSAGE",
-			"content": "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Claude Opus 4.6.\n</USER_SETTINGS_CHANGE>",
+			"content":    "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Claude Opus 4.6.\n</USER_SETTINGS_CHANGE>",
 		}
 		step1Bytes, _ := json.Marshal(step1)
 
@@ -105,31 +105,31 @@ func TestAdversarial_ModelDetection_Step0FormattingMatrix(t *testing.T) {
 		expectedName string
 	}{
 		{
-			name: "CRLF line endings with trailing explanation",
+			name:         "CRLF line endings with trailing explanation",
 			step0Content: "System prefix\r\n<USER_SETTINGS_CHANGE>\r\nThe user changed setting `Model Selection` from None to Gemini 3.8 Flash (High). No need to comment on this change if the user doesn't ask about it.\r\n</USER_SETTINGS_CHANGE>\r\nSuffix",
 			expectedID:   "gemini-3.8-flash",
 			expectedName: "Gemini 3.8 Flash",
 		},
 		{
-			name: "Single quote delimiter",
+			name:         "Single quote delimiter",
 			step0Content: "<USER_SETTINGS_CHANGE>\nThe user changed setting 'Model Selection' from None to Gemini 3.7 Flash.\n</USER_SETTINGS_CHANGE>",
 			expectedID:   "gemini-3.7-flash",
 			expectedName: "Gemini 3.7 Flash",
 		},
 		{
-			name: "Multiple settings changes in one block",
+			name:         "Multiple settings changes in one block",
 			step0Content: "<USER_SETTINGS_CHANGE>\nThe user changed setting `Editor Font Size` from 14 to 16.\nThe user changed setting `Model Selection` from None to Gemini 3.1 Pro (Medium).\nThe user changed setting `Thinking Level` from Off to High.\n</USER_SETTINGS_CHANGE>",
 			expectedID:   "gemini-3.1-pro",
 			expectedName: "Gemini 3.1 Pro",
 		},
 		{
-			name: "Gemini 3 Flash Agent variant",
+			name:         "Gemini 3 Flash Agent variant",
 			step0Content: "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to gemini-3-flash-agent.\n</USER_SETTINGS_CHANGE>",
 			expectedID:   "gemini-3-flash",
 			expectedName: "Gemini 3 Flash",
 		},
 		{
-			name: "Gemini 2.5 Pro variant",
+			name:         "Gemini 2.5 Pro variant",
 			step0Content: "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Gemini 2.5 Pro.\n</USER_SETTINGS_CHANGE>",
 			expectedID:   "gemini-2.5-pro",
 			expectedName: "Gemini 2.5 Pro",
@@ -223,7 +223,7 @@ func TestAdversarial_TokenMonitorSummary_ZeroOpusInAggregations(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(convDir, convID+".db"), []byte("SQLite format 3\x00claude-opus-4-6 benchmark\x00"), 0644)
 	}
 
-	server := NewServer("127.0.0.1:0", "")
+	server := newTestServer("127.0.0.1:0", "")
 	server.SetAntigravityDataDir(tmpDir)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tokens/summary", nil)

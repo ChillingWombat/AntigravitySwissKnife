@@ -184,7 +184,13 @@ func TestAdversarial_SubagentModelStrategy_WebGUIRestPersistence(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 	dummySock := filepath.Join(tempDir, "dummy.sock")
 
-	srv := webgui.NewServer("127.0.0.1:0", dummySock)
+	srv, err := webgui.NewRPCServer("127.0.0.1:0", dummySock)
+
+	if err != nil {
+
+		t.Fatalf("NewRPCServer: %v", err)
+
+	}
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}

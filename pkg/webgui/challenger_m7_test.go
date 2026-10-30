@@ -18,7 +18,7 @@ import (
 // code or callback URL with a valid state token cannot be submitted more than once
 // to /api/oauth/google/exchange. The second attempt MUST be rejected with HTTP 400.
 func TestChallenger_GoogleOAuthExchange_ReplayAttack(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestChallenger_GoogleOAuthExchange_ReplayAttack(t *testing.T) {
 // TestChallenger_GoogleOAuthExchange_ConcurrentTampering tests that concurrent
 // exchange requests racing on the same state parameter only allow one candidate through.
 func TestChallenger_GoogleOAuthExchange_ConcurrentTampering(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestChallenger_GoogleOAuthExchange_ConcurrentTampering(t *testing.T) {
 // TestChallenger_GoogleOAuthURL_StateEntropy verifies that /api/oauth/google/url
 // generates high-entropy 64-character hexadecimal states.
 func TestChallenger_GoogleOAuthURL_StateEntropy(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestChallenger_AccountUpdate_TOTPPreservationViaHTTP(t *testing.T) {
 		t.Fatalf("AddOrUpdateAccount error: %v", err)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
