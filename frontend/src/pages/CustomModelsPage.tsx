@@ -60,6 +60,7 @@ import {
 import { MODEL_CARD_MIN_WIDTH, MODEL_CARD_GRID_GAP } from '../utils/layoutTokens'
 import { api } from '../api'
 import { ModelSourceTab } from '../components/ModelSourceTab'
+import { useDialogState } from './customModels/useDialogState'
 
 const inferProviderType = (url: string): ProviderType => {
   const lower = (url || '').toLowerCase()
@@ -114,9 +115,10 @@ export const CustomModelsPage: React.FC = () => {
   const cardTestTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   // Modal State
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false)
-  const [editingModel, setEditingModel] = useState<CustomModel | null>(null)
-  const [deleteConfirmModel, setDeleteConfirmModel] = useState<{ id: string; name: string } | null>(null)
+  const [dialog, dispatchDialog] = useDialogState()
+  const isModalOpen = dialog.type === 'modelForm'
+  const editingModel = dialog.type === 'modelForm' ? dialog.initialModel : null
+  const deleteConfirmModel = dialog.type === 'delete' ? dialog.model : null
   const [showApiKey, setShowApiKey] = useState<boolean>(false)
 
   // Modal Form Fields
@@ -182,12 +184,12 @@ export const CustomModelsPage: React.FC = () => {
 
   // Security Audit States (inspired by toby-bridges/api-relay-audit)
   const [modalAuditResult, setModalAuditResult] = useState<SecurityAuditReport | null>(null)
-  const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false)
+  const isReportModalOpen = dialog.type === 'report'
   const [activeReportForView, setActiveReportForView] = useState<SecurityAuditReport | null>(null)
 
   // GCP Modal States
-  const [isGcpModalOpen, setIsGcpModalOpen] = useState<boolean>(false)
-  const [gcpEditingModel, setGcpEditingModel] = useState<CustomModel | null>(null)
+  const isGcpModalOpen = dialog.type === 'gcpForm'
+  const gcpEditingModel = dialog.type === 'gcpForm' ? dialog.initialModel : null
   const [gcpJsonContent, setGcpJsonContent] = useState<string>('')
   const [gcpParsedKey, setGcpParsedKey] = useState<any | null>(null)
   const [gcpParseError, setGcpParseError] = useState<string | null>(null)
@@ -210,7 +212,6 @@ export const CustomModelsPage: React.FC = () => {
   const gcpFileInputRef = useRef<HTMLInputElement>(null)
 
   const openAddGcpModal = () => {
-    setGcpEditingModel(null)
     setGcpJsonContent('')
     setGcpParsedKey(null)
     setGcpParseError(null)
@@ -227,11 +228,10 @@ export const CustomModelsPage: React.FC = () => {
     setGcpBudgetCapType('none')
     setGcpBudgetCapValue(null)
     setGcpNotes('')
-    setIsGcpModalOpen(true)
+    dispatchDialog({ type: 'openGcp', mode: 'add', initialModel: null })
   }
 
   const openEditGcpModal = (model: CustomModel) => {
-    setGcpEditingModel(model)
     setGcpCustomModel(model.name)
     setGcpDisplayName(model.display_name)
     let projectId = model.gcp_project_id || ''
@@ -299,7 +299,7 @@ export const CustomModelsPage: React.FC = () => {
         })
         .catch(() => {})
     }
-    setIsGcpModalOpen(true)
+    dispatchDialog({ type: 'openGcp', mode: 'edit', initialModel: model })
   }
 
   const handleGcpJsonChange = (raw: string) => {
@@ -525,8 +525,7 @@ export const CustomModelsPage: React.FC = () => {
         await api.saveRules({ default_custom_model: '' }).catch(() => {})
         setRulesDefaultCustom('')
       }
-      setIsGcpModalOpen(false)
-      setGcpEditingModel(null)
+      dispatchDialog({ type: 'close' })
       await loadData()
     } catch (err: any) {
       setGcpError(`Failed to save GCP model: ${err.message}`)
@@ -603,7 +602,6 @@ export const CustomModelsPage: React.FC = () => {
 
   const openAddModal = () => {
     editKeyRequestRef.current += 1
-    setEditingModel(null)
     setDisplayName('')
     setModelName('')
     setProviderType('custom')
@@ -637,7 +635,7 @@ export const CustomModelsPage: React.FC = () => {
     setModalTestResult(null)
     setModalAuditResult(null)
     setModalError(null)
-    setIsModalOpen(true)
+    dispatchDialog({ type: 'openModelForm', mode: 'add', initialModel: null })
   }
 
   const openEditModal = (model: CustomModel) => {
@@ -647,7 +645,6 @@ export const CustomModelsPage: React.FC = () => {
     }
     const keyRequestId = ++editKeyRequestRef.current
     const listedKey = model.api_key?.trim() || ''
-    setEditingModel(model)
     setDisplayName(model.display_name)
     setModelName(model.name)
     setProviderType(model.provider_type || inferProviderType(model.base_url))
@@ -697,7 +694,7 @@ export const CustomModelsPage: React.FC = () => {
       setModalAuditResult(null)
     }
     setModalError(null)
-    setIsModalOpen(true)
+    dispatchDialog({ type: 'openModelForm', mode: 'edit', initialModel: model })
 
     if (!listedKey || listedKey === '[REDACTED]') {
       api.getCustomModelKey(model.id)
@@ -717,7 +714,7 @@ export const CustomModelsPage: React.FC = () => {
 
   const closeCustomModelModal = () => {
     editKeyRequestRef.current += 1
-    setIsModalOpen(false)
+    dispatchDialog({ type: 'close' })
   }
 
   const handleFetchModels = async () => {
@@ -1150,7 +1147,7 @@ export const CustomModelsPage: React.FC = () => {
   }
 
   const handleDeleteModel = (id: string, name: string) => {
-    setDeleteConfirmModel({ id, name })
+    dispatchDialog({ type: 'openDelete', model: { id, name } })
   }
 
   const confirmDeleteModel = async () => {
@@ -1159,14 +1156,11 @@ export const CustomModelsPage: React.FC = () => {
     setModalSaving(true)
     try {
       await api.deleteCustomModel(id)
-      setDeleteConfirmModel(null)
-      if (isModalOpen && editingModel?.id === id) {
-        closeCustomModelModal()
-      }
+      closeCustomModelModal()
       await loadData()
     } catch (err: any) {
       setFeedback(`Delete failed: ${err.message}`)
-      setDeleteConfirmModel(null)
+      dispatchDialog({ type: 'backToModelForm' })
     } finally {
       setModalSaving(false)
     }
@@ -1268,7 +1262,7 @@ export const CustomModelsPage: React.FC = () => {
         }
       })
       setActiveReportForView(rep)
-      setIsReportModalOpen(true)
+      dispatchDialog({ type: 'openReport' })
     } finally {
       setAuditingModelId(null)
     }
@@ -2981,7 +2975,7 @@ export const CustomModelsPage: React.FC = () => {
         <ModalDialog
           open
           title="Delete Custom Model"
-          onClose={() => setDeleteConfirmModel(null)}
+          onClose={() => dispatchDialog({ type: 'backToModelForm' })}
           size="sm"
         >
           <div
@@ -3007,7 +3001,7 @@ export const CustomModelsPage: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button
                 type="button"
-                onClick={() => setDeleteConfirmModel(null)}
+                onClick={() => dispatchDialog({ type: 'backToModelForm' })}
                 className="btn-pill-tonal"
                 style={{ padding: '7px 16px', fontSize: '12px' }}
               >
@@ -3032,7 +3026,7 @@ export const CustomModelsPage: React.FC = () => {
         <ModalDialog
           open
           title={gcpEditingModel ? 'Edit GCP Model' : 'Add GCP Vertex AI Model'}
-          onClose={() => setIsGcpModalOpen(false)}
+          onClose={() => dispatchDialog({ type: 'close' })}
           size="lg"
         >
           <div
@@ -3063,7 +3057,7 @@ export const CustomModelsPage: React.FC = () => {
               </div>
               <button
                 aria-label="Close GCP model dialog"
-                onClick={() => setIsGcpModalOpen(false)}
+                onClick={() => dispatchDialog({ type: 'close' })}
                 className="btn-pill-tonal"
                 style={{ padding: '6px' }}
               >
@@ -3434,7 +3428,7 @@ export const CustomModelsPage: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
                   type="button"
-                  onClick={() => setIsGcpModalOpen(false)}
+                  onClick={() => dispatchDialog({ type: 'close' })}
                   className="btn-pill-tonal"
                   style={{ padding: '7px 18px', fontSize: '12px' }}
                 >
@@ -3459,7 +3453,7 @@ export const CustomModelsPage: React.FC = () => {
       {isReportModalOpen && activeReportForView && (
         <SecurityReportModal
           report={activeReportForView}
-          onClose={() => setIsReportModalOpen(false)}
+          onClose={() => dispatchDialog({ type: 'close' })}
         />
       )}
     </div>
