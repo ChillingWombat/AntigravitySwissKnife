@@ -566,7 +566,7 @@ exec "$REAL_BIN" "$@"
   cleanShellRCHooks();
 }
 
-function cleanShellRCHooks(homeDir = os.homedir()) {
+function cleanShellRCHooks(homeDir = os.homedir(), options = {}) {
   const markerPairs = [
     ['# >>> Antigravity Swiss Knife CLI Integration >>>', '# <<< Antigravity Swiss Knife CLI Integration <<<'],
     ['# >>> Antigravity Swiss Knife >>>', '# <<< Antigravity Swiss Knife <<<'],
@@ -591,10 +591,12 @@ function cleanShellRCHooks(homeDir = os.homedir()) {
   ];
   const lineText = (line) => line.replace(/\r?\n$/, '').trim();
 
+  const failures = [];
   for (const rc of ['.zshrc', '.bashrc']) {
     const rcPath = path.join(homeDir, rc);
     let lockPath;
     let lockFd;
+    let operationError;
     try {
       let target;
       try {
@@ -606,7 +608,7 @@ function cleanShellRCHooks(homeDir = os.homedir()) {
 
       // The Go cleanup keeps its advisory .swiss.lock inode; O_EXCL needs its own path.
       lockPath = `${target}.swiss-install.lock`;
-      lockFd = acquireShellRCLock(lockPath);
+      lockFd = acquireShellRCLock(lockPath, options);
       const data = fs.readFileSync(target, 'utf8');
       const lines = data.match(/[^\n]*\n|[^\n]+$/g) || [];
       const kept = [];
@@ -659,57 +661,145 @@ function cleanShellRCHooks(homeDir = os.homedir()) {
         i++;
       }
 
-      if (!owned || !changed) continue;
-      const stat = fs.statSync(target);
-      if (legacy) {
-        const stamp = new Date().toISOString().replace(/[-:.]/g, '');
-        const backupPath = `${target}.swiss-backup-${stamp}`;
-        writeShellRCBackup(backupPath, data, stat);
-        log(`Shell RC legacy block backed up: ${backupPath}`);
+      if (owned && changed) {
+        const stat = fs.statSync(target);
+        if (legacy) {
+          const stamp = new Date().toISOString().replace(/[-:.]/g, '');
+          const backupPath = `${target}.swiss-backup-${stamp}`;
+          writeShellRCBackup(backupPath, data, stat);
+          log(`Shell RC legacy block backed up: ${backupPath}`);
+        }
+        replaceShellRCAtomically(target, kept.join(''), stat);
+        log(`Shell RC managed hooks removed: ${rcPath}`);
       }
-      replaceShellRCAtomically(target, kept.join(''), stat);
-      log(`Shell RC managed hooks removed: ${rcPath}`);
     } catch (err) {
-      log(`Notice: shell RC cleanup skipped for ${rc}: ${err.message}`);
+      operationError = err;
     } finally {
       if (lockFd !== undefined) {
         try {
-          fs.closeSync(lockFd);
-        } finally {
-          try {
-            fs.unlinkSync(lockPath);
-          } catch (err) {
-            if (err.code !== 'ENOENT') {
-              log(`Notice: shell RC cleanup lock release failed for ${rc}: ${err.message}`);
-            }
-          }
+          releaseShellRCLock(lockFd, lockPath);
+        } catch (err) {
+          operationError = operationError
+            ? new Error(`${operationError.message}; ${err.message}`)
+            : err;
         }
       }
     }
+    if (operationError) {
+      failures.push(`${rc}: ${operationError.message}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`shell RC cleanup failed: ${failures.join('; ')}`);
   }
 }
 
-function acquireShellRCLock(lockPath) {
-  const deadline = Date.now() + 5000;
+function acquireShellRCLock(lockPath, options = {}) {
+  const now = options.now || Date.now;
+  const timeoutMs = options.lockTimeoutMs ?? 5000;
+  const staleAfterMs = options.lockStaleMs ?? 5 * 60 * 1000;
+  const deadline = now() + timeoutMs;
   let delay = 10;
+  let reclaimedStaleLock = false;
   for (;;) {
     try {
-      return fs.openSync(
-        lockPath,
-        fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY,
-        0o600
-      );
+      return createShellRCLock(lockPath, new Date(now()).toISOString());
     } catch (err) {
       if (err.code !== 'EEXIST') {
         throw err;
       }
-      if (Date.now() >= deadline) {
-        throw new Error(`timed out waiting for ${lockPath}`);
+      const owner = inspectShellRCLock(lockPath);
+      if (!owner) continue;
+      if (!reclaimedStaleLock && isShellRCLockStale(owner, now(), staleAfterMs)) {
+        reclaimedStaleLock = true;
+        try {
+          fs.unlinkSync(lockPath);
+        } catch (unlinkErr) {
+          if (unlinkErr.code !== 'ENOENT') {
+            throw new Error(`remove stale shell RC lock ${lockPath}: ${unlinkErr.message}`);
+          }
+        }
+        continue;
+      }
+      if (now() >= deadline) {
+        const ownerText = owner.pid === undefined ? 'unknown owner' : `owner pid ${owner.pid}`;
+        throw new Error(`timed out waiting for ${lockPath} (${ownerText})`);
       }
       sleepSync(delay);
       delay = Math.min(delay * 2, 100);
     }
   }
+}
+
+function createShellRCLock(lockPath, createdAt) {
+  const tempPath = path.join(
+    path.dirname(lockPath),
+    `.${path.basename(lockPath)}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  );
+  let fd = fs.openSync(tempPath, 'wx', 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt }), 'utf8');
+    fs.fsyncSync(fd);
+    fs.linkSync(tempPath, lockPath);
+    const ownedFd = fd;
+    fd = undefined;
+    return ownedFd;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {}
+  }
+}
+
+function inspectShellRCLock(lockPath) {
+  let raw;
+  let stat;
+  try {
+    raw = fs.readFileSync(lockPath, 'utf8');
+    stat = fs.statSync(lockPath);
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+
+  let metadata = {};
+  try {
+    metadata = JSON.parse(raw);
+  } catch {}
+  const pid = Number.isInteger(metadata.pid) && metadata.pid > 0 ? metadata.pid : undefined;
+  return { pid, mtimeMs: stat.mtimeMs };
+}
+
+function isShellRCLockStale(owner, nowMs, staleAfterMs) {
+  if (owner.pid !== undefined && !isProcessAlive(owner.pid)) {
+    return true;
+  }
+  return nowMs - owner.mtimeMs > staleAfterMs;
+}
+
+function releaseShellRCLock(fd, lockPath) {
+  let failure;
+  try {
+    fs.closeSync(fd);
+  } catch (err) {
+    failure = new Error(`close shell RC lock ${lockPath}: ${err.message}`);
+  }
+  try {
+    fs.unlinkSync(lockPath);
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      const unlinkFailure = new Error(`unlink shell RC lock ${lockPath}: ${err.message}`);
+      failure = failure
+        ? new Error(`${failure.message}; ${unlinkFailure.message}`)
+        : unlinkFailure;
+    }
+  }
+  if (failure) throw failure;
 }
 
 function writeShellRCBackup(backupPath, data, stat) {
@@ -1009,5 +1099,6 @@ module.exports = {
   installAcpCliSymlink,
   findInstalledAcpBinary,
   cleanShellRCHooks,
+  acquireShellRCLock,
   verifyInstallation
 };

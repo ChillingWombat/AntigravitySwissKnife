@@ -256,6 +256,86 @@ func TestCleanShellRCHooksMissingFiles(t *testing.T) {
 	}
 }
 
+func TestCleanShellRCHooksFailsClosedAcrossAllRCs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	zshrc := filepath.Join(home, ".zshrc")
+	bashrc := filepath.Join(home, ".bashrc")
+	zshOriginal := "before\n" + shellRCBeginMarker + "\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\n"
+	bashOriginal := "alias keep=1\n" + shellRCBeginMarker + "\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\n" + shellRCEndMarker + "\n"
+	if err := os.WriteFile(zshrc, []byte(zshOriginal), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bashrc, []byte(bashOriginal), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CleanShellRCHooks(); err == nil {
+		t.Fatal("expected malformed .zshrc to fail cleanup")
+	}
+	for path, want := range map[string]string{zshrc: zshOriginal, bashrc: bashOriginal} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != want {
+			t.Fatalf("%s changed after plan failure: %q", path, string(data))
+		}
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), ".swiss") {
+			t.Fatalf("plan failure left residue: %s", entry.Name())
+		}
+	}
+}
+
+func TestCleanShellRCHooksCommitsBothValidRCs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	zshrc := filepath.Join(home, ".zshrc")
+	bashLink := filepath.Join(home, ".bashrc")
+	dotfiles := filepath.Join(home, "dotfiles")
+	bashTarget := filepath.Join(dotfiles, "bashrc")
+	if err := os.MkdirAll(dotfiles, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	zshContent := "before\n" + shellRCBeginMarker + "\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\n" + shellRCEndMarker + "\nafter\n"
+	bashContent := "alias keep=1\n" + shellRCBeginMarker + "\nexport AGY_LLM_GATEWAY_URL=\"http://127.0.0.1:8765\"\n" + shellRCEndMarker + "\n"
+	if err := os.WriteFile(zshrc, []byte(zshContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bashTarget, []byte(bashContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(bashTarget, bashLink); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CleanShellRCHooks(); err != nil {
+		t.Fatalf("CleanShellRCHooks: %v", err)
+	}
+	for _, path := range []string{zshrc, bashTarget} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), shellRCBeginMarker) || strings.Contains(string(data), shellRCEndMarker) {
+			t.Fatalf("%s still contains managed markers: %q", path, string(data))
+		}
+	}
+	info, err := os.Lstat(bashLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("shell RC symlink was replaced")
+	}
+}
+
 func TestCheckCLIGatewayStatusIgnoresUnrelatedExports(t *testing.T) {
 	home := t.TempDir()
 	bin := filepath.Join(home, "bin")

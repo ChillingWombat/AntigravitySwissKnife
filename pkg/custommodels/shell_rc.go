@@ -53,6 +53,11 @@ type shellRCPlan struct {
 	Legacy    bool
 }
 
+type shellRCFilePlan struct {
+	TargetPath string
+	Plan       shellRCPlan
+}
+
 // CleanShellRCHooks removes only complete Swiss Knife managed blocks from user shell RC files.
 func CleanShellRCHooks() error {
 	home, err := os.UserHomeDir()
@@ -63,31 +68,69 @@ func CleanShellRCHooks() error {
 		return nil
 	}
 
-	var cleanupErrors []error
+	var plans []shellRCFilePlan
+	var planErrors []error
+	seenTargets := make(map[string]struct{}, 2)
 	for _, name := range []string{".zshrc", ".bashrc"} {
-		if err := cleanSingleShellRC(filepath.Join(home, name)); err != nil {
-			cleanupErrors = append(cleanupErrors, err)
+		filePlan, exists, err := planShellRCFile(filepath.Join(home, name))
+		if err != nil {
+			planErrors = append(planErrors, err)
+			continue
+		}
+		if !exists || !filePlan.Plan.Changed {
+			continue
+		}
+		if _, seen := seenTargets[filePlan.TargetPath]; seen {
+			continue
+		}
+		seenTargets[filePlan.TargetPath] = struct{}{}
+		plans = append(plans, filePlan)
+	}
+	if err := errors.Join(planErrors...); err != nil {
+		return err
+	}
+
+	now := time.Now()
+	var commitErrors []error
+	for _, filePlan := range plans {
+		if err := commitShellRC(filePlan.TargetPath, filePlan.Plan, now); err != nil {
+			commitErrors = append(commitErrors, err)
 		}
 	}
-	return errors.Join(cleanupErrors...)
+	return errors.Join(commitErrors...)
 }
 
-func cleanSingleShellRC(rcPath string) error {
-	data, err := os.ReadFile(rcPath)
+func planShellRCFile(rcPath string) (shellRCFilePlan, bool, error) {
+	target, err := filepath.EvalSymlinks(rcPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return shellRCFilePlan{}, false, nil
 		}
-		return fmt.Errorf("read shell RC %s: %w", rcPath, err)
+		return shellRCFilePlan{}, false, fmt.Errorf("resolve shell RC %s: %w", rcPath, err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return shellRCFilePlan{}, false, nil
+		}
+		return shellRCFilePlan{}, false, fmt.Errorf("read shell RC %s: %w", target, err)
 	}
 	plan, err := scanShellRC(data)
 	if err != nil {
-		return fmt.Errorf("scan shell RC %s: %w", rcPath, err)
+		return shellRCFilePlan{}, false, fmt.Errorf("scan shell RC %s: %w", target, err)
 	}
-	if !plan.Changed {
+	return shellRCFilePlan{TargetPath: target, Plan: plan}, true, nil
+}
+
+func cleanSingleShellRC(rcPath string) error {
+	filePlan, exists, err := planShellRCFile(rcPath)
+	if err != nil {
+		return err
+	}
+	if !exists || !filePlan.Plan.Changed {
 		return nil
 	}
-	return commitShellRC(rcPath, plan, time.Now())
+	return commitShellRC(filePlan.TargetPath, filePlan.Plan, time.Now())
 }
 
 func shellRCHooked(home string) bool {
