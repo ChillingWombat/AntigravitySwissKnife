@@ -1040,7 +1040,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   width: '180px',
                   minWidth: '180px',
                   padding: '12px 12px',
-                  textAlign: 'left',
+                  textAlign: 'center',
                   fontSize: '11px',
                   fontWeight: 600,
                   color: sortMode === 'quota_5h' ? 'var(--primary)' : 'var(--text-muted)',
@@ -1059,7 +1059,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     : 'Click to sort by 5H Quota'
                 }
               >
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                   <span>5H Quota</span>
                   {sortMode === 'quota_5h' && (sortDirection === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
                 </div>
@@ -1070,7 +1070,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   width: '180px',
                   minWidth: '180px',
                   padding: '12px 12px',
-                  textAlign: 'left',
+                  textAlign: 'center',
                   fontSize: '11px',
                   fontWeight: 600,
                   color: sortMode === 'quota_weekly' ? 'var(--primary)' : 'var(--text-muted)',
@@ -1089,7 +1089,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     : 'Click to sort by 7D Quota'
                 }
               >
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                   <span>7D Quota</span>
                   {sortMode === 'quota_weekly' && (sortDirection === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
                 </div>
@@ -1127,9 +1127,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               <th
                 onClick={() => handleSortColumn('priority')}
                 style={{
-                  width: '76px',
-                  minWidth: '76px',
-                  padding: '12px 8px',
+                  width: '72px',
+                  minWidth: '72px',
+                  padding: '12px 4px',
                   textAlign: 'center',
                   fontSize: '11px',
                   fontWeight: 600,
@@ -1140,6 +1140,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   letterSpacing: '0.5px',
                   cursor: 'pointer',
                   userSelect: 'none',
+                  whiteSpace: 'nowrap',
                 }}
                 title={
                   sortMode === 'priority'
@@ -1149,7 +1150,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     : 'Click to sort by Priority'
                 }
               >
-                <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
                   <span>Priority</span>
                   {sortMode === 'priority' && (sortDirection === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
                 </div>
