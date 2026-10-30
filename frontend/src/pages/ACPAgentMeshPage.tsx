@@ -175,6 +175,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({
   const [agentInstances, setAgentInstances] = useState<AcpAgentInstance[]>([])
   const [handshakeLogs, setHandshakeLogs] = useState<AcpHandshakeLog[]>([])
   const [isLoadingMesh, setIsLoadingMesh] = useState<boolean>(true)
+  const [meshError, setMeshError] = useState<string | null>(null)
   const [pingingAgentId, setPingingAgentId] = useState<string | null>(null)
 
   const [editor, setEditor] = useState<EditorState>({ open: false, mode: 'create', agent: null })
@@ -198,11 +199,13 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({
 
   const loadAcpMesh = async () => {
     setIsLoadingMesh(true)
+    setMeshError(null)
     try {
       const res = await api.getAcpMesh()
       applyMesh(res)
     } catch (e) {
       console.error('Error fetching ACP mesh:', e)
+      setMeshError(e instanceof Error ? e.message : 'Failed to load ACP agents')
     } finally {
       setIsLoadingMesh(false)
     }
@@ -234,6 +237,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({
     try {
       const res = await api.syncAcpRegistry()
       applyMesh(res)
+      setMeshError(null)
     } catch (e: any) {
       console.error('Failed to sync ACP registry:', e)
     } finally {
@@ -900,6 +904,32 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({
           >
             <RefreshCw size={15} className="animate-spin" />
             <span>Scanning local ACP Adapter nodes...</span>
+          </div>
+        ) : meshError ? (
+          <div
+            role="alert"
+            style={{
+              backgroundColor: 'var(--red-bg)',
+              border: '1px solid var(--border-danger)',
+              borderRadius: '8px',
+              padding: '16px',
+              color: 'var(--red)',
+              fontSize: '13px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+            }}
+          >
+            <span>{meshError}</span>
+            <button
+              type="button"
+              className="btn-pill-tonal"
+              onClick={loadAcpMesh}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              Retry
+            </button>
           </div>
         ) : otherAgents.length === 0 ? (
           <div

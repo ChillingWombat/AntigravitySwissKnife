@@ -82,6 +82,24 @@ test('broker allows read-only dashboard account, fleet, and rules routes', async
   ]);
 });
 
+test('broker allows the ACP mesh read used by the agent registry', async () => {
+  const path = '/api/utilities/acp';
+  assert.ok(ALLOWED_ROUTES.GET.has(path), `${path} must be in the GET allowlist`);
+
+  const calls = [];
+  const broker = createDaemonBroker({
+    getToken: () => 'main-process-secret',
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return fakeResponse(200, '{"agents":[]}', { 'Content-Type': 'application/json' });
+    },
+  });
+
+  const result = await broker.request({ method: 'GET', path });
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls, ['http://127.0.0.1:8765/api/utilities/acp']);
+});
+
 test('broker rejects unknown methods, paths, bodies, and redirects with typed errors', async () => {
   let daemonCalls = 0;
   const broker = createDaemonBroker({

@@ -26,6 +26,7 @@ const GET_PATHS = Object.freeze([
   '/api/gui/projects',
   '/api/gui/conversations/pruned',
   '/api/enhancements',
+  '/api/utilities/acp',
   '/api/custom_models',
   '/api/custom_models/active',
   '/api/files/ide/config',
