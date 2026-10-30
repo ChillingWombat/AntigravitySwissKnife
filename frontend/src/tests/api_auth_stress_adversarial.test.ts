@@ -20,15 +20,23 @@ describe('Adversarial Stress Suite: Frontend API Client Auth & Concurrency (Mile
   beforeEach(() => {
     dispatchedEvents = []
     setSessionToken(null)
+    const testLocation = { href: 'http://localhost/' }
     // Mock window event dispatch if window exists or attach shim
     if (typeof (globalThis as any).window === 'undefined') {
       (globalThis as any).window = {
+        location: testLocation,
         dispatchEvent: (event: any) => {
           dispatchedEvents.push(event.type)
           return true
         },
       }
     } else {
+      if (!(globalThis as any).window.location) {
+        Object.defineProperty((globalThis as any).window, 'location', {
+          configurable: true,
+          value: testLocation,
+        })
+      }
       const origDispatch = (globalThis as any).window.dispatchEvent
       ;(globalThis as any).window.dispatchEvent = (event: any) => {
         dispatchedEvents.push(event.type)

@@ -8,11 +8,27 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import React from 'react'
-import { mount } from '../../test-dom'
+import React, { act } from 'react'
+import { initDOM, mount } from '../../test-dom'
 import { NavRail } from '../NavRail'
 import type { SystemStatus } from '../../types'
-import type { Route } from '../../navigation/routes'
+import { parseHash, type Route } from '../../navigation/routes'
+import { useRouteNavigation } from '../../navigation/useRouteNavigation'
+
+const RouteNavRail: React.FC<{ status: SystemStatus | null }> = ({ status }) => {
+  const { route, navigate } = useRouteNavigation()
+  return React.createElement(NavRail, {
+    currentTool: route.tool,
+    navigate,
+    status,
+  })
+}
+
+const flushNavigation = async () => {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
 
 describe('Component DOM: NavRail (<NavRail />)', () => {
   it('renders brand header typography with Antigravity title and SWISS KNIFE subtitle', async () => {
@@ -36,34 +52,39 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
   })
 
   it('renders active tool highlight on selected tab and navigates to semantic routes on click', async () => {
-    const selectedTools: Route[] = []
+    initDOM()
+    window.history.replaceState(null, '', '#/switcher/dashboard')
     const { querySelector, click, unmount } = await mount(
-      React.createElement(NavRail, {
-        currentTool: 'switcher',
-        navigate: (route: Route) => {
-          selectedTools.push(route)
-        },
-        status: null,
-      })
+      React.createElement(RouteNavRail, { status: null })
     )
 
-    // Click Custom Models (tool 3)
+    const btnAccount = querySelector<HTMLButtonElement>('#btnNavAccountSwitcher')
+    assert.ok(btnAccount, 'Account Switcher button must exist')
+    assert.equal(btnAccount.style.fontWeight, '600', 'Selected tool must render its active highlight')
+
     const btnCustomModels = querySelector<HTMLButtonElement>('#btnNavCustomModels')
     assert.ok(btnCustomModels, 'btnNavCustomModels button must exist')
     await click(btnCustomModels)
-    assert.deepEqual(selectedTools[selectedTools.length - 1], { tool: 'custom-models' }, 'Clicking Custom Models must navigate to custom-models')
+    await flushNavigation()
+    assert.equal(window.location.hash, '#/custom-models')
+    assert.deepEqual(parseHash(window.location.hash), { tool: 'custom-models' })
+    assert.equal(btnCustomModels.style.fontWeight, '600', 'Custom Models must become the active tool')
 
-    // Click Remote Connect / Bridge (tool 10)
     const btnBridge = querySelector<HTMLButtonElement>('#btnNavBridge')
     assert.ok(btnBridge, 'btnNavBridge button must exist')
     await click(btnBridge)
-    assert.deepEqual(selectedTools[selectedTools.length - 1], { tool: 'remote-connect' }, 'Clicking Bridge must navigate to remote-connect')
+    await flushNavigation()
+    assert.equal(window.location.hash, '#/remote-connect')
+    assert.deepEqual(parseHash(window.location.hash), { tool: 'remote-connect', tab: 'remote' })
+    assert.equal(btnBridge.style.fontWeight, '600', 'Remote Connect must become the active tool')
 
-    // Click Token Monitor (tool 8)
     const btnTokens = querySelector<HTMLButtonElement>('#btnNavTokenMonitor')
     assert.ok(btnTokens, 'btnNavTokenMonitor button must exist')
     await click(btnTokens)
-    assert.deepEqual(selectedTools[selectedTools.length - 1], { tool: 'token-monitor' }, 'Clicking Token Monitor must navigate to token-monitor')
+    await flushNavigation()
+    assert.equal(window.location.hash, '#/token-monitor')
+    assert.deepEqual(parseHash(window.location.hash), { tool: 'token-monitor', tab: 'overview' })
+    assert.equal(btnTokens.style.fontWeight, '600', 'Token Monitor must become the active tool')
 
     unmount()
   })
@@ -97,23 +118,21 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
       active_account: null,
       total_accounts: 1,
     } as unknown as SystemStatus
+    initDOM()
+    window.history.replaceState(null, '', '#/switcher/dashboard')
 
-    const selectedTools: Route[] = []
     const { querySelector, click, unmount } = await mount(
-      React.createElement(NavRail, {
-        currentTool: 'switcher',
-        navigate: (route: Route) => {
-          selectedTools.push(route)
-        },
-        status: onlineStatus,
-      })
+      React.createElement(RouteNavRail, { status: onlineStatus })
     )
 
     const btnExtensions = querySelector<HTMLButtonElement>('#btnNavExtensions')
     assert.ok(btnExtensions, 'Extensions button must render when daemon is online')
 
     await click(btnExtensions)
-    assert.deepEqual(selectedTools[selectedTools.length - 1], { tool: 'extensions' }, 'Clicking Extensions must navigate to extensions')
+    await flushNavigation()
+    assert.equal(window.location.hash, '#/extensions')
+    assert.deepEqual(parseHash(window.location.hash), { tool: 'extensions', tab: 'built-in' })
+    assert.equal(btnExtensions.style.fontWeight, '600', 'Extensions must become the active tool')
 
     unmount()
   })

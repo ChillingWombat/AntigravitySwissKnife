@@ -262,27 +262,38 @@ describe('ACP Adapter page configurability', () => {
 
     globalThis.fetch = (async (url: any) => {
       if (String(url).includes('/api/utilities/acp/detect')) {
+        const body = {
+          success: true,
+          count: 2,
+          status: 'success',
+          source: 'auto-detect',
+          candidates: [
+            {
+              endpoint: '\\\\.\\pipe\\antigravity-acp',
+              kind: 'pipe',
+              reachable: true,
+              note: 'OS default for this host',
+              source: 'os_default',
+              status: 'reachable',
+            },
+            {
+              endpoint: 'unix:///run/user/1000/antigravity-acp.sock',
+              kind: 'unix',
+              reachable: false,
+              note: 'Currently configured endpoint',
+              source: 'configured',
+              status: 'unreachable',
+            },
+          ],
+          os_default: '\\\\.\\pipe\\antigravity-acp',
+          pid: 0,
+        }
         return {
           ok: true,
           status: 200,
-          json: async () => ({
-            candidates: [
-              {
-                endpoint: '\\\\.\\pipe\\antigravity-acp',
-                kind: 'pipe',
-                reachable: true,
-                note: 'OS default for this host',
-              },
-              {
-                endpoint: 'unix:///run/user/1000/antigravity-acp.sock',
-                kind: 'unix',
-                reachable: false,
-                note: 'Currently configured endpoint',
-              },
-            ],
-            os_default: '\\\\.\\pipe\\antigravity-acp',
-            pid: 0,
-          }),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          text: async () => JSON.stringify(body),
+          json: async () => body,
         } as any
       }
       return { ok: true, status: 200, json: async () => MESH_FIXTURE } as any
