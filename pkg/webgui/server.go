@@ -675,6 +675,7 @@ func (s *Server) Start() error {
 
 // Stop gracefully shuts down the web server.
 func (s *Server) Stop() error {
+	var stopErr error
 	if s.syncLSURLStop != nil {
 		select {
 		case <-s.syncLSURLStop:
@@ -717,7 +718,10 @@ func (s *Server) Stop() error {
 		s.syncLSURLStop = nil
 	}
 	if s.isProxyModeActive() {
-		custommodels.CleanShellRCHooks()
+		if err := custommodels.CleanShellRCHooks(); err != nil {
+			log.Printf("[webgui] shell RC cleanup failed during stop: %v", err)
+			stopErr = errors.Join(stopErr, fmt.Errorf("clean shell RC hooks during stop: %w", err))
+		}
 		_ = languageServerURLSyncer("")
 		_ = process.RestartAntigravityAppsToNative(process.NewShield(0))
 	}
@@ -727,9 +731,9 @@ func (s *Server) Stop() error {
 	if s.httpServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		return s.httpServer.Shutdown(ctx)
+		stopErr = errors.Join(stopErr, s.httpServer.Shutdown(ctx))
 	}
-	return nil
+	return stopErr
 }
 
 func (s *Server) syncLanguageServerCloudCodeURL() {
@@ -3576,7 +3580,11 @@ func (s *Server) handleCustomModelRestoreNative(w http.ResponseWriter, r *http.R
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	custommodels.CleanShellRCHooks()
+	if err := custommodels.CleanShellRCHooks(); err != nil {
+		log.Printf("[webgui] shell RC cleanup failed while restoring native mode: %v", err)
+		http.Error(w, "failed to clean shell RC hooks", http.StatusInternalServerError)
+		return
+	}
 	_ = languageServerURLSyncer("")
 	_ = process.RestartAntigravityAppsToNative(process.NewShield(0))
 	writeJSON(w, map[string]interface{}{

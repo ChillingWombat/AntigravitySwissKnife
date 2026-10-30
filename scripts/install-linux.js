@@ -566,7 +566,7 @@ exec "$REAL_BIN" "$@"
   cleanShellRCHooks();
 }
 
-function cleanShellRCHooks() {
+function cleanShellRCHooks(homeDir = os.homedir()) {
   const markerPairs = [
     ['# >>> Antigravity Swiss Knife CLI Integration >>>', '# <<< Antigravity Swiss Knife CLI Integration <<<'],
     ['# >>> Antigravity Swiss Knife >>>', '# <<< Antigravity Swiss Knife <<<'],
@@ -592,10 +592,22 @@ function cleanShellRCHooks() {
   const lineText = (line) => line.replace(/\r?\n$/, '').trim();
 
   for (const rc of ['.zshrc', '.bashrc']) {
-    const rcPath = path.join(os.homedir(), rc);
+    const rcPath = path.join(homeDir, rc);
+    let lockPath;
+    let lockFd;
     try {
-      if (!fs.existsSync(rcPath)) continue;
-      const data = fs.readFileSync(rcPath, 'utf8');
+      let target;
+      try {
+        target = fs.realpathSync(rcPath);
+      } catch (err) {
+        if (err.code === 'ENOENT') continue;
+        throw err;
+      }
+
+      // The Go cleanup keeps its advisory .swiss.lock inode; O_EXCL needs its own path.
+      lockPath = `${target}.swiss-install.lock`;
+      lockFd = acquireShellRCLock(lockPath);
+      const data = fs.readFileSync(target, 'utf8');
       const lines = data.match(/[^\n]*\n|[^\n]+$/g) || [];
       const kept = [];
       let owned = false;
@@ -648,21 +660,120 @@ function cleanShellRCHooks() {
       }
 
       if (!owned || !changed) continue;
+      const stat = fs.statSync(target);
       if (legacy) {
-        const stat = fs.statSync(rcPath);
         const stamp = new Date().toISOString().replace(/[-:.]/g, '');
-        const backupPath = `${rcPath}.swiss-backup-${stamp}`;
-        fs.copyFileSync(rcPath, backupPath);
-        fs.chmodSync(backupPath, stat.mode);
-        try {
-          fs.chownSync(backupPath, stat.uid, stat.gid);
-        } catch {}
+        const backupPath = `${target}.swiss-backup-${stamp}`;
+        writeShellRCBackup(backupPath, data, stat);
         log(`Shell RC legacy block backed up: ${backupPath}`);
       }
-      fs.writeFileSync(rcPath, kept.join(''), 'utf8');
+      replaceShellRCAtomically(target, kept.join(''), stat);
       log(`Shell RC managed hooks removed: ${rcPath}`);
     } catch (err) {
       log(`Notice: shell RC cleanup skipped for ${rc}: ${err.message}`);
+    } finally {
+      if (lockFd !== undefined) {
+        try {
+          fs.closeSync(lockFd);
+        } finally {
+          try {
+            fs.unlinkSync(lockPath);
+          } catch (err) {
+            if (err.code !== 'ENOENT') {
+              log(`Notice: shell RC cleanup lock release failed for ${rc}: ${err.message}`);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function acquireShellRCLock(lockPath) {
+  const deadline = Date.now() + 5000;
+  let delay = 10;
+  for (;;) {
+    try {
+      return fs.openSync(
+        lockPath,
+        fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY,
+        0o600
+      );
+    } catch (err) {
+      if (err.code !== 'EEXIST') {
+        throw err;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`timed out waiting for ${lockPath}`);
+      }
+      sleepSync(delay);
+      delay = Math.min(delay * 2, 100);
+    }
+  }
+}
+
+function writeShellRCBackup(backupPath, data, stat) {
+  let fd = fs.openSync(backupPath, 'wx', 0o600);
+  let complete = false;
+  try {
+    fs.writeFileSync(fd, data, 'utf8');
+    fs.fchmodSync(fd, stat.mode);
+    try {
+      fs.fchownSync(fd, stat.uid, stat.gid);
+    } catch {}
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    complete = true;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+    if (!complete) {
+      try {
+        fs.unlinkSync(backupPath);
+      } catch {}
+    }
+  }
+}
+
+function replaceShellRCAtomically(target, data, stat) {
+  const dir = path.dirname(target);
+  const tempPath = path.join(
+    dir,
+    `.${path.basename(target)}.swiss-tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  );
+  let fd = fs.openSync(tempPath, 'wx', 0o600);
+  let renamed = false;
+  try {
+    fs.writeFileSync(fd, data, 'utf8');
+    fs.fchmodSync(fd, stat.mode);
+    try {
+      fs.fchownSync(fd, stat.uid, stat.gid);
+    } catch {}
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(tempPath, target);
+    renamed = true;
+    const dirFd = fs.openSync(dir, 'r');
+    try {
+      fs.fsyncSync(dirFd);
+    } finally {
+      fs.closeSync(dirFd);
+    }
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+    if (!renamed) {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {}
     }
   }
 }
@@ -897,5 +1008,6 @@ module.exports = {
   installCliSymlink,
   installAcpCliSymlink,
   findInstalledAcpBinary,
+  cleanShellRCHooks,
   verifyInstallation
 };

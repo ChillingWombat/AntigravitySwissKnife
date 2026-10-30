@@ -1611,7 +1611,9 @@ func (d *Daemon) Stop() error {
 	d.cancel()
 	cmStore := custommodels.GetGlobalStore()
 	if cmStore != nil && cmStore.IsProxyModeActive() {
-		custommodels.CleanShellRCHooks()
+		if err := custommodels.CleanShellRCHooks(); err != nil {
+			log.Printf("[Daemon] shell RC cleanup failed during stop: %v", err)
+		}
 		_ = quota.SetLanguageServerCloudCodeURL("")
 		_ = process.RestartAntigravityAppsToNative(d.Shield)
 	}
