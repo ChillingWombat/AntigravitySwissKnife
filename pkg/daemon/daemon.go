@@ -19,6 +19,7 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/github"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
@@ -37,6 +38,7 @@ type Daemon struct {
 	Profiles     *fingerprint.Store
 	CustomModels *custommodels.Store
 	Enhancements *enhancements.Store
+	GitHub       *github.Service
 	GUIStore     *gui.Store
 	Shield       *process.Shield
 	Revival      *revival.Engine
@@ -75,6 +77,7 @@ type Daemon struct {
 var (
 	newCustomModelsStore = custommodels.NewStore
 	newEnhancementsStore = enhancements.NewStore
+	newGitHubStore       = github.NewStore
 )
 
 // vscodeReinjectInterval throttles the periodic VS Code enhancement re-apply;
@@ -124,6 +127,11 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init enhancement store: %w", err)
 	}
+	githubStore, err := newGitHubStore("")
+	if err != nil {
+		return nil, fmt.Errorf("failed to init GitHub store: %w", err)
+	}
+	githubService := github.NewService(github.NewAgentTracker("", githubStore), githubStore)
 
 	_ = core.EnsureVSCodeWindowCloseGuard()
 	custommodels.AutoEnsureCLIGatewayIntegration(customModelsStore)
@@ -141,6 +149,7 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 		Profiles:     fpStore,
 		CustomModels: customModelsStore,
 		Enhancements: enhancementsStore,
+		GitHub:       githubService,
 		GUIStore:     guiStore,
 		Shield:       shield,
 		Revival:      revEngine,
@@ -1544,7 +1553,7 @@ func (d *Daemon) Start() error {
 func (d *Daemon) Stop() error {
 	var stopErrors []error
 	d.cancel()
-	cmStore := custommodels.GetGlobalStore()
+	cmStore := d.CustomModels
 	if cmStore != nil && cmStore.IsProxyModeActive() {
 		if err := custommodels.CleanShellRCHooks(); err != nil {
 			stopErrors = append(stopErrors, fmt.Errorf("clean shell RC hooks during stop: %w", err))

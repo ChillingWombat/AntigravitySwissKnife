@@ -43,6 +43,18 @@ func (b daemonBackend) GUI() backend.GUIService {
 	return daemonGUI{daemon: b.daemon}
 }
 
+func (b daemonBackend) GitHub() backend.GitHubService {
+	return b.daemon.GitHub
+}
+
+func (b daemonBackend) Vault() backend.VaultService {
+	return b.daemon.Vault
+}
+
+func (b daemonBackend) Revival() backend.RevivalService {
+	return b.daemon.Revival
+}
+
 type daemonQuota struct {
 	daemon *Daemon
 }

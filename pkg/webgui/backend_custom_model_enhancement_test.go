@@ -192,12 +192,16 @@ func baseBackend(t *testing.T) testBackend {
 	if err != nil {
 		t.Fatalf("new enhancement store: %v", err)
 	}
+	githubService, vaultManager, revivalEngine := newTestBackendOwners()
 	return testBackend{
 		accounts:     testAccountService{store: accountsStore},
 		customModels: customModelsStore,
 		enhancements: enhancementsStore,
 		quota:        testQuotaService{store: accountsStore},
 		gui:          &testGUIService{store: guiStore},
+		github:       githubService,
+		vault:        vaultManager,
+		revival:      revivalEngine,
 	}
 }
 

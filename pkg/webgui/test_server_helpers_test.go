@@ -8,10 +8,13 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/github"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/revival"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/vault"
 )
 
 func newTestServer(addr, socketPath string) *Server {
@@ -31,12 +34,16 @@ func newTestServer(addr, socketPath string) *Server {
 	if err != nil {
 		panic(err)
 	}
+	githubService, vaultManager, revivalEngine := newTestBackendOwners()
 	server, err := NewServer(addr, testBackend{
 		accounts:     testAccountService{store: store},
 		customModels: customModelsStore,
 		enhancements: enhancementsStore,
 		quota:        testQuotaService{store: store},
 		gui:          &testGUIService{store: guiStore},
+		github:       githubService,
+		vault:        vaultManager,
+		revival:      revivalEngine,
 	}, ipc.NewClient(socketPath))
 	if err != nil {
 		panic(err)
@@ -50,6 +57,9 @@ type testBackend struct {
 	enhancements backend.EnhancementsService
 	quota        backend.QuotaService
 	gui          backend.GUIService
+	github       backend.GitHubService
+	vault        backend.VaultService
+	revival      backend.RevivalService
 }
 
 func (b testBackend) Accounts() backend.AccountService          { return b.accounts }
@@ -57,6 +67,19 @@ func (b testBackend) CustomModels() backend.CustomModelsService { return b.custo
 func (b testBackend) Enhancements() backend.EnhancementsService { return b.enhancements }
 func (b testBackend) Quota() backend.QuotaService               { return b.quota }
 func (b testBackend) GUI() backend.GUIService                   { return b.gui }
+func (b testBackend) GitHub() backend.GitHubService             { return b.github }
+func (b testBackend) Vault() backend.VaultService               { return b.vault }
+func (b testBackend) Revival() backend.RevivalService           { return b.revival }
+
+func newTestBackendOwners() (backend.GitHubService, backend.VaultService, backend.RevivalService) {
+	githubStore, err := github.NewStore("")
+	if err != nil {
+		panic(err)
+	}
+	return github.NewService(github.NewAgentTracker("", githubStore), githubStore),
+		vault.NewManager("", ""),
+		revival.NewEngine("", 0)
+}
 
 type testQuotaService struct {
 	store *keyring.Store
@@ -313,4 +336,12 @@ func (s testAccountService) ExportAccounts() []keyring.AccountExport {
 
 func (s testAccountService) BatchImportAccounts(items []keyring.BatchImportItem) (int, error) {
 	return s.store.BatchImportAccounts(items)
+}
+
+func withTestBackendOwners(b testBackend) testBackend {
+	githubService, vaultManager, revivalEngine := newTestBackendOwners()
+	b.github = githubService
+	b.vault = vaultManager
+	b.revival = revivalEngine
+	return b
 }

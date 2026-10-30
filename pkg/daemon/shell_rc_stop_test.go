@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,10 +11,11 @@ import (
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/github"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
 )
 
-func TestDaemonStopPropagatesMalformedShellRCCleanup(t *testing.T) {
+func TestDaemonStopUsesInjectedCustomModelStoreForShellRCCleanup(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -38,16 +40,23 @@ func TestDaemonStopPropagatesMalformedShellRCCleanup(t *testing.T) {
 	}
 	previousStore := custommodels.GetGlobalStore()
 	t.Cleanup(func() { custommodels.SetGlobalStore(previousStore) })
-	if _, err := custommodels.NewStore(storeDir); err != nil {
+	injectedStore, err := custommodels.NewStore(storeDir)
+	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
+	globalStore, err := custommodels.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore global: %v", err)
+	}
+	custommodels.SetGlobalStore(globalStore)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Daemon{
-		Config: core.DefaultConfig(),
-		Server: &ipc.Server{},
-		ctx:    ctx,
-		cancel: cancel,
+		Config:       core.DefaultConfig(),
+		CustomModels: injectedStore,
+		Server:       &ipc.Server{},
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 	err = d.Stop()
 	if err == nil || !strings.Contains(err.Error(), "clean shell RC hooks during stop") {
@@ -62,5 +71,24 @@ func TestDaemonStopPropagatesMalformedShellRCCleanup(t *testing.T) {
 	}
 	if _, err := os.Stat(rc + ".swiss.lock"); !os.IsNotExist(err) {
 		t.Fatalf("malformed shell RC created cleanup lock, stat error = %v", err)
+	}
+}
+
+func TestNewDaemonWrapsGitHubOwnerFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
+
+	original := newGitHubStore
+	newGitHubStore = func(string) (*github.Store, error) {
+		return nil, errors.New("github constructor failed")
+	}
+	t.Cleanup(func() { newGitHubStore = original })
+
+	_, err := NewDaemon(core.DefaultConfig(), filepath.Join(home, "daemon.sock"))
+	if err == nil || !strings.Contains(err.Error(), "GitHub") {
+		t.Fatalf("NewDaemon error = %v, want wrapped GitHub constructor failure", err)
 	}
 }

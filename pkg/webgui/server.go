@@ -55,6 +55,9 @@ var (
 	newGUIConfigStore    = gui.NewStore
 	newCustomModelsStore = custommodels.NewStore
 	newEnhancementsStore = enhancements.NewStore
+	newGitHubStore       = github.NewStore
+	newVaultManager      = vault.NewManager
+	newRevivalEngine     = revival.NewEngine
 )
 
 // RPCClient is the explicit daemon transport used by standalone web mode.
@@ -135,6 +138,15 @@ func NewServer(addr string, service backend.BackendService, rpc RPCClient) (*Ser
 	if service.Enhancements() == nil {
 		return nil, errors.New("enhancement backend is required")
 	}
+	if service.GitHub() == nil {
+		return nil, errors.New("GitHub backend is required")
+	}
+	if service.Vault() == nil {
+		return nil, errors.New("vault backend is required")
+	}
+	if service.Revival() == nil {
+		return nil, errors.New("revival backend is required")
+	}
 	return newServer(addr, service, rpc)
 }
 
@@ -151,10 +163,13 @@ func newServer(addr string, service backend.BackendService, rpc RPCClient) (*Ser
 		addr = "127.0.0.1:8765"
 	}
 	var (
-		guiStore *gui.Store
-		cmStore  *custommodels.Store
-		enhStore *enhancements.Store
-		err      error
+		guiStore  *gui.Store
+		cmStore   *custommodels.Store
+		enhStore  *enhancements.Store
+		ghService *github.Service
+		vaultMgr  *vault.Manager
+		revEngine *revival.Engine
+		err       error
 	)
 	if service == nil {
 		guiStore, err = newGUIConfigStore("")
@@ -169,22 +184,25 @@ func newServer(addr string, service backend.BackendService, rpc RPCClient) (*Ser
 		if err != nil {
 			return nil, fmt.Errorf("initialize enhancement store: %w", err)
 		}
+		ghStore, err := newGitHubStore("")
+		if err != nil {
+			return nil, fmt.Errorf("initialize GitHub store: %w", err)
+		}
+		ghService = github.NewService(github.NewAgentTracker("", ghStore), ghStore)
+		vaultMgr = newVaultManager("", "")
+		revEngine = newRevivalEngine("", 0)
 	} else {
 		cmStore = service.CustomModels()
 		enhStore = service.Enhancements()
+		ghService = service.GitHub()
+		vaultMgr = service.Vault()
+		revEngine = service.Revival()
 	}
 	cmTester := custommodels.NewTester()
 	custommodels.AutoEnsureCLIGatewayIntegration(cmStore)
 	sysDetector := system.NewDetector()
 	appRelMgr := system.NewAppReleaseManager()
 	oauthMgr := keyring.NewGoogleOAuthManager("", "")
-	ghStore, err := github.NewStore("")
-	if err != nil {
-		return nil, fmt.Errorf("initialize GitHub store: %w", err)
-	}
-	ghTracker := github.NewAgentTracker("", ghStore)
-	ghService := github.NewService(ghTracker, ghStore)
-	vaultMgr := vault.NewManager("", "")
 	bridgeSvc, err := bridge.NewService("")
 	if err != nil {
 		return nil, fmt.Errorf("initialize bridge service: %w", err)
@@ -209,7 +227,7 @@ func newServer(addr string, service backend.BackendService, rpc RPCClient) (*Ser
 		oauthMgr:           oauthMgr,
 		githubService:      ghService,
 		vaultManager:       vaultMgr,
-		revivalEngine:      revival.NewEngine("", 0),
+		revivalEngine:      revEngine,
 		bridgeService:      bridgeSvc,
 		addr:               addr,
 		knownWorkspaces:    make(map[string]struct{}),
@@ -297,9 +315,23 @@ func (s *Server) getVaultManager() *vault.Manager {
 	s.lazyMu.Lock()
 	defer s.lazyMu.Unlock()
 	if s.vaultManager == nil {
-		s.vaultManager = vault.NewManager("", "")
+		if s.backend != nil {
+			s.vaultManager = s.backend.Vault()
+		} else {
+			s.vaultManager = newVaultManager("", "")
+		}
 	}
 	return s.vaultManager
+}
+
+func (s *Server) getRevivalEngine() *revival.Engine {
+	if s.revivalEngine != nil {
+		return s.revivalEngine
+	}
+	if s.backend != nil {
+		return s.backend.Revival()
+	}
+	return nil
 }
 
 // getCustomModelsGateway returns the shared LLM gateway for custom models.
@@ -2712,8 +2744,8 @@ func (s *Server) handleVaultToggle(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
-	if p.Enabled && s.vaultManager != nil {
-		_, _ = s.vaultManager.Sync()
+	if p.Enabled {
+		_, _ = s.getVaultManager().Sync()
 	}
 	writeJSON(w, map[string]interface{}{"success": true, "enabled": p.Enabled})
 }
@@ -6719,11 +6751,12 @@ func (s *Server) handleConversationsActive(w http.ResponseWriter, r *http.Reques
 	}
 
 	var info *revival.ActiveSessionInfo
-	if s.client != nil {
+	if s.backend == nil && s.client != nil {
 		_ = s.client.Call("swiss.getActiveConversations", map[string]interface{}{"target_app": targetApp}, &info)
 	}
-	if info == nil && s.revivalEngine != nil {
-		detected, err := s.revivalEngine.Detector.Detect(targetApp)
+	engine := s.getRevivalEngine()
+	if info == nil && engine != nil {
+		detected, err := engine.Detector.Detect(targetApp)
 		if err == nil {
 			info = detected
 		}
@@ -6756,13 +6789,37 @@ func (s *Server) handleConversationsRevive(w http.ResponseWriter, r *http.Reques
 	}
 
 	var res map[string]interface{}
-	var err error
-	if s.client != nil {
-		err = s.client.Call("swiss.reviveConversation", p, &res)
-	}
-	if err != nil || s.client == nil {
-		if s.revivalEngine != nil {
-			if reviveErr := s.revivalEngine.ReviveConversation(p.TargetApp, p.ConversationID, p.Prompt); reviveErr != nil {
+	if s.backend != nil {
+		engine := s.getRevivalEngine()
+		if engine == nil {
+			http.Error(w, "revival engine not available", http.StatusInternalServerError)
+			return
+		}
+		if err := engine.ReviveConversation(p.TargetApp, p.ConversationID, p.Prompt); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		res = map[string]interface{}{
+			"success": true,
+			"status":  "revived",
+			"method":  "cdp_nudge",
+		}
+	} else {
+		var err error
+		if s.client != nil {
+			err = s.client.Call("swiss.reviveConversation", p, &res)
+		}
+		if err != nil || s.client == nil {
+			engine := s.getRevivalEngine()
+			if engine == nil {
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				} else {
+					http.Error(w, "revival engine not available", http.StatusInternalServerError)
+				}
+				return
+			}
+			if reviveErr := engine.ReviveConversation(p.TargetApp, p.ConversationID, p.Prompt); reviveErr != nil {
 				http.Error(w, reviveErr.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -6771,13 +6828,6 @@ func (s *Server) handleConversationsRevive(w http.ResponseWriter, r *http.Reques
 				"status":  "revived",
 				"method":  "cdp_nudge",
 			}
-		} else {
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			} else {
-				http.Error(w, "revival engine not available", http.StatusInternalServerError)
-			}
-			return
 		}
 	}
 
@@ -6798,15 +6848,16 @@ func (s *Server) handleConversationsStatus(w http.ResponseWriter, r *http.Reques
 	targetID = strings.TrimPrefix(targetID, "/c/")
 
 	var status *revival.RevivalStatus
-	if s.client != nil {
+	if s.backend == nil && s.client != nil {
 		var params map[string]interface{}
 		if targetID != "" {
 			params = map[string]interface{}{"conversation_id": targetID}
 		}
 		_ = s.client.Call("swiss.getRevivalStatus", params, &status)
 	}
-	if status == nil && s.revivalEngine != nil {
-		sStatus, err := s.revivalEngine.GetRevivalStatus(targetID)
+	engine := s.getRevivalEngine()
+	if status == nil && engine != nil {
+		sStatus, err := engine.GetRevivalStatus(targetID)
 		if err == nil {
 			status = sStatus
 		}
@@ -6848,12 +6899,12 @@ func (s *Server) handleConversationsAck(w http.ResponseWriter, r *http.Request) 
 	}
 	_ = json.NewDecoder(r.Body).Decode(&p)
 
-	if s.client != nil {
+	if s.backend == nil && s.client != nil {
 		var res map[string]interface{}
 		_ = s.client.Call("swiss.ackContinuation", p, &res)
 	}
-	if s.revivalEngine != nil {
-		_ = s.revivalEngine.AcknowledgeContinuation(p.CascadeID)
+	if engine := s.getRevivalEngine(); engine != nil {
+		_ = engine.AcknowledgeContinuation(p.CascadeID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

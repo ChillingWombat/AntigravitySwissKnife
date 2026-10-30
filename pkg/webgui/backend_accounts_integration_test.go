@@ -199,13 +199,13 @@ func TestBackendConstructorFailureStopsStartup(t *testing.T) {
 		}
 		_, err = NewServer(
 			"127.0.0.1:0",
-			testBackend{
+			withTestBackendOwners(testBackend{
 				accounts:     testAccountService{},
 				customModels: customModelsStore,
 				enhancements: enhancementsStore,
 				quota:        testQuotaService{},
 				gui:          &testGUIService{store: guiStore},
-			},
+			}),
 			ipc.NewClient(filepath.Join(t.TempDir(), "unused.sock")),
 		)
 		if err != nil {
