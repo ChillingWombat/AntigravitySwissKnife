@@ -3099,7 +3099,10 @@ export const CustomModelsPage: React.FC = () => {
             {/* JSON Key Upload / Paste */}
             <div style={{ marginBottom: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                <label
+                  htmlFor="gcp-service-account-json"
+                  style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}
+                >
                   Service Account JSON Key:
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -3121,6 +3124,7 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
               <textarea
+                id="gcp-service-account-json"
                 placeholder={gcpEditingModel ? 'Service account key is configured. Paste a new JSON key here only if replacing it.' : 'Paste your GCP Service Account JSON key here ({"type": "service_account", "project_id": ...})'}
                 value={gcpJsonContent}
                 onChange={(e) => handleGcpJsonChange(e.target.value)}

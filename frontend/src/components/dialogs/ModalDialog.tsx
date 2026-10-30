@@ -38,6 +38,26 @@ const visuallyHidden: React.CSSProperties = {
   border: 0,
 }
 
+let bodyScrollLockCount = 0
+let bodyOverflowBeforeLock: string | null = null
+
+const acquireBodyScrollLock = () => {
+  if (bodyScrollLockCount === 0) {
+    bodyOverflowBeforeLock = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+  }
+  bodyScrollLockCount += 1
+}
+
+const releaseBodyScrollLock = () => {
+  if (bodyScrollLockCount === 0) return
+  bodyScrollLockCount -= 1
+  if (bodyScrollLockCount === 0 && bodyOverflowBeforeLock !== null) {
+    document.body.style.overflow = bodyOverflowBeforeLock
+    bodyOverflowBeforeLock = null
+  }
+}
+
 const getFocusableElements = (dialog: HTMLDialogElement): HTMLElement[] =>
   Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
     (element) => element.tabIndex >= 0 && !element.hasAttribute('disabled')
@@ -75,8 +95,7 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
 
     closeRequestedRef.current = false
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    acquireBodyScrollLock()
 
     if (!dialog.hasAttribute('open')) {
       if (typeof dialog.showModal === 'function') {
@@ -94,7 +113,7 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
     focusTarget.focus()
 
     return () => {
-      document.body.style.overflow = previousOverflow
+      releaseBodyScrollLock()
       if (dialog.hasAttribute('open')) {
         if (typeof dialog.close === 'function') {
           try {

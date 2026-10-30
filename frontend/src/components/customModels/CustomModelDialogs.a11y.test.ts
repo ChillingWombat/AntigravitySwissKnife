@@ -59,6 +59,23 @@ const dialogName = (dialog: Element) => {
   return titleId ? document.getElementById(titleId)?.textContent?.trim() : undefined
 }
 
+const controlName = (control: HTMLElement) => {
+  const ariaLabel = control.getAttribute('aria-label')?.trim()
+  if (ariaLabel) return ariaLabel
+
+  const labelledBy = control.getAttribute('aria-labelledby')
+  if (labelledBy) {
+    return labelledBy
+      .split(/\s+/)
+      .map((id) => document.getElementById(id)?.textContent?.trim())
+      .filter(Boolean)
+      .join(' ')
+  }
+
+  if (!control.id) return undefined
+  return document.querySelector(`label[for="${control.id}"]`)?.textContent?.replace(/\s+/g, ' ').trim()
+}
+
 const findDialog = (name: string) =>
   Array.from(document.querySelectorAll('dialog')).find((dialog) => dialogName(dialog) === name)
 
@@ -140,6 +157,14 @@ describe('Custom model dialog accessibility', () => {
     assert.equal(dialog.getAttribute('role'), 'dialog')
     assert.equal(dialog.getAttribute('aria-modal'), 'true')
     assert.ok(dialog.querySelector('button[aria-label="Close GCP model dialog"]'))
+
+    const serviceAccountJson = dialog.querySelector<HTMLTextAreaElement>('#gcp-service-account-json')
+    assert.ok(serviceAccountJson, 'GCP service account JSON textarea must have a stable id')
+    assert.ok(
+      dialog.querySelector('label[for="gcp-service-account-json"]'),
+      'GCP service account JSON label must reference the textarea'
+    )
+    assert.equal(controlName(serviceAccountJson), 'Service Account JSON Key:')
 
     await pressEscape(dialog)
     assert.equal(findDialog('Add GCP Vertex AI Model'), undefined)

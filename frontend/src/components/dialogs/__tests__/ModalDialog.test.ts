@@ -169,4 +169,112 @@ describe('ModalDialog', () => {
       document.body.style.overflow = ''
     }
   })
+
+  it('keeps body overflow locked until all stacked dialogs close and restores the original once', async () => {
+    const originalOverflow = document.body.style.overflow
+    const overflowMutations: string[] = []
+    let view: RenderResult | null = null
+
+    document.body.style.overflow = 'clip'
+    const overflowObserver = new MutationObserver(() => {
+      overflowMutations.push(document.body.style.overflow)
+    })
+    overflowObserver.observe(document.body, { attributes: true, attributeFilter: ['style'] })
+
+    const StackedDialogs = () => {
+      const [dialogsOpen, setDialogsOpen] = useState({ first: true, second: true })
+
+      return React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(
+          'button',
+          {
+            id: 'reopen-dialogs',
+            type: 'button',
+            onClick: () => setDialogsOpen({ first: true, second: true }),
+          },
+          'Reopen dialogs'
+        ),
+        React.createElement(
+          ModalDialog,
+          {
+            open: dialogsOpen.first,
+            title: 'First stacked dialog',
+            onClose: () => setDialogsOpen((current) => ({ ...current, first: false })),
+            children: React.createElement(
+              React.Fragment,
+              null,
+              React.createElement(
+                'button',
+                {
+                  id: 'close-first-dialog',
+                  type: 'button',
+                  onClick: () => setDialogsOpen((current) => ({ ...current, first: false })),
+                },
+                'Close first'
+              ),
+              React.createElement(
+                'button',
+                {
+                  id: 'close-all-dialogs',
+                  type: 'button',
+                  onClick: () => setDialogsOpen({ first: false, second: false }),
+                },
+                'Close all'
+              )
+            ),
+          }
+        ),
+        React.createElement(
+          ModalDialog,
+          {
+            open: dialogsOpen.second,
+            title: 'Second stacked dialog',
+            onClose: () => setDialogsOpen((current) => ({ ...current, second: false })),
+            children: React.createElement(
+              'button',
+              {
+                id: 'close-last-dialog',
+                type: 'button',
+                onClick: () => setDialogsOpen((current) => ({ ...current, second: false })),
+              },
+              'Close last'
+            ),
+          }
+        )
+      )
+    }
+
+    try {
+      view = await mount(React.createElement(StackedDialogs))
+      await flush()
+      assert.equal(document.querySelectorAll('dialog').length, 2)
+      assert.equal(document.body.style.overflow, 'hidden')
+
+      await view.click(document.querySelector('#close-last-dialog'))
+      await flush()
+      assert.equal(document.querySelectorAll('dialog').length, 1)
+      assert.equal(document.body.style.overflow, 'hidden', 'one remaining dialog must keep the body locked')
+
+      await view.click(document.querySelector('#close-first-dialog'))
+      await flush()
+      assert.equal(document.querySelectorAll('dialog').length, 0)
+      assert.equal(document.body.style.overflow, 'clip')
+
+      await view.click(document.querySelector('#reopen-dialogs'))
+      await flush()
+      assert.equal(document.querySelectorAll('dialog').length, 2)
+      await view.click(document.querySelector('#close-all-dialogs'))
+      await flush()
+      assert.equal(document.querySelectorAll('dialog').length, 0)
+      assert.equal(document.body.style.overflow, 'clip')
+
+      assert.deepEqual(overflowMutations, ['hidden', 'clip', 'hidden', 'clip'])
+    } finally {
+      overflowObserver.disconnect()
+      view?.unmount()
+      document.body.style.overflow = originalOverflow
+    }
+  })
 })
