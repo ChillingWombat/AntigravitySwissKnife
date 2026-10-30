@@ -100,6 +100,38 @@ test('broker allows the ACP mesh read used by the agent registry', async () => {
   assert.deepEqual(calls, ['http://127.0.0.1:8765/api/utilities/acp']);
 });
 
+test('ACP endpoint probes are allowed without machine-control approval', async () => {
+  const calls = [];
+  let approvals = 0;
+  const broker = createDaemonBroker({
+    getToken: () => 'main-process-secret',
+    requestApproval: async () => {
+      approvals += 1;
+      return true;
+    },
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return fakeResponse(200, '{}', { 'Content-Type': 'application/json' });
+    },
+  });
+
+  for (const path of ['/api/utilities/acp/detect', '/api/utilities/acp/ping']) {
+    const result = await broker.request({
+      method: 'POST',
+      path,
+      body: JSON.stringify({ id: 'agent-codex' }),
+    });
+    assert.equal(result.status, 200);
+    assert.equal(ALLOWED_ROUTES.POST.has(path), true, `${path} must be an allowed POST`);
+    assert.equal(PRIVILEGED_ROUTES.POST.has(path), false, `${path} must not require approval`);
+  }
+  assert.equal(approvals, 0);
+  assert.deepEqual(calls, [
+    'http://127.0.0.1:8765/api/utilities/acp/detect',
+    'http://127.0.0.1:8765/api/utilities/acp/ping',
+  ]);
+});
+
 test('broker rejects unknown methods, paths, bodies, and redirects with typed errors', async () => {
   let daemonCalls = 0;
   const broker = createDaemonBroker({
