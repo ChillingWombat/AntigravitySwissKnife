@@ -14,7 +14,7 @@ import (
 // TestEmpirical_CORSValidation stress-tests isAllowedLoopbackOrigin and corsMiddleware
 // against hostile origins and Antigravity desktop origins.
 func TestEmpirical_CORSValidation(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	handler := srv.corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

@@ -25,7 +25,7 @@ func TestChallenger_AuthBypass_SensitiveEndpointsRequireAuth(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestChallenger_AuthBypass_ForgedTokensRejected(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestChallenger_AuthBypass_PublicWhitelistEndpoints(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestChallenger_AuthBypass_ValidSessionTokenPermitted(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestChallenger_PathDeletionWipe_HTTPDeleteEndpoint(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -458,7 +458,7 @@ func TestChallenger_TokenExfiltration_StatusAndSurfacesAndQuota(t *testing.T) {
 		t.Fatalf("AddOrUpdateAccount failed: %v", err)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -590,7 +590,7 @@ func TestChallenger_TokenExfiltration_CustomModelsRedacted(t *testing.T) {
 		t.Fatalf("failed to save custom models store: %v", err)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}

@@ -14,7 +14,7 @@ import (
 
 func TestHandleSettingsThemeGETDefault(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/settings/theme", nil)
 	rr := httptest.NewRecorder()
@@ -37,7 +37,7 @@ func TestHandleSettingsThemeGETDefault(t *testing.T) {
 func TestHandleSettingsThemePOSTPersists(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 
 	for _, mode := range []string{core.ThemeModeDark, core.ThemeModeLight, core.ThemeModeAuto} {
 		body, _ := json.Marshal(map[string]string{"theme": mode})
@@ -92,7 +92,7 @@ func TestHandleSettingsThemePOSTPersists(t *testing.T) {
 
 func TestHandleSettingsThemePOSTRejectsInvalid(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 
 	body := []byte(`{"theme":"neon"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/theme", bytes.NewReader(body))
@@ -125,7 +125,7 @@ func TestHandleSettingsThemePOSTRejectsInvalid(t *testing.T) {
 
 func TestHandleSettingsThemeMethodNotAllowed(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/settings/theme", nil)
 	rr := httptest.NewRecorder()

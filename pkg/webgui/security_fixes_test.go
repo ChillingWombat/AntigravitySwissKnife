@@ -17,7 +17,7 @@ import (
 )
 
 func TestCORSStrictValidation(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestAccountsRedactionAndPreservation(t *testing.T) {
 		t.Fatalf("AddOrUpdateAccount failed: %v", err)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestAccountsRedactionAndPreservation(t *testing.T) {
 }
 
 func TestFilesPathTraversalJailing(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestFilesPathTraversalJailing(t *testing.T) {
 }
 
 func TestOpenIDECanonicalAllowlist(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestTOTPAuthProtection(t *testing.T) {
 		t.Fatalf("cfg.Save failed: %v", err)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -442,7 +442,7 @@ func TestTOTPAuthProtection(t *testing.T) {
 }
 
 func TestMaxBytesMiddlewareLimit(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -469,7 +469,7 @@ func TestMaxBytesMiddlewareLimit(t *testing.T) {
 }
 
 func TestGoogleOAuthExchange_CSRFStateValidation(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}

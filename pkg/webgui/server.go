@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/backend"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/bridge"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/cache"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
@@ -50,9 +51,17 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
+var newGUIConfigStore = gui.NewStore
+
+// RPCClient is the explicit daemon transport used by standalone web mode.
+type RPCClient interface {
+	Call(method string, params interface{}, out interface{}) error
+}
+
 // Server serves the minimalist light theme web UI and REST API.
 type Server struct {
-	client                    *ipc.Client
+	client                    RPCClient
+	backend                   backend.BackendService
 	guiStore                  *gui.Store
 	customModelsStore         *custommodels.Store
 	customModelsGateway       *custommodels.Gateway
@@ -105,32 +114,65 @@ func (o restoreNativeOutcome) err() error {
 	return errors.Join(o.SyncErr, o.RestartErr)
 }
 
-// NewServer initializes the web UI server.
-func NewServer(addr string, socketPath string) *Server {
+// NewServer initializes the daemon-backed web UI server.
+func NewServer(addr string, service backend.BackendService, rpc RPCClient) (*Server, error) {
+	if service == nil || service.Accounts() == nil {
+		return nil, errors.New("account backend is required")
+	}
+	return newServer(addr, service, rpc)
+}
+
+// NewRPCServer initializes standalone web mode with an explicit daemon RPC client.
+func NewRPCServer(addr string, socketPath string) (*Server, error) {
+	return newServer(addr, nil, ipc.NewClient(socketPath))
+}
+
+func newServer(addr string, service backend.BackendService, rpc RPCClient) (*Server, error) {
+	if rpc == nil {
+		return nil, errors.New("daemon RPC client is required")
+	}
 	if addr == "" {
 		addr = "127.0.0.1:8765"
 	}
-	client := ipc.NewClient(socketPath)
-	guiStore, _ := gui.NewStore("")
-	cmStore, _ := custommodels.NewStore("")
+	guiStore, err := newGUIConfigStore("")
+	if err != nil {
+		return nil, fmt.Errorf("initialize GUI store: %w", err)
+	}
+	cmStore, err := custommodels.NewStore("")
+	if err != nil {
+		return nil, fmt.Errorf("initialize custom-model store: %w", err)
+	}
 	cmTester := custommodels.NewTester()
 	custommodels.AutoEnsureCLIGatewayIntegration(cmStore)
 	sysDetector := system.NewDetector()
 	appRelMgr := system.NewAppReleaseManager()
-	enhStore, _ := enhancements.NewStore("")
+	enhStore, err := enhancements.NewStore("")
+	if err != nil {
+		return nil, fmt.Errorf("initialize enhancement store: %w", err)
+	}
 	oauthMgr := keyring.NewGoogleOAuthManager("", "")
-	ghStore, _ := github.NewStore("")
+	ghStore, err := github.NewStore("")
+	if err != nil {
+		return nil, fmt.Errorf("initialize GitHub store: %w", err)
+	}
 	ghTracker := github.NewAgentTracker("", ghStore)
 	ghService := github.NewService(ghTracker, ghStore)
 	vaultMgr := vault.NewManager("", "")
-	bridgeSvc, _ := bridge.NewService("")
-	localTok, _ := GenerateLocalSessionToken()
+	bridgeSvc, err := bridge.NewService("")
+	if err != nil {
+		return nil, fmt.Errorf("initialize bridge service: %w", err)
+	}
+	localTok, err := GenerateLocalSessionToken()
+	if err != nil {
+		return nil, fmt.Errorf("initialize local session token: %w", err)
+	}
 	sessMap := make(map[string]time.Time)
 	if localTok != "" {
 		sessMap[localTok] = time.Now().Add(365 * 24 * time.Hour)
 	}
 	return &Server{
-		client:             client,
+		client:             rpc,
+		backend:            service,
 		guiStore:           guiStore,
 		customModelsStore:  cmStore,
 		customModelsTester: cmTester,
@@ -146,7 +188,7 @@ func NewServer(addr string, socketPath string) *Server {
 		knownWorkspaces:    make(map[string]struct{}),
 		sessionTokens:      sessMap,
 		daemonSessionToken: localTok,
-	}
+	}, nil
 }
 
 func (s *Server) createSessionToken() (string, error) {
@@ -910,39 +952,10 @@ func isAllowedLoopbackOrigin(origin string) bool {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	var status map[string]interface{}
-	if err := s.client.Call("swiss.getStatus", nil, &status); err != nil {
-		// Direct store fallback when daemon is inactive
-		store, _ := keyring.NewStore("")
-		active := ""
-		total := 0
-		if store != nil {
-			c, _ := core.LoadConfig()
-			var allEmails []string
-			for _, a := range store.ListAccounts() {
-				allEmails = append(allEmails, a.Email)
-			}
-			_, _ = store.ReconcileActiveAccount(c.AutoImportActiveAccount, allEmails, nil)
-			active = store.ActiveAccount()
-			total = len(store.ListAccounts())
-		}
-		shield := process.NewShield(0)
-		procs, _ := shield.FindAntigravityUIProcesses()
-		hostRunning := len(procs) > 0
-		var hostPID int
-		if hostRunning {
-			hostPID = procs[0].PID
-		}
-		status = map[string]interface{}{
-			"daemon_running":              false,
-			"daemon_pid":                  0,
-			"version":                     core.AppVersion,
-			"active_account":              active,
-			"total_accounts":              total,
-			"antigravity_running":         hostRunning,
-			"antigravity_pid":             hostPID,
-			"running_antigravity_account": keyring.ResolveRunningAntigravityAccountRedacted("", ""),
-		}
+	status, err := s.loadStatus()
+	if err != nil {
+		writeAccountBackendError(w, err)
+		return
 	}
 	if accObj, ok := status["running_antigravity_account"].(map[string]interface{}); ok {
 		delete(accObj, "access_token")
@@ -950,6 +963,42 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		delete(accObj, "id_token")
 	}
 	writeJSON(w, status)
+}
+
+func (s *Server) loadStatus() (map[string]interface{}, error) {
+	if service := s.accountService(); service != nil {
+		accounts := service.ListAccounts()
+		return statusPayload(activeAccountEmail(accounts), len(accounts), true), nil
+	}
+	var status map[string]interface{}
+	if err := s.callAccountOwnerRPC("get status", "swiss.getStatus", nil, &status); err != nil {
+		return nil, err
+	}
+	return status, nil
+}
+
+func statusPayload(active string, total int, daemonRunning bool) map[string]interface{} {
+	shield := process.NewShield(0)
+	procs, _ := shield.FindAntigravityUIProcesses()
+	hostRunning := len(procs) > 0
+	var hostPID int
+	if hostRunning {
+		hostPID = procs[0].PID
+	}
+	daemonPID := 0
+	if daemonRunning {
+		daemonPID = os.Getpid()
+	}
+	return map[string]interface{}{
+		"daemon_running":              daemonRunning,
+		"daemon_pid":                  daemonPID,
+		"version":                     core.AppVersion,
+		"active_account":              active,
+		"total_accounts":              total,
+		"antigravity_running":         hostRunning,
+		"antigravity_pid":             hostPID,
+		"running_antigravity_account": keyring.ResolveRunningAntigravityAccountRedacted("", ""),
+	}
 }
 
 func redactAccount(acc keyring.Account) keyring.Account {
@@ -990,43 +1039,40 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		s.handleAccountUpdate(w, r)
 		return
 	}
-	var accounts []keyring.Account
-	if err := s.client.Call("swiss.listAccounts", nil, &accounts); err != nil {
-		store, _ := keyring.NewStore("")
-		if store != nil {
-			ptrs := store.ListAccounts()
-			accounts = make([]keyring.Account, len(ptrs))
-			for i, p := range ptrs {
-				if p != nil {
-					accounts[i] = *p
-				}
-			}
-		} else {
-			http.Error(w, "failed to list accounts", http.StatusServiceUnavailable)
-			return
-		}
+	accounts, err := s.accountsSnapshot()
+	if err != nil {
+		http.Error(w, "failed to list accounts: "+err.Error(), http.StatusServiceUnavailable)
+		return
 	}
 	redacted := make([]keyring.Account, len(accounts))
-	for i, a := range accounts {
-		redacted[i] = redactAccount(a)
+	for i, account := range accounts {
+		if account != nil {
+			redacted[i] = redactAccount(*account)
+		}
 	}
 	writeJSON(w, redacted)
 }
 
 func (s *Server) handleAccountsScan(w http.ResponseWriter, r *http.Request) {
-	var disc []keyring.DiscoveredAccount
-	if err := s.client.Call("swiss.scanLocalAccounts", nil, &disc); err != nil {
-		store, _ := keyring.NewStore("")
-		scanner := keyring.NewScanner(store)
-		res, errScan := scanner.Scan()
-		if errScan != nil {
-			http.Error(w, errScan.Error(), http.StatusInternalServerError)
+	if service := s.accountService(); service != nil {
+		accounts, err := service.ScanAccounts()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, res)
+		writeJSON(w, accounts)
 		return
 	}
-	writeJSON(w, disc)
+	var accounts []keyring.DiscoveredAccount
+	if s.client == nil {
+		http.Error(w, "account backend is not initialized", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.client.Call("swiss.scanLocalAccounts", nil, &accounts); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, accounts)
 }
 
 func (s *Server) handleAccountsImport(w http.ResponseWriter, r *http.Request) {
@@ -1034,37 +1080,30 @@ func (s *Server) handleAccountsImport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var p struct {
-		Email        string `json:"email"`
-		RefreshToken string `json:"refresh_token"`
-		AccessToken  string `json:"access_token"`
-		Label        string `json:"label"`
-		TOTPSecret   string `json:"totp_secret"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Email == "" {
+	var req backend.AccountImport
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
 		http.Error(w, "invalid request body, missing email", http.StatusBadRequest)
 		return
 	}
-
-	var res interface{}
-	if err := s.client.Call("swiss.importAccount", p, &res); err != nil {
-		store, errStore := keyring.NewStore("")
-		if errStore != nil {
-			http.Error(w, errStore.Error(), http.StatusInternalServerError)
+	if service := s.accountService(); service != nil {
+		account, err := service.ImportAccount(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		acc, errImport := store.ImportAccount(p.Email, p.RefreshToken, p.AccessToken, p.Label, p.TOTPSecret)
-		if errImport != nil {
-			http.Error(w, errImport.Error(), http.StatusInternalServerError)
-			return
-		}
-		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-			_, _ = quota.PollAndCacheAccount(acc, store)
-		}
-		writeJSON(w, acc)
+		writeJSON(w, account)
 		return
 	}
-	writeJSON(w, res)
+	if s.client == nil {
+		http.Error(w, "account backend is not initialized", http.StatusServiceUnavailable)
+		return
+	}
+	var result interface{}
+	if err := s.client.Call("swiss.importAccount", req, &result); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, result)
 }
 
 func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1072,105 +1111,30 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var p struct {
-		Email                string  `json:"email"`
-		Label                string  `json:"label"`
-		PlanTier             string  `json:"plan_tier"`
-		Status               string  `json:"status"`
-		Priority             string  `json:"priority"`
-		Notes                string  `json:"notes"`
-		Password             string  `json:"password"`
-		TOTPSecret           string  `json:"totp_secret"`
-		RefreshToken         string  `json:"refresh_token"`
-		AccessToken          string  `json:"access_token"`
-		Credits              float64 `json:"credits"`
-		EnableCreditOverages bool    `json:"enable_credit_overages"`
-		AllowClaudeGPT       bool    `json:"allow_claude_gpt"`
-		SetActive            bool    `json:"set_active"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Email == "" {
+	var req backend.AccountUpdate
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
 		http.Error(w, "invalid request body, missing email", http.StatusBadRequest)
 		return
 	}
-
-	store, _ := keyring.NewStore("")
-	if store != nil {
-		if existing, _ := store.GetAccount(p.Email); existing != nil {
-			if p.Password == "[REDACTED]" || p.Password == "" {
-				p.Password = existing.Password
-			}
-			if p.TOTPSecret == "[REDACTED]" || p.TOTPSecret == "" {
-				p.TOTPSecret = existing.TOTPSecret
-			}
-			if p.RefreshToken == "[REDACTED]" {
-				p.RefreshToken = existing.RefreshToken
-			}
-			if p.AccessToken == "[REDACTED]" {
-				p.AccessToken = existing.AccessToken
-			}
-		}
-	}
-
-	var res map[string]interface{}
-	if err := s.client.Call("swiss.updateAccount", p, &res); err != nil {
-		if store == nil {
-			var storeErr error
-			store, storeErr = keyring.NewStore("")
-			if storeErr != nil {
-				http.Error(w, "failed to initialize account store", http.StatusInternalServerError)
-				return
-			}
-		}
-		prevActive := store.ActiveAccount()
-		if err := store.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.AllowClaudeGPT, p.SetActive); err != nil {
-			http.Error(w, "failed to update account", http.StatusInternalServerError)
+	if service := s.accountService(); service != nil {
+		result, err := service.UpdateAccount(req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if p.AccessToken != "" {
-			_ = store.SetAccessToken(p.Email, p.AccessToken)
-		}
-		acc, _ := store.GetAccount(p.Email)
-		var summary *quota.QuotaSummary
-		if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
-			summary, _ = quota.PollAndCacheAccount(acc, store)
-			if refreshed, _ := store.GetAccount(p.Email); refreshed != nil {
-				acc = refreshed
-			}
-		}
-		if p.SetActive {
-			var allEmails []string
-			for _, a := range store.ListAccounts() {
-				allEmails = append(allEmails, a.Email)
-			}
-			if acc, _ = store.GetAccount(p.Email); acc != nil {
-				_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
-				if acc.AccessToken != "" {
-					_ = store.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
-				}
-				switched := !strings.EqualFold(strings.TrimSpace(prevActive), strings.TrimSpace(p.Email))
-				if switched && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
-					_ = gui.NewInjector(0).CaptureActiveConversationPath()
-					go func() {
-						time.Sleep(200 * time.Millisecond)
-						_ = process.NewShield(0).RelaunchHostIDE()
-					}()
-				} else {
-					_, _ = gui.NewInjector(0).RefreshUserStatus()
-				}
-			}
-		}
-		res = map[string]interface{}{"success": true, "email": p.Email}
-		if acc != nil {
-			res["plan_tier"] = acc.PlanTier
-			res["credits"] = acc.Credits
-			res["status"] = acc.Status
-			res["error_message"] = acc.ErrorMessage
-		}
-		if summary != nil {
-			res["quota"] = summary
-		}
+		writeJSON(w, result)
+		return
 	}
-	writeJSON(w, res)
+	if s.client == nil {
+		http.Error(w, "account backend is not initialized", http.StatusServiceUnavailable)
+		return
+	}
+	var result map[string]interface{}
+	if err := s.client.Call("swiss.updateAccount", req, &result); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, result)
 }
 
 func (s *Server) handleAccountDelete(w http.ResponseWriter, r *http.Request) {
@@ -1178,48 +1142,32 @@ func (s *Server) handleAccountDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var p struct {
+	var req struct {
 		Email string `json:"email"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil || p.Email == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
 		http.Error(w, "invalid request body, missing email", http.StatusBadRequest)
 		return
 	}
-	var res map[string]interface{}
-	if err := s.client.Call("swiss.removeAccount", p, &res); err != nil {
-		store, storeErr := keyring.NewStore("")
-		if storeErr != nil {
-			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
-			return
-		}
-		prevActive := store.ActiveAccount()
-		if err := store.RemoveAccount(p.Email); err != nil {
+	if service := s.accountService(); service != nil {
+		result, err := service.RemoveAccount(req.Email)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		newActive := store.ActiveAccount()
-		if newActive != "" && !strings.EqualFold(prevActive, newActive) {
-			var allEmails []string
-			for _, a := range store.ListAccounts() {
-				allEmails = append(allEmails, a.Email)
-			}
-			if acc, _ := store.GetAccount(newActive); acc != nil {
-				_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
-				if acc.AccessToken != "" {
-					_ = store.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
-				}
-				if os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
-					_ = gui.NewInjector(0).CaptureActiveConversationPath()
-					go func() {
-						time.Sleep(200 * time.Millisecond)
-						_ = process.NewShield(0).RelaunchHostIDE()
-					}()
-				}
-			}
-		}
-		res = map[string]interface{}{"success": true, "removed": p.Email, "active_account": newActive}
+		writeJSON(w, result)
+		return
 	}
-	writeJSON(w, res)
+	if s.client == nil {
+		http.Error(w, "account backend is not initialized", http.StatusServiceUnavailable)
+		return
+	}
+	var result map[string]interface{}
+	if err := s.client.Call("swiss.removeAccount", req, &result); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, result)
 }
 
 func (s *Server) handleAccountsExport(w http.ResponseWriter, r *http.Request) {
@@ -1233,13 +1181,17 @@ func (s *Server) handleAccountsExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var exported []keyring.AccountExport
-	if err := s.client.Call("swiss.exportAccounts", nil, &exported); err != nil {
-		store, storeErr := keyring.NewStore("")
-		if storeErr != nil {
-			http.Error(w, "failed to export accounts", http.StatusInternalServerError)
+	if service := s.accountService(); service != nil {
+		exported = service.ExportAccounts()
+	} else {
+		if s.client == nil {
+			http.Error(w, "account backend is not initialized", http.StatusServiceUnavailable)
 			return
 		}
-		exported = store.ExportAccounts()
+		if err := s.client.Call("swiss.exportAccounts", nil, &exported); err != nil {
+			http.Error(w, "failed to export accounts: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
 	}
 	if email := strings.TrimSpace(r.URL.Query().Get("email")); email != "" {
 		filtered := make([]keyring.AccountExport, 0, len(exported))
@@ -1265,13 +1217,11 @@ func (s *Server) handleAccountsBatchImport(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
 	body, err := io.ReadAll(r.Body)
 	if err != nil || len(body) == 0 {
 		http.Error(w, "empty request body", http.StatusBadRequest)
 		return
 	}
-
 	var items []keyring.BatchImportItem
 	if err := json.Unmarshal(body, &items); err != nil {
 		var wrapper struct {
@@ -1279,13 +1229,13 @@ func (s *Server) handleAccountsBatchImport(w http.ResponseWriter, r *http.Reques
 		}
 		if err2 := json.Unmarshal(body, &wrapper); err2 == nil && len(wrapper.Accounts) > 0 {
 			if err3 := json.Unmarshal(wrapper.Accounts, &items); err3 != nil {
-				var accMap map[string]keyring.BatchImportItem
-				if err4 := json.Unmarshal(wrapper.Accounts, &accMap); err4 == nil {
-					for em, it := range accMap {
-						if it.Email == "" && it.ID == "" {
-							it.Email = em
+				var accountMap map[string]keyring.BatchImportItem
+				if err4 := json.Unmarshal(wrapper.Accounts, &accountMap); err4 == nil {
+					for email, item := range accountMap {
+						if item.Email == "" && item.ID == "" {
+							item.Email = email
 						}
-						items = append(items, it)
+						items = append(items, item)
 					}
 				}
 			}
@@ -1296,27 +1246,29 @@ func (s *Server) handleAccountsBatchImport(w http.ResponseWriter, r *http.Reques
 			}
 		}
 	}
-
 	if len(items) == 0 {
 		http.Error(w, "no valid account entries found in JSON", http.StatusBadRequest)
 		return
 	}
-
-	var res map[string]interface{}
-	if err := s.client.Call("swiss.batchImportAccounts", items, &res); err != nil {
-		store, storeErr := keyring.NewStore("")
-		if storeErr != nil {
-			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
+	if service := s.accountService(); service != nil {
+		count, err := service.BatchImportAccounts(items)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		count, errImport := store.BatchImportAccounts(items)
-		if errImport != nil {
-			http.Error(w, errImport.Error(), http.StatusInternalServerError)
-			return
-		}
-		res = map[string]interface{}{"success": true, "imported": count, "message": fmt.Sprintf("Successfully imported %d accounts", count)}
+		writeJSON(w, map[string]interface{}{"success": true, "imported": count, "message": fmt.Sprintf("Successfully imported %d accounts", count)})
+		return
 	}
-	writeJSON(w, res)
+	if s.client == nil {
+		http.Error(w, "account backend is not initialized", http.StatusServiceUnavailable)
+		return
+	}
+	var result map[string]interface{}
+	if err := s.client.Call("swiss.batchImportAccounts", items, &result); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, result)
 }
 
 // preSwitchAccountStatus resolves the target account's quota status
@@ -1325,8 +1277,8 @@ func (s *Server) handleAccountsBatchImport(w http.ResponseWriter, r *http.Reques
 // executed, because the switch flips the account's active flag and therefore
 // its status. The second return value reports whether the account was found.
 func (s *Server) preSwitchAccountStatus(email string) (string, bool) {
-	store, err := keyring.NewStore("")
-	if err != nil || store == nil {
+	accounts, err := s.accountsSnapshot()
+	if err != nil {
 		return "", false
 	}
 	cfg, _ := core.LoadConfig()
@@ -1342,13 +1294,70 @@ func (s *Server) preSwitchAccountStatus(email string) (string, bool) {
 		}
 		allowNonGemini = cfg.AllowNonGeminiNativeModels
 	}
-	states := quota.BuildAccountQuotaStatesFromMapWithThresholds(store.ListAccounts(), nil, threshold5h, thresholdWeekly, allowNonGemini)
-	for _, st := range states {
-		if strings.EqualFold(strings.TrimSpace(st.Email), strings.TrimSpace(email)) {
-			return st.Status, true
+	states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, nil, threshold5h, thresholdWeekly, allowNonGemini)
+	for _, state := range states {
+		if strings.EqualFold(strings.TrimSpace(state.Email), strings.TrimSpace(email)) {
+			return state.Status, true
 		}
 	}
 	return "", false
+}
+
+func (s *Server) accountService() backend.AccountService {
+	if s.backend == nil {
+		return nil
+	}
+	return s.backend.Accounts()
+}
+
+type accountBackendError struct {
+	operation string
+	err       error
+}
+
+func (e *accountBackendError) Error() string {
+	return fmt.Sprintf("account backend %s failed: %v", e.operation, e.err)
+}
+
+func (e *accountBackendError) Unwrap() error {
+	return e.err
+}
+
+func (s *Server) callAccountOwnerRPC(operation, method string, params, out interface{}) error {
+	if s.client == nil {
+		return &accountBackendError{operation: operation, err: errors.New("daemon RPC client is not initialized")}
+	}
+	if err := s.client.Call(method, params, out); err != nil {
+		return &accountBackendError{operation: operation, err: err}
+	}
+	return nil
+}
+
+func writeAccountBackendError(w http.ResponseWriter, err error) {
+	http.Error(w, err.Error(), http.StatusBadGateway)
+}
+
+func activeAccountEmail(accounts []*keyring.Account) string {
+	for _, account := range accounts {
+		if account.IsActive {
+			return account.Email
+		}
+	}
+	return ""
+}
+
+func (s *Server) accountsSnapshot() ([]*keyring.Account, error) {
+	if service := s.accountService(); service != nil {
+		return service.ListAccounts(), nil
+	}
+	if s.client == nil {
+		return nil, errors.New("account backend is not initialized")
+	}
+	var accounts []*keyring.Account
+	if err := s.client.Call("swiss.listAccounts", nil, &accounts); err != nil {
+		return nil, err
+	}
+	return accounts, nil
 }
 
 // disableAutoSwitchForManualPin implements the manual account switching
@@ -1386,17 +1395,13 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var p struct {
-		Email       string `json:"email"`
-		RelaunchIDE *bool  `json:"relaunch_ide"`
-		TargetApp   string `json:"target_app"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+	var req backend.AccountSwitch
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	p.Email = strings.TrimSpace(p.Email)
-	if p.Email == "" {
+	req.Email = strings.TrimSpace(req.Email)
+	if req.Email == "" {
 		http.Error(w, "email is required", http.StatusBadRequest)
 		return
 	}
@@ -1409,128 +1414,29 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.isSwitching.Store(false)
-	// Manual switching pins the selected account: when auto-switch is enabled
-	// and the target account is NOT in STANDBY status, turn auto-switch off so
-	// the daemon does not immediately rotate away from the pinned account.
-	// Evaluated before the switch executes so the target's pre-switch status
-	// is used. STANDBY targets leave auto-switch state untouched.
-	autoSwitchDisabled := s.disableAutoSwitchForManualPin(p.Email)
-	shouldRelaunch := true
-	if p.RelaunchIDE != nil {
-		shouldRelaunch = *p.RelaunchIDE
-	} else if p.TargetApp != "" && p.TargetApp != "all" && p.TargetApp != "desktop" {
-		shouldRelaunch = false
-	}
-	reqPayload := map[string]interface{}{
-		"email":        p.Email,
-		"relaunch_ide": shouldRelaunch,
-		"target_app":   p.TargetApp,
-	}
-	var res map[string]interface{}
-	if s.client == nil || s.client.Call("swiss.switchAccount", reqPayload, &res) != nil {
-		store, storeErr := keyring.NewStore("")
-		if storeErr != nil {
-			http.Error(w, storeErr.Error(), http.StatusInternalServerError)
-			return
-		}
-		cfg, _ := core.LoadConfig()
-		targetApp := strings.ToLower(strings.TrimSpace(p.TargetApp))
-		isIndividual := cfg != nil && cfg.GetMultiAppSyncMode() == core.MultiAppSyncModeIndividual
-		isAll := targetApp == "" || targetApp == core.TargetAppAll || !isIndividual
 
-		if isAll || targetApp == core.TargetAppDesktop {
-			if err := store.SetActiveAccount(p.Email); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-		}
-
-		if cfg != nil {
-			if isAll {
-				_ = cfg.SetActiveAppAccount("all", p.Email)
-			} else {
-				_ = cfg.SetActiveAppAccount(targetApp, p.Email)
-			}
-		}
-
-		var revIntents []*revival.RevivalIntent
-		if s.revivalEngine != nil {
-			revIntents, _ = s.revivalEngine.CapturePreSwitchIntents(targetApp)
-		}
-
-		var allEmails []string
-		for _, a := range store.ListAccounts() {
-			allEmails = append(allEmails, a.Email)
-		}
-		if acc, _ := store.GetAccount(p.Email); acc != nil {
-			if isAll {
-				_ = keyring.SyncAllSurfaces(acc, allEmails, nil)
-			} else {
-				_ = keyring.SyncSurface(targetApp, acc, allEmails, nil)
-			}
-			if acc.AccessToken != "" {
-				_ = store.UpdateAccountTokensWithExpiry(acc.Email, acc.AccessToken, acc.RefreshToken, acc.TokenExpiry)
-			}
-			if !shouldRelaunch {
-				if !core.IsRunningTests() && !gui.IsTestExecution() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
-					_, _ = gui.NewInjector(0).RefreshUserStatus()
-					if s.revivalEngine != nil && len(revIntents) > 0 {
-						go func(intents []*revival.RevivalIntent) {
-							for _, it := range intents {
-								_ = s.revivalEngine.ExecutePostRelaunchRevival(it)
-							}
-						}(revIntents)
-					}
-				}
-			}
-		}
-		if shouldRelaunch && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
-			_ = gui.NewInjector(0).CaptureActiveConversationPath()
-			go func() {
-				time.Sleep(200 * time.Millisecond)
-				shield := process.NewShield(0)
-				if s.revivalEngine != nil {
-					shield.SetRevivalEngine(s.revivalEngine)
-				}
-				_ = shield.RelaunchHostIDE()
-			}()
-		}
-		activeApps := make(map[string]string)
-		syncMode := core.MultiAppSyncModeShared
-		if cfg != nil {
-			syncMode = cfg.GetMultiAppSyncMode()
-			activeApps = cfg.GetActiveAppAccounts()
-		}
-		res = map[string]interface{}{
-			"switched":            true,
-			"account":             p.Email,
-			"success":             true,
-			"active_account":      p.Email,
-			"relaunch_ide":        shouldRelaunch,
-			"target_app":          p.TargetApp,
-			"multi_app_sync_mode": syncMode,
-			"active_app_accounts": activeApps,
-		}
-		if autoSwitchDisabled {
-			res["auto_switch_disabled"] = true
-		}
+	autoSwitchDisabled := s.disableAutoSwitchForManualPin(req.Email)
+	var result backend.AccountSwitchResult
+	var err error
+	if service := s.accountService(); service != nil {
+		result, err = service.SwitchAccount(req)
+	} else if s.client != nil {
+		err = s.client.Call("swiss.switchAccount", req, &result)
 	} else {
-		if res == nil {
-			res = make(map[string]interface{})
-		}
-		res["success"] = true
-		res["active_account"] = p.Email
-		if autoSwitchDisabled {
-			res["auto_switch_disabled"] = true
-		}
-		if p.TargetApp != "" {
-			res["target_app"] = p.TargetApp
-		}
-		if shouldRelaunch {
-			res["relaunch_ide"] = true
-		}
+		err = errors.New("account backend is not initialized")
 	}
-	writeJSON(w, res)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, core.ErrAccountNotFound) {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if autoSwitchDisabled {
+		result.AutoSwitchDisabled = true
+	}
+	writeJSON(w, result)
 }
 
 func (s *Server) handleTOTP(w http.ResponseWriter, r *http.Request) {
@@ -1554,50 +1460,54 @@ func (s *Server) handleTOTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var res map[string]interface{}
-		if err := s.client.Call("swiss.setTOTPSecret", p, &res); err != nil {
-			store, storeErr := keyring.NewStore("")
-			if storeErr != nil {
-				http.Error(w, storeErr.Error(), http.StatusInternalServerError)
-				return
-			}
-			if err := store.SetTOTPSecret(p.Email, p.Secret); err != nil {
+		if service := s.accountService(); service != nil {
+			if err := service.SetTOTPSecret(p.Email, p.Secret); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			res = map[string]interface{}{"success": true}
+		} else if err := s.callAccountOwnerRPC("set TOTP secret", "swiss.setTOTPSecret", p, &res); err != nil {
+			writeAccountBackendError(w, err)
+			return
 		}
 		writeJSON(w, res)
 		return
 	}
 
-	var res map[string]interface{}
-	if err := s.client.Call("swiss.getTOTPCode", map[string]string{"email": email}, &res); err != nil {
-		store, _ := keyring.NewStore("")
+	if service := s.accountService(); service != nil {
 		target := email
-		if target == "" && store != nil {
-			target = store.ActiveAccount()
+		if target == "" {
+			target = activeAccountEmail(service.ListAccounts())
 		}
-		if store != nil {
-			acc, _ := store.GetAccount(target)
-			if acc != nil && acc.TOTPSecret != "" {
-				eng := totp.NewEngine()
-				now := time.Now()
-				code, _ := eng.GenerateCode(acc.TOTPSecret, now)
-				cd := eng.GetCountdown(now)
-				writeJSON(w, map[string]interface{}{
-					"code":              code,
-					"remaining_seconds": cd.RemainingSeconds,
-					"progress_fraction": cd.ProgressFraction,
-					"has_totp":          true,
-				})
-				return
-			}
+		acc, err := service.GetAccount(target)
+		if err != nil && !errors.Is(err, core.ErrAccountNotFound) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
+		if acc == nil || acc.TOTPSecret == "" {
+			writeJSON(w, map[string]interface{}{
+				"code":              "------",
+				"remaining_seconds": 0,
+				"has_totp":          false,
+			})
+			return
+		}
+		eng := totp.NewEngine()
+		now := time.Now()
+		code, _ := eng.GenerateCode(acc.TOTPSecret, now)
+		cd := eng.GetCountdown(now)
 		writeJSON(w, map[string]interface{}{
-			"code":              "------",
-			"remaining_seconds": 0,
-			"has_totp":          false,
+			"code":              code,
+			"remaining_seconds": cd.RemainingSeconds,
+			"progress_fraction": cd.ProgressFraction,
+			"has_totp":          true,
 		})
+		return
+	}
+
+	var res map[string]interface{}
+	if err := s.callAccountOwnerRPC("get TOTP code", "swiss.getTOTPCode", map[string]string{"email": email}, &res); err != nil {
+		writeAccountBackendError(w, err)
 		return
 	}
 	writeJSON(w, res)

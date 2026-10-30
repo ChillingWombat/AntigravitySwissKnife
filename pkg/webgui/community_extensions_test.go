@@ -19,7 +19,7 @@ func TestCommunityExtensions_HTTPAPI(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tmpDir)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}

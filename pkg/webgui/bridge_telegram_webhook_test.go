@@ -9,7 +9,7 @@ import (
 
 // A stranger must not be able to post prompts into the agent through the Telegram hook.
 func TestTelegramWebhookRequiresBotToken(t *testing.T) {
-	server := NewServer("127.0.0.1:0", t.TempDir()+"/test.sock")
+	server := newTestServer("127.0.0.1:0", t.TempDir()+"/test.sock")
 
 	// Disabled bridge: refuse outright.
 	req := httptest.NewRequest(http.MethodPost, "/api/bridge/channels/telegram/webhook", strings.NewReader(`{"update_id":1}`))
