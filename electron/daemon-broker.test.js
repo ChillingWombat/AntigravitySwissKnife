@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const {
@@ -68,6 +69,7 @@ test('broker rejects unknown methods, paths, bodies, and redirects with typed er
 
   await assert.rejects(() => broker.request({ method: 'DELETE', path: '/api/status' }), { code: 'METHOD_NOT_ALLOWED' });
   await assert.rejects(() => broker.request({ method: 'GET', path: '/api/bridge/tools' }), { code: 'ROUTE_NOT_ALLOWED' });
+  await assert.rejects(() => broker.request({ method: 'GET', path: '/api/files/unknown?path=/tmp' }), { code: 'ROUTE_NOT_ALLOWED' });
   await assert.rejects(() => broker.request({ method: 'POST', path: '/api/not-a-real-route' }), { code: 'ROUTE_NOT_ALLOWED' });
   assert.equal(daemonCalls, 0);
   await assert.rejects(() => broker.request({ method: 'GET', path: '//example.com/api/status' }), { code: 'INVALID_REQUEST' });
@@ -76,16 +78,124 @@ test('broker rejects unknown methods, paths, bodies, and redirects with typed er
 });
 
 test('broker allowlist contains approved reads and exact mutation routes', () => {
-  for (const route of ['/health', '/api/status', '/api/files/list', '/api/files/read', '/api/github/issues/detail', '/api/memos/export']) {
+  for (const route of ['/health', '/api/status', '/api/github/issues/detail', '/api/memos/export']) {
     assert.equal(ALLOWED_ROUTES.GET.has(route), true, route);
   }
   for (const route of ['/api/enhancements', '/api/gui/color', '/api/conversations/ack', '/api/memos/save', '/api/memos/extract', '/api/github/issues/comment']) {
     assert.equal(ALLOWED_ROUTES.POST.has(route), true, route);
   }
   assert.equal(ALLOWED_ROUTES.GET.has('/api/files/write'), false);
+  assert.equal(ALLOWED_ROUTES.GET.has('/api/files/list'), false);
+  assert.equal(ALLOWED_ROUTES.GET.has('/api/files/read'), false);
   assert.equal(ALLOWED_ROUTES.POST.has('/api/files/write'), false);
+  assert.equal(PRIVILEGED_ROUTES.GET.has('/api/files/list'), true);
+  assert.equal(PRIVILEGED_ROUTES.GET.has('/api/files/read'), true);
   assert.equal(PRIVILEGED_ROUTES.POST.has('/api/files/write'), true);
   assert.equal(PRIVILEGED_ROUTES.POST.has('/api/not-a-real-route'), false);
+});
+
+test('file reads and listings require approval and approve the resolved workspace path', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swiss-broker-files-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const workspace = path.join(root, 'workspace');
+  const file = path.join(workspace, 'report.txt');
+  fs.mkdirSync(workspace);
+  fs.writeFileSync(file, 'report');
+  const configDir = path.join(root, 'config');
+  fs.mkdirSync(configDir);
+  const approvals = [];
+  let tokenReads = 0;
+  let fetches = 0;
+  const broker = createDaemonBroker({
+    configDir,
+    getToken: () => {
+      tokenReads += 1;
+      return 'token';
+    },
+    requestApproval: async (request) => {
+      approvals.push(request);
+      return true;
+    },
+    fetchImpl: async () => {
+      fetches += 1;
+      return fakeResponse(200, '{"success":true}');
+    },
+  });
+
+  await broker.request({ method: 'GET', path: `/api/files/read?path=${encodeURIComponent(file)}` });
+  await broker.request({ method: 'GET', path: `/api/files/list?path=${encodeURIComponent(workspace)}` });
+
+  assert.equal(approvals.length, 2);
+  assert.equal(approvals[0].resolvedPath, fs.realpathSync(file));
+  assert.equal(approvals[1].resolvedPath, fs.realpathSync(workspace));
+  assert.equal(tokenReads, 2);
+  assert.equal(fetches, 2);
+});
+
+test('protected daemon files are denied before token read or daemon call', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swiss-broker-denied-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const configDir = path.join(root, 'config');
+  fs.mkdirSync(configDir);
+  const tokenPath = path.join(configDir, 'session.token');
+  fs.writeFileSync(tokenPath, 'token');
+  let tokenReads = 0;
+  let fetches = 0;
+  let denial;
+  const broker = createDaemonBroker({
+    configDir,
+    getToken: () => {
+      tokenReads += 1;
+      return 'token';
+    },
+    requestApproval: async (request) => {
+      denial = request;
+      return true;
+    },
+    fetchImpl: async () => {
+      fetches += 1;
+      return fakeResponse(200, '{}');
+    },
+  });
+
+  await assert.rejects(
+    () => broker.request({ method: 'GET', path: `/api/files/read?path=${encodeURIComponent(tokenPath)}` }),
+    (error) => {
+      assert.equal(error.code, 'PATH_DENIED');
+      assert.equal(error.status, 403);
+      assert.match(error.message, /configuration directory/);
+      return true;
+    },
+  );
+  assert.equal(denial.resolvedPath, fs.realpathSync(tokenPath));
+  assert.match(denial.denialReason, /configuration directory/);
+  assert.equal(tokenReads, 0);
+  assert.equal(fetches, 0);
+});
+
+test('direct and encoded traversal paths return PATH_DENIED before token read', async () => {
+  let tokenReads = 0;
+  let fetches = 0;
+  const broker = createDaemonBroker({
+    getToken: () => {
+      tokenReads += 1;
+      return 'token';
+    },
+    fetchImpl: async () => {
+      fetches += 1;
+      return fakeResponse(200, '{}');
+    },
+  });
+
+  for (const requestPath of [
+    '/api/files/read?path=%2Ftmp%2F..%2Fetc%2Fpasswd',
+    '/api/files/list?path=%252Ftmp%252F%252E%252E%252Fetc',
+    '/api/files/read?path=%2Ftmp%2F%00secret',
+  ]) {
+    await assert.rejects(() => broker.request({ method: 'GET', path: requestPath }), { code: 'PATH_DENIED' });
+  }
+  assert.equal(tokenReads, 0);
+  assert.equal(fetches, 0);
 });
 
 test('session auth headers are limited to top-level daemon document and static loads', () => {
@@ -275,6 +385,8 @@ test('approval routing covers machine-control and other non-allowlisted API muta
   ]) {
     assert.equal(isApprovalRoute('POST', route), true, route);
   }
+  assert.equal(isApprovalRoute('GET', '/api/files/read'), true);
+  assert.equal(isApprovalRoute('GET', '/api/files/list'), true);
   assert.equal(isApprovalRoute('GET', '/api/files/write'), false);
   assert.equal(isApprovalRoute('POST', '/api/enhancements'), false);
   assert.equal(isApprovalRoute('POST', '/not-daemon'), false);

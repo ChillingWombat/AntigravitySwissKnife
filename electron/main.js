@@ -231,24 +231,27 @@ function getSwissConfigDir() {
 
 const daemonBroker = createDaemonBroker({
   getToken: () => getDaemonSessionToken(),
-  requestApproval: async ({ method, path, bodyPreview }) => {
+  requestApproval: async ({ method, path, bodyPreview, resolvedPath, denialReason }) => {
     const { dialog } = require('electron');
     const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null;
+    const denied = Boolean(denialReason);
     const detail = [
-      'This request can change files or control applications on this machine.',
+      resolvedPath ? `Resolved path:\n${resolvedPath}` : '',
+      denied ? `Denied: ${denialReason}` : '',
+      !resolvedPath && !denied ? 'This request can change files or control applications on this machine.' : '',
       bodyPreview ? `Body preview:\n${bodyPreview}` : '',
     ].filter(Boolean).join('\n\n');
     const result = await dialog.showMessageBox(owner, {
       type: 'warning',
-      buttons: ['Deny', 'Approve'],
+      buttons: denied ? ['OK'] : ['Deny', 'Approve'],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
-      title: 'Approve machine control?',
+      title: denied ? 'File access denied' : resolvedPath ? 'Approve file access?' : 'Approve machine control?',
       message: `${method} ${path}`,
       detail,
     });
-    return result.response === 1;
+    return !denied && result.response === 1;
   },
 });
 

@@ -42,12 +42,17 @@ Approval is one request only and is never cached. Tokens are sent in the `X-Sess
 
 The renderer can ask the privileged main process to act. The broker limits the origin and exact route, and the native dialog binds the approval to the method and path. Filesystem, Obsidian, computer-use, HTTP, file-write, and command tools in the Go bridge require an explicit entry in `allowed_tools`; new defaults omit them, and `CallTool` returns `APPROVAL_REQUIRED` instead of treating an empty allowlist as unrestricted. Existing explicit allowlist entries remain intact.
 
+### File read and list
+
+`/api/files/read` and `/api/files/list` are privileged GET routes. Each request requires a fresh native approval that shows the canonical filesystem path. The broker rejects missing, relative, NUL-containing, and traversal-containing path values, including repeated percent encoding. It resolves symlinks when the target exists and compares both lexical and resolved paths against the Swiss daemon configuration directory. Paths inside that directory and files named `session.token`, `session.pid`, or `credentials*` are denied before the broker reads the daemon token or calls the daemon; the native dialog states the denial reason.
+
 ## Residual Risks
 
 - A compromised Electron main process or preload script is outside this boundary and can read the token.
 - Approval fatigue can cause a user to accept a dangerous command or path.
 - Body previews redact known sensitive fields and opaque content, but arbitrary secrets can still appear in displayed path names or other short values.
-- Safe broker mutation routes remain silent; only the explicit privileged POST set requires one-shot native approval.
+- Safe broker mutation routes remain silent; privileged GET file reads/lists and privileged POST routes require one-shot native approval.
+- A filesystem race can replace a checked path after approval and before the daemon opens it. The daemon still accepts sensitive reads when called directly with a valid session token.
 - The non-Electron browser fallback keeps its unlocked session token only in page memory, so reloads require another unlock. Local XSS in that browser mode can still read the in-memory token during the unlocked session.
 - The daemon token is long-lived on disk; rotation and secure storage depend on the daemon installation.
 - An extension or screen-control malware that can click the native dialog defeats user approval.

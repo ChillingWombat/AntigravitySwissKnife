@@ -1,5 +1,9 @@
 'use strict';
 
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
 const DAEMON_ORIGIN = 'http://127.0.0.1:8765';
 const DEFAULT_TIMEOUT_MS = 15000;
 const MAX_TIMEOUT_MS = 60000;
@@ -21,8 +25,6 @@ const GET_PATHS = Object.freeze([
   '/api/enhancements',
   '/api/custom_models',
   '/api/custom_models/active',
-  '/api/files/list',
-  '/api/files/read',
   '/api/files/ide/config',
   '/api/memos',
   '/api/memos/config',
@@ -96,13 +98,21 @@ const PRIVILEGED_POST_PATHS = Object.freeze([
   '/api/settings/factory-reset',
 ]);
 
+const PRIVILEGED_GET_PATHS = Object.freeze([
+  '/api/files/list',
+  '/api/files/read',
+]);
+
 const ALLOWED_ROUTES = Object.freeze({
   GET: new Set(GET_PATHS),
   POST: new Set(POST_PATHS),
 });
 const PRIVILEGED_ROUTES = Object.freeze({
+  GET: new Set(PRIVILEGED_GET_PATHS),
   POST: new Set(PRIVILEGED_POST_PATHS),
 });
+const FILE_ACCESS_PATHS = new Set(PRIVILEGED_GET_PATHS);
+const SENSITIVE_FILE_NAME = /^(?:session\.token|session\.pid|credentials(?:\..+)?)$/i;
 
 const APPROVAL_BODY_PREVIEW_LIMIT = 400;
 const APPROVAL_PREVIEW_MAX_DEPTH = 3;
@@ -112,7 +122,107 @@ const OPAQUE_BODY_KEY = /^(content|body|data|text|value)$/i;
 const SECRET_IN_TEXT = /(bearer\s+|token|secret|password|api[_-]?key)/i;
 
 function isApprovalRoute(method, pathname) {
-  return method === 'POST' && PRIVILEGED_ROUTES.POST.has(pathname);
+  return Boolean(PRIVILEGED_ROUTES[method] && PRIVILEGED_ROUTES[method].has(pathname));
+}
+
+function getSwissConfigDir(platform = process.platform, env = process.env, home = os.homedir()) {
+  if (env.ANTIGRAVITY_SWISS_CONFIG_DIR) return env.ANTIGRAVITY_SWISS_CONFIG_DIR;
+  if (platform === 'win32') {
+    return nodePath.join(env.APPDATA || nodePath.join(home, 'AppData', 'Roaming'), 'antigravity-swiss');
+  }
+  if (platform === 'darwin') {
+    return nodePath.join(home, 'Library', 'Application Support', 'antigravity-swiss');
+  }
+  return nodePath.join(env.XDG_CONFIG_HOME || nodePath.join(home, '.config'), 'antigravity-swiss');
+}
+
+function decodePathValue(value) {
+  let decoded = value;
+  for (let pass = 0; pass < 3 && decoded.includes('%'); pass += 1) {
+    let next;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      throw new DaemonBrokerError('PATH_DENIED', 'File path contains malformed percent encoding', 403);
+    }
+    if (next === decoded) break;
+    decoded = next;
+  }
+  return decoded;
+}
+
+function containsPathTraversal(value) {
+  return value.replace(/\\/g, '/').split('/').includes('..');
+}
+
+function assertSafeFileQueryValue(value) {
+  const decoded = decodePathValue(value);
+  if (value.includes('\0') || decoded.includes('\0')) {
+    throw new DaemonBrokerError('PATH_DENIED', 'File paths containing NUL bytes are blocked', 403);
+  }
+  if (containsPathTraversal(value) || containsPathTraversal(decoded)) {
+    throw new DaemonBrokerError('PATH_DENIED', 'File paths containing traversal are blocked', 403);
+  }
+}
+
+function expandHomePath(value, home = os.homedir()) {
+  if (value === '~') return home;
+  if (value.startsWith('~/') || value.startsWith('~\\')) return nodePath.join(home, value.slice(2));
+  return value;
+}
+
+function resolveFileSystemPath(value) {
+  const lexical = nodePath.resolve(expandHomePath(value));
+  try {
+    const resolved = typeof fs.realpathSync.native === 'function'
+      ? fs.realpathSync.native(lexical)
+      : fs.realpathSync(lexical);
+    return { lexical, resolved };
+  } catch {
+    return { lexical, resolved: lexical };
+  }
+}
+
+function isPathWithin(candidate, root) {
+  const relative = nodePath.relative(root, candidate);
+  return relative === '' ||
+    (relative !== '..' && !relative.startsWith(`..${nodePath.sep}`) && !nodePath.isAbsolute(relative));
+}
+
+function getSensitivePathReason(candidates, configDir) {
+  const configPaths = resolveFileSystemPath(configDir);
+  const configRoots = new Set([configPaths.lexical, configPaths.resolved]);
+  for (const candidate of candidates) {
+    for (const root of configRoots) {
+      if (isPathWithin(candidate, root)) {
+        return `Path is inside the Swiss daemon configuration directory (${configPaths.resolved})`;
+      }
+    }
+    if (SENSITIVE_FILE_NAME.test(nodePath.basename(candidate))) {
+      return `Path targets a protected Swiss daemon credential file (${nodePath.basename(candidate)})`;
+    }
+  }
+  return '';
+}
+
+function validateFileAccessPath(url, configDir) {
+  if (!FILE_ACCESS_PATHS.has(url.pathname)) return null;
+
+  for (const value of url.searchParams.values()) assertSafeFileQueryValue(value);
+  const rawPaths = url.searchParams.getAll('path');
+  if (rawPaths.length !== 1 || !rawPaths[0]) {
+    throw new DaemonBrokerError('PATH_DENIED', 'Exactly one non-empty path query parameter is required', 403);
+  }
+  if (!nodePath.isAbsolute(expandHomePath(rawPaths[0]))) {
+    throw new DaemonBrokerError('PATH_DENIED', 'File paths must be absolute', 403);
+  }
+
+  const pathInfo = resolveFileSystemPath(rawPaths[0]);
+  const denialReason = getSensitivePathReason(
+    [pathInfo.lexical, pathInfo.resolved],
+    configDir || getSwissConfigDir(),
+  );
+  return { resolvedPath: pathInfo.resolved, denialReason };
 }
 
 function previewBodyValue(value, depth = 0) {
@@ -247,7 +357,7 @@ function invalid(message) {
   throw new DaemonBrokerError('INVALID_REQUEST', message);
 }
 
-function validateRequest(request, defaultTimeoutMs) {
+function validateRequest(request, defaultTimeoutMs, configDir) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) {
     invalid('Daemon request must be an object');
   }
@@ -273,10 +383,11 @@ function validateRequest(request, defaultTimeoutMs) {
   }
   const requiresApproval = isApprovalRoute(method, url.pathname);
   const routeIsAllowed = ALLOWED_ROUTES[method].has(url.pathname) ||
-    (method === 'POST' && PRIVILEGED_ROUTES.POST.has(url.pathname));
+    (PRIVILEGED_ROUTES[method] && PRIVILEGED_ROUTES[method].has(url.pathname));
   if (!routeIsAllowed) {
     throw new DaemonBrokerError('ROUTE_NOT_ALLOWED', 'Daemon route is not allowlisted', 403);
   }
+  const fileAccess = validateFileAccessPath(url, configDir);
 
   let body;
   if (request.body !== undefined) {
@@ -294,7 +405,7 @@ function validateRequest(request, defaultTimeoutMs) {
     invalid(`Daemon timeoutMs must be an integer between 1 and ${MAX_TIMEOUT_MS}`);
   }
 
-  return { method, url, path: rawPath, body, timeoutMs, requiresApproval };
+  return { method, url, path: rawPath, body, timeoutMs, requiresApproval, fileAccess };
 }
 
 function createDaemonBroker(options = {}) {
@@ -302,6 +413,7 @@ function createDaemonBroker(options = {}) {
   const getToken = options.getToken;
   const requestApproval = options.requestApproval;
   const defaultTimeoutMs = options.defaultTimeoutMs || DEFAULT_TIMEOUT_MS;
+  const configDir = options.configDir;
   if (typeof fetchImpl !== 'function') {
     throw new TypeError('A fetch implementation is required');
   }
@@ -310,11 +422,31 @@ function createDaemonBroker(options = {}) {
   }
 
   async function request(input) {
-    const { method, url, path, body, timeoutMs, requiresApproval } = validateRequest(input, defaultTimeoutMs);
-    const providedToken = getToken();
-    const token = typeof providedToken === 'string' ? providedToken.trim() : '';
-    if (!token) {
-      throw new DaemonBrokerError('DAEMON_AUTH_UNAVAILABLE', 'Daemon authentication is unavailable', 503);
+    const {
+      method,
+      url,
+      path,
+      body,
+      timeoutMs,
+      requiresApproval,
+      fileAccess,
+    } = validateRequest(input, defaultTimeoutMs, configDir);
+
+    if (fileAccess && fileAccess.denialReason) {
+      if (typeof requestApproval === 'function') {
+        try {
+          await requestApproval({
+            method,
+            path,
+            bodyPreview: buildApprovalBodyPreview(body),
+            resolvedPath: fileAccess.resolvedPath,
+            denialReason: fileAccess.denialReason,
+          });
+        } catch {
+          // PATH_DENIED remains authoritative even if the denial dialog cannot be shown.
+        }
+      }
+      throw new DaemonBrokerError('PATH_DENIED', fileAccess.denialReason, 403);
     }
 
     if (requiresApproval) {
@@ -327,6 +459,7 @@ function createDaemonBroker(options = {}) {
           method,
           path,
           bodyPreview: buildApprovalBodyPreview(body),
+          resolvedPath: fileAccess ? fileAccess.resolvedPath : undefined,
         });
       } catch {
         throw new DaemonBrokerError('APPROVAL_UNAVAILABLE', 'Native approval could not be shown', 503);
@@ -334,6 +467,12 @@ function createDaemonBroker(options = {}) {
       if (approved !== true) {
         throw new DaemonBrokerError('APPROVAL_DENIED', 'The user denied this machine-control request', 403);
       }
+    }
+
+    const providedToken = getToken();
+    const token = typeof providedToken === 'string' ? providedToken.trim() : '';
+    if (!token) {
+      throw new DaemonBrokerError('DAEMON_AUTH_UNAVAILABLE', 'Daemon authentication is unavailable', 503);
     }
 
     const headers = { Accept: 'application/json' };
@@ -385,6 +524,7 @@ module.exports = {
   PRIVILEGED_ROUTES,
   buildApprovalBodyPreview,
   createDaemonBroker,
+  getSwissConfigDir,
   installLegacySessionTokenCleanup,
   isApprovalRoute,
   isDaemonApiUrl,
