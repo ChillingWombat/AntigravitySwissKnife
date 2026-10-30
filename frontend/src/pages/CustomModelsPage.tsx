@@ -37,6 +37,7 @@ import type {
 import { QuotaIndicatorGroup } from '../components/QuotaIndicatorGroup'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { SecurityReportModal } from '../components/SecurityReportModal'
+import { ModalDialog } from '../components/dialogs/ModalDialog'
 import { GoogleCloudLogoIcon } from '../components/AcpBrandIcons'
 import { auditModelSecurity } from '../utils/securityAudit'
 import {
@@ -1935,17 +1936,11 @@ export const CustomModelsPage: React.FC = () => {
 
       {/* 3. Add / Edit Modal Window */}
       {isModalOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.45)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
+        <ModalDialog
+          open
+          title={editingModel ? 'Edit Custom Model' : 'Add Custom Model Provider'}
+          onClose={closeCustomModelModal}
+          size="md"
         >
           <div
             className="google-card"
@@ -1971,7 +1966,9 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
               <button
+                type="button"
                 onClick={closeCustomModelModal}
+                aria-label="Close custom model dialog"
                 className="btn-pill-tonal"
                 style={{ padding: '6px' }}
               >
@@ -2298,6 +2295,7 @@ export const CustomModelsPage: React.FC = () => {
                 <div style={{ position: 'relative' }}>
                   <input
                     type={showApiKey ? 'text' : 'password'}
+                    aria-label="API key"
                     placeholder="sk-..."
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
@@ -2306,6 +2304,7 @@ export const CustomModelsPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowApiKey(!showApiKey)}
+                    aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
                     style={{
                       position: 'absolute',
                       right: '8px',
@@ -2974,22 +2973,16 @@ export const CustomModelsPage: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </ModalDialog>
       )}
 
       {/* Delete Confirmation In-App Modal */}
       {deleteConfirmModel && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.45)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1100,
-          }}
+        <ModalDialog
+          open
+          title="Delete Custom Model"
+          onClose={() => setDeleteConfirmModel(null)}
+          size="sm"
         >
           <div
             className="google-card"
@@ -3031,22 +3024,16 @@ export const CustomModelsPage: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalDialog>
       )}
 
       {/* Add GCP Vertex AI Model Modal */}
       {isGcpModalOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.45)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1050,
-          }}
+        <ModalDialog
+          open
+          title={gcpEditingModel ? 'Edit GCP Model' : 'Add GCP Vertex AI Model'}
+          onClose={() => setIsGcpModalOpen(false)}
+          size="lg"
         >
           <div
             className="google-card"
@@ -3075,6 +3062,7 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
               <button
+                aria-label="Close GCP model dialog"
                 onClick={() => setIsGcpModalOpen(false)}
                 className="btn-pill-tonal"
                 style={{ padding: '6px' }}
@@ -3460,7 +3448,7 @@ export const CustomModelsPage: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </ModalDialog>
       )}
 
       {/* Security Report In-App Modal */}
