@@ -1493,9 +1493,10 @@ let manualRecoveryLeaseUntil = 0
 
 export function requestFleetSnapshot(): ReturnType<typeof api.getFleetQuota> {
   if (!fleetSnapshotInFlight) {
-    fleetSnapshotInFlight = api.getFleetQuota().finally(() => {
-      fleetSnapshotInFlight = null
+    const promise: ReturnType<typeof api.getFleetQuota> = api.getFleetQuota().finally(() => {
+      if (fleetSnapshotInFlight === promise) fleetSnapshotInFlight = null
     })
+    fleetSnapshotInFlight = promise
   }
   return fleetSnapshotInFlight
 }

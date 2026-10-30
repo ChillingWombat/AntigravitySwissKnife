@@ -5,6 +5,7 @@ import { App } from '../App'
 import { useDashboardData, type DashboardLoaders } from '../hooks/useDashboardData'
 import type { FleetQuotaSummary, RuleConfig, SystemStatus } from '../types'
 import { initDOM, mount, type RenderResult } from '../test-dom'
+import { api, invalidateDashboardFlights, requestFleetSnapshot } from '../api'
 
 const status: SystemStatus = {
   daemon_running: true,
@@ -272,4 +273,34 @@ describe('App resilient dashboard loading', () => {
     assert.equal(ruleCalls, 1)
   })
 
+  it('keeps a newer fleet request in flight when an invalidated older request settles', async () => {
+    const originalGetFleetQuota = api.getFleetQuota
+    const pending: Array<(value: FleetQuotaSummary) => void> = []
+    api.getFleetQuota = () => new Promise<FleetQuotaSummary>((resolve) => {
+      pending.push(resolve)
+    })
+
+    try {
+      const older = requestFleetSnapshot()
+      invalidateDashboardFlights()
+      const newer = requestFleetSnapshot()
+
+      pending[0](fleet)
+      await older
+
+      assert.equal(requestFleetSnapshot(), newer)
+      assert.equal(pending.length, 2)
+
+      pending[1](fleet)
+      await newer
+
+      const next = requestFleetSnapshot()
+      assert.equal(pending.length, 3)
+      pending[2](fleet)
+      await next
+    } finally {
+      pending.forEach((resolve) => resolve(fleet))
+      api.getFleetQuota = originalGetFleetQuota
+    }
+  })
 })
