@@ -109,6 +109,9 @@ func TestAccountHandlersUseBackendOwnedState(t *testing.T) {
 	if status["active_account"] != "secondary@example.com" || status["total_accounts"] != float64(2) {
 		t.Fatalf("status response = %+v, want backend-owned active account", status)
 	}
+	if daemonPID, ok := status["daemon_pid"].(float64); !ok || daemonPID < 2 {
+		t.Fatalf("status daemon_pid = %v, want >= 2 for daemon-backed mode", status["daemon_pid"])
+	}
 	if rpc.calls != 0 {
 		t.Fatalf("account handlers made %d RPC calls with an account backend", rpc.calls)
 	}

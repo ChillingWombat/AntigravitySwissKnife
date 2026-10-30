@@ -985,9 +985,13 @@ func statusPayload(active string, total int, daemonRunning bool) map[string]inte
 	if hostRunning {
 		hostPID = procs[0].PID
 	}
+	daemonPID := 0
+	if daemonRunning {
+		daemonPID = os.Getpid()
+	}
 	return map[string]interface{}{
 		"daemon_running":              daemonRunning,
-		"daemon_pid":                  0,
+		"daemon_pid":                  daemonPID,
 		"version":                     core.AppVersion,
 		"active_account":              active,
 		"total_accounts":              total,
