@@ -223,9 +223,18 @@ function isPublicDaemonPath(pathname: string): boolean {
   return pathname === '/health' || pathname.startsWith('/api/auth/')
 }
 
+function resolveInternalURL(url: string): URL {
+  const baseHref = typeof window === 'undefined' ? '' : window.location?.href
+  try {
+    return new URL(url, baseHref || 'http://localhost')
+  } catch {
+    return new URL(url, 'http://localhost')
+  }
+}
+
 function dispatchDashboardMutation(url: string, method: string): void {
   if (method === 'GET' || typeof window === 'undefined') return
-  const pathname = new URL(url, window.location.href).pathname
+  const pathname = resolveInternalURL(url).pathname
   let endpoint: 'rules' | 'projects' | 'accounts' | null = null
   if (pathname.startsWith('/api/rules')) endpoint = 'rules'
   else if (pathname.startsWith('/api/gui/projects') || pathname.startsWith('/api/projects')) endpoint = 'projects'
