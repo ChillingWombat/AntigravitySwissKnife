@@ -47,3 +47,89 @@ test('frontend daemon requests use the Electron broker without calling fetch', a
     ;(globalThis as any).localStorage = originalLocalStorage
   }
 })
+
+
+test('non-Electron privileged requests fail before unauthenticated daemon access', async () => {
+  const api = await import('../api')
+  const originalFetch = globalThis.fetch
+  const originalWindow = (globalThis as any).window
+  const originalLocalStorage = (globalThis as any).localStorage
+  const storage = new Map<string, string>()
+  const requests: string[] = []
+
+  ;(globalThis as any).window = {
+    location: { href: 'http://127.0.0.1:8765/', origin: 'http://127.0.0.1:8765' },
+    history: { replaceState() {} },
+  }
+  ;(globalThis as any).localStorage = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
+  }
+  api.setSessionToken(null)
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    requests.push(String(url))
+    return new Response(JSON.stringify({ password_required: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    await assert.rejects(
+      () => api.request('/api/files/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: '/tmp/blocked', content: 'blocked' }),
+      }),
+      (error: any) => error?.code === 'DAEMON_AUTH_REQUIRED' && /authentication is required/.test(error.message),
+    )
+    assert.equal(requests.some((url) => url.includes('/api/files/write')), false)
+  } finally {
+    globalThis.fetch = originalFetch
+    ;(globalThis as any).window = originalWindow
+    ;(globalThis as any).localStorage = originalLocalStorage
+  }
+})
+
+test('non-Electron privileged requests use an already scoped browser token', async () => {
+  const api = await import('../api')
+  const originalFetch = globalThis.fetch
+  const originalWindow = (globalThis as any).window
+  const originalLocalStorage = (globalThis as any).localStorage
+  const storage = new Map<string, string>()
+  let requestHeaders: Headers | null = null
+
+  ;(globalThis as any).window = {
+    location: { href: 'http://127.0.0.1:8765/', origin: 'http://127.0.0.1:8765' },
+    history: { replaceState() {} },
+  }
+  ;(globalThis as any).localStorage = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
+  }
+  api.setSessionToken('scoped-web-token')
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    requestHeaders = new Headers(init?.headers || {})
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    const result = await api.request<{ success: boolean }>('/api/files/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: '/tmp/allowed', content: 'allowed' }),
+    })
+    assert.deepEqual(result, { success: true })
+    assert.equal(requestHeaders?.get('X-Session-Token'), 'scoped-web-token')
+  } finally {
+    api.setSessionToken(null)
+    globalThis.fetch = originalFetch
+    ;(globalThis as any).window = originalWindow
+    ;(globalThis as any).localStorage = originalLocalStorage
+  }
+})

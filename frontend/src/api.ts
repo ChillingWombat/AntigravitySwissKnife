@@ -69,24 +69,24 @@ function getSwissDaemonBroker(): SwissDaemonBroker | null {
   return broker && typeof broker.request === 'function' ? broker : null
 }
 
-const hasSwissDaemonBroker = getSwissDaemonBroker() !== null
+function hasSwissDaemonBroker(): boolean {
+  return getSwissDaemonBroker() !== null
+}
 
 // --- Session token management -----------------------------------------------
-// The daemon enforces loopback auth (P0-50). Web clients authenticate by
-// presenting a session token obtained from /api/auth/unlock, a ?token= one-time
-// link, or the Electron shell. The token is persisted in localStorage so page
-// refreshes keep working; stale tokens are detected via 401, silently re-acquired
-// when no App Password is set, otherwise the lock screen is requested.
+// The daemon enforces loopback auth (P0-50). The Electron renderer never receives
+// the daemon token; the browser fallback uses the unlock flow below. Tokens are
+// never written to sessionStorage, logs, or URLs.
 const SESSION_TOKEN_KEY = 'swiss_session_token'
 
 let sessionToken: string | null = null
-if (!hasSwissDaemonBroker) {
+if (!hasSwissDaemonBroker()) {
   try { sessionToken = localStorage.getItem(SESSION_TOKEN_KEY) } catch {}
 }
 
 export function setSessionToken(token: string | null) {
   const clean = token && token.trim() ? token.trim() : null
-  if (hasSwissDaemonBroker) {
+  if (hasSwissDaemonBroker()) {
     sessionToken = null
     try { localStorage.removeItem(SESSION_TOKEN_KEY) } catch {}
     return
@@ -102,23 +102,10 @@ export function getSessionToken(): string | null {
   return sessionToken
 }
 
-// One-time ?token= link support (e.g. prepared URLs opened in an external or IDE
-// built-in browser). Capture once, then strip it from the address bar.
-try {
-  const parsedUrl = new URL(window.location.href)
-  const urlToken = parsedUrl.searchParams.get('token')
-  if (urlToken) {
-    setSessionToken(urlToken)
-    parsedUrl.searchParams.delete('token')
-    const rest = parsedUrl.searchParams.toString()
-    window.history.replaceState({}, '', parsedUrl.pathname + (rest ? `?${rest}` : '') + parsedUrl.hash)
-  }
-} catch {}
-
 let silentTokenRefresh: Promise<boolean> | null = null
 
 async function trySilentTokenRefresh(): Promise<boolean> {
-  if (hasSwissDaemonBroker) return false
+  if (hasSwissDaemonBroker()) return false
   if (!silentTokenRefresh) {
     silentTokenRefresh = (async () => {
       try {
@@ -237,17 +224,31 @@ export function isAbortError(err: unknown): boolean {
  * @param url Target endpoint URL
  * @param options Request options including HTTP method, headers, timeout, and cancellation controls
  */
+function isPublicDaemonPath(pathname: string): boolean {
+  return pathname === '/health' || pathname.startsWith('/api/auth/')
+}
+
 async function fetchDaemon(url: string, fetchOptions: RequestInit, timeoutMs: number): Promise<Response> {
   const broker = getSwissDaemonBroker()
-  if (!broker) return fetch(url, fetchOptions)
-
   let parsed: URL
   try {
     parsed = new URL(url, window.location.href)
   } catch {
     return fetch(url, fetchOptions)
   }
-  if (parsed.origin !== 'http://127.0.0.1:8765' && parsed.origin !== window.location.origin) {
+  const isDaemonRequest = parsed.origin === 'http://127.0.0.1:8765' || parsed.origin === window.location.origin
+  if (!broker) {
+    if (isDaemonRequest && !isPublicDaemonPath(parsed.pathname)) {
+      const headers = new Headers(fetchOptions.headers || {})
+      if (!sessionToken && !headers.has('X-Session-Token')) {
+        const error = new Error('Daemon authentication is required; unlock this browser session or use the Electron app')
+        ;(error as Error & { code?: string }).code = 'DAEMON_AUTH_REQUIRED'
+        throw error
+      }
+    }
+    return fetch(url, fetchOptions)
+  }
+  if (!isDaemonRequest) {
     return fetch(url, fetchOptions)
   }
 
@@ -327,7 +328,16 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
       return fetchDaemon(url, fetchOptions, timeoutMs)
     }
 
-    let res = await doFetch()
+    let res: Response
+    try {
+      res = await doFetch()
+    } catch (error) {
+      const code = (error as Error & { code?: string })?.code
+      if (code !== 'DAEMON_AUTH_REQUIRED' || !(await trySilentTokenRefresh())) {
+        throw error
+      }
+      res = await doFetch()
+    }
 
     if (res.status === 401) {
       if (await trySilentTokenRefresh()) {

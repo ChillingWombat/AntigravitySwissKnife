@@ -4,7 +4,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { ALLOWED_ROUTES, createDaemonBroker, shouldAttachDaemonSessionHeader } = require('./daemon-broker');
+const {
+  ALLOWED_ROUTES,
+  APPROVAL_BODY_PREVIEW_LIMIT,
+  buildApprovalBodyPreview,
+  createDaemonBroker,
+  isApprovalRoute,
+  shouldAttachDaemonSessionHeader,
+} = require('./daemon-broker');
 
 function fakeResponse(status, body, headers = {}) {
   const responseHeaders = new Headers(headers);
@@ -80,4 +87,128 @@ test('preload exposes swiss.request and no raw-token getter', () => {
   assert.doesNotMatch(preload, /getSessionToken|desktop:get-session-token/);
   const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
   assert.doesNotMatch(main, /desktop:get-session-token/);
+});
+
+
+test('privileged mutations require a native approval once per request', async () => {
+  let approvals = 0;
+  let fetches = 0;
+  const broker = createDaemonBroker({
+    getToken: () => 'token',
+    requestApproval: async ({ method, path, bodyPreview }) => {
+      approvals += 1;
+      assert.equal(method, 'POST');
+      assert.equal(path, '/api/files/terminal');
+      assert.match(bodyPreview, /\/tmp\/project/);
+      return true;
+    },
+    fetchImpl: async () => {
+      fetches += 1;
+      return fakeResponse(200, '{"success":true}');
+    },
+  });
+
+  await broker.request({ method: 'POST', path: '/api/files/terminal', body: '{"path":"/tmp/project"}' });
+  await broker.request({ method: 'POST', path: '/api/files/terminal', body: '{"path":"/tmp/project"}' });
+  assert.equal(approvals, 2, 'approval must not be cached across requests');
+  assert.equal(fetches, 2);
+});
+
+test('denied native approval returns APPROVAL_DENIED without contacting the daemon', async () => {
+  let fetches = 0;
+  const broker = createDaemonBroker({
+    getToken: () => 'token',
+    requestApproval: async () => false,
+    fetchImpl: async () => {
+      fetches += 1;
+      return fakeResponse(200, '{}');
+    },
+  });
+
+  await assert.rejects(
+    () => broker.request({ method: 'POST', path: '/api/files/delete', body: '{"path":"/tmp/project"}' }),
+    { code: 'APPROVAL_DENIED', status: 403 },
+  );
+  assert.equal(fetches, 0);
+});
+
+test('approval arguments bind the exact request and bound/redact body values', async () => {
+  let seen;
+  const broker = createDaemonBroker({
+    getToken: () => 'token',
+    requestApproval: async (request) => {
+      seen = request;
+      return true;
+    },
+    fetchImpl: async () => fakeResponse(200, '{}'),
+  });
+  const fileBody = 'file-body-secret';
+  const body = JSON.stringify({
+    path: '/tmp/report.txt',
+    content: fileBody,
+    token: 'token-must-not-appear',
+    note: 'x'.repeat(900),
+  });
+
+  await broker.request({ method: 'POST', path: '/api/files/write?source=ui', body });
+  assert.equal(seen.method, 'POST');
+  assert.equal(seen.path, '/api/files/write?source=ui');
+  assert.match(seen.bodyPreview, /\/tmp\/report\.txt/);
+  assert.match(seen.bodyPreview, /\[REDACTED\]/);
+  assert.match(seen.bodyPreview, /chars\]/);
+  assert.equal(seen.bodyPreview.includes(fileBody), false);
+  assert.equal(seen.bodyPreview.includes('token-must-not-appear'), false);
+  assert.ok(seen.bodyPreview.length <= 400, seen.bodyPreview);
+  assert.equal(APPROVAL_BODY_PREVIEW_LIMIT, 400);
+  assert.equal(buildApprovalBodyPreview('not-json-secret').includes('not-json-secret'), false);
+});
+
+test('approval routing covers machine-control and other non-allowlisted API mutations', () => {
+  for (const route of [
+    '/api/files/write',
+    '/api/files/create',
+    '/api/files/delete',
+    '/api/files/rename',
+    '/api/files/copy',
+    '/api/files/move',
+    '/api/files/reveal',
+    '/api/files/terminal',
+    '/api/files/open_ide',
+    '/api/settings/factory-reset',
+  ]) {
+    assert.equal(isApprovalRoute('POST', route), true, route);
+  }
+  assert.equal(isApprovalRoute('GET', '/api/files/write'), false);
+  assert.equal(isApprovalRoute('POST', '/api/enhancements'), false);
+  assert.equal(isApprovalRoute('POST', '/not-daemon'), false);
+});
+
+test('production renderer and broker sources contain no daemon token leaks', () => {
+  const files = [
+    'electron/main.js',
+    'electron/preload.js',
+    'electron/daemon-broker.js',
+    'frontend/src/api.ts',
+    'frontend/src/App.tsx',
+    'pkg/gui/styler.go',
+    'pkg/custommodels/script.go',
+    'pkg/enhancements/script.go',
+    'pkg/plugins/auxiliary.go',
+    'pkg/plugins/github_extension_script.go',
+  ];
+  const checks = [
+    ['window global', /window\.__SWISS_SESSION_TOKEN__/],
+    ['sessionStorage token write', /sessionStorage\.setItem\([^\n]*(?:__SWISS_SESSION_TOKEN__|swiss_session_token|antigravity_swiss_session_token|sessionToken)/i],
+    ['token URL', /[?&](?:token|session_token)=/i],
+    ['token log', /console\.(?:log|warn|error|debug|info)\([^\n]*(?:sessionToken|session_token|X-Session-Token)/i],
+  ];
+  for (const relative of files) {
+    const source = fs.readFileSync(path.join(__dirname, '..', relative), 'utf8');
+    for (const [label, pattern] of checks) {
+      assert.doesNotMatch(source, pattern, `${relative}: ${label}`);
+    }
+  }
+  const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
+  assert.match(main, /dialog\.showMessageBox/);
+  assert.match(main, /requestApproval:/);
 });

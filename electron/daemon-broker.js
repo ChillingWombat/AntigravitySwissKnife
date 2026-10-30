@@ -65,6 +65,72 @@ const ALLOWED_ROUTES = Object.freeze({
   POST: new Set(POST_PATHS),
 });
 
+const APPROVAL_BODY_PREVIEW_LIMIT = 400;
+const APPROVAL_PREVIEW_MAX_DEPTH = 3;
+const APPROVAL_PREVIEW_MAX_KEYS = 12;
+const SENSITIVE_BODY_KEY = /(token|secret|password|passwd|authorization|api[_-]?key|credential|cookie)/i;
+const OPAQUE_BODY_KEY = /^(content|body|data|text|value)$/i;
+const SECRET_IN_TEXT = /(bearer\s+|token|secret|password|api[_-]?key)/i;
+
+function isApprovalRoute(method, pathname) {
+  return method === 'POST' && pathname.startsWith('/api/') && pathname.length > 5 && !ALLOWED_ROUTES.POST.has(pathname);
+}
+
+function previewBodyValue(value, depth = 0) {
+  if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    if (SECRET_IN_TEXT.test(value)) return '[REDACTED]';
+    return value.length > 80 ? `${value.slice(0, 77)}...` : value;
+  }
+  if (Array.isArray(value)) {
+    const preview = value.slice(0, 4).map((item) => previewBodyValue(item, depth + 1));
+    if (value.length > 4) preview.push(`[${value.length - 4} more items]`);
+    return preview;
+  }
+  if (typeof value === 'object') {
+    if (depth >= APPROVAL_PREVIEW_MAX_DEPTH) return '[nested object]';
+    const preview = Object.create(null);
+    const entries = Object.entries(value);
+    for (const [key, item] of entries.slice(0, APPROVAL_PREVIEW_MAX_KEYS)) {
+      if (SENSITIVE_BODY_KEY.test(key)) {
+        preview[key] = '[REDACTED]';
+      } else if (OPAQUE_BODY_KEY.test(key)) {
+        preview[key] = `[${String(item ?? '').length} chars]`;
+      } else {
+        preview[key] = previewBodyValue(item, depth + 1);
+      }
+    }
+    if (entries.length > APPROVAL_PREVIEW_MAX_KEYS) {
+      preview.more = `[${entries.length - APPROVAL_PREVIEW_MAX_KEYS} more fields]`;
+    }
+    return preview;
+  }
+  return '[unsupported]';
+}
+
+function buildApprovalBodyPreview(body) {
+  if (body === undefined) return 'No request body';
+  const bytes = Buffer.byteLength(body, 'utf8');
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return `Non-JSON body omitted (${bytes} bytes)`;
+  }
+  let summary;
+  try {
+    summary = JSON.stringify(previewBodyValue(parsed));
+  } catch {
+    return `JSON body omitted (${bytes} bytes)`;
+  }
+  const suffix = ` (${bytes} bytes)`;
+  const maxSummary = APPROVAL_BODY_PREVIEW_LIMIT - suffix.length;
+  const bounded = summary.length > maxSummary
+    ? `${summary.slice(0, Math.max(0, maxSummary - 3))}...`
+    : summary;
+  return `${bounded}${suffix}`;
+}
+
 class DaemonBrokerError extends Error {
   constructor(code, message, status = 400) {
     super(message);
@@ -106,7 +172,8 @@ function validateRequest(request, defaultTimeoutMs) {
   if (url.origin !== DAEMON_ORIGIN) {
     invalid('Daemon request must stay on the fixed loopback origin');
   }
-  if (!ALLOWED_ROUTES[method].has(url.pathname)) {
+  const requiresApproval = isApprovalRoute(method, url.pathname);
+  if (!ALLOWED_ROUTES[method].has(url.pathname) && !requiresApproval) {
     throw new DaemonBrokerError('ROUTE_NOT_ALLOWED', 'Daemon route is not allowlisted', 403);
   }
 
@@ -126,12 +193,13 @@ function validateRequest(request, defaultTimeoutMs) {
     invalid(`Daemon timeoutMs must be an integer between 1 and ${MAX_TIMEOUT_MS}`);
   }
 
-  return { method, url, body, timeoutMs };
+  return { method, url, path: rawPath, body, timeoutMs, requiresApproval };
 }
 
 function createDaemonBroker(options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const getToken = options.getToken;
+  const requestApproval = options.requestApproval;
   const defaultTimeoutMs = options.defaultTimeoutMs || DEFAULT_TIMEOUT_MS;
   if (typeof fetchImpl !== 'function') {
     throw new TypeError('A fetch implementation is required');
@@ -141,11 +209,30 @@ function createDaemonBroker(options = {}) {
   }
 
   async function request(input) {
-    const { method, url, body, timeoutMs } = validateRequest(input, defaultTimeoutMs);
+    const { method, url, path, body, timeoutMs, requiresApproval } = validateRequest(input, defaultTimeoutMs);
     const providedToken = getToken();
     const token = typeof providedToken === 'string' ? providedToken.trim() : '';
     if (!token) {
       throw new DaemonBrokerError('DAEMON_AUTH_UNAVAILABLE', 'Daemon authentication is unavailable', 503);
+    }
+
+    if (requiresApproval) {
+      if (typeof requestApproval !== 'function') {
+        throw new DaemonBrokerError('APPROVAL_UNAVAILABLE', 'Native approval is unavailable', 503);
+      }
+      let approved;
+      try {
+        approved = await requestApproval({
+          method,
+          path,
+          bodyPreview: buildApprovalBodyPreview(body),
+        });
+      } catch {
+        throw new DaemonBrokerError('APPROVAL_UNAVAILABLE', 'Native approval could not be shown', 503);
+      }
+      if (approved !== true) {
+        throw new DaemonBrokerError('APPROVAL_DENIED', 'The user denied this machine-control request', 403);
+      }
     }
 
     const headers = { Accept: 'application/json' };
@@ -190,9 +277,12 @@ function createDaemonBroker(options = {}) {
 
 module.exports = {
   ALLOWED_ROUTES,
+  APPROVAL_BODY_PREVIEW_LIMIT,
   DAEMON_ORIGIN,
   DaemonBrokerError,
+  buildApprovalBodyPreview,
   createDaemonBroker,
+  isApprovalRoute,
   shouldAttachDaemonSessionHeader,
   validateRequest,
 };

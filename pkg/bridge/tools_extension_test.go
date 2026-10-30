@@ -18,6 +18,11 @@ func newTestBridge(t *testing.T) *Service {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
+	svc.mu.Lock()
+	svc.config.AllowedTools = append(svc.config.AllowedTools,
+		"local_run_command", "local_write_file", "local_computer_use",
+		"local_http_request", "local_obsidian_write_note")
+	svc.mu.Unlock()
 	return svc
 }
 

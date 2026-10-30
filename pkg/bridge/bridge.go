@@ -39,7 +39,7 @@ type Config struct {
 	// "auto" (CLI when installed), "app" (2.0 desktop app) or "cli".
 	AgentBackend string `json:"agent_backend"`
 	// HTTPAllowlistMode configures outbound HTTP filtering: "always_allow" (default) or "whitelist_only".
-	HTTPAllowlistMode    string                `json:"http_allowlist_mode"`
+	HTTPAllowlistMode string `json:"http_allowlist_mode"`
 	// HTTPAllowlist gates local_http_request. An agent may only reach hosts listed
 	// here; anything else lands in HTTPPendingApprovals and is never called.
 	HTTPAllowlist        []string              `json:"http_allowlist"`
@@ -129,17 +129,17 @@ type Service struct {
 // DefaultConfig initializes recommended default bridge settings.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:         false,
-		Port:            8765,
-		OperatingMode:   "hybrid",
-		AgentBackend:    AgentAuto,
+		Enabled:           false,
+		Port:              8765,
+		OperatingMode:     "hybrid",
+		AgentBackend:      AgentAuto,
 		HTTPAllowlistMode: "always_allow",
-		TunnelType:      "quick",
-		TunnelURL:       "",
-		AuthToken:       GenerateSecureToken(),
-		PairingPIN:      GeneratePairingPIN(),
-		OAuthClientID:   "antigravity-gemini-bridge",
-		AutoStartTunnel: false,
+		TunnelType:        "quick",
+		TunnelURL:         "",
+		AuthToken:         GenerateSecureToken(),
+		PairingPIN:        GeneratePairingPIN(),
+		OAuthClientID:     "antigravity-gemini-bridge",
+		AutoStartTunnel:   false,
 		AllowedTools: []string{
 			"antigravity_bridge_set_mode",
 			"antigravity_bridge_get_mode",
@@ -162,21 +162,44 @@ func DefaultConfig() Config {
 			"antigravity_session_model_list",
 			"antigravity_session_model_get",
 			"antigravity_session_model_set",
-			"local_run_command",
 			"local_read_file",
-			"local_write_file",
 			"local_list_directory",
 			"local_search_files",
 			"local_system_info",
-			"local_computer_use",
-			"local_http_request",
 			"local_http_allowlist",
 			"local_obsidian_list_vaults",
 			"local_obsidian_search",
 			"local_obsidian_read_note",
-			"local_obsidian_write_note",
 		},
 	}
+}
+
+// MachineControlApprovalRequiredError is returned when a machine-control tool
+// was not explicitly enabled in the user's bridge configuration.
+type MachineControlApprovalRequiredError struct {
+	Tool string
+}
+
+func (e *MachineControlApprovalRequiredError) Error() string {
+	return fmt.Sprintf("APPROVAL_REQUIRED: machine-control tool %q is not explicitly allowed", e.Tool)
+}
+
+func (e *MachineControlApprovalRequiredError) Code() string {
+	return "APPROVAL_REQUIRED"
+}
+
+var machineControlTools = map[string]struct{}{
+	"local_run_command":         {},
+	"local_write_file":          {},
+	"local_computer_use":        {},
+	"local_http_request":        {},
+	"local_obsidian_write_note": {},
+	"antigravity_computer_use":  {},
+}
+
+func isMachineControlTool(name string) bool {
+	_, ok := machineControlTools[name]
+	return ok
 }
 
 // NewService instantiates a Gemini Bridge manager.
@@ -1407,23 +1430,14 @@ func (s *Service) CallTool(name string, args map[string]interface{}) (string, er
 	allowedTools := s.config.AllowedTools
 	s.mu.RUnlock()
 
-	// Enforce AllowedTools restriction
-	if len(allowedTools) > 0 {
-		isAllowed := false
-		for _, t := range allowedTools {
-			if t == name ||
-				(name == "antigravity_dispatch_task" && t == "antigravity_lead_create_conversation") ||
-				(name == "antigravity_list_sessions" && t == "antigravity_lead_list_conversations") ||
-				(name == "antigravity_inspect_workspace" && t == "local_list_directory") ||
-				(name == "antigravity_system_info" && t == "local_system_info") ||
-				(name == "antigravity_computer_use" && t == "local_computer_use") {
-				isAllowed = true
-				break
-			}
-		}
-		if !isAllowed {
-			return "", fmt.Errorf("tool %q is not in the allowed tools list", name)
-		}
+	// Machine-control tools are denied unless the user explicitly listed them.
+	if isMachineControlTool(name) && !toolInList(name, allowedTools) {
+		return "", &MachineControlApprovalRequiredError{Tool: name}
+	}
+
+	// Enforce AllowedTools restriction for the remaining tools.
+	if len(allowedTools) > 0 && !toolInList(name, allowedTools) {
+		return "", fmt.Errorf("tool %q is not in the allowed tools list", name)
 	}
 
 	// Mode compatibility enforcement
@@ -1934,7 +1948,7 @@ func (s *Service) getFleetQuota(args ...map[string]interface{}) (string, error) 
 
 	res := map[string]interface{}{
 		"active_account":         active,
-		"active_session_model":  activeSessionModel,
+		"active_session_model":   activeSessionModel,
 		"active_model_exhausted": activeModelExhausted,
 		"active_model_warning":   activeModelWarning,
 		"refreshed_live":         refreshedLive,
@@ -2049,6 +2063,24 @@ func (s *Service) switchFleetAccount(args map[string]interface{}) (string, error
 func stringValue(v interface{}) string {
 	s, _ := v.(string)
 	return strings.TrimSpace(s)
+}
+
+func allowedToolMatches(name, configured string) bool {
+	return configured == name ||
+		(name == "antigravity_dispatch_task" && configured == "antigravity_lead_create_conversation") ||
+		(name == "antigravity_list_sessions" && configured == "antigravity_lead_list_conversations") ||
+		(name == "antigravity_inspect_workspace" && configured == "local_list_directory") ||
+		(name == "antigravity_system_info" && configured == "local_system_info") ||
+		(name == "antigravity_computer_use" && configured == "local_computer_use")
+}
+
+func toolInList(name string, allowed []string) bool {
+	for _, configured := range allowed {
+		if allowedToolMatches(name, configured) {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeDefaultAllowedTools(configured []string) []string {

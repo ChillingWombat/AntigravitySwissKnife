@@ -229,7 +229,28 @@ function getSwissConfigDir() {
   return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'antigravity-swiss');
 }
 
-const daemonBroker = createDaemonBroker({ getToken: () => getDaemonSessionToken() });
+const daemonBroker = createDaemonBroker({
+  getToken: () => getDaemonSessionToken(),
+  requestApproval: async ({ method, path, bodyPreview }) => {
+    const { dialog } = require('electron');
+    const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null;
+    const detail = [
+      'This request can change files or control applications on this machine.',
+      bodyPreview ? `Body preview:\n${bodyPreview}` : '',
+    ].filter(Boolean).join('\n\n');
+    const result = await dialog.showMessageBox(owner, {
+      type: 'warning',
+      buttons: ['Deny', 'Approve'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      title: 'Approve machine control?',
+      message: `${method} ${path}`,
+      detail,
+    });
+    return result.response === 1;
+  },
+});
 
 function getDaemonSessionToken(maxAgeMs = 3000) {
   const now = Date.now();

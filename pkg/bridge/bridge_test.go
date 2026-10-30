@@ -183,7 +183,10 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	// Switch back to hybrid
 	_ = svc.SetOperatingMode("hybrid")
 
-	// 5. Test Direct Mode tools: write and read file
+	// 5. Test Direct Mode tools: machine control is explicitly enabled here.
+	svc.mu.Lock()
+	svc.config.AllowedTools = append(svc.config.AllowedTools, "local_write_file", "local_run_command")
+	svc.mu.Unlock()
 	testFile := filepath.Join(tmpDir, "test_remote.txt")
 	writeRes, err := svc.CallTool("local_write_file", map[string]interface{}{
 		"path":    testFile,
@@ -788,5 +791,98 @@ func TestBridge_A2AMCPTools(t *testing.T) {
 	}
 	if !strings.Contains(cancelOut, "canceled") {
 		t.Errorf("expected canceled in output, got: %s", cancelOut)
+	}
+}
+
+func TestMachineControlToolsDefaultDeny(t *testing.T) {
+	machineTools := []string{
+		"local_run_command",
+		"local_write_file",
+		"local_computer_use",
+		"local_http_request",
+		"local_obsidian_write_note",
+	}
+	defaultAllowed := map[string]bool{}
+	for _, name := range DefaultConfig().AllowedTools {
+		defaultAllowed[name] = true
+	}
+	for _, name := range machineTools {
+		if defaultAllowed[name] {
+			t.Errorf("new default config must not allow machine-control tool %q", name)
+		}
+	}
+
+	svc, err := NewService(filepath.Join(t.TempDir(), "gemini_bridge.json"))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	for _, name := range machineTools {
+		_, callErr := svc.CallTool(name, nil)
+		approvalErr, ok := callErr.(*MachineControlApprovalRequiredError)
+		if !ok {
+			t.Errorf("CallTool(%q) error = %T %v, want *MachineControlApprovalRequiredError", name, callErr, callErr)
+			continue
+		}
+		if approvalErr.Code() != "APPROVAL_REQUIRED" || approvalErr.Tool != name {
+			t.Errorf("CallTool(%q) approval error = code %q tool %q", name, approvalErr.Code(), approvalErr.Tool)
+		}
+	}
+}
+
+func TestMachineControlToolsExplicitAllow(t *testing.T) {
+	svc, err := NewService(filepath.Join(t.TempDir(), "gemini_bridge.json"))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	svc.mu.Lock()
+	svc.config.AllowedTools = append(svc.config.AllowedTools, "local_write_file")
+	svc.mu.Unlock()
+
+	target := filepath.Join(t.TempDir(), "allowed-machine-write.txt")
+	result, err := svc.CallTool("local_write_file", map[string]interface{}{
+		"path":    target,
+		"content": "explicitly allowed",
+	})
+	if err != nil {
+		t.Fatalf("explicitly allowed local_write_file failed: %v", err)
+	}
+	if !strings.HasPrefix(result, "Successfully wrote ") {
+		t.Fatalf("unexpected write result: %s", result)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read written file: %v", err)
+	}
+	if string(data) != "explicitly allowed" {
+		t.Fatalf("written content = %q", string(data))
+	}
+}
+
+func TestMachineControlToolAllowlistMigrationPreservesExplicitConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "gemini_bridge.json")
+	persisted := Config{
+		Enabled:       false,
+		Port:          8765,
+		OperatingMode: "hybrid",
+		AuthToken:     "existing-token",
+		PairingPIN:    "ABCDEFGH",
+		AllowedTools:  []string{"local_run_command", "local_write_file", "custom_tool"},
+	}
+	data, err := json.MarshalIndent(persisted, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	svc, err := NewService(configPath)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	for _, name := range []string{"local_run_command", "local_write_file", "custom_tool"} {
+		if !toolInList(name, svc.GetConfig().AllowedTools) {
+			t.Errorf("migration dropped explicitly configured tool %q", name)
+		}
 	}
 }
