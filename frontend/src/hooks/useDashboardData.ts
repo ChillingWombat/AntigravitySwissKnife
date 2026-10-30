@@ -15,6 +15,8 @@ import {
   type DashboardProject,
 } from '../utils/dashboardLoadState'
 
+const BOOTSTRAP_ENDPOINTS = ['status', 'quota', 'rules', 'projects'] as const satisfies readonly DashboardEndpoint[]
+
 export interface DashboardLoaders {
   status: () => Promise<SystemStatus>
   quota: () => Promise<FleetQuotaSummary>
@@ -104,7 +106,7 @@ export function useDashboardData({
   )
 
   const load = useCallback(
-    () => runLoad(DASHBOARD_ENDPOINTS, false),
+    () => runLoad(BOOTSTRAP_ENDPOINTS, false),
     [runLoad],
   )
 
@@ -118,7 +120,7 @@ export function useDashboardData({
   )
 
   useEffect(() => {
-    if (autoLoad) void runLoad(DASHBOARD_ENDPOINTS, false)
+    if (autoLoad) void runLoad(BOOTSTRAP_ENDPOINTS, false)
     return () => {
       epochRef.current += 1
       inFlightRef.current = null
