@@ -82,6 +82,24 @@ test('broker allows read-only dashboard account, fleet, and rules routes', async
   ]);
 });
 
+test('broker allows the ACP mesh read used by the agent registry', async () => {
+  const path = '/api/utilities/acp';
+  assert.ok(ALLOWED_ROUTES.GET.has(path), `${path} must be in the GET allowlist`);
+
+  const calls = [];
+  const broker = createDaemonBroker({
+    getToken: () => 'main-process-secret',
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return fakeResponse(200, '{"agents":[]}', { 'Content-Type': 'application/json' });
+    },
+  });
+
+  const result = await broker.request({ method: 'GET', path });
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls, ['http://127.0.0.1:8765/api/utilities/acp']);
+});
+
 test('broker rejects unknown methods, paths, bodies, and redirects with typed errors', async () => {
   let daemonCalls = 0;
   const broker = createDaemonBroker({
@@ -92,7 +110,8 @@ test('broker rejects unknown methods, paths, bodies, and redirects with typed er
     },
   });
 
-  await assert.rejects(() => broker.request({ method: 'DELETE', path: '/api/status' }), { code: 'METHOD_NOT_ALLOWED' });
+  await assert.rejects(() => broker.request({ method: 'PUT', path: '/api/status' }), { code: 'METHOD_NOT_ALLOWED' });
+  await assert.rejects(() => broker.request({ method: 'DELETE', path: '/api/status' }), { code: 'ROUTE_NOT_ALLOWED' });
   await assert.rejects(() => broker.request({ method: 'GET', path: '/api/bridge/tools' }), { code: 'ROUTE_NOT_ALLOWED' });
   await assert.rejects(() => broker.request({ method: 'GET', path: '/api/files/unknown?path=/tmp' }), { code: 'ROUTE_NOT_ALLOWED' });
   await assert.rejects(() => broker.request({ method: 'POST', path: '/api/not-a-real-route' }), { code: 'ROUTE_NOT_ALLOWED' });
@@ -103,11 +122,29 @@ test('broker rejects unknown methods, paths, bodies, and redirects with typed er
 });
 
 test('broker allowlist contains approved reads and exact mutation routes', () => {
-  for (const route of ['/health', '/api/status', '/api/github/issues/detail', '/api/memos/export']) {
+  for (const route of [
+    '/health',
+    '/api/status',
+    '/api/auth/status',
+    '/api/github/issues/detail',
+    '/api/github/context',
+    '/api/memos/export',
+    '/api/bridge/channels/config',
+  ]) {
     assert.equal(ALLOWED_ROUTES.GET.has(route), true, route);
   }
   for (const route of ['/api/enhancements', '/api/gui/color', '/api/conversations/ack', '/api/memos/save', '/api/memos/extract', '/api/github/issues/comment']) {
     assert.equal(ALLOWED_ROUTES.POST.has(route), true, route);
+  }
+  for (const route of ['/api/accounts/export', '/api/totp', '/api/custom_models/key', '/api/utilities/import/scan']) {
+    assert.equal(PRIVILEGED_ROUTES.GET.has(route), true, route);
+  }
+  assert.equal(ALLOWED_ROUTES.POST.has('/api/custom_models'), false);
+  assert.equal(PRIVILEGED_ROUTES.POST.has('/api/custom_models'), true);
+  assert.equal(PRIVILEGED_ROUTES.POST.has('/api/system/factory_reset'), true);
+  assert.equal(PRIVILEGED_ROUTES.POST.has('/api/settings/factory-reset'), false);
+  for (const route of ['/api/custom_models', '/api/extensions/community', '/api/utilities/acp/agents', '/api/tokens/pricing']) {
+    assert.equal(PRIVILEGED_ROUTES.DELETE.has(route), true, route);
   }
   assert.equal(ALLOWED_ROUTES.GET.has('/api/files/write'), false);
   assert.equal(ALLOWED_ROUTES.GET.has('/api/files/list'), false);
@@ -117,6 +154,91 @@ test('broker allowlist contains approved reads and exact mutation routes', () =>
   assert.equal(PRIVILEGED_ROUTES.GET.has('/api/files/read'), true);
   assert.equal(PRIVILEGED_ROUTES.POST.has('/api/files/write'), true);
   assert.equal(PRIVILEGED_ROUTES.POST.has('/api/not-a-real-route'), false);
+});
+
+test('DELETE requests require one-shot approval and remain exact-path only', async () => {
+  const calls = [];
+  const approvals = [];
+  const broker = createDaemonBroker({
+    getToken: () => 'token',
+    requestApproval: async (request) => {
+      approvals.push(request);
+      return true;
+    },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, method: options.method });
+      return fakeResponse(200, '{}');
+    },
+  });
+
+  for (const route of [
+    '/api/custom_models?id=model-1',
+    '/api/extensions/community?id=ext-1',
+    '/api/utilities/acp/agents?id=agent-1',
+    '/api/tokens/pricing?canonical_id=model-1',
+  ]) {
+    const result = await broker.request({ method: 'DELETE', path: route });
+    assert.equal(result.status, 200);
+  }
+  assert.equal(approvals.length, 4);
+  assert.deepEqual(calls.map((call) => call.method), ['DELETE', 'DELETE', 'DELETE', 'DELETE']);
+  await assert.rejects(
+    () => broker.request({ method: 'DELETE', path: '/api/custom_models/unknown?id=model-1' }),
+    { code: 'ROUTE_NOT_ALLOWED' },
+  );
+
+  let deniedFetches = 0;
+  const deniedBroker = createDaemonBroker({
+    getToken: () => 'token',
+    requestApproval: async () => false,
+    fetchImpl: async () => {
+      deniedFetches += 1;
+      return fakeResponse(200, '{}');
+    },
+  });
+  await assert.rejects(
+    () => deniedBroker.request({ method: 'DELETE', path: '/api/custom_models?id=model-1' }),
+    { code: 'APPROVAL_DENIED' },
+  );
+  assert.equal(deniedFetches, 0);
+});
+
+test('sensitive GETs require approval except redacted channel config', async () => {
+  const approvals = [];
+  const broker = createDaemonBroker({
+    getToken: () => 'token',
+    requestApproval: async (request) => {
+      approvals.push(request.path);
+      return true;
+    },
+    fetchImpl: async () => fakeResponse(200, '{}'),
+  });
+
+  for (const path of [
+    '/api/accounts/export?email=person@example.com',
+    '/api/totp?email=person@example.com',
+    '/api/custom_models/key?id=model-1',
+    '/api/custom_models/integration',
+    '/api/custom_models/cli_status',
+    '/api/utilities/import/scan?source=opencode',
+    '/api/bridge/remote/config',
+    '/api/bridge/channels/config?unredacted=true',
+  ]) {
+    await broker.request({ method: 'GET', path });
+  }
+  assert.deepEqual(approvals, [
+    '/api/accounts/export?email=person@example.com',
+    '/api/totp?email=person@example.com',
+    '/api/custom_models/key?id=model-1',
+    '/api/custom_models/integration',
+    '/api/custom_models/cli_status',
+    '/api/utilities/import/scan?source=opencode',
+    '/api/bridge/remote/config',
+    '/api/bridge/channels/config?unredacted=true',
+  ]);
+
+  await broker.request({ method: 'GET', path: '/api/bridge/channels/config' });
+  assert.equal(approvals.length, 8);
 });
 
 test('file reads and listings require approval and approve the resolved workspace path', async (t) => {
@@ -448,14 +570,18 @@ test('approval routing covers machine-control and other non-allowlisted API muta
     '/api/files/reveal',
     '/api/files/terminal',
     '/api/files/open_ide',
-    '/api/settings/factory-reset',
+    '/api/system/factory_reset',
   ]) {
     assert.equal(isApprovalRoute('POST', route), true, route);
   }
   assert.equal(isApprovalRoute('GET', '/api/files/read'), true);
   assert.equal(isApprovalRoute('GET', '/api/files/list'), true);
+  assert.equal(isApprovalRoute('GET', '/api/bridge/channels/config'), false);
+  assert.equal(isApprovalRoute('GET', '/api/bridge/channels/config?unredacted=true'), true);
   assert.equal(isApprovalRoute('GET', '/api/files/write'), false);
   assert.equal(isApprovalRoute('POST', '/api/enhancements'), false);
+  assert.equal(isApprovalRoute('DELETE', '/api/custom_models'), true);
+  assert.equal(isApprovalRoute('DELETE', '/not-daemon'), false);
   assert.equal(isApprovalRoute('POST', '/not-daemon'), false);
 });
 

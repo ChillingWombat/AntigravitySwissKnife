@@ -24,7 +24,7 @@ The renderer receives `window.swiss.request` only. It never receives a raw sessi
 
 ### Local XSS
 
-XSS can invoke every broker route available to the renderer and can alter the visible UI. It cannot read the daemon token from the renderer. Safe and privileged routes are explicit method-and-path tables. Unknown routes fail with `ROUTE_NOT_ALLOWED` before the broker reads a token or calls the daemon. Privileged POST routes ask through a native Electron dialog showing the exact method and path, with a bounded and redacted body preview. XSS can request a prompt but cannot silently approve it.
+XSS can invoke every broker route available to the renderer and can alter the visible UI. It cannot read the daemon token from the renderer. Safe and privileged routes are explicit method-and-path tables for GET, POST, and DELETE. Unknown routes fail with `ROUTE_NOT_ALLOWED` before the broker reads a token or calls the daemon. Privileged routes ask through a native Electron dialog showing the exact method and path, with a bounded and redacted body preview. XSS can request a prompt but cannot silently approve it.
 
 ### Compromised browser extension
 
@@ -51,7 +51,8 @@ The renderer can ask the privileged main process to act. The broker limits the o
 - A compromised Electron main process or preload script is outside this boundary and can read the token.
 - Approval fatigue can cause a user to accept a dangerous command or path.
 - Body previews redact known sensitive fields and opaque content, but arbitrary secrets can still appear in displayed path names or other short values.
-- Safe broker mutation routes remain silent; privileged GET file reads/lists and privileged POST routes require one-shot native approval.
+- Safe broker mutation routes remain silent; every privileged GET, POST, or DELETE route requires one-shot native approval.
+- Sensitive reads such as account export, TOTP, custom-model keys, integration secrets, CLI gateway status, import scans, remote bridge config, and unredacted channel config require approval. Redacted channel config remains a safe read.
 - A filesystem race can replace a checked path after approval and before the daemon opens it. The daemon still accepts sensitive reads when called directly with a valid session token.
 - The non-Electron browser fallback keeps its unlocked session token only in page memory, so reloads require another unlock. Local XSS in that browser mode can still read the in-memory token during the unlocked session.
 - The daemon token is long-lived on disk; rotation and secure storage depend on the daemon installation.

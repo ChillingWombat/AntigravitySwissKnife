@@ -180,6 +180,16 @@ describe('ACP Adapter page configurability', () => {
     unmount()
   })
 
+  it('shows the daemon error instead of the empty state when the initial mesh read fails', async () => {
+    const { container, unmount } = await mountPage((async () => {
+      throw new Error('Daemon route is not allowlisted')
+    }) as any)
+
+    assert.match(container.textContent || '', /Daemon route is not allowlisted/)
+    assert.doesNotMatch(container.textContent || '', /No active agent daemons/)
+    unmount()
+  })
+
   it('renders agent cards without the removed discovered-daemons banner', async () => {
     const { querySelectorAll, unmount } = await mountPage()
 

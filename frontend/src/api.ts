@@ -427,9 +427,9 @@ export interface MemoConfigResponse {
 }
 
 export const api = {
-  getStatus: (options?: RequestOptions) => request<SystemStatus>('/api/status', options),
+  getStatus: (options?: RequestOptions) => request<SystemStatus>('/api/status', { ...options, method: 'GET' }),
 
-  getFleetQuota: (options?: RequestOptions) => request<FleetQuotaSummary>('/api/quota/fleet', options),
+  getFleetQuota: (options?: RequestOptions) => request<FleetQuotaSummary>('/api/quota/fleet', { ...options, method: 'GET' }),
 
   refreshFleetQuota: () => request<{ status: string }>('/api/quota/refresh', { method: 'POST' }),
 
