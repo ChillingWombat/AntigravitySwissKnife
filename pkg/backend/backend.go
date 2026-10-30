@@ -1,6 +1,8 @@
 package backend
 
 import (
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
@@ -9,9 +11,17 @@ import (
 // BackendService owns the daemon-backed state used by the web UI.
 type BackendService interface {
 	Accounts() AccountService
+	CustomModels() CustomModelsService
+	Enhancements() EnhancementsService
 	Quota() QuotaService
 	GUI() GUIService
 }
+
+// CustomModelsService is the daemon-owned custom-model state group.
+type CustomModelsService = *custommodels.Store
+
+// EnhancementsService is the daemon-owned enhancement state group.
+type EnhancementsService = *enhancements.Store
 
 type AccountImport struct {
 	Email        string `json:"email"`

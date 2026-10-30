@@ -27,6 +27,14 @@ func (b daemonBackend) Accounts() backend.AccountService {
 	return daemonAccounts{daemon: b.daemon}
 }
 
+func (b daemonBackend) CustomModels() backend.CustomModelsService {
+	return b.daemon.CustomModels
+}
+
+func (b daemonBackend) Enhancements() backend.EnhancementsService {
+	return b.daemon.Enhancements
+}
+
 func (b daemonBackend) Quota() backend.QuotaService {
 	return daemonQuota{daemon: b.daemon}
 }

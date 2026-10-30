@@ -10,7 +10,9 @@ import (
 	"testing"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/daemon"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
@@ -187,12 +189,22 @@ func TestBackendConstructorFailureStopsStartup(t *testing.T) {
 		if err != nil {
 			t.Fatalf("gui.NewStore: %v", err)
 		}
+		customModelsStore, err := custommodels.NewStore(t.TempDir())
+		if err != nil {
+			t.Fatalf("custommodels.NewStore: %v", err)
+		}
+		enhancementsStore, err := enhancements.NewStore(filepath.Join(t.TempDir(), "enhancements.json"))
+		if err != nil {
+			t.Fatalf("enhancements.NewStore: %v", err)
+		}
 		_, err = NewServer(
 			"127.0.0.1:0",
 			testBackend{
-				accounts: testAccountService{},
-				quota:    testQuotaService{},
-				gui:      &testGUIService{store: guiStore},
+				accounts:     testAccountService{},
+				customModels: customModelsStore,
+				enhancements: enhancementsStore,
+				quota:        testQuotaService{},
+				gui:          &testGUIService{store: guiStore},
 			},
 			ipc.NewClient(filepath.Join(t.TempDir(), "unused.sock")),
 		)

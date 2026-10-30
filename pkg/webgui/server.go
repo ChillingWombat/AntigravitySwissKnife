@@ -51,7 +51,11 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-var newGUIConfigStore = gui.NewStore
+var (
+	newGUIConfigStore    = gui.NewStore
+	newCustomModelsStore = custommodels.NewStore
+	newEnhancementsStore = enhancements.NewStore
+)
 
 // RPCClient is the explicit daemon transport used by standalone web mode.
 type RPCClient interface {
@@ -125,6 +129,12 @@ func NewServer(addr string, service backend.BackendService, rpc RPCClient) (*Ser
 	if service.GUI() == nil {
 		return nil, errors.New("GUI backend is required")
 	}
+	if service.CustomModels() == nil {
+		return nil, errors.New("custom-model backend is required")
+	}
+	if service.Enhancements() == nil {
+		return nil, errors.New("enhancement backend is required")
+	}
 	return newServer(addr, service, rpc)
 }
 
@@ -140,26 +150,33 @@ func newServer(addr string, service backend.BackendService, rpc RPCClient) (*Ser
 	if addr == "" {
 		addr = "127.0.0.1:8765"
 	}
-	var guiStore *gui.Store
+	var (
+		guiStore *gui.Store
+		cmStore  *custommodels.Store
+		enhStore *enhancements.Store
+		err      error
+	)
 	if service == nil {
-		var err error
 		guiStore, err = newGUIConfigStore("")
 		if err != nil {
 			return nil, fmt.Errorf("initialize GUI store: %w", err)
 		}
-	}
-	cmStore, err := custommodels.NewStore("")
-	if err != nil {
-		return nil, fmt.Errorf("initialize custom-model store: %w", err)
+		cmStore, err = newCustomModelsStore("")
+		if err != nil {
+			return nil, fmt.Errorf("initialize custom-model store: %w", err)
+		}
+		enhStore, err = newEnhancementsStore("")
+		if err != nil {
+			return nil, fmt.Errorf("initialize enhancement store: %w", err)
+		}
+	} else {
+		cmStore = service.CustomModels()
+		enhStore = service.Enhancements()
 	}
 	cmTester := custommodels.NewTester()
 	custommodels.AutoEnsureCLIGatewayIntegration(cmStore)
 	sysDetector := system.NewDetector()
 	appRelMgr := system.NewAppReleaseManager()
-	enhStore, err := enhancements.NewStore("")
-	if err != nil {
-		return nil, fmt.Errorf("initialize enhancement store: %w", err)
-	}
 	oauthMgr := keyring.NewGoogleOAuthManager("", "")
 	ghStore, err := github.NewStore("")
 	if err != nil {
@@ -316,9 +333,6 @@ func (s *Server) getCustomModelsGateway() *custommodels.Gateway {
 func (s *Server) getCustomModelsStore() *custommodels.Store {
 	s.lazyMu.Lock()
 	defer s.lazyMu.Unlock()
-	if s.customModelsStore == nil {
-		s.customModelsStore, _ = custommodels.NewStore("")
-	}
 	return s.customModelsStore
 }
 
@@ -343,9 +357,6 @@ func (s *Server) getGUIStore() *gui.Store {
 func (s *Server) getEnhancementsStore() *enhancements.Store {
 	s.lazyMu.Lock()
 	defer s.lazyMu.Unlock()
-	if s.enhancementsStore == nil {
-		s.enhancementsStore, _ = enhancements.NewStore("")
-	}
 	return s.enhancementsStore
 }
 
@@ -2022,7 +2033,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 				}
 				c.DefaultCustomModel = val
 				if val == "" && s.getCustomModelsStore() != nil {
-					_ = s.customModelsStore.ClearDefaultFlags()
+					_ = s.getCustomModelsStore().ClearDefaultFlags()
 				}
 			}
 			if val, ok := p["default_non_gemini_model"].(string); ok {
@@ -3053,7 +3064,8 @@ func (s *Server) isGeminiQuotaExhausted() bool {
 }
 
 func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
-	if s.getCustomModelsStore() == nil {
+	store := s.getCustomModelsStore()
+	if store == nil {
 		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
 		return
 	}
@@ -3061,7 +3073,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		s.reconcileCustomModelBalances(r.Context())
-		cfg := s.customModelsStore.GetConfigRedacted()
+		cfg := store.GetConfigRedacted()
 		cfg.InferenceSupported = true
 		cfg.GeminiQuotaExhausted = s.isGeminiQuotaExhausted()
 		if coreCfg, err := core.LoadConfig(); err == nil {
@@ -3094,7 +3106,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 			m.ID = fmt.Sprintf("%s-%s-%d", prefix, slug, time.Now().Unix())
 		} else {
 			// When editing an existing model, restore secrets and GCP metadata if redacted or omitted
-			if saved, err := s.customModelsStore.GetModel(m.ID); err == nil && saved != nil {
+			if saved, err := store.GetModel(m.ID); err == nil && saved != nil {
 				if m.APIKey == "" || m.APIKey == "[REDACTED]" {
 					m.APIKey = saved.APIKey
 				}
@@ -3165,7 +3177,7 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 			}
 			m.QuotaFraction = &frac
 		}
-		if err := s.customModelsStore.SaveModel(m); err != nil {
+		if err := store.SaveModel(m); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -3181,10 +3193,10 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 			if c, err := core.LoadConfig(); err == nil && (c.DefaultCustomModel == m.ID || c.DefaultCustomModel == m.Name) {
 				c.DefaultCustomModel = ""
 				_ = c.Save()
-				_ = s.customModelsStore.ClearDefaultFlags()
+				_ = store.ClearDefaultFlags()
 			}
 		}
-		if saved, err := s.customModelsStore.GetModel(m.ID); err == nil && saved != nil {
+		if saved, err := store.GetModel(m.ID); err == nil && saved != nil {
 			m = *saved
 		}
 		s.syncLanguageServerCloudCodeURL()
@@ -3203,17 +3215,17 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		deletedName := ""
-		if existing, err := s.customModelsStore.GetModel(id); err == nil && existing != nil {
+		if existing, err := store.GetModel(id); err == nil && existing != nil {
 			deletedName = existing.Name
 		}
-		if err := s.customModelsStore.DeleteModel(id); err != nil {
+		if err := store.DeleteModel(id); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		if c, err := core.LoadConfig(); err == nil && c.DefaultCustomModel != "" && (c.DefaultCustomModel == id || (deletedName != "" && c.DefaultCustomModel == deletedName)) {
 			c.DefaultCustomModel = ""
 			_ = c.Save()
-			_ = s.customModelsStore.ClearDefaultFlags()
+			_ = store.ClearDefaultFlags()
 		}
 		s.syncLanguageServerCloudCodeURL()
 		writeJSON(w, map[string]interface{}{"success": true, "deleted": id})
@@ -3748,7 +3760,7 @@ func (s *Server) handleEnhancements(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet {
-		writeJSON(w, s.enhancementsStore.GetConfig())
+		writeJSON(w, store.GetConfig())
 		return
 	}
 
@@ -3758,11 +3770,11 @@ func (s *Server) handleEnhancements(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
-		if err := s.enhancementsStore.UpdateConfig(cfg); err != nil {
+		if err := store.UpdateConfig(cfg); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, s.enhancementsStore.GetConfig())
+		writeJSON(w, store.GetConfig())
 		return
 	}
 
@@ -3782,7 +3794,16 @@ func (s *Server) handleEnhancementsApply(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	// Re-apply styles through GUI store which includes enhancements script injection
+	// Re-apply styles through the owning GUI store, which includes enhancement injection.
+	if s.backend != nil {
+		res, err := s.backend.GUI().Apply()
+		if err != nil && res == nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, res)
+		return
+	}
 	if s.guiStore != nil {
 		res, err := s.guiStore.Apply()
 		if err != nil && res == nil {
