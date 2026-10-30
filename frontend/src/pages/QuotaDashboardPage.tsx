@@ -225,7 +225,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     if (isRefreshing) return
     setIsRefreshing(true)
     try {
-      beginManualRecoveryLease()
+      beginManualRecoveryLease(35_000)
       invalidateDashboardFlights()
       await api.refreshFleetQuota().catch(() => {})
       await requestFleetSnapshot().catch(() => {})
@@ -236,7 +236,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
         await new Promise((r) => setTimeout(r, 1500))
         if (!mountedRef.current) return
         if (Date.now() > deadline) break
-        const f = await api.getFleetQuota().catch(() => {
+        const f = await requestFleetSnapshot().catch(() => {
           consecutiveErrors++
           return null
         })

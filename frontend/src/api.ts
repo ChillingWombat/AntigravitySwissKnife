@@ -1488,6 +1488,7 @@ export const api = {
 
 
 let fleetSnapshotInFlight: ReturnType<typeof api.getFleetQuota> | null = null
+let accountQuotaFlights = new Map<string, ReturnType<typeof api.refreshAccountQuota>>()
 let manualRecoveryLeaseUntil = 0
 
 export function requestFleetSnapshot(): ReturnType<typeof api.getFleetQuota> {
@@ -1501,6 +1502,7 @@ export function requestFleetSnapshot(): ReturnType<typeof api.getFleetQuota> {
 
 export function invalidateDashboardFlights(): void {
   fleetSnapshotInFlight = null
+  accountQuotaFlights = new Map()
 }
 
 export function beginManualRecoveryLease(durationMs = 15_000): void {
@@ -1509,6 +1511,18 @@ export function beginManualRecoveryLease(durationMs = 15_000): void {
 
 export function manualRecoveryLeaseActive(): boolean {
   return Date.now() < manualRecoveryLeaseUntil
+}
+
+const requestAccountQuotaRefresh = api.refreshAccountQuota
+api.refreshAccountQuota = (email: string) => {
+  const key = email.trim().toLowerCase()
+  const existing = accountQuotaFlights.get(key)
+  if (existing) return existing
+  const promise = requestAccountQuotaRefresh(email).finally(() => {
+    if (accountQuotaFlights.get(key) === promise) accountQuotaFlights.delete(key)
+  })
+  accountQuotaFlights.set(key, promise)
+  return promise
 }
 
 const requestAccountSwitch = api.switchAccount
