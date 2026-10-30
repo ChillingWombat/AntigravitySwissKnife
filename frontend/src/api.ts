@@ -50,6 +50,27 @@ function formatErrorMessage(rawText: string, status: number): string {
   return singleLine.slice(0, 200) || `Request failed with status ${status}`
 }
 
+interface SwissDaemonBrokerResult {
+  ok: boolean
+  status: number
+  statusText: string
+  headers: Record<string, string>
+  body: string
+  error?: { code: string; message: string }
+}
+
+interface SwissDaemonBroker {
+  request(request: { method: string; path: string; body?: string; timeoutMs?: number }): Promise<SwissDaemonBrokerResult>
+}
+
+function getSwissDaemonBroker(): SwissDaemonBroker | null {
+  if (typeof window === 'undefined') return null
+  const broker = (window as Window & { swiss?: SwissDaemonBroker }).swiss
+  return broker && typeof broker.request === 'function' ? broker : null
+}
+
+const hasSwissDaemonBroker = getSwissDaemonBroker() !== null
+
 // --- Session token management -----------------------------------------------
 // The daemon enforces loopback auth (P0-50). Web clients authenticate by
 // presenting a session token obtained from /api/auth/unlock, a ?token= one-time
@@ -59,10 +80,17 @@ function formatErrorMessage(rawText: string, status: number): string {
 const SESSION_TOKEN_KEY = 'swiss_session_token'
 
 let sessionToken: string | null = null
-try { sessionToken = localStorage.getItem(SESSION_TOKEN_KEY) } catch {}
+if (!hasSwissDaemonBroker) {
+  try { sessionToken = localStorage.getItem(SESSION_TOKEN_KEY) } catch {}
+}
 
 export function setSessionToken(token: string | null) {
   const clean = token && token.trim() ? token.trim() : null
+  if (hasSwissDaemonBroker) {
+    sessionToken = null
+    try { localStorage.removeItem(SESSION_TOKEN_KEY) } catch {}
+    return
+  }
   sessionToken = clean
   try {
     if (clean) localStorage.setItem(SESSION_TOKEN_KEY, clean)
@@ -90,6 +118,7 @@ try {
 let silentTokenRefresh: Promise<boolean> | null = null
 
 async function trySilentTokenRefresh(): Promise<boolean> {
+  if (hasSwissDaemonBroker) return false
   if (!silentTokenRefresh) {
     silentTokenRefresh = (async () => {
       try {
@@ -208,6 +237,40 @@ export function isAbortError(err: unknown): boolean {
  * @param url Target endpoint URL
  * @param options Request options including HTTP method, headers, timeout, and cancellation controls
  */
+async function fetchDaemon(url: string, fetchOptions: RequestInit, timeoutMs: number): Promise<Response> {
+  const broker = getSwissDaemonBroker()
+  if (!broker) return fetch(url, fetchOptions)
+
+  let parsed: URL
+  try {
+    parsed = new URL(url, window.location.href)
+  } catch {
+    return fetch(url, fetchOptions)
+  }
+  if (parsed.origin !== 'http://127.0.0.1:8765' && parsed.origin !== window.location.origin) {
+    return fetch(url, fetchOptions)
+  }
+
+  const method = String(fetchOptions.method || 'GET').toUpperCase()
+  const body = typeof fetchOptions.body === 'string' ? fetchOptions.body : undefined
+  const result = await broker.request({
+    method,
+    path: parsed.pathname + parsed.search,
+    body,
+    timeoutMs,
+  })
+  if (result.error) {
+    const error = new Error(result.error.message)
+    ;(error as Error & { code?: string }).code = result.error.code
+    throw error
+  }
+  return new Response(result.body, {
+    status: result.status,
+    statusText: result.statusText,
+    headers: result.headers,
+  })
+}
+
 export async function request<T>(url: string, options?: RequestOptions): Promise<T> {
   const method = (options?.method || 'GET').toUpperCase()
   const isGet = method === 'GET'
@@ -261,7 +324,7 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
         headers,
         signal: controller.signal,
       }
-      return fetch(url, fetchOptions)
+      return fetchDaemon(url, fetchOptions, timeoutMs)
     }
 
     let res = await doFetch()

@@ -3,8 +3,7 @@ package enhancements
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/rendererbroker"
 )
 
 // GenerateEnhancementsScript produces client-side JavaScript for Antigravity Desktop & VS Code webviews
@@ -20,27 +19,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 		cfgJSON = []byte(`{"enabled":true,"prompt_jump_bar":{"enabled":true,"show_tooltip":true,"focus_pulse":true,"sync_scroll":true,"position":"gutter","dash_width":14,"dash_thickness":2.5,"inactive_thickness":1.5,"color_mode":"default","custom_color":"#0b57d0"},"tool_density_mode":"muted","breaker_line_enabled":true,"default_new_project":"auto"}`)
 	}
 
-	tok, _ := core.GetLocalSessionToken()
-
-	return fmt.Sprintf(`
+	return rendererbroker.FetchScript + fmt.Sprintf(`
 /* === Antigravity Swiss Knife: App Enhancements === */
 (() => {
   try {
-    if (typeof window !== "undefined") {
-      const swissToken = %q;
-      if (swissToken) {
-        window.__SWISS_SESSION_TOKEN__ = swissToken;
-        try { sessionStorage.setItem("antigravity_swiss_session_token", swissToken); } catch (_) {}
-      }
-    }
     function getSwissAuthHeaders() {
-      const headers = { "Content-Type": "application/json" };
-      const tok = (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) ||
-        (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
-      if (tok) {
-        headers["X-Session-Token"] = tok;
-      }
-      return headers;
+      return { "Content-Type": "application/json" };
     }
 
     let enhConfig = %s;
@@ -3944,5 +3928,5 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     console.warn("[SwissKnife] Enhancements script exception:", err);
   }
 })();
-`, tok, string(cfgJSON))
+`, string(cfgJSON))
 }

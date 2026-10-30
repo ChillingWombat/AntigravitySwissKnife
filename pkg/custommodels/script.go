@@ -3,6 +3,7 @@ package custommodels
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/rendererbroker"
 )
 
 // GenerateCustomModelsScript produces the JavaScript logic injected into Antigravity
@@ -29,7 +30,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
 		}
 	}
 
-	return fmt.Sprintf(`
+	return rendererbroker.FetchScript + fmt.Sprintf(`
 /* === Antigravity Swiss Knife: Custom Model Provider Integration === */
 (() => {
   try {
@@ -72,12 +73,6 @@ func GenerateCustomModelsScript(cfg *Config) string {
     // Auth headers provider matching daemon session authentication
     function getSwissAuthHeaders(extra = {}) {
       const headers = Object.assign({ "Content-Type": "application/json" }, extra);
-      const tok = (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) ||
-        (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
-      if (tok) {
-        headers["X-Session-Token"] = tok;
-        headers["Authorization"] = "Bearer " + tok;
-      }
       return headers;
     }
 

@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/plugins"
@@ -2699,13 +2698,7 @@ func GenerateScript(cfg *Config) string {
 // GenerateScriptWithCustomModels generates the complete script including project tags, custom models, enhancements, and auxiliary plugins.
 func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) string {
 	var tokenScript string
-	if tok, err := core.GetLocalSessionToken(); err == nil && tok != "" {
-		tokenScript = fmt.Sprintf(`if (typeof window !== 'undefined') { window.__SWISS_SESSION_TOKEN__ = %q; try { sessionStorage.setItem('antigravity_swiss_session_token', %q); } catch (_) {} };
-`, tok, tok)
-	}
-	// The auth interceptor must be installed even before a token exists: it
-	// reads the token at request time, so a fresh install still authenticates
-	// as soon as the daemon writes session.token.
+	// Install the broker bridge before any injected module issues a fetch.
 	tokenScript += plugins.SwissAuthInterceptorScript
 	tokenScript += plugins.SwissOnboardingAutoAcceptScript
 
