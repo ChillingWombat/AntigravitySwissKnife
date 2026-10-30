@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -1608,10 +1609,13 @@ func (d *Daemon) Start() error {
 
 // Stop gracefully shuts down all services.
 func (d *Daemon) Stop() error {
+	var stopErrors []error
 	d.cancel()
 	cmStore := custommodels.GetGlobalStore()
 	if cmStore != nil && cmStore.IsProxyModeActive() {
-		custommodels.CleanShellRCHooks()
+		if err := custommodels.CleanShellRCHooks(); err != nil {
+			stopErrors = append(stopErrors, fmt.Errorf("clean shell RC hooks during stop: %w", err))
+		}
 		_ = quota.SetLanguageServerCloudCodeURL("")
 		_ = process.RestartAntigravityAppsToNative(d.Shield)
 	}
@@ -1621,9 +1625,13 @@ func (d *Daemon) Stop() error {
 		d.mu.RUnlock()
 		_ = d.GUIStore.DeactivateOnDaemonStop(keepVisual)
 	}
-	_ = d.Server.Stop()
+	if d.Server != nil {
+		if err := d.Server.Stop(); err != nil {
+			stopErrors = append(stopErrors, fmt.Errorf("stop IPC server: %w", err))
+		}
+	}
 	d.wg.Wait()
-	return nil
+	return errors.Join(stopErrors...)
 }
 
 func (d *Daemon) notifyConfigUpdated() {

@@ -733,7 +733,10 @@ func (s *Server) Stop() error {
 	}
 	var stopErrs []error
 	if s.isProxyModeActive() {
-		custommodels.CleanShellRCHooks()
+		if err := custommodels.CleanShellRCHooks(); err != nil {
+			log.Printf("[webgui] shell RC cleanup failed during stop: %v", err)
+			stopErrs = append(stopErrs, fmt.Errorf("clean shell RC hooks during stop: %w", err))
+		}
 		if err := s.restoreNative().err(); err != nil {
 			stopErrs = append(stopErrs, err)
 		}
@@ -3595,7 +3598,17 @@ func (s *Server) handleCustomModelRestoreNative(w http.ResponseWriter, r *http.R
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	custommodels.CleanShellRCHooks()
+	if err := custommodels.CleanShellRCHooks(); err != nil {
+		log.Printf("[webgui] shell RC cleanup failed while restoring native mode: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		writeJSON(w, map[string]interface{}{
+			"success":         false,
+			"restored_native": false,
+			"error":           fmt.Sprintf("failed to clean shell RC hooks: %v", err),
+		})
+		return
+	}
 	if err := s.restoreNative().err(); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
