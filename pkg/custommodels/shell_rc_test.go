@@ -422,31 +422,56 @@ func TestCleanShellRCHooksRollsBackCommittedRCs(t *testing.T) {
 
 func TestCheckCLIGatewayStatusIgnoresUnrelatedExports(t *testing.T) {
 	home := t.TempDir()
-	bin := filepath.Join(home, "bin")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("CLOUD_CODE_URL", "")
+	t.Setenv("AGY_LLM_GATEWAY_URL", "")
+
+	bin := filepath.Join(home, ".local", "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	agy := filepath.Join(bin, "agy")
+	agyName := "agy"
+	if runtime.GOOS == "windows" {
+		agyName = "agy.exe"
+	}
+	agy := filepath.Join(bin, agyName)
 	if err := os.WriteFile(agy, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
-	t.Setenv("PATH", bin)
 
 	zshrc := filepath.Join(home, ".zshrc")
 	if err := os.WriteFile(zshrc, []byte("export CLOUD_CODE_URL=\"https://example.test\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	status := CheckCLIGatewayStatus(nil)
+	if !status.Installed || status.CLIPath != agy {
+		t.Fatalf("HOME CLI path not detected: installed=%v path=%q want %q", status.Installed, status.CLIPath, agy)
+	}
 	if status.ShellRCHooked {
 		t.Fatal("unrelated CLOUD_CODE_URL export marked shell RC as hooked")
 	}
 
-	if err := os.WriteFile(zshrc, []byte(shellRCBeginMarker+"\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\n"+shellRCEndMarker+"\n"), 0o600); err != nil {
+	managed := shellRCBeginMarker + "\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\n" + shellRCEndMarker + "\n"
+	if err := os.WriteFile(zshrc, []byte(managed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := CleanShellRCHooks(); err != nil {
+		t.Fatalf("CleanShellRCHooks: %v", err)
+	}
+	data, err := os.ReadFile(zshrc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), shellRCBeginMarker) || strings.Contains(string(data), shellRCEndMarker) {
+		t.Fatalf("CleanShellRCHooks did not use HOME override: %q", string(data))
+	}
+
+	if err := os.WriteFile(zshrc, []byte(managed), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	status = CheckCLIGatewayStatus(nil)
-	if !status.ShellRCHooked {
-		t.Fatal("managed marker block was not detected")
+	if runtime.GOOS != "windows" && !status.ShellRCHooked {
+		t.Fatal("managed marker block was not detected from HOME")
 	}
 }
