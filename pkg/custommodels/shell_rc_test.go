@@ -266,6 +266,13 @@ func TestCleanShellRCHooksRepeatedAndConcurrent(t *testing.T) {
 	if err := CleanShellRCHooks(); err != nil {
 		t.Fatalf("repeated CleanShellRCHooks: %v", err)
 	}
+	guardData, err := os.ReadFile(filepath.Join(home, shellRCGuardName))
+	if err != nil {
+		t.Fatalf("read shell RC guard: %v", err)
+	}
+	if len(guardData) != 0 {
+		t.Fatalf("shell RC guard contains stale data: %q", string(guardData))
+	}
 	for _, rc := range []string{zshrc, bashrc} {
 		data, err := os.ReadFile(rc)
 		if err != nil {
@@ -319,9 +326,19 @@ func TestCleanShellRCHooksFailsClosedAcrossAllRCs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
+		if entry.Name() == shellRCGuardName {
+			continue
+		}
 		if strings.Contains(entry.Name(), ".swiss") {
 			t.Fatalf("plan failure left residue: %s", entry.Name())
 		}
+	}
+	guardData, err := os.ReadFile(filepath.Join(home, shellRCGuardName))
+	if err != nil {
+		t.Fatalf("read shell RC guard: %v", err)
+	}
+	if len(guardData) != 0 {
+		t.Fatalf("shell RC guard contains stale data: %q", string(guardData))
 	}
 }
 
