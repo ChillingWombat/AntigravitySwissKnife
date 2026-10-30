@@ -567,23 +567,103 @@ exec "$REAL_BIN" "$@"
 }
 
 function cleanShellRCHooks() {
-  const home = os.homedir();
+  const markerPairs = [
+    ['# >>> Antigravity Swiss Knife CLI Integration >>>', '# <<< Antigravity Swiss Knife CLI Integration <<<'],
+    ['# >>> Antigravity Swiss Knife >>>', '# <<< Antigravity Swiss Knife <<<'],
+    ['# >>> Swiss Knife CLI Integration >>>', '# <<< Swiss Knife CLI Integration <<<'],
+    ['# BEGIN Antigravity Swiss Knife CLI Integration', '# END Antigravity Swiss Knife CLI Integration'],
+    ['# BEGIN Swiss Knife CLI Integration', '# END Swiss Knife CLI Integration'],
+    ['# BEGIN Antigravity Swiss Knife', '# END Antigravity Swiss Knife'],
+  ];
+  const beginMarkers = new Map(markerPairs);
+  const endMarkers = new Set(markerPairs.map(([, endMarker]) => endMarker));
+  const legacyHeaders = new Set([
+    '# Antigravity Swiss Knife - CLI Integration Environment',
+    '# Antigravity Swiss Knife - CLI Gateway Environment',
+    '# Antigravity Swiss Knife - CLI Integration',
+    '# Antigravity Swiss Knife - CLI Gateway',
+  ]);
+  const legacyExports = [
+    'export CLOUD_CODE_URL=',
+    'export AGY_LLM_GATEWAY_URL=',
+    'export AGY_LLM_GATEWAY_API_KEY=',
+    'export AGY_LLM_GATEWAY_MODELS=',
+  ];
+  const lineText = (line) => line.replace(/\r?\n$/, '').trim();
+
   for (const rc of ['.zshrc', '.bashrc']) {
-    const rcPath = path.join(home, rc);
+    const rcPath = path.join(os.homedir(), rc);
     try {
-      if (fs.existsSync(rcPath)) {
-        const content = fs.readFileSync(rcPath, 'utf8');
-        if (content.includes('CLOUD_CODE_URL') || content.includes('AGY_LLM_GATEWAY_URL')) {
-          const lines = content.split('\n').filter((l) => {
-            const trimmed = l.trim();
-            return !trimmed.includes('Antigravity Swiss Knife - CLI') &&
-              !trimmed.startsWith('export CLOUD_CODE_URL=') &&
-              !trimmed.startsWith('export AGY_LLM_GATEWAY_URL=');
-          });
-          fs.writeFileSync(rcPath, lines.join('\n'), 'utf8');
+      if (!fs.existsSync(rcPath)) continue;
+      const data = fs.readFileSync(rcPath, 'utf8');
+      const lines = data.match(/[^\n]*\n|[^\n]+$/g) || [];
+      const kept = [];
+      let owned = false;
+      let changed = false;
+      let legacy = false;
+
+      for (let i = 0; i < lines.length;) {
+        const text = lineText(lines[i]);
+        if (beginMarkers.has(text)) {
+          owned = true;
+          const endMarker = beginMarkers.get(text);
+          let j = i + 1;
+          for (; j < lines.length; j++) {
+            const candidate = lineText(lines[j]);
+            if (beginMarkers.has(candidate)) {
+              throw new Error(`managed block restarted before ${endMarker}`);
+            }
+            if (endMarkers.has(candidate)) {
+              if (candidate !== endMarker) {
+                throw new Error(`managed block ended with ${candidate}`);
+              }
+              break;
+            }
+          }
+          if (j === lines.length) {
+            throw new Error(`managed block is missing ${endMarker}`);
+          }
+          changed = true;
+          i = j + 1;
+          continue;
         }
+        if (endMarkers.has(text)) {
+          throw new Error(`stray managed block end ${text}`);
+        }
+        if (legacyHeaders.has(text)) {
+          let j = i + 1;
+          while (j < lines.length && legacyExports.some((prefix) => lineText(lines[j]).startsWith(prefix))) {
+            j++;
+          }
+          if (j > i + 1) {
+            owned = true;
+            changed = true;
+            legacy = true;
+            i = j;
+            continue;
+          }
+        }
+        kept.push(lines[i]);
+        i++;
       }
-    } catch (_) {}
+
+      if (!owned || !changed) continue;
+      if (legacy) {
+        const stat = fs.statSync(rcPath);
+        const stamp = new Date().toISOString().replace(/[-:.]/g, '');
+        const backupPath = `${rcPath}.swiss-backup-${stamp}`;
+        fs.copyFileSync(rcPath, backupPath);
+        fs.chmodSync(backupPath, stat.mode);
+        try {
+          fs.chownSync(backupPath, stat.uid, stat.gid);
+        } catch {}
+        log(`Shell RC legacy block backed up: ${backupPath}`);
+      }
+      fs.writeFileSync(rcPath, kept.join(''), 'utf8');
+      log(`Shell RC managed hooks removed: ${rcPath}`);
+    } catch (err) {
+      log(`Notice: shell RC cleanup skipped for ${rc}: ${err.message}`);
+    }
   }
 }
 

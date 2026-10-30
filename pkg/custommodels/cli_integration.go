@@ -113,7 +113,7 @@ func CheckCLIGatewayStatus(store *Store) CLIGatewayStatus {
 		mainPath := filepath.Join(dir, "agy")
 
 		data, err := os.ReadFile(mainPath)
-		if err == nil && (strings.Contains(string(data), wrapperMarker) || strings.Contains(string(data), legacyWrapperMarker) || strings.Contains(string(data), "CLOUD_CODE_URL")) {
+		if err == nil && (strings.Contains(string(data), wrapperMarker) || strings.Contains(string(data), legacyWrapperMarker)) {
 			status.Configured = true
 			status.WrapperPath = mainPath
 		} else if fileExists(binPath) {
@@ -122,15 +122,8 @@ func CheckCLIGatewayStatus(store *Store) CLIGatewayStatus {
 		}
 
 		home, _ := os.UserHomeDir()
-		if home != "" {
-			zshrc := filepath.Join(home, ".zshrc")
-			if d, err := os.ReadFile(zshrc); err == nil && (strings.Contains(string(d), "CLOUD_CODE_URL") || strings.Contains(string(d), "AGY_LLM_GATEWAY_URL")) {
-				status.ShellRCHooked = true
-			}
-			bashrc := filepath.Join(home, ".bashrc")
-			if d, err := os.ReadFile(bashrc); err == nil && (strings.Contains(string(d), "CLOUD_CODE_URL") || strings.Contains(string(d), "AGY_LLM_GATEWAY_URL")) {
-				status.ShellRCHooked = true
-			}
+		if home != "" && shellRCHooked(home) {
+			status.ShellRCHooked = true
 		}
 	}
 
@@ -232,56 +225,21 @@ exec "$REAL_BIN" "$@"
 		return fmt.Errorf("write agy wrapper: %w", err)
 	}
 
-	CleanShellRCHooks()
+	if err := CleanShellRCHooks(); err != nil {
+		return fmt.Errorf("clean shell RC hooks: %w", err)
+	}
 
 	return nil
 }
 
-// CleanShellRCHooks removes static proxy environment variables from user shell RC files
-// to ensure native models remain available when Swiss Knife is closed.
-func CleanShellRCHooks() {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return
-	}
-	cleanSingleShellRC(filepath.Join(home, ".zshrc"))
-	cleanSingleShellRC(filepath.Join(home, ".bashrc"))
-}
-
-func cleanSingleShellRC(rcPath string) {
-	data, err := os.ReadFile(rcPath)
-	if err != nil {
-		return
-	}
-	content := string(data)
-	if !strings.Contains(content, "CLOUD_CODE_URL") && !strings.Contains(content, "AGY_LLM_GATEWAY_URL") {
-		return
-	}
-	lines := strings.Split(content, "\n")
-	var filtered []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.Contains(trimmed, "Antigravity Swiss Knife - CLI Integration") ||
-			strings.Contains(trimmed, "Antigravity Swiss Knife - CLI Gateway") ||
-			strings.HasPrefix(trimmed, "export CLOUD_CODE_URL=") ||
-			strings.HasPrefix(trimmed, "export AGY_LLM_GATEWAY_URL=") {
-			continue
-		}
-		filtered = append(filtered, line)
-	}
-	newContent := strings.Join(filtered, "\n")
-	if newContent != content {
-		_ = os.WriteFile(rcPath, []byte(newContent), 0644)
-	}
-}
-
 // AutoEnsureCLIGatewayIntegration is called during daemon start or installation.
-func AutoEnsureCLIGatewayIntegration(store *Store) {
+func AutoEnsureCLIGatewayIntegration(store *Store) error {
 	if core.IsRunningTests() {
-		return
+		return nil
 	}
 	status := CheckCLIGatewayStatus(store)
 	if status.Installed && !status.Configured {
-		_ = SetupCLIGatewayIntegration(store)
+		return SetupCLIGatewayIntegration(store)
 	}
+	return nil
 }
