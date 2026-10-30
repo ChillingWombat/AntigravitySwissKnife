@@ -147,12 +147,15 @@ jobs:
         run: npm run build:frontend
 
       - name: Test web GUI dist checks
+        if: runner.os == 'Linux'
         run: node --test scripts/check-webgui-dist.test.js
 
       - name: Check web GUI dist assets
+        if: runner.os == 'Linux'
         run: node scripts/check-webgui-dist.js
 
       - name: Check web GUI dist drift
+        if: runner.os == 'Linux'
         run: git diff --exit-code -- pkg/webgui/dist
 
   injected-runtime:
