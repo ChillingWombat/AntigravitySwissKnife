@@ -61,15 +61,18 @@ type shellRCFilePlan struct {
 
 var commitShellRC = commitShellRCFile
 
+func shellRCHome() (string, error) {
+	if home := os.Getenv("HOME"); home != "" {
+		return home, nil
+	}
+	return os.UserHomeDir()
+}
+
 // CleanShellRCHooks removes only complete Swiss Knife managed blocks from user shell RC files.
 func CleanShellRCHooks() error {
-	home := os.Getenv("HOME")
-	var err error
-	if home == "" {
-		home, err = os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("resolve home directory: %w", err)
-		}
+	home, err := shellRCHome()
+	if err != nil {
+		return fmt.Errorf("resolve home directory: %w", err)
 	}
 	if home == "" {
 		return nil

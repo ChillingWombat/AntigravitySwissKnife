@@ -38,7 +38,7 @@ func FindAgyBinary() string {
 		return p
 	}
 
-	home, err := os.UserHomeDir()
+	home, err := shellRCHome()
 	if err != nil {
 		return ""
 	}
@@ -121,7 +121,7 @@ func CheckCLIGatewayStatus(store *Store) CLIGatewayStatus {
 			status.WrapperPath = mainPath
 		}
 
-		home, _ := os.UserHomeDir()
+		home, _ := shellRCHome()
 		if home != "" && shellRCHooked(home) {
 			status.ShellRCHooked = true
 		}
