@@ -37,6 +37,7 @@ import type {
 import { QuotaIndicatorGroup } from '../components/QuotaIndicatorGroup'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { SecurityReportModal } from '../components/SecurityReportModal'
+import { ModalDialog } from '../components/dialogs/ModalDialog'
 import { GoogleCloudLogoIcon } from '../components/AcpBrandIcons'
 import { auditModelSecurity } from '../utils/securityAudit'
 import {
@@ -53,10 +54,13 @@ import {
 import {
   getTestConnectionButtonPresentation,
   sanitizeConnectionErrorMessage,
+  formatPing,
+  getErrorCode,
 } from '../utils/testConnectionButton'
 import { MODEL_CARD_MIN_WIDTH, MODEL_CARD_GRID_GAP } from '../utils/layoutTokens'
 import { api } from '../api'
 import { ModelSourceTab } from '../components/ModelSourceTab'
+import { useDialogState } from './customModels/useDialogState'
 
 const inferProviderType = (url: string): ProviderType => {
   const lower = (url || '').toLowerCase()
@@ -108,11 +112,13 @@ export const CustomModelsPage: React.FC = () => {
   const [testingModelId, setTestingModelId] = useState<string | null>(null)
   const [auditingModelId, setAuditingModelId] = useState<string | null>(null)
   const [cardTestResults, setCardTestResults] = useState<Record<string, TestResult>>({})
+  const cardTestTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   // Modal State
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false)
-  const [editingModel, setEditingModel] = useState<CustomModel | null>(null)
-  const [deleteConfirmModel, setDeleteConfirmModel] = useState<{ id: string; name: string } | null>(null)
+  const [dialog, dispatchDialog] = useDialogState()
+  const isModalOpen = dialog.type === 'modelForm'
+  const editingModel = dialog.type === 'modelForm' ? dialog.initialModel : null
+  const deleteConfirmModel = dialog.type === 'delete' ? dialog.model : null
   const [showApiKey, setShowApiKey] = useState<boolean>(false)
 
   // Modal Form Fields
@@ -178,12 +184,12 @@ export const CustomModelsPage: React.FC = () => {
 
   // Security Audit States (inspired by toby-bridges/api-relay-audit)
   const [modalAuditResult, setModalAuditResult] = useState<SecurityAuditReport | null>(null)
-  const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false)
+  const isReportModalOpen = dialog.type === 'report'
   const [activeReportForView, setActiveReportForView] = useState<SecurityAuditReport | null>(null)
 
   // GCP Modal States
-  const [isGcpModalOpen, setIsGcpModalOpen] = useState<boolean>(false)
-  const [gcpEditingModel, setGcpEditingModel] = useState<CustomModel | null>(null)
+  const isGcpModalOpen = dialog.type === 'gcpForm'
+  const gcpEditingModel = dialog.type === 'gcpForm' ? dialog.initialModel : null
   const [gcpJsonContent, setGcpJsonContent] = useState<string>('')
   const [gcpParsedKey, setGcpParsedKey] = useState<any | null>(null)
   const [gcpParseError, setGcpParseError] = useState<string | null>(null)
@@ -199,13 +205,13 @@ export const CustomModelsPage: React.FC = () => {
   const [gcpBalanceValue, setGcpBalanceValue] = useState<string>('')
   const [gcpBudgetCapType, setGcpBudgetCapType] = useState<'none' | 'dollar' | 'percentage' | 'tokens'>('none')
   const [gcpBudgetCapValue, setGcpBudgetCapValue] = useState<number | null>(null)
+  const [gcpNotes, setGcpNotes] = useState<string>('')
   // Independent fold state so the custom-model Quota & Price and the GCP Quota & Budget
   // sections do not share (and clobber) each other's collapsed/expanded state.
   const [isGcpQuotaBudgetOpen, setIsGcpQuotaBudgetOpen] = useState<boolean>(false)
   const gcpFileInputRef = useRef<HTMLInputElement>(null)
 
   const openAddGcpModal = () => {
-    setGcpEditingModel(null)
     setGcpJsonContent('')
     setGcpParsedKey(null)
     setGcpParseError(null)
@@ -221,11 +227,11 @@ export const CustomModelsPage: React.FC = () => {
     setGcpBalanceValue('')
     setGcpBudgetCapType('none')
     setGcpBudgetCapValue(null)
-    setIsGcpModalOpen(true)
+    setGcpNotes('')
+    dispatchDialog({ type: 'openGcp', mode: 'add', initialModel: null })
   }
 
   const openEditGcpModal = (model: CustomModel) => {
-    setGcpEditingModel(model)
     setGcpCustomModel(model.name)
     setGcpDisplayName(model.display_name)
     let projectId = model.gcp_project_id || ''
@@ -243,6 +249,7 @@ export const CustomModelsPage: React.FC = () => {
     setGcpBalanceValue(model.balance_value || '')
     setGcpBudgetCapType((model.budget_cap_type as 'none' | 'dollar' | 'percentage' | 'tokens') || 'none')
     setGcpBudgetCapValue(model.budget_cap_value !== undefined && model.budget_cap_value !== null ? model.budget_cap_value : null)
+    setGcpNotes(model.notes || '')
 
     let initialBalance = model.balance_value || ''
     if (!initialBalance && model.prepaid_balance > 0) {
@@ -292,7 +299,7 @@ export const CustomModelsPage: React.FC = () => {
         })
         .catch(() => {})
     }
-    setIsGcpModalOpen(true)
+    dispatchDialog({ type: 'openGcp', mode: 'edit', initialModel: model })
   }
 
   const handleGcpJsonChange = (raw: string) => {
@@ -506,7 +513,7 @@ export const CustomModelsPage: React.FC = () => {
             ? gcpEditingModel.thinking_level
             : 'high')
         : 'off',
-      notes: `GCP Vertex AI (${region}) - Project ${project} via ${gcpClientEmail || 'Service Account'}`,
+      notes: gcpNotes.trim(),
     }
 
     try {
@@ -518,8 +525,7 @@ export const CustomModelsPage: React.FC = () => {
         await api.saveRules({ default_custom_model: '' }).catch(() => {})
         setRulesDefaultCustom('')
       }
-      setIsGcpModalOpen(false)
-      setGcpEditingModel(null)
+      dispatchDialog({ type: 'close' })
       await loadData()
     } catch (err: any) {
       setGcpError(`Failed to save GCP model: ${err.message}`)
@@ -570,6 +576,12 @@ export const CustomModelsPage: React.FC = () => {
     loadData()
   }, [])
 
+  useEffect(() => {
+    return () => {
+      Object.values(cardTestTimersRef.current).forEach((t) => clearTimeout(t))
+    }
+  }, [])
+
   // Click-outside listener to dismiss popover dropdowns
   useEffect(() => {
     const handleDocumentClick = (e: MouseEvent) => {
@@ -590,7 +602,6 @@ export const CustomModelsPage: React.FC = () => {
 
   const openAddModal = () => {
     editKeyRequestRef.current += 1
-    setEditingModel(null)
     setDisplayName('')
     setModelName('')
     setProviderType('custom')
@@ -624,7 +635,7 @@ export const CustomModelsPage: React.FC = () => {
     setModalTestResult(null)
     setModalAuditResult(null)
     setModalError(null)
-    setIsModalOpen(true)
+    dispatchDialog({ type: 'openModelForm', mode: 'add', initialModel: null })
   }
 
   const openEditModal = (model: CustomModel) => {
@@ -634,7 +645,6 @@ export const CustomModelsPage: React.FC = () => {
     }
     const keyRequestId = ++editKeyRequestRef.current
     const listedKey = model.api_key?.trim() || ''
-    setEditingModel(model)
     setDisplayName(model.display_name)
     setModelName(model.name)
     setProviderType(model.provider_type || inferProviderType(model.base_url))
@@ -684,7 +694,7 @@ export const CustomModelsPage: React.FC = () => {
       setModalAuditResult(null)
     }
     setModalError(null)
-    setIsModalOpen(true)
+    dispatchDialog({ type: 'openModelForm', mode: 'edit', initialModel: model })
 
     if (!listedKey || listedKey === '[REDACTED]') {
       api.getCustomModelKey(model.id)
@@ -704,7 +714,7 @@ export const CustomModelsPage: React.FC = () => {
 
   const closeCustomModelModal = () => {
     editKeyRequestRef.current += 1
-    setIsModalOpen(false)
+    dispatchDialog({ type: 'close' })
   }
 
   const handleFetchModels = async () => {
@@ -1137,7 +1147,7 @@ export const CustomModelsPage: React.FC = () => {
   }
 
   const handleDeleteModel = (id: string, name: string) => {
-    setDeleteConfirmModel({ id, name })
+    dispatchDialog({ type: 'openDelete', model: { id, name } })
   }
 
   const confirmDeleteModel = async () => {
@@ -1146,14 +1156,11 @@ export const CustomModelsPage: React.FC = () => {
     setModalSaving(true)
     try {
       await api.deleteCustomModel(id)
-      setDeleteConfirmModel(null)
-      if (isModalOpen && editingModel?.id === id) {
-        closeCustomModelModal()
-      }
+      closeCustomModelModal()
       await loadData()
     } catch (err: any) {
       setFeedback(`Delete failed: ${err.message}`)
-      setDeleteConfirmModel(null)
+      dispatchDialog({ type: 'backToModelForm' })
     } finally {
       setModalSaving(false)
     }
@@ -1183,6 +1190,10 @@ export const CustomModelsPage: React.FC = () => {
   }
 
   const handleCardTest = async (model: CustomModel) => {
+    if (cardTestTimersRef.current[model.id]) {
+      clearTimeout(cardTestTimersRef.current[model.id])
+      delete cardTestTimersRef.current[model.id]
+    }
     setTestingModelId(model.id)
     try {
       const res = await api.testCustomModel(model)
@@ -1219,6 +1230,14 @@ export const CustomModelsPage: React.FC = () => {
       }))
     } finally {
       setTestingModelId(null)
+      cardTestTimersRef.current[model.id] = setTimeout(() => {
+        setCardTestResults((prev) => {
+          const next = { ...prev }
+          delete next[model.id]
+          return next
+        })
+        delete cardTestTimersRef.current[model.id]
+      }, 4000)
     }
   }
 
@@ -1243,7 +1262,7 @@ export const CustomModelsPage: React.FC = () => {
         }
       })
       setActiveReportForView(rep)
-      setIsReportModalOpen(true)
+      dispatchDialog({ type: 'openReport' })
     } finally {
       setAuditingModelId(null)
     }
@@ -1639,40 +1658,9 @@ export const CustomModelsPage: React.FC = () => {
                         {m.base_url}
                       </div>
 
-                      {/* Budget Cap & Token Price Badges */}
-                      {((m.budget_cap_type && m.budget_cap_type !== 'none' && m.budget_cap_value !== null && m.budget_cap_value !== undefined) || (m.input_price_per_m !== undefined)) && (
+                      {/* Token Price Badges */}
+                      {((m.input_price_per_m !== null && m.input_price_per_m !== undefined) || (m.price_source === 'unconfigured' || m.input_price_per_m === null)) && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
-                          {m.budget_cap_type && m.budget_cap_type !== 'none' && m.budget_cap_value !== null && m.budget_cap_value !== undefined && (
-                            <span
-                              style={{
-                                backgroundColor: '#fef3c7',
-                                color: '#b45309',
-                                fontSize: '10px',
-                                fontWeight: 600,
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '3px',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              <span>
-                                Cap:{' '}
-                                {m.budget_cap_type === 'dollar'
-                                  ? `$${m.budget_cap_value}`
-                                  : m.budget_cap_type === 'percentage'
-                                  ? `${m.budget_cap_value}%`
-                                  : `${
-                                      m.budget_cap_value >= 1_000_000
-                                        ? `${(m.budget_cap_value / 1_000_000).toFixed(m.budget_cap_value % 1_000_000 === 0 ? 0 : 1)}M`
-                                        : m.budget_cap_value >= 1_000
-                                        ? `${(m.budget_cap_value / 1_000).toFixed(m.budget_cap_value % 1_000 === 0 ? 0 : 1)}k`
-                                        : m.budget_cap_value
-                                    } tokens`}
-                              </span>
-                            </span>
-                          )}
                           {m.input_price_per_m !== null && m.input_price_per_m !== undefined ? (
                             <span
                               style={{
@@ -1733,35 +1721,6 @@ export const CustomModelsPage: React.FC = () => {
                       />
                     </div>
                   </div>
-
-                  {/* Live Test Feedback if run */}
-                  {testResult && (
-                    <div
-                      style={{
-                        marginTop: '12px',
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        backgroundColor: testResult.success ? 'var(--green-bg)' : '#fce8e6',
-                        color: testResult.success ? 'var(--green)' : '#b3261e',
-                        fontSize: '11px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                      }}
-                    >
-                      {testResult.success ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
-                      <span>
-                        {testResult.success
-                          ? `Connection verified: OK (${testResult.latency_ms}ms)`
-                          : (() => {
-                              const cleanMsg = sanitizeConnectionErrorMessage(testResult.message)
-                              return cleanMsg.toLowerCase().startsWith('test failed') || cleanMsg.toLowerCase().startsWith('connection test failed')
-                                ? cleanMsg
-                                : `Test failed: ${cleanMsg}`
-                            })()}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
                 {/* Card Footer Actions */}
@@ -1779,22 +1738,97 @@ export const CustomModelsPage: React.FC = () => {
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'nowrap', flexShrink: 0 }}>
-                    <button
-                      onClick={() => handleCardTest(m)}
-                      disabled={isTesting}
-                      className="btn-pill-tonal"
-                      style={{
-                        padding: '5px 12px',
-                        fontSize: '11px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {isTesting ? <Loader2 size={12} className="spin" /> : <Zap size={12} />}
-                      <span>{isTesting ? 'Testing...' : 'Test Connection'}</span>
-                    </button>
+                    {(() => {
+                      if (isTesting) {
+                        return (
+                          <button
+                            disabled
+                            className="btn-pill-tonal"
+                            style={{
+                              padding: '5px 12px',
+                              fontSize: '11px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <Loader2 size={12} className="spin" />
+                            <span>Testing...</span>
+                          </button>
+                        )
+                      }
+                      if (testResult) {
+                        if (testResult.success) {
+                          const pingStr = formatPing(testResult.latency_ms)
+                          return (
+                            <button
+                              onClick={() => handleCardTest(m)}
+                              style={{
+                                padding: '5px 12px',
+                                borderRadius: '20px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                whiteSpace: 'nowrap',
+                                backgroundColor: '#e6f4ea',
+                                color: '#137333',
+                                border: '1px solid #ceead6',
+                                cursor: 'pointer',
+                              }}
+                              title={`Connection verified: OK (${pingStr}) (Click to re-test)`}
+                            >
+                              <CheckCircle2 size={12} />
+                              <span>OK ({pingStr})</span>
+                            </button>
+                          )
+                        }
+                        const errorCode = getErrorCode(testResult)
+                        const errLabel = errorCode ? `Error (${errorCode})` : 'Error'
+                        return (
+                          <button
+                            onClick={() => handleCardTest(m)}
+                            style={{
+                              padding: '5px 12px',
+                              borderRadius: '20px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              whiteSpace: 'nowrap',
+                              backgroundColor: '#fce8e6',
+                              color: '#c5221f',
+                              border: '1px solid #fad2cf',
+                              cursor: 'pointer',
+                            }}
+                            title={testResult.message ? `Connection failed: ${testResult.message} (Click to re-test)` : 'Connection test failed (Click to re-test)'}
+                          >
+                            <AlertCircle size={12} />
+                            <span>{errLabel}</span>
+                          </button>
+                        )
+                      }
+                      return (
+                        <button
+                          onClick={() => handleCardTest(m)}
+                          className="btn-pill-tonal"
+                          style={{
+                            padding: '5px 12px',
+                            fontSize: '11px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <Zap size={12} />
+                          <span>Test Connection</span>
+                        </button>
+                      )
+                    })()}
 
                     {m.security_risk_level ? (
                       <button
@@ -1896,17 +1930,11 @@ export const CustomModelsPage: React.FC = () => {
 
       {/* 3. Add / Edit Modal Window */}
       {isModalOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.45)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
+        <ModalDialog
+          open
+          title={editingModel ? 'Edit Custom Model' : 'Add Custom Model Provider'}
+          onClose={closeCustomModelModal}
+          size="md"
         >
           <div
             className="google-card"
@@ -1932,7 +1960,9 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
               <button
+                type="button"
                 onClick={closeCustomModelModal}
+                aria-label="Close custom model dialog"
                 className="btn-pill-tonal"
                 style={{ padding: '6px' }}
               >
@@ -2231,11 +2261,6 @@ export const CustomModelsPage: React.FC = () => {
                               <span style={{ fontWeight: 500, color: 'var(--text)' }}>
                                 {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
                               </span>
-                              {lvl.toLowerCase() !== 'off' && (
-                                <span style={{ fontSize: '10px', color: 'var(--primary)', fontWeight: 600, backgroundColor: 'rgba(26,115,232,0.08)', padding: '2px 6px', borderRadius: '4px' }}>
-                                  Reasoning
-                                </span>
-                              )}
                             </div>
                           ))}
                         </div>
@@ -2264,6 +2289,7 @@ export const CustomModelsPage: React.FC = () => {
                 <div style={{ position: 'relative' }}>
                   <input
                     type={showApiKey ? 'text' : 'password'}
+                    aria-label="API key"
                     placeholder="sk-..."
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
@@ -2272,6 +2298,7 @@ export const CustomModelsPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowApiKey(!showApiKey)}
+                    aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
                     style={{
                       position: 'absolute',
                       right: '8px',
@@ -2412,20 +2439,6 @@ export const CustomModelsPage: React.FC = () => {
                     >
                       {quotaType === 'balance' ? 'Balance' : quotaType === 'quota' ? 'Quota' : 'N/A'}
                     </span>
-                    {budgetCapType !== 'none' && budgetCapValue !== null && (
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: '#fef3c7',
-                          color: '#b45309',
-                          fontWeight: 600,
-                        }}
-                      >
-                        Cap: {budgetCapType === 'dollar' ? `$${budgetCapValue}` : budgetCapType === 'percentage' ? `${budgetCapValue}%` : `${budgetCapValue} tok`}
-                      </span>
-                    )}
                   </div>
 
                   <button
@@ -2753,9 +2766,9 @@ export const CustomModelsPage: React.FC = () => {
                             }}
                           >
                             {priceSource === 'provider'
-                              ? 'Provider Official'
+                              ? 'Official'
                               : priceSource === 'third_party' || priceSource === 'api'
-                              ? '3rd-Party Backup'
+                              ? '3rd Party'
                               : 'Manual Override'}
                           </span>
                         )}
@@ -2831,16 +2844,16 @@ export const CustomModelsPage: React.FC = () => {
                         {[
                           { id: 'none' as const, label: 'No Cap', available: true },
                           {
-                            id: 'dollar' as const,
-                            label: 'Dollar Spend Cap ($)',
-                            available: quotaType === 'balance' || inputPricePerM !== null || outputPricePerM !== null,
-                          },
-                          {
                             id: 'percentage' as const,
-                            label: 'Usage Cap (%)',
+                            label: 'Usage',
                             available: quotaType === 'quota' || quotaType === 'balance',
                           },
-                          { id: 'tokens' as const, label: 'Token Count Cap', available: true },
+                          {
+                            id: 'dollar' as const,
+                            label: 'Value',
+                            available: quotaType === 'balance' || inputPricePerM !== null || outputPricePerM !== null,
+                          },
+                          { id: 'tokens' as const, label: 'Tokens', available: true },
                         ].map((c) => (
                           <button
                             key={c.id}
@@ -2954,22 +2967,16 @@ export const CustomModelsPage: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </ModalDialog>
       )}
 
       {/* Delete Confirmation In-App Modal */}
       {deleteConfirmModel && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.45)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1100,
-          }}
+        <ModalDialog
+          open
+          title="Delete Custom Model"
+          onClose={() => dispatchDialog({ type: 'backToModelForm' })}
+          size="sm"
         >
           <div
             className="google-card"
@@ -2994,7 +3001,7 @@ export const CustomModelsPage: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button
                 type="button"
-                onClick={() => setDeleteConfirmModel(null)}
+                onClick={() => dispatchDialog({ type: 'backToModelForm' })}
                 className="btn-pill-tonal"
                 style={{ padding: '7px 16px', fontSize: '12px' }}
               >
@@ -3011,22 +3018,16 @@ export const CustomModelsPage: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalDialog>
       )}
 
       {/* Add GCP Vertex AI Model Modal */}
       {isGcpModalOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.45)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1050,
-          }}
+        <ModalDialog
+          open
+          title={gcpEditingModel ? 'Edit GCP Model' : 'Add GCP Vertex AI Model'}
+          onClose={() => dispatchDialog({ type: 'close' })}
+          size="lg"
         >
           <div
             className="google-card"
@@ -3055,7 +3056,8 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={() => setIsGcpModalOpen(false)}
+                aria-label="Close GCP model dialog"
+                onClick={() => dispatchDialog({ type: 'close' })}
                 className="btn-pill-tonal"
                 style={{ padding: '6px' }}
               >
@@ -3091,7 +3093,10 @@ export const CustomModelsPage: React.FC = () => {
             {/* JSON Key Upload / Paste */}
             <div style={{ marginBottom: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                <label
+                  htmlFor="gcp-service-account-json"
+                  style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}
+                >
                   Service Account JSON Key:
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -3113,6 +3118,7 @@ export const CustomModelsPage: React.FC = () => {
                 </div>
               </div>
               <textarea
+                id="gcp-service-account-json"
                 placeholder={gcpEditingModel ? 'Service account key is configured. Paste a new JSON key here only if replacing it.' : 'Paste your GCP Service Account JSON key here ({"type": "service_account", "project_id": ...})'}
                 value={gcpJsonContent}
                 onChange={(e) => handleGcpJsonChange(e.target.value)}
@@ -3213,6 +3219,29 @@ export const CustomModelsPage: React.FC = () => {
               />
             </div>
 
+            {/* Notes Section: User Notes */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                Notes:
+              </label>
+              <textarea
+                placeholder="Optional notes or description for this model (e.g. usage guidelines, proxy cluster, billing owner)..."
+                value={gcpNotes}
+                onChange={(e) => setGcpNotes(e.target.value)}
+                rows={2}
+                style={{
+                  width: '100%',
+                  fontSize: '12px',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
             {/* Foldable Quota & Budget Section — GCP models are manual-entry only (no auto probe) */}
             <div style={{ border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
               <button
@@ -3266,9 +3295,9 @@ export const CustomModelsPage: React.FC = () => {
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                       {[
                         { id: 'none' as const, label: 'No Cap' },
-                        { id: 'dollar' as const, label: 'USD Cap ($)' },
-                        { id: 'percentage' as const, label: 'Usage Cap (%)' },
-                        { id: 'tokens' as const, label: 'Token Count Cap' },
+                        { id: 'percentage' as const, label: 'Usage' },
+                        { id: 'dollar' as const, label: 'Value' },
+                        { id: 'tokens' as const, label: 'Tokens' },
                       ].map((c) => (
                         <button
                           key={c.id}
@@ -3399,7 +3428,7 @@ export const CustomModelsPage: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
                   type="button"
-                  onClick={() => setIsGcpModalOpen(false)}
+                  onClick={() => dispatchDialog({ type: 'close' })}
                   className="btn-pill-tonal"
                   style={{ padding: '7px 18px', fontSize: '12px' }}
                 >
@@ -3417,14 +3446,14 @@ export const CustomModelsPage: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </ModalDialog>
       )}
 
       {/* Security Report In-App Modal */}
       {isReportModalOpen && activeReportForView && (
         <SecurityReportModal
           report={activeReportForView}
-          onClose={() => setIsReportModalOpen(false)}
+          onClose={() => dispatchDialog({ type: 'close' })}
         />
       )}
     </div>

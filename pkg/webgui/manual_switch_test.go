@@ -34,7 +34,7 @@ func newManualSwitchTestServer(t *testing.T) *Server {
 		t.Fatalf("ImportAccount(active-user) error: %v", err)
 	}
 
-	srv := NewServer("127.0.0.1:0", filepath.Join(tmpDir, "dummy.sock"))
+	srv := newTestServer("127.0.0.1:0", filepath.Join(tmpDir, "dummy.sock"))
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}

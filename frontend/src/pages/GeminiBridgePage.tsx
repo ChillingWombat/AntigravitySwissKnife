@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Radio,
   CheckCircle2,
   AlertCircle,
   Terminal,
@@ -16,7 +15,6 @@ import {
   Plus,
   X,
   Info,
-  Globe,
 } from 'lucide-react'
 import { api, isAbortError } from '../api'
 import { ToggleSwitch } from '../components/ToggleSwitch'
@@ -99,6 +97,7 @@ export const GeminiBridgePage: React.FC = () => {
   const [copiedConfig, setCopiedConfig] = useState<boolean>(false)
   const [copiedToken, setCopiedToken] = useState<boolean>(false)
   const [copiedClientId, setCopiedClientId] = useState<boolean>(false)
+  const [copiedPin, setCopiedPin] = useState<boolean>(false)
   const [actionFeedback, setActionFeedback] = useState<{ text: string; isError: boolean } | null>(null)
   const [newAllowHost, setNewAllowHost] = useState<string>('')
   const [agentLoading, setAgentLoading] = useState<boolean>(false)
@@ -401,28 +400,6 @@ export const GeminiBridgePage: React.FC = () => {
           </div>
         )}
 
-        {/* Status Metrics Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '12px' }}>
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-              Gateway Status
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: status?.enabled ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
-              {status?.enabled ? 'Streamable HTTPS' : 'Standby'}
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>
-              Operating Mode
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginTop: '4px' }}>
-              {currentMode.toUpperCase()}
-            </div>
-          </div>
-
-        </div>
-
         {/* Live Gateway URL & Pairing PIN */}
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
           <div
@@ -439,7 +416,6 @@ export const GeminiBridgePage: React.FC = () => {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '0', flex: 1 }}>
-              <Radio size={16} color="var(--primary)" />
               {activeEndpoint ? (
                 <>
                   <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
@@ -523,21 +499,42 @@ export const GeminiBridgePage: React.FC = () => {
               >
                 {useAppPassword ? 'App Password' : (status?.pairing_pin || '--------')}
               </span>
-              <button
-                onClick={handleRotateCredentials}
-                disabled={rotatingAuth || useAppPassword}
-                className="btn-pill-tonal"
-                style={{
-                  marginLeft: 'auto',
-                  padding: '4px 10px',
-                  fontSize: '11px',
-                  opacity: useAppPassword ? 0.5 : 1,
-                  cursor: rotatingAuth || useAppPassword ? 'not-allowed' : 'pointer',
-                }}
-              >
-                <RefreshCw size={12} className={rotatingAuth ? 'animate-spin' : ''} />
-                <span>Rotate PIN</span>
-              </button>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(status?.pairing_pin || '', setCopiedPin)}
+                  disabled={useAppPassword || !status?.pairing_pin}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    padding: '2px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: useAppPassword || !status?.pairing_pin ? 0.4 : 1,
+                    cursor: useAppPassword || !status?.pairing_pin ? 'not-allowed' : 'pointer',
+                    color: 'var(--text-muted)',
+                  }}
+                  title={copiedPin ? 'Copied' : 'Copy'}
+                  aria-label={copiedPin ? 'Copied' : 'Copy'}
+                >
+                  {copiedPin ? <Check size={14} color="var(--green)" /> : <Copy size={14} />}
+                </button>
+                <button
+                  onClick={handleRotateCredentials}
+                  disabled={rotatingAuth || useAppPassword}
+                  className="btn-pill-tonal"
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '11px',
+                    opacity: useAppPassword ? 0.5 : 1,
+                    cursor: rotatingAuth || useAppPassword ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <RefreshCw size={12} className={rotatingAuth ? 'animate-spin' : ''} />
+                  <span>Rotate PIN</span>
+                </button>
+              </div>
             </div>
             <p style={{ margin: '6px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
               Pass as header <code>X-Pairing-PIN</code> or URL query <code>?pin={status?.pairing_pin}</code>.
@@ -561,7 +558,6 @@ export const GeminiBridgePage: React.FC = () => {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '0', flex: 1 }}>
-              <Layers size={15} color="var(--primary)" />
               <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                 A2A Agent Card:
               </span>
@@ -663,7 +659,8 @@ export const GeminiBridgePage: React.FC = () => {
                 fontSize: '12px',
                 borderRadius: '6px',
                 border: '1px solid var(--border)',
-                backgroundColor: '#ffffff',
+                backgroundColor: 'var(--surface)',
+                color: 'var(--text)',
               }}
             />
           </div>
@@ -715,35 +712,21 @@ export const GeminiBridgePage: React.FC = () => {
 
       {/* 3. Authentication & First-Time Setup */}
       <div className="google-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-          <div>
+        <div style={{ marginBottom: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
               Authentication & Pairing Credentials
             </div>
-            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-              Gemini Bridge includes a built-in OAuth 2.0 / 2.1 Authorization Server: Google Gemini discovers OAuth endpoints automatically and prompts for your 8-character Pairing PIN (or App Access Password when toggled) during authorization, or you can paste the <strong>OAuth Client ID</strong> and <strong>OAuth Client Secret</strong> into Gemini's <em>Additional settings</em>.
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={handleRotateCredentials}
-              disabled={rotatingAuth}
-              className="btn-pill-tonal"
+            <span
+              title="Built-in OAuth 2.0 authorization server for automatic endpoint discovery and credentials."
+              style={{ display: 'inline-flex', color: 'var(--text-subtle)', cursor: 'default' }}
             >
-              <RefreshCw size={12} className={rotatingAuth ? 'animate-spin' : ''} />
-              <span>Rotate Credentials</span>
-            </button>
-            <button
-              onClick={() => copyToClipboard(mcpConfigSnippet, setCopiedConfig)}
-              disabled={!status?.auth_token}
-              className="btn-pill-tonal"
-              style={{ opacity: status?.auth_token ? 1 : 0.5, cursor: status?.auth_token ? 'pointer' : 'not-allowed' }}
-            >
-              {copiedConfig ? <CheckCircle2 size={13} color="var(--green)" /> : <Copy size={13} />}
-              <span>{copiedConfig ? 'Copied' : 'Copy JSON Config'}</span>
-            </button>
+              <Info size={12} aria-hidden="true" />
+            </span>
           </div>
+          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+            Google Gemini discovers OAuth 2.0 endpoints automatically using your Pairing PIN, or configure manually with the Client ID and Secret in Gemini's settings.
+          </p>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
@@ -765,12 +748,22 @@ export const GeminiBridgePage: React.FC = () => {
                 OAuth Client ID
               </span>
               <button
+                type="button"
                 onClick={() => copyToClipboard(status?.oauth_client_id || 'antigravity-gemini-bridge', setCopiedClientId)}
-                className="btn-pill-tonal"
-                style={{ padding: '3px 8px', fontSize: '11px', cursor: 'pointer' }}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  padding: '2px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)',
+                }}
+                title={copiedClientId ? 'Copied' : 'Copy Client ID'}
+                aria-label={copiedClientId ? 'Copied' : 'Copy Client ID'}
               >
-                {copiedClientId ? <CheckCircle2 size={12} color="var(--green)" /> : <Copy size={12} />}
-                <span>{copiedClientId ? 'Copied' : 'Copy Client ID'}</span>
+                {copiedClientId ? <Check size={13} color="var(--green)" /> : <Copy size={13} />}
               </button>
             </div>
             <code style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', wordBreak: 'break-all' }}>
@@ -795,13 +788,24 @@ export const GeminiBridgePage: React.FC = () => {
                 OAuth Client Secret / Bearer Token
               </span>
               <button
+                type="button"
                 onClick={() => copyToClipboard(status?.oauth_client_secret || status?.auth_token || '', setCopiedToken)}
                 disabled={!status?.auth_token && !status?.oauth_client_secret}
-                className="btn-pill-tonal"
-                style={{ padding: '3px 8px', fontSize: '11px', opacity: status?.auth_token || status?.oauth_client_secret ? 1 : 0.5, cursor: status?.auth_token || status?.oauth_client_secret ? 'pointer' : 'not-allowed' }}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  padding: '2px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: status?.auth_token || status?.oauth_client_secret ? 1 : 0.4,
+                  cursor: status?.auth_token || status?.oauth_client_secret ? 'pointer' : 'not-allowed',
+                  color: 'var(--text-muted)',
+                }}
+                title={copiedToken ? 'Copied' : 'Copy Token'}
+                aria-label={copiedToken ? 'Copied' : 'Copy Token'}
               >
-                {copiedToken ? <CheckCircle2 size={12} color="var(--green)" /> : <Copy size={12} />}
-                <span>{copiedToken ? 'Copied' : 'Copy Token'}</span>
+                {copiedToken ? <Check size={13} color="var(--green)" /> : <Copy size={13} />}
               </button>
             </div>
             <code style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', wordBreak: 'break-all' }}>
@@ -814,11 +818,36 @@ export const GeminiBridgePage: React.FC = () => {
         </div>
 
         {/* JSON Snippet */}
-        <div style={{ marginTop: '14px' }}>
+        <div style={{ marginTop: '14px', position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => copyToClipboard(mcpConfigSnippet, setCopiedConfig)}
+            disabled={!status?.auth_token}
+            style={{
+              position: 'absolute',
+              top: '8px',
+              right: '8px',
+              border: 'none',
+              background: 'transparent',
+              padding: '2px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: status?.auth_token ? 1 : 0.4,
+              cursor: status?.auth_token ? 'pointer' : 'not-allowed',
+              color: 'var(--text-muted)',
+              zIndex: 1,
+            }}
+            title={copiedConfig ? 'Copied' : 'Copy JSON configuration'}
+            aria-label={copiedConfig ? 'Copied' : 'Copy JSON configuration'}
+          >
+            {copiedConfig ? <Check size={13} color="var(--green)" /> : <Copy size={13} />}
+          </button>
           <pre
             style={{
               margin: 0,
               padding: '12px',
+              paddingRight: '36px',
               backgroundColor: 'var(--canvas)',
               borderRadius: '6px',
               border: '1px solid var(--border)',
@@ -838,9 +867,13 @@ export const GeminiBridgePage: React.FC = () => {
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '4px' }}>
           Gemini Operating Role & Mode
         </div>
-        <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'var(--text-muted)' }}>
+        <p style={{ margin: '0 0 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
           Configure whether Gemini in your chat works directly on the local machine or acts as a lead/messenger dispatching tasks to Antigravity and forwarding responses.
         </p>
+
+        <div style={{ padding: '10px 12px', borderRadius: '6px', backgroundColor: 'var(--canvas)', border: '1px solid var(--border)', marginBottom: '16px', fontSize: '12px', color: 'var(--text-muted)' }}>
+          <strong style={{ color: 'var(--text)' }}>Gemini Web Tool Approvals:</strong> Click <code style={{ fontSize: '11px' }}>Review permissions</code> on any tool confirmation card in Gemini Web to enable <code style={{ fontSize: '11px' }}>Always allow</code> across all AGY Bridge tools. For software tasks, <strong style={{ color: 'var(--text)' }}>Lead Mode</strong> uses Antigravity 2.0&apos;s native Auto mode, executing terminal commands and edits autonomously without per-action confirmations.
+        </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
           {/* Hybrid Mode */}
@@ -914,13 +947,8 @@ export const GeminiBridgePage: React.FC = () => {
 
       {/* 4b. Default Antigravity agent */}
       <div className="google-card">
-        <div style={{ marginBottom: '10px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Default Antigravity Agent
-          </div>
-          <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-            Which surface Gemini drives for conversations and model selection. Automatic prefers the CLI when it is installed, because a short-lived process costs less than the running app.
-          </p>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '12px' }}>
+          Default Antigravity Agent
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
@@ -955,10 +983,6 @@ export const GeminiBridgePage: React.FC = () => {
             )
           })}
         </div>
-
-        <p style={{ margin: '10px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
-          In use now: <strong>{status?.resolved_agent === 'cli' ? 'Antigravity CLI' : 'Antigravity 2.0 app'}</strong>
-        </p>
       </div>
 
       {/* 5. Live Antigravity Lead / Messenger Monitor */}
@@ -990,7 +1014,7 @@ export const GeminiBridgePage: React.FC = () => {
           </div>
 
           {status.active_lead_session.last_response && (
-            <div style={{ padding: '12px', backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <div style={{ padding: '12px', backgroundColor: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)' }}>
               <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
                 Forwarded Antigravity Response Preview:
               </div>
@@ -1016,66 +1040,11 @@ export const GeminiBridgePage: React.FC = () => {
         </div>
       )}
 
-      {/* 6. Recent Invocations & Access Audit Logs */}
-      <div className="google-card">
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px' }}>
-          Remote Invocations & Access Audit ({status?.invocations_count || 0})
-        </div>
-
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                <th style={{ padding: '8px 10px' }}>Timestamp</th>
-                <th style={{ padding: '8px 10px' }}>Tool / Event</th>
-                <th style={{ padding: '8px 10px' }}>Mode</th>
-                <th style={{ padding: '8px 10px' }}>Duration</th>
-                <th style={{ padding: '8px 10px' }}>Status</th>
-                <th style={{ padding: '8px 10px' }}>Result / Detail</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(!status?.recent_invocations || status.recent_invocations.length === 0) ? (
-                <tr>
-                  <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                    No remote invocations yet. Invoke tools from Gemini App to populate this log.
-                  </td>
-                </tr>
-              ) : (
-                status.recent_invocations.map((inv) => (
-                  <tr key={inv.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '8px 10px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                      {inv.timestamp}
-                    </td>
-                    <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--text)' }}>
-                      <code>{inv.tool}</code>
-                    </td>
-                    <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>
-                      {inv.mode || 'hybrid'}
-                    </td>
-                    <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>
-                      {inv.duration_ms}ms
-                    </td>
-                    <td style={{ padding: '8px 10px' }}>
-                      <span className={`badge-chip ${inv.status === 'success' ? 'badge-green' : 'badge-red'}`}>
-                        {inv.status}
-                      </span>
-                    </td>
-                    <td style={{ padding: '8px 10px', color: 'var(--text-muted)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {inv.result || inv.error || 'Done'}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      {/* 7. Outbound HTTP allowlist */}
+      {/* 6. Outbound HTTP allowlist */}
       <div className="google-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
           <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-            Outbound HTTP Allowlist
+            Allowed URL
           </div>
           <div
             style={{
@@ -1130,7 +1099,6 @@ export const GeminiBridgePage: React.FC = () => {
 
         {allowlistMode === 'always_allow' ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--canvas)' }}>
-            <Globe size={15} style={{ color: 'var(--primary)', flexShrink: 0 }} />
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
               All outbound HTTP requests and domains are permitted without restriction.
             </span>
@@ -1220,6 +1188,62 @@ export const GeminiBridgePage: React.FC = () => {
             </div>
           </>
         )}
+      </div>
+
+      {/* 7. Recent Invocations & Access Audit Logs */}
+      <div className="google-card" style={{ height: '340px', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', marginBottom: '14px', flexShrink: 0 }}>
+          Remote Invocations & Access Audit ({status?.invocations_count || 0})
+        </div>
+
+        <div style={{ overflowX: 'auto', overflowY: 'auto', flex: 1, minHeight: 0 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1, borderBottom: '1px solid var(--border)' }}>Timestamp</th>
+                <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1, borderBottom: '1px solid var(--border)' }}>Tool / Event</th>
+                <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1, borderBottom: '1px solid var(--border)' }}>Mode</th>
+                <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1, borderBottom: '1px solid var(--border)' }}>Duration</th>
+                <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1, borderBottom: '1px solid var(--border)' }}>Status</th>
+                <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1, borderBottom: '1px solid var(--border)' }}>Result / Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(!status?.recent_invocations || status.recent_invocations.length === 0) ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    No remote invocations yet. Invoke tools from Gemini App to populate this log.
+                  </td>
+                </tr>
+              ) : (
+                status.recent_invocations.map((inv) => (
+                  <tr key={inv.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '8px 10px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                      {inv.timestamp}
+                    </td>
+                    <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--text)' }}>
+                      <code>{inv.tool}</code>
+                    </td>
+                    <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>
+                      {inv.mode || 'hybrid'}
+                    </td>
+                    <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>
+                      {inv.duration_ms}ms
+                    </td>
+                    <td style={{ padding: '8px 10px' }}>
+                      <span className={`badge-chip ${inv.status === 'success' ? 'badge-green' : 'badge-red'}`}>
+                        {inv.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '8px 10px', color: 'var(--text-muted)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {inv.result || inv.error || 'Done'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   )

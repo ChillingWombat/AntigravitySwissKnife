@@ -1,13 +1,16 @@
-import { describe, it } from 'node:test'
+import { afterEach, beforeEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import path from 'node:path'
+import React, { act } from 'react'
+import { fireEvent } from '@testing-library/react'
 import {
   filterModels,
   filterFetchedModels,
   computeModelFilterStats,
   resolveEffectiveCustomModel,
 } from './modelFilter.ts'
+import { setSessionToken } from '../api'
+import { CustomModelsPage } from '../pages/CustomModelsPage'
+import { initDOM, mount, type RenderResult } from '../test-dom'
 import type { CustomModel, ModelInfo } from '../types.ts'
 
 const mockModels: CustomModel[] = [
@@ -250,65 +253,179 @@ describe('modelFilter utility', () => {
       assert.equal(filterFetchedModels(sparse, 'gpt').length, 1)
     })
   })
-
-  describe('CustomModelsPage Fetched Models Dropdown Contract', () => {
-    const pagePath = path.resolve(import.meta.dirname, '../pages/CustomModelsPage.tsx')
-    const pageContent = fs.readFileSync(pagePath, 'utf8')
-    const normalizedContent = pageContent.replace(/\s+/g, ' ')
-
-    it('ensures dropdown stays open when user enters text in model name field', () => {
-      assert.equal(
-        /if\s*\(\s*val\.trim\(\)\s*\)\s*\{\s*setShowModelDropdown\(false\)/.test(normalizedContent),
-        false,
-        'CustomModelsPage must not dismiss dropdown when input is entered'
-      )
-      assert.ok(
-        /if\s*\(\s*fetchedModels\.length\s*>\s*0\s*\)\s*\{\s*setShowModelDropdown\(true\)/.test(normalizedContent),
-        'CustomModelsPage must ensure dropdown is shown when typing and fetched models exist'
-      )
-    })
-
-    it('verifies dropdown options are filtered by user input query', () => {
-      assert.ok(
-        pageContent.includes('filterFetchedModels(fetchedModels, modelName)'),
-        'CustomModelsPage must compute filteredFetchedModels using filterFetchedModels'
-      )
-      assert.ok(
-        pageContent.includes('filteredFetchedModels.map('),
-        'CustomModelsPage must render filtered list of fetched models'
-      )
-    })
-
-    it('verifies dropdown header displays filtered count alongside total discovered count', () => {
-      assert.ok(
-        pageContent.includes('filteredFetchedModels.length} of ${fetchedModels.length'),
-        'CustomModelsPage must display filtered count vs total in dropdown header'
-      )
-    })
-
-    it('verifies dropdown displays empty state message when no models match query', () => {
-      assert.ok(
-        pageContent.includes('No models match'),
-        'CustomModelsPage must display empty state message when filter yields zero matches'
-      )
-    })
-
-    it('verifies clicking or focusing input re-opens dropdown even if input has existing text', () => {
-      assert.equal(
-        pageContent.includes('!modelName.trim() && fetchedModels.length > 0'),
-        false,
-        'CustomModelsPage must allow opening dropdown on click/focus regardless of whether modelName is set'
-      )
-    })
-
-    it('verifies Escape key dismisses dropdown cleanly', () => {
-      assert.ok(
-        pageContent.includes("if (e.key === 'Escape')"),
-        'CustomModelsPage must handle Escape key on model input'
-      )
-    })
-  })
 })
 
+describe('CustomModelsPage fetched-model dropdown behavior', () => {
+  const MODEL_ENDPOINT = 'https://models.example.test/v1'
+  const MODEL_RESPONSE = [
+    {
+      id: 'models/gemini-4-argon',
+      display_name: 'Gemini 4 Argon',
+      description: 'Frontier reasoning model',
+    },
+    {
+      id: 'models/claude-3-7-sonnet',
+      display_name: 'Claude 3.7 Sonnet',
+      description: 'Hybrid reasoning model',
+    },
+    {
+      id: 'deepseek-chat',
+      display_name: 'DeepSeek V3',
+      description: 'Open weights model',
+    },
+  ]
 
+  const originalFetch = globalThis.fetch
+  let originalWindowFetch: typeof fetch
+  let originalElectronAPI: unknown
+  let requestController: AbortController
+  let view: RenderResult | null = null
+  let requests: Array<{ path: string; body: string }> = []
 
+  const jsonResponse = (body: unknown): Response => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get: (name: string) => name.toLowerCase() === 'content-type' ? 'application/json' : null,
+    },
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  }) as unknown as Response
+
+  const installFetchMock = () => {
+    requestController = new AbortController()
+    const fetchMock = async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const path = new URL(raw, 'http://localhost').pathname
+      const body = typeof init?.body === 'string' ? init.body : ''
+      requests.push({ path, body })
+
+      if (requestController.signal.aborted) {
+        throw new DOMException('Request aborted', 'AbortError')
+      }
+      if (body.includes(MODEL_ENDPOINT)) {
+        return jsonResponse({ success: true, models: MODEL_RESPONSE })
+      }
+      if (path.endsWith('/api/auth/status')) return jsonResponse({ password_required: false })
+      if (path.includes('/api/custom_models')) {
+        return jsonResponse({ success: true, models: [], providers: [], count: 0 })
+      }
+      return jsonResponse({ success: true })
+    }
+
+    globalThis.fetch = fetchMock as typeof fetch
+    window.fetch = fetchMock as typeof window.fetch
+  }
+
+  const flush = async () => {
+    for (let i = 0; i < 4; i += 1) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+  }
+
+  const setInputValue = async (input: HTMLInputElement, value: string) => {
+    const propsKey = Object.keys(input).find((key) => key.startsWith('__reactProps'))
+    const onChange = propsKey ? (input as any)[propsKey]?.onChange : undefined
+    assert.equal(typeof onChange, 'function', 'input must expose a React onChange handler')
+    await act(async () => {
+      onChange({ target: { value } })
+    })
+    await flush()
+  }
+
+  const pressEscape = async (input: HTMLInputElement) => {
+    const propsKey = Object.keys(input).find((key) => key.startsWith('__reactProps'))
+    const onKeyDown = propsKey ? (input as any)[propsKey]?.onKeyDown : undefined
+    assert.equal(typeof onKeyDown, 'function', 'input must expose a React onKeyDown handler')
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Escape', code: 'Escape' })
+      // happy-dom does not bridge synthetic key events into React's delegated listener.
+      onKeyDown({ key: 'Escape', code: 'Escape', stopPropagation() {} })
+    })
+    await flush()
+  }
+
+  const findButton = (label: string): HTMLButtonElement | undefined => (
+    Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent?.includes(label))
+  )
+
+  beforeEach(() => {
+    initDOM()
+    requests = []
+    originalWindowFetch = window.fetch
+    originalElectronAPI = (window as any).electronAPI
+    window.localStorage.clear()
+    ;(window as any).happyDOM.setURL('http://localhost/')
+    window.history.replaceState(null, '', '#/custom-models')
+    setSessionToken('test-session')
+    ;(window as any).electronAPI = { isElectron: false }
+    installFetchMock()
+  })
+
+  afterEach(() => {
+    view?.unmount()
+    view = null
+    requestController?.abort()
+    setSessionToken(null)
+    globalThis.fetch = originalFetch
+    window.fetch = originalWindowFetch
+    ;(window as any).electronAPI = originalElectronAPI
+  })
+
+  it('stays open while filtering and closes on Escape after a provider request', async () => {
+    view = await mount(React.createElement(CustomModelsPage))
+    await flush()
+
+    const addButton = findButton('Add Custom Model')
+    assert.ok(addButton, 'Add Custom Model button must render')
+    await view.click(addButton)
+    await flush()
+
+    const endpointInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder^="e.g. https://generativelanguage.googleapis.com"]',
+    )
+    const apiKeyInput = document.querySelector<HTMLInputElement>('input[aria-label="API key"]')
+    assert.ok(endpointInput, 'Endpoint input must render')
+    assert.ok(apiKeyInput, 'API key input must render')
+
+    await setInputValue(endpointInput, MODEL_ENDPOINT)
+    await setInputValue(apiKeyInput, 'sk-test')
+
+    const fetchButton = findButton('Fetch Models')
+    assert.ok(fetchButton, 'Fetch Models button must render')
+    await view.click(fetchButton)
+    await flush()
+
+    let text = document.body.textContent || ''
+    assert.match(text, /Available Models \(3\)/)
+    assert.match(text, /Gemini 4 Argon/)
+    assert.match(text, /Claude 3.7 Sonnet/)
+    assert.match(text, /DeepSeek V3/)
+
+    const modelInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="e.g. gemini-4-argon"]',
+    )
+    assert.ok(modelInput, 'Model identifier input must render')
+    await setInputValue(modelInput, 'claude')
+
+    text = document.body.textContent || ''
+    assert.match(text, /Available Models \(1 of 3\)/)
+    assert.match(text, /Claude 3.7 Sonnet/)
+    assert.doesNotMatch(text, /Gemini 4 Argon/)
+    assert.doesNotMatch(text, /DeepSeek V3/)
+
+    await pressEscape(modelInput)
+    assert.doesNotMatch(document.body.textContent || '', /Available Models \(/)
+
+    const providerRequest = requests.find((request) => request.body.includes(MODEL_ENDPOINT))
+    assert.ok(providerRequest, 'provider model request must be sent')
+    assert.match(providerRequest.body, /models\.example\.test/)
+    assert.match(providerRequest.body, /sk-test/)
+  })
+})

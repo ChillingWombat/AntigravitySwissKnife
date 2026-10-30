@@ -29,7 +29,7 @@ import (
 )
 
 func TestWebGUIServesMinimalistLightHTML(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "") // port 0 for random free port
+	srv := newTestServer("127.0.0.1:0", "") // port 0 for random free port
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestWebGUIServesMinimalistLightHTML(t *testing.T) {
 }
 
 func TestHealthEndpoints(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestHealthEndpoints(t *testing.T) {
 
 func TestWebGUIEndpoints(t *testing.T) {
 	tempDir := t.TempDir()
-	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "isolated.sock"))
+	srv := newTestServer("127.0.0.1:0", filepath.Join(tempDir, "isolated.sock"))
 	tempStore, err := gui.NewStore(tempDir)
 	if err != nil {
 		t.Fatalf("gui.NewStore error: %v", err)
@@ -184,7 +184,7 @@ func TestWebGUIEndpoints(t *testing.T) {
 }
 
 func TestWebGUIQuotaAndAccountsEndpoints(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestWebGUIQuotaAndAccountsEndpoints(t *testing.T) {
 }
 
 func TestWebGUIPrunedConversationsEndpoint(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestWebGUIPrunedConversationsEndpoint(t *testing.T) {
 }
 
 func TestWebGUISystemInstallationsEndpoints(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestWebGUIAppReleaseEndpoints(t *testing.T) {
 	}))
 	defer mockGH.Close()
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	mockRelMgr := system.NewAppReleaseManager(mockGH.URL)
 	srv.SetAppReleaseManager(mockRelMgr)
 
@@ -434,7 +434,7 @@ func TestWebGUICustomModelsEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create custom models store: %v", err)
 	}
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	srv.SetCustomModelsStore(cmStore)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
@@ -538,7 +538,7 @@ func TestWebGUICustomModelsEndpoints(t *testing.T) {
 }
 
 func TestWebGUIEnhancementsEndpoints(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -602,7 +602,7 @@ func TestWebGUIConversationTabsAndAutoArchiveEndpoints(t *testing.T) {
 		t.Fatalf("failed to create conversation_summaries table: %v", err)
 	}
 
-	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "isolated.sock"))
+	srv := newTestServer("127.0.0.1:0", filepath.Join(tempDir, "isolated.sock"))
 	tempStore, err := gui.NewStore(tempDir)
 	if err != nil {
 		t.Fatalf("gui.NewStore error: %v", err)
@@ -723,7 +723,7 @@ func TestWebGUIConversationTabsAndAutoArchiveEndpoints(t *testing.T) {
 }
 
 func TestWebGUIFileExplorerEndpoints(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -822,7 +822,7 @@ func TestWebGUIFileExplorerEndpoints(t *testing.T) {
 }
 
 func TestWebGUIMemosEndpoints(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -881,7 +881,7 @@ func TestWebGUIMemosEndpoints(t *testing.T) {
 }
 
 func TestWebGUIMemos_ProjectScopedStorage(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	globalTmp := t.TempDir()
 	globalFile := filepath.Join(globalTmp, "global_memos.json")
 	srv.SetGlobalMemosPath(globalFile)
@@ -977,7 +977,7 @@ func TestWebGUIMemos_ProjectScopedStorage(t *testing.T) {
 }
 
 func TestWebGUIMemos_GracefulFallback(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	globalTmp := t.TempDir()
 	globalFile := filepath.Join(globalTmp, "fallback_global_memos.json")
 	srv.SetGlobalMemosPath(globalFile)
@@ -1049,7 +1049,7 @@ func TestWebGUIMemos_GracefulFallback(t *testing.T) {
 }
 
 func TestWebGUIMemos_ViewScopeFiltering(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	globalTmp := t.TempDir()
 	srv.SetGlobalMemosPath(filepath.Join(globalTmp, "global_memos.json"))
 
@@ -1150,7 +1150,7 @@ func TestWebGUIMemos_ViewScopeFiltering(t *testing.T) {
 }
 
 func TestWebGUIMemos_DeleteProjectMemo(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	globalTmp := t.TempDir()
 	srv.SetGlobalMemosPath(filepath.Join(globalTmp, "global_memos.json"))
 
@@ -1222,7 +1222,7 @@ func TestWebGUIMemos_DeleteProjectMemo(t *testing.T) {
 }
 
 func TestWebGUIMemos_TranscriptAndVoiceFields(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	globalTmp := t.TempDir()
 	srv.SetGlobalMemosPath(filepath.Join(globalTmp, "global_memos.json"))
 
@@ -1314,7 +1314,7 @@ func TestWebGUIMemos_ConfigEndpoint(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", cfgDir)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -1391,7 +1391,7 @@ func TestWebGUIMemos_ConfigEndpoint(t *testing.T) {
 }
 
 func TestWebGUIUtilitiesImportEndpoints(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -1433,7 +1433,7 @@ func TestWebGUIAvailableModelsAndRules(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 	t.Setenv("ANTIGRAVITY_DATA_DIR", tempDir)
-	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "daemon.sock"))
+	srv := newTestServer("127.0.0.1:0", filepath.Join(tempDir, "daemon.sock"))
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -1534,7 +1534,7 @@ func TestWebGUICORSMiddlewareAndColorEndpoints(t *testing.T) {
 	cfg.ProjectOrder = []string{"Project Alpha", "Project Beta"}
 	_ = guiStore.UpdateConfig(cfg)
 
-	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "daemon.sock"))
+	srv := newTestServer("127.0.0.1:0", filepath.Join(tempDir, "daemon.sock"))
 	srv.SetGUIStore(guiStore)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
@@ -1644,7 +1644,7 @@ func TestWebGUISettingsStorageAndPrivacy(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", filepath.Join(tmpDir, "config"))
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -1772,7 +1772,7 @@ func TestWebGUISettingsStorageAndPrivacy(t *testing.T) {
 }
 
 func TestCORSAndPrivateNetworkAccessHeaders(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -1809,7 +1809,7 @@ func TestCORSAndPrivateNetworkAccessHeaders(t *testing.T) {
 }
 
 func TestFilesEndpointsWithSpacesAndEncoding(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -1941,7 +1941,7 @@ func TestCleanUserPath_HomeDir(t *testing.T) {
 		t.Errorf("expected cleanUserPath(~/subfolder) = %q, got %q", expectedSub, cleanSub)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -2004,7 +2004,7 @@ func TestFilesListProjectFolderSettingDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -2055,7 +2055,7 @@ func TestFilesListProjectFolderSettingDefault(t *testing.T) {
 }
 
 func TestFilesRecursiveCopyMoveAndBatch(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -2205,7 +2205,7 @@ func TestWebGUIFilesOpenIDEEndpoint(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", cfgDir)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -2344,7 +2344,7 @@ func TestWebGUIFilesOpenIDESandboxedCleanup(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", cfgDir)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -2414,7 +2414,7 @@ func TestWebGUIFilesOpenIDESandboxedCleanup(t *testing.T) {
 func TestDesktopRelaunchEndpoint(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
 	dummySock := filepath.Join(t.TempDir(), "test.sock")
-	srv := NewServer("127.0.0.1:0", dummySock)
+	srv := newTestServer("127.0.0.1:0", dummySock)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -2487,7 +2487,7 @@ func TestTokenMonitorRealTelemetryPricingAndDeletion(t *testing.T) {
 	}
 
 	dummySock := filepath.Join(tmpDir, "test.sock")
-	srv := NewServer("127.0.0.1:0", dummySock)
+	srv := newTestServer("127.0.0.1:0", dummySock)
 	srv.SetCustomModelsStore(cmStore)
 	srv.SetAntigravityDataDir(agDir)
 	srv.SetCatalogFetcher(func(force bool) []custommodels.CatalogModelInput {
@@ -2621,7 +2621,7 @@ func TestMultiAppSyncAndSwitchAPI(t *testing.T) {
 	_, _ = store.ImportAccount("fleet-shared@google.com", "rt_shared", "at_shared", "Shared User", "")
 
 	dummySock := filepath.Join(tmpDir, "dummy.sock")
-	srv := NewServer("127.0.0.1:0", dummySock)
+	srv := newTestServer("127.0.0.1:0", dummySock)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -2733,7 +2733,7 @@ func TestServer_ConversationEndpoints(t *testing.T) {
 func TestConversationEndpoints(t *testing.T) {
 	tmpDir := t.TempDir()
 	dummySock := filepath.Join(tmpDir, "isolated.sock")
-	srv := NewServer("127.0.0.1:0", dummySock)
+	srv := newTestServer("127.0.0.1:0", dummySock)
 	guiStore, _ := gui.NewStore(tmpDir)
 	srv.SetGUIStore(guiStore)
 	engine := revival.NewEngine(tmpDir, 9222)
@@ -2830,7 +2830,7 @@ func TestConversationEndpoints(t *testing.T) {
 }
 
 func TestWebGUIUtilitiesACPEndpoint(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -2949,7 +2949,7 @@ func TestCacheConfig_UnlimitedDefaultsAndPersistence(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_DATA_DIR", tempDir)
 
 	dummySock := filepath.Join(tempDir, "isolated.sock")
-	srv := NewServer("127.0.0.1:0", dummySock)
+	srv := newTestServer("127.0.0.1:0", dummySock)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -3061,7 +3061,7 @@ func TestSubagentModelStrategy_RulesAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create custom models store: %v", err)
 	}
-	srv := NewServer("127.0.0.1:0", dummySock)
+	srv := newTestServer("127.0.0.1:0", dummySock)
 	srv.SetCustomModelsStore(cmStore)
 	srv.SetAntigravityDataDir(tempDir)
 	if err := srv.Start(); err != nil {
@@ -3131,7 +3131,7 @@ func TestCustomModels_DefaultCustomModelByNameAndID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create custom models store: %v", err)
 	}
-	srv := NewServer("127.0.0.1:0", dummySock)
+	srv := newTestServer("127.0.0.1:0", dummySock)
 	srv.SetCustomModelsStore(cmStore)
 	srv.SetAntigravityDataDir(tempDir)
 	if err := srv.Start(); err != nil {
@@ -3277,7 +3277,7 @@ func TestCustomModels_DeleteClearsNameBasedDefaultAndStoreFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create custom models store: %v", err)
 	}
-	srv := NewServer("127.0.0.1:0", dummySock)
+	srv := newTestServer("127.0.0.1:0", dummySock)
 	srv.SetCustomModelsStore(cmStore)
 	srv.SetAntigravityDataDir(tempDir)
 	if err := srv.Start(); err != nil {
@@ -3406,7 +3406,7 @@ func TestCustomModels_DefaultGateOnFailedLastTest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create custom models store: %v", err)
 	}
-	srv := NewServer("127.0.0.1:0", dummySock)
+	srv := newTestServer("127.0.0.1:0", dummySock)
 	srv.SetCustomModelsStore(cmStore)
 	srv.SetAntigravityDataDir(tempDir)
 	if err := srv.Start(); err != nil {
@@ -3541,7 +3541,7 @@ func TestCustomModels_KeyEndpointAndDynamicBalanceReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create custom models store: %v", err)
 	}
-	srv := NewServer("127.0.0.1:0", dummySock)
+	srv := newTestServer("127.0.0.1:0", dummySock)
 	srv.SetCustomModelsStore(cmStore)
 	srv.SetAntigravityDataDir(tempDir)
 	if err := srv.Start(); err != nil {
@@ -3629,7 +3629,7 @@ func TestCustomModels_GeminiQuotaExhaustedBackupActivation(t *testing.T) {
 		t.Fatalf("SaveModel failed: %v", err)
 	}
 
-	srv := NewServer("127.0.0.1:0", filepath.Join(tempDir, "dummy.sock"))
+	srv := newTestServer("127.0.0.1:0", filepath.Join(tempDir, "dummy.sock"))
 	srv.SetCustomModelsStore(cmStore)
 	srv.SetAntigravityDataDir(tempDir)
 	if err := srv.Start(); err != nil {

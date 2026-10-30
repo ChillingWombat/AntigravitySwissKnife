@@ -8,7 +8,7 @@ import (
 )
 
 func TestDiscordWebhookRequiresBotToken(t *testing.T) {
-	server := NewServer("127.0.0.1:0", t.TempDir()+"/test.sock")
+	server := newTestServer("127.0.0.1:0", t.TempDir()+"/test.sock")
 
 	// 1. Disabled bridge: refuse with 403 Forbidden
 	req := httptest.NewRequest(http.MethodPost, "/api/bridge/channels/discord/webhook", strings.NewReader(`{"op":0,"t":"MESSAGE_CREATE"}`))

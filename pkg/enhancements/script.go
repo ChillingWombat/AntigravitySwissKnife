@@ -3,8 +3,7 @@ package enhancements
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/rendererbroker"
 )
 
 // GenerateEnhancementsScript produces client-side JavaScript for Antigravity Desktop & VS Code webviews
@@ -20,27 +19,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 		cfgJSON = []byte(`{"enabled":true,"prompt_jump_bar":{"enabled":true,"show_tooltip":true,"focus_pulse":true,"sync_scroll":true,"position":"gutter","dash_width":14,"dash_thickness":2.5,"inactive_thickness":1.5,"color_mode":"default","custom_color":"#0b57d0"},"tool_density_mode":"muted","breaker_line_enabled":true,"default_new_project":"auto"}`)
 	}
 
-	tok, _ := core.GetLocalSessionToken()
-
-	return fmt.Sprintf(`
+	return rendererbroker.FetchScript + fmt.Sprintf(`
 /* === Antigravity Swiss Knife: App Enhancements === */
 (() => {
   try {
-    if (typeof window !== "undefined") {
-      const swissToken = %q;
-      if (swissToken) {
-        window.__SWISS_SESSION_TOKEN__ = swissToken;
-        try { sessionStorage.setItem("antigravity_swiss_session_token", swissToken); } catch (_) {}
-      }
-    }
     function getSwissAuthHeaders() {
-      const headers = { "Content-Type": "application/json" };
-      const tok = (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) ||
-        (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
-      if (tok) {
-        headers["X-Session-Token"] = tok;
-      }
-      return headers;
+      return { "Content-Type": "application/json" };
     }
 
     let enhConfig = %s;
@@ -3251,71 +3235,6 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
     window.__swissCheckRevival = checkAndExecuteConversationRevival;
 
-    let customModelsListCache = null;
-    let lastCustomModelsFetchTime = 0;
-    async function fetchCustomModelsMetadata() {
-      if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) return;
-      const now = Date.now();
-      if (customModelsListCache && now - lastCustomModelsFetchTime < 30000) return;
-      lastCustomModelsFetchTime = now;
-      try {
-        const res = await fetch("http://127.0.0.1:8765/api/custom_models", {
-          headers: getSwissAuthHeaders(),
-          signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data && Array.isArray(data.models)) {
-            customModelsListCache = data.models;
-            renderContextWindowProgressRing();
-          }
-        }
-      } catch (_) {}
-    }
-
-    function getModelContextWindow(modelName) {
-      fetchCustomModelsMetadata();
-      if (!modelName) return 1000000;
-      const clean = modelName.toLowerCase().trim();
-
-      // Check user-configured custom models for overridden context window
-      if (customModelsListCache && Array.isArray(customModelsListCache)) {
-        for (const cm of customModelsListCache) {
-          const cmName = (cm.name || "").toLowerCase().trim();
-          const cmDisplay = (cm.display_name || "").toLowerCase().trim();
-          const cmId = (cm.id || "").toLowerCase().trim();
-          if (clean === cmName || clean === cmDisplay || clean === cmId || (cmName && clean.includes(cmName)) || (cmDisplay && clean.includes(cmDisplay))) {
-            if (typeof cm.context_window === "number" && cm.context_window > 0) {
-              return cm.context_window;
-            }
-          }
-        }
-      }
-
-      // Dynamic model context window sizes
-      if (clean.includes("claude") || clean.includes("sonnet") || clean.includes("opus") || clean.includes("haiku")) {
-        return 200000;
-      }
-      if (clean.includes("gpt-4") || clean.includes("gpt4") || clean.includes("o1") || clean.includes("o3") || clean.includes("chatgpt")) {
-        return 128000;
-      }
-      if (clean.includes("pro")) {
-        return 2000000;
-      }
-      if (clean.includes("flash")) {
-        return 1000000;
-      }
-      if (clean.includes("deepseek")) {
-        return 64000;
-      }
-      if (clean.includes("mistral") || clean.includes("codestral") || clean.includes("llama")) {
-        return 128000;
-      }
-
-      // Standard native models default in Antigravity
-      return 1000000;
-    }
-
     function formatTokensUnit(n) {
       if (!n || isNaN(n) || n <= 0) return "0K";
       if (n >= 1000000) {
@@ -3349,6 +3268,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
     let lastTokensFetchTimeByConv = {};
     let cachedTokensByConv = {};
+    let cachedContextWindowByConv = {};
     let subagentNameToConvId = {};
     async function fetchActiveConversationTokens(convId, parentId, agentName) {
       if (window.__swissDaemonOnline === false || !window.__swissDaemonOnline) return;
@@ -3404,12 +3324,20 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               const lastTurn = data.turns[data.turns.length - 1];
               const turnUsage = lastTurn.context_tokens || ((lastTurn.input_tokens || 0) + (lastTurn.output_tokens || 0));
               cachedTokensByConv[targetId] = turnUsage;
-              renderContextWindowProgressRing();
             } else if (data && data.success) {
               const sumUsage = data.summary ? (data.summary.context_tokens || ((data.summary.input_tokens || 0) + (data.summary.output_tokens || 0))) : 0;
               cachedTokensByConv[targetId] = sumUsage;
-              renderContextWindowProgressRing();
             }
+            const hostContextWindow = data ? data.context_window : null;
+            if (hostContextWindow && typeof hostContextWindow.max_tokens === "number" && hostContextWindow.max_tokens > 0) {
+              cachedContextWindowByConv[targetId] = hostContextWindow;
+              if (typeof hostContextWindow.used_tokens === "number" && hostContextWindow.used_tokens > 0) {
+                cachedTokensByConv[targetId] = hostContextWindow.used_tokens;
+              }
+            } else {
+              delete cachedContextWindowByConv[targetId];
+            }
+            renderContextWindowProgressRing();
             if (jumpBarChanged) {
               renderPromptJumpBar();
             }
@@ -3428,14 +3356,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       if (!online) {
         removeContextWindowProgressRings();
         cachedTokensByConv = {};
+        cachedContextWindowByConv = {};
         lastTokensFetchTimeByConv = {};
-        customModelsListCache = null;
-        lastCustomModelsFetchTime = 0;
       } else {
         cachedTokensByConv = {};
+        cachedContextWindowByConv = {};
         lastTokensFetchTimeByConv = {};
-        customModelsListCache = null;
-        lastCustomModelsFetchTime = 0;
         syncConfigFromServer();
         renderContextWindowProgressRing();
       }
@@ -3518,11 +3444,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       compactingStateByRing[key] = { active: true, startTime: startTime };
 
       const inputBox = (ring && ring.closest ? ring.closest('[data-testid="agent-input-box"]') : null) || document.querySelector('[data-testid="agent-input-box"]');
-      const trigger = inputBox ? (inputBox.querySelector('[data-testid="model-selector-trigger"]') || inputBox.querySelector('button[aria-label*="Select model"]')) : (document.querySelector('[data-testid="model-selector-trigger"]') || document.querySelector('button[aria-label*="Select model"]'));
-      const modelName = trigger ? trigger.innerText.trim() : "";
-      const maxTokens = getModelContextWindow(modelName);
       if (ring) {
-        updateProgressRing(ring, convId, maxTokens);
+        updateProgressRing(ring, convId);
       }
 
       let dispatched = false;
@@ -3708,7 +3631,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }, 150);
     }
 
-    function updateProgressRing(ring, convId, maxTokens) {
+    function updateProgressRing(ring, convId) {
       if (!ring) return;
       if (!isContextWindowIndicatorEnabled() || window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
         ring.remove();
@@ -3738,7 +3661,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           ring.innerHTML = spinningHTML;
         }
       } else {
-        const hasReliableData = Boolean(convId && cachedTokensByConv && typeof cachedTokensByConv[convId] === "number");
+        const hostContextWindow = convId ? cachedContextWindowByConv[convId] : null;
+        const hasReliableData = Boolean(hostContextWindow && hostContextWindow.max_tokens > 0 && cachedTokensByConv && typeof cachedTokensByConv[convId] === "number");
         if (!hasReliableData) {
           const unavailableText = "Context window usage unavailable" + clickAction;
           ring.setAttribute("title", unavailableText);
@@ -3751,11 +3675,11 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           if (ring.innerHTML !== greyHTML) ring.innerHTML = greyHTML;
         } else {
           const usedTokens = cachedTokensByConv[convId];
-          const validMax = (typeof maxTokens === "number" && maxTokens > 0) ? maxTokens : 1000000;
+          const validMax = hostContextWindow.max_tokens;
           const pct = Math.max(0, Math.min(100, Math.round((usedTokens / validMax) * 100)));
           const formattedUsed = formatTokensUnit(usedTokens);
           const formattedMax = formatTokensUnit(validMax);
-          const tooltipText = pct + "%% (" + formattedUsed + "/" + formattedMax + ")" + clickAction;
+          const tooltipText = pct + "%% (" + formattedUsed + "/" + formattedMax + " active)" + clickAction;
 
           ring.setAttribute("title", tooltipText);
           ring.setAttribute("aria-label", "Context window used: " + tooltipText);
@@ -3816,8 +3740,6 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         if (isInsideSubagentBox) {
           if (mainRing) mainRing.remove();
         } else {
-          const modelName = trigger.innerText.trim();
-          const maxTokens = getModelContextWindow(modelName);
           const convId = getConversationIdFromElement(trigger) || parentConvId;
           if (convId && uuidRegex.test(convId)) {
             fetchActiveConversationTokens(convId);
@@ -3826,7 +3748,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             mainRing = document.createElement("div");
             mainRing.id = "swiss-context-window-ring";
           }
-          updateProgressRing(mainRing, convId, maxTokens);
+          updateProgressRing(mainRing, convId);
 
           const pillContainer = trigger.closest(".no-focus-agent-input") || trigger.parentElement;
           const thinkingPill = document.getElementById("swiss-thinking-level-pill");
@@ -3906,11 +3828,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           fetchActiveConversationTokens(subConvId);
         }
 
-        const subBox = agentTag.closest ? agentTag.closest('[data-testid="agent-input-box"]') : null;
-        const subTrigger = subBox ? (subBox.querySelector('[data-testid="model-selector-trigger"]') || subBox.querySelector('button[aria-label*="Select model"]')) : null;
-        const subModelName = subTrigger ? subTrigger.innerText.trim() : "";
-        const maxTokens = getModelContextWindow(subModelName);
-        updateProgressRing(subRing, subConvId, maxTokens);
+        updateProgressRing(subRing, subConvId);
 
         if (agentTag.parentNode && (subRing.previousElementSibling !== agentTag)) {
           agentTag.parentNode.insertBefore(subRing, agentTag.nextSibling);
@@ -4010,5 +3928,5 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     console.warn("[SwissKnife] Enhancements script exception:", err);
   }
 })();
-`, tok, string(cfgJSON))
+`, string(cfgJSON))
 }

@@ -1801,7 +1801,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
               display: 'flex',
               flexDirection: 'column',
               gap: '16px',
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface)',
               boxShadow: 'var(--shadow-lg)',
             }}
             onClick={(e) => e.stopPropagation()}

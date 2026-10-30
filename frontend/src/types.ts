@@ -523,6 +523,7 @@ export interface TokenProjectBreakdown {
   cache_hit_ratio: number
   sessions_count?: number
   requests?: number
+  avg_tps?: number
   last_active: string
   primary_model?: string
 }
@@ -533,6 +534,7 @@ export interface TokenTelemetryEvent {
   project: string
   canonical_id: string
   model_id?: string
+  routed_model?: string
   model: string
   classification: 'native' | 'custom'
   input_tokens: number

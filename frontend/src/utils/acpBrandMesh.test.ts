@@ -14,7 +14,6 @@ import {
 describe('ACP Adapter & Official Brand SVG Icons (Requirement 3.1)', () => {
   const rootSrcDir = path.resolve(import.meta.dirname, '..')
   const acpPagePath = path.join(rootSrcDir, 'pages', 'ACPAgentMeshPage.tsx')
-  const appPath = path.join(rootSrcDir, 'App.tsx')
   const brandIconsPath = path.join(rootSrcDir, 'components', 'AcpBrandIcons.tsx')
 
   it('verifies all 10 canonical ACP mesh node IDs have official product names and IDs', () => {
@@ -91,20 +90,6 @@ describe('ACP Adapter & Official Brand SVG Icons (Requirement 3.1)', () => {
     assert.ok(isAcpGridAligned(ACP_CARD_LAYOUT_TOKENS.cardBorderRadius))
     assert.ok(isAcpGridAligned(ACP_CARD_LAYOUT_TOKENS.headerMarginBottom))
     assert.ok(isAcpGridAligned(ACP_CARD_LAYOUT_TOKENS.avatarSize))
-  })
-
-  it('verifies App.tsx renders ACPAgentMeshPage for tool 11', () => {
-    assert.ok(fs.existsSync(appPath), 'App.tsx must exist')
-    const appContent = fs.readFileSync(appPath, 'utf8')
-
-    assert.ok(
-      appContent.includes("import { ACPAgentMeshPage } from './pages/ACPAgentMeshPage'"),
-      'App must import ACPAgentMeshPage'
-    )
-    assert.ok(
-      appContent.includes('currentTool === 11') && appContent.includes('<ACPAgentMeshPage />'),
-      'App must render <ACPAgentMeshPage /> for tool 11'
-    )
   })
 
   it('validates status badge presentation conforms to white-space: nowrap with zero emojis', () => {

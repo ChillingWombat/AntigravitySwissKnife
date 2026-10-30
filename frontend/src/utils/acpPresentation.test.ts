@@ -9,6 +9,8 @@ import {
   hasDecorativeEmojis,
   getAgentNodeIconName,
   getAcpStatusPresentation,
+  getAcpStatusCategory,
+  sortAcpAgents,
 } from './acpPresentation.ts'
 
 describe('ACP Presentation & Layout Specifications (Milestone 7)', () => {
@@ -118,5 +120,69 @@ describe('ACP Presentation & Layout Specifications (Milestone 7)', () => {
     assert.ok(!ACP_NODE_IDS.includes('agent-windsurf' as any))
     assert.ok(ACP_NODE_IDS.includes('agent-devin'))
     assert.equal(getAgentNodeIconName('agent-devin'), 'Workflow')
+  })
+
+  it('correctly categorizes ACP statuses into connected > installed > notfound', () => {
+    assert.equal(getAcpStatusCategory('connected'), 'connected')
+    assert.equal(getAcpStatusCategory('active_hosting'), 'connected')
+    assert.equal(getAcpStatusCategory('listening'), 'connected')
+
+    assert.equal(getAcpStatusCategory('installed_idle'), 'installed')
+    assert.equal(getAcpStatusCategory('installed'), 'installed')
+
+    assert.equal(getAcpStatusCategory('not_found'), 'notfound')
+    assert.equal(getAcpStatusCategory('unreachable'), 'notfound')
+    assert.equal(getAcpStatusCategory('idle'), 'notfound')
+    assert.equal(getAcpStatusCategory(''), 'notfound')
+    assert.equal(getAcpStatusCategory('unknown_xyz'), 'notfound')
+  })
+
+  it('sorts ACP agent cards in the order of connected > installed > notfound, then alphabetically', () => {
+    const fleet = [
+      { id: 'agent-devin', name: 'Devin', status: 'not_found' },
+      { id: 'agent-opencode', name: 'OpenCode', status: 'not_found' },
+      { id: 'agent-deepseek-harness', name: 'DeepSeek Harness', status: 'not_found' },
+      { id: 'agent-pi', name: 'Pi', status: 'connected' },
+      { id: 'agent-codex', name: 'Codex', status: 'installed_idle' },
+      { id: 'agent-claude-code', name: 'Claude Code CLI', status: 'not_found' },
+      { id: 'agent-cursor', name: 'Cursor Editor Agent', status: 'not_found' },
+    ]
+
+    const sorted = sortAcpAgents(fleet)
+    const sortedNames = sorted.map((a) => a.name)
+
+    assert.deepEqual(sortedNames, [
+      // 1. Connected
+      'Pi',
+      // 2. Installed
+      'Codex',
+      // 3. Not Found (alphabetical)
+      'Claude Code CLI',
+      'Cursor Editor Agent',
+      'DeepSeek Harness',
+      'Devin',
+      'OpenCode',
+    ])
+  })
+
+  it('sorts multiple agents alphabetically within the same status category', () => {
+    const agents = [
+      { id: '1', name: 'Z-Connected', status: 'connected' },
+      { id: '2', name: 'A-Connected', status: 'connected' },
+      { id: '3', name: 'Z-Installed', status: 'installed_idle' },
+      { id: '4', name: 'A-Installed', status: 'installed_idle' },
+      { id: '5', name: 'Z-NotFound', status: 'not_found' },
+      { id: '6', name: 'A-NotFound', status: 'not_found' },
+    ]
+
+    const sorted = sortAcpAgents(agents)
+    assert.deepEqual(sorted.map((a) => a.name), [
+      'A-Connected',
+      'Z-Connected',
+      'A-Installed',
+      'Z-Installed',
+      'A-NotFound',
+      'Z-NotFound',
+    ])
   })
 })

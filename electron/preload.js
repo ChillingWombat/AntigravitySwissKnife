@@ -1,5 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const swissAPI = {
+  request: (request) => ipcRenderer.invoke('desktop:swiss-daemon-request', request),
+};
+
 const electronAPI = {
   isElectron: true,
   getStartupSetting: () => ipcRenderer.invoke('desktop:get-startup-setting'),
@@ -8,7 +12,6 @@ const electronAPI = {
   setCloseToTraySetting: (enabled) => ipcRenderer.invoke('desktop:set-close-to-tray-setting', enabled),
   getRuntimeModeSetting: () => ipcRenderer.invoke('desktop:get-runtime-mode-setting'),
   setRuntimeModeSetting: (mode) => ipcRenderer.invoke('desktop:set-runtime-mode-setting', mode),
-  getSessionToken: () => ipcRenderer.invoke('desktop:get-session-token'),
   startDaemon: () => ipcRenderer.invoke('desktop:start-daemon'),
   retryDaemonConnection: () => ipcRenderer.invoke('desktop:retry-daemon-connection'),
   quitApp: () => ipcRenderer.send('desktop:quit-app'),
@@ -30,10 +33,12 @@ const electronAPI = {
 
 if (process.contextIsolated) {
   contextBridge.exposeInMainWorld('electronAPI', electronAPI);
+  contextBridge.exposeInMainWorld('swiss', swissAPI);
 } else if (typeof window !== 'undefined') {
   window.electronAPI = electronAPI;
+  window.swiss = swissAPI;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { electronAPI };
+  module.exports = { electronAPI, swissAPI };
 }

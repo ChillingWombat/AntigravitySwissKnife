@@ -84,10 +84,56 @@ export const formatTrendYTickHelper = (
   return Math.round(v).toString()
 }
 
+// Duration Helper exported for external testing and consumers
+export const formatDurationHelper = (ms: number | null | undefined): string => {
+  if (!ms || ms <= 0) return '—'
+  if (ms < 1000) return `${ms}ms`
+  const sec = ms / 1000
+  if (sec < 60) return `${sec.toFixed(1)}s`
+  const m = Math.floor(sec / 60)
+  const remSec = Math.round(sec % 60)
+  return `${m}m ${remSec}s`
+}
+
+// Formatter for hover metrics card costs
+export const formatHoverCostHelper = (
+  cost: number | null | undefined,
+  priceMissing?: boolean
+): string => {
+  if (priceMissing || cost === null || cost === undefined) return 'Unpriced'
+  if (cost === 0) return '$0.00'
+  if (cost < 0.01) return `$${cost.toFixed(4)}`
+  return `$${cost.toFixed(2)}`
+}
+
+// Rate formatter for token pricing table:
+// Rounds to at most 3 decimal places; if the 3rd decimal place is 0, shows 2 decimal places.
+export const formatPricingRateHelper = (val: number | null | undefined): string => {
+  if (val === null || val === undefined || Number.isNaN(val)) return '—'
+  const str3 = val.toFixed(3)
+  if (str3.endsWith('0')) {
+    return `$${val.toFixed(2)}`
+  }
+  return `$${str3}`
+}
+
+// Formatter for counts (requests, completed chats) in k, M, B with 2 decimal places once >= 1000
+export const formatCountHelper = (num: number | null | undefined): string => {
+  const n = num ?? 0
+  if (n >= 1000000000) return `${(n / 1000000000).toFixed(2)}B`
+  if (n >= 1000000) return `${(n / 1000000).toFixed(2)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(2)}k`
+  return n.toLocaleString()
+}
+
 export {
   formatTokensHelper as formatTokens,
   formatMetricValueHelper as formatMetricValue,
   formatTrendYTickHelper as formatTrendYTick,
+  formatDurationHelper as formatDuration,
+  formatHoverCostHelper as formatHoverCost,
+  formatPricingRateHelper as formatPricingRate,
+  formatCountHelper as formatCount,
 }
 
 interface TokenMonitorPageProps {
@@ -109,6 +155,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   // Time range filter (#125): shared by the KPI cards and the histogram so both
   // always describe the same window.
   const [timeRange, setTimeRange] = useState<TokenRange>('7d')
+  const [modelFilter, setModelFilter] = useState<'native' | 'custom' | 'all'>('native')
   const [isFetchingPrices, setIsFetchingPrices] = useState(false)
   const [fetchFeedback, setFetchFeedback] = useState<string | null>(null)
   const [editingPricing, setEditingPricing] = useState<ModelPricingRecord | null>(null)
@@ -155,6 +202,11 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   const [projectBreakdowns, setProjectBreakdowns] = useState<TokenProjectBreakdown[]>([])
   const [telemetryEvents, setTelemetryEvents] = useState<TokenTelemetryEvent[]>([])
 
+  const displayedModelBreakdowns = useMemo(() => {
+    if (modelFilter === 'all') return modelBreakdowns
+    return modelBreakdowns.filter((m) => m.classification === modelFilter)
+  }, [modelBreakdowns, modelFilter])
+
   // Usage trend gadget state
   const [trendGroup, setTrendGroup] = useState<'model' | 'project'>('model')
   const [trendTopN, setTrendTopN] = useState<number>(5)
@@ -162,10 +214,13 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   const [hoveredModelKey, setHoveredModelKey] = useState<string | null>(null)
   const [hoveredProjectKey, setHoveredProjectKey] = useState<string | null>(null)
 
-  const loadLiveMetrics = async (range: TokenRange = timeRange) => {
+  const loadLiveMetrics = async (
+    range: TokenRange = timeRange,
+    classification: 'native' | 'custom' | 'all' = modelFilter
+  ) => {
     try {
       const [summaryData, rulesData, customModelsData, guiConfigData] = await Promise.all([
-        api.getTokenSummary(range).catch(() => null),
+        api.getTokenSummary(range, classification).catch(() => null),
         api.getRules().catch(() => null),
         api.getCustomModels().catch(() => null),
         api.getGUIConfig().catch(() => null),
@@ -214,10 +269,10 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   }
 
   useEffect(() => {
-    loadLiveMetrics(timeRange)
-    const interval = setInterval(() => loadLiveMetrics(timeRange), 30_000)
+    loadLiveMetrics(timeRange, modelFilter)
+    const interval = setInterval(() => loadLiveMetrics(timeRange, modelFilter), 30_000)
     return () => clearInterval(interval)
-  }, [timeRange])
+  }, [timeRange, modelFilter])
 
   const handleUpdateTelemetrySetting = async (key: string, value: any) => {
     try {
@@ -319,6 +374,9 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
 
   // Format Helper
   const formatTokens = (num: number | null | undefined) => formatTokensHelper(num)
+  const formatDuration = (ms: number | null | undefined) => formatDurationHelper(ms)
+  const formatPricingRate = (val: number | null | undefined) => formatPricingRateHelper(val)
+  const formatCount = (num: number | null | undefined) => formatCountHelper(num)
 
   const formatCost = (usd: number | null | undefined) =>
     usd === null || usd === undefined ? '—' : `$${usd.toFixed(4)}`
@@ -336,7 +394,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
     }
     const v = value ?? 0
     if (unitMode === 'usd') return `$${v.toFixed(2)}`
-    if (unitMode === 'requests') return `${Math.round(v).toLocaleString()} req`
+    if (unitMode === 'requests') return `${formatCount(v)} req`
     return v >= 1000000
       ? `${(v / 1000000).toFixed(2)}M`
       : v >= 1000
@@ -554,6 +612,43 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   </button>
                 ))}
               </div>
+
+              {/* Model Classification Filter Switcher */}
+              <div
+                style={{
+                  display: 'flex',
+                  backgroundColor: 'var(--tonal)',
+                  borderRadius: '8px',
+                  padding: '3px',
+                  gap: '2px',
+                }}
+              >
+                {(['native', 'custom', 'all'] as const).map((c) => {
+                  const label = c.charAt(0).toUpperCase() + c.slice(1)
+                  const isActive = modelFilter === c
+                  return (
+                    <button
+                      key={c}
+                      data-testid={`model-filter-${c}`}
+                      onClick={() => setModelFilter(c)}
+                      style={{
+                        borderRadius: '6px',
+                        padding: '5px 12px',
+                        fontSize: '12px',
+                        fontWeight: isActive ? 600 : 500,
+                        color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+                        backgroundColor: isActive ? 'var(--surface, #ffffff)' : 'transparent',
+                        boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <span>{label}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             {/* Sync Prices Button */}
@@ -619,7 +714,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               ? `$${(summary.total_cost_usd ?? 0).toFixed(2)}`
               : unitMode === 'tokens'
               ? formatTokens(summary.total_tokens)
-              : (summary.requests_count ?? 0).toLocaleString()}
+              : formatCount(summary.requests_count)}
           </div>
         </div>
 
@@ -752,7 +847,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             </span>
           </div>
           <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {(summary.requests_count ?? 0).toLocaleString()}
+            {formatCount(summary.requests_count)}
           </div>
         </div>
       </div>
@@ -1056,12 +1151,12 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
-            {modelBreakdowns.length === 0 ? (
+            {displayedModelBreakdowns.length === 0 ? (
               <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                No model token usage recorded yet. Start interacting with agent models to see consumption breakdowns.
+                No {modelFilter === 'all' ? 'model' : modelFilter + ' model'} token usage recorded yet. Start interacting with agent models to see consumption breakdowns.
               </div>
             ) : (
-              modelBreakdowns.map((m, idx) => {
+              displayedModelBreakdowns.map((m, idx) => {
                 const pct =
                   unitMode === 'usd'
                     ? summary.total_cost_usd > 0
@@ -1077,16 +1172,17 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                 const provLower = (m.provider || '').toLowerCase()
                 const modelKey = m.canonical_id || m.model_id || null
                 const isHovered = hoveredModelKey === modelKey
-                const speedText = m.avg_tps && m.avg_tps > 0 ? `${m.avg_tps} TPS` : '— TPS'
-                const reqCachedText = `${m.requests} requests • ${formatTokens(m.cached_tokens)} cached${m.price_missing ? ' • Price null (set in Token Price)' : ''}`
-                const tooltipText = `Speed: ${speedText} • ${reqCachedText}`
+                const mCacheHitRatio =
+                  (m.input_tokens || 0) > 0
+                    ? (((m.cached_tokens || 0) / (m.input_tokens || 1)) * 100)
+                    : 0
 
                 return (
                   <div
                     key={modelKey}
+                    data-testid={`model-row-${modelKey}`}
                     onMouseEnter={() => setHoveredModelKey(modelKey)}
                     onMouseLeave={() => setHoveredModelKey(null)}
-                    title={tooltipText}
                     style={{
                       position: 'relative',
                       padding: '6px 8px',
@@ -1104,8 +1200,8 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                             borderRadius: '6px',
                             fontSize: '10px',
                             fontWeight: 600,
-                            backgroundColor: m.classification === 'native' ? '#e8f0fe' : '#fef3c7',
-                            color: m.classification === 'native' ? 'var(--primary)' : '#b45309',
+                            backgroundColor: m.classification === 'native' ? 'var(--badge-blue-bg)' : 'var(--yellow-bg)',
+                            color: m.classification === 'native' ? 'var(--badge-blue-text)' : 'var(--yellow)',
                             textTransform: 'uppercase',
                             whiteSpace: 'nowrap',
                           }}
@@ -1113,14 +1209,14 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                           {m.classification === 'native' ? 'Native' : m.is_outdated_native ? 'Custom (Outdated Native)' : 'Custom'}
                         </span>
                       </div>
-                      <span style={{ fontWeight: 600, color: m.price_missing && unitMode === 'usd' ? '#b06000' : 'var(--primary)', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontWeight: 600, color: m.price_missing && unitMode === 'usd' ? 'var(--yellow)' : 'var(--primary)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                         {formatMetric(
                           unitMode === 'usd' ? m.cost_usd : unitMode === 'tokens' ? m.total_tokens : m.requests
                         )}{' '}
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>({pct.toFixed(2)}%)</span>
                       </span>
                     </div>
-                    <div style={{ height: '7px', width: '100%', backgroundColor: '#f1f3f4', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ height: '7px', width: '100%', backgroundColor: 'var(--surface-variant)', borderRadius: '4px', overflow: 'hidden' }}>
                       <div
                         style={{
                           height: '100%',
@@ -1129,14 +1225,15 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                             provLower.includes('google') || provLower.includes('gemini')
                               ? 'var(--primary)'
                               : provLower.includes('anthropic')
-                              ? '#d97706'
-                              : '#10b981',
+                              ? 'var(--yellow)'
+                              : 'var(--green)',
                           borderRadius: '4px',
                         }}
                       />
                     </div>
                     {isHovered && (
                       <div
+                        data-testid="model-hover-metrics"
                         style={{
                           position: 'absolute',
                           right: '8px',
@@ -1149,16 +1246,23 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                           color: 'var(--text-muted)',
                           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
                           zIndex: 20,
-                          whiteSpace: 'nowrap',
                           pointerEvents: 'none',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '8px',
+                          gap: '6px 8px',
+                          flexWrap: 'wrap',
+                          maxWidth: 'calc(100% - 16px)',
                         }}
                       >
-                        <span style={{ color: 'var(--text)', fontWeight: 600 }}>Speed: {speedText}</span>
+                        <span>Input Tokens: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{formatTokens(m.input_tokens)}</strong></span>
                         <span>•</span>
-                        <span>{reqCachedText}</span>
+                        <span>Cache Hit Ratio: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{mCacheHitRatio.toFixed(1)}%</strong></span>
+                        <span>•</span>
+                        <span>Output Tokens: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{formatTokens(m.output_tokens)}</strong></span>
+                        <span>•</span>
+                        <span>Requests: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{formatCount(m.requests)}</strong></span>
+                        <span>•</span>
+                        <span>Cost: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{formatHoverCostHelper(m.cost_usd, m.price_missing)}</strong></span>
                       </div>
                     )}
                   </div>
@@ -1213,16 +1317,18 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     : (p.input_tokens || 0) > 0
                     ? (((p.cached_tokens || 0) / (p.input_tokens || 1)) * 100)
                     : 0
-                const cacheHitText = `Cache hit: ${cacheHitRatioNum.toFixed(1)}%`
-                const activeText = p.last_active ? `Active ${p.last_active}` : p.workspace_path || '—'
-                const tooltipText = `${cacheHitText} • ${activeText}`
+                const pSpeedText = p.avg_tps && p.avg_tps > 0 ? `${p.avg_tps} TPS` : '— TPS'
+                const pIoRatioText =
+                  (p.output_tokens || 0) > 0
+                    ? `${((p.input_tokens || 0) / (p.output_tokens || 1)).toFixed(1)}x`
+                    : '—'
 
                 return (
                   <div
                     key={projectKey}
+                    data-testid={`project-row-${projectKey}`}
                     onMouseEnter={() => setHoveredProjectKey(projectKey)}
                     onMouseLeave={() => setHoveredProjectKey(null)}
-                    title={tooltipText}
                     style={{
                       position: 'relative',
                       padding: '6px 8px',
@@ -1240,7 +1346,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>({pct.toFixed(2)}%)</span>
                       </span>
                     </div>
-                    <div style={{ height: '7px', width: '100%', backgroundColor: '#f1f3f4', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ height: '7px', width: '100%', backgroundColor: 'var(--surface-variant)', borderRadius: '4px', overflow: 'hidden' }}>
                       <div
                         style={{
                           height: '100%',
@@ -1252,6 +1358,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                     </div>
                     {isHovered && (
                       <div
+                        data-testid="project-hover-metrics"
                         style={{
                           position: 'absolute',
                           right: '8px',
@@ -1264,16 +1371,27 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                           color: 'var(--text-muted)',
                           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
                           zIndex: 20,
-                          whiteSpace: 'nowrap',
                           pointerEvents: 'none',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '8px',
+                          gap: '6px 8px',
+                          flexWrap: 'wrap',
+                          maxWidth: 'calc(100% - 16px)',
                         }}
                       >
-                        <span style={{ color: 'var(--text)', fontWeight: 600 }}>{cacheHitText}</span>
+                        <span>Input Tokens: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{formatTokens(p.input_tokens)}</strong></span>
                         <span>•</span>
-                        <span>{activeText}</span>
+                        <span>Cache Hit Ratio: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{cacheHitRatioNum.toFixed(1)}%</strong></span>
+                        <span>•</span>
+                        <span>Output Tokens: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{formatTokens(p.output_tokens)}</strong></span>
+                        <span>•</span>
+                        <span>Requests: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{formatCount(p.requests)}</strong></span>
+                        <span>•</span>
+                        <span>Cost: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{formatHoverCostHelper(p.cost_usd)}</strong></span>
+                        <span>•</span>
+                        <span>Speed: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{pSpeedText}</strong></span>
+                        <span>•</span>
+                        <span>Input/Output Ratio: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{pIoRatioText}</strong></span>
                       </div>
                     )}
                   </div>
@@ -1344,10 +1462,9 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
                 <th style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'left' }}>Model</th>
                 <th style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'center' }}>Type</th>
-                <th style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'center' }}>Provider</th>
-                <th style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'center' }}>Prompt Input ($/1M)</th>
-                <th style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'center' }}>Cached Input ($/1M)</th>
-                <th style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'center' }}>Output ($/1M)</th>
+                <th style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'center' }}>Prompt Input</th>
+                <th style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'center' }}>Cached Input</th>
+                <th style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'center' }}>Output</th>
                 <th style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'center' }}>Source</th>
                 <th style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'center' }}>Action</th>
               </tr>
@@ -1355,13 +1472,12 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
             <tbody>
               {sortedPricingList.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: '28px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                  <td colSpan={7} style={{ padding: '28px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                     No models in pricing registry. Click Sync Prices to fetch available Antigravity and Custom models.
                   </td>
                 </tr>
               ) : (
                 sortedPricingList.map((pr) => {
-                  const provLower = (pr.provider || '').toLowerCase()
                   return (
                     <tr key={`${pr.canonical_id || pr.model_id}-${pr.internal_id}`} style={{ borderBottom: '1px solid var(--border)' }}>
                       <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)', textAlign: 'left' }}>
@@ -1385,56 +1501,14 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                           {pr.classification}
                         </span>
                       </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <span
-                          style={{
-                            padding: '2px 8px',
-                            borderRadius: '10px',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            backgroundColor:
-                              provLower.includes('google') || provLower.includes('gemini')
-                                ? '#e8f0fe'
-                                : provLower.includes('anthropic')
-                                ? '#fef3c7'
-                                : provLower.includes('openai')
-                                ? '#e6f4ea'
-                                : '#f1f3f4',
-                            color:
-                              provLower.includes('google') || provLower.includes('gemini')
-                                ? 'var(--primary)'
-                                : provLower.includes('anthropic')
-                                ? '#b45309'
-                                : provLower.includes('openai')
-                                ? '#137333'
-                                : '#5f6368',
-                            textTransform: 'capitalize',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {pr.provider}
-                        </span>
+                      <td style={{ padding: '10px 12px', color: 'var(--text)', textAlign: 'center' }}>
+                        {formatPricingRate(pr.input_price_per_m)}
                       </td>
                       <td style={{ padding: '10px 12px', color: 'var(--text)', textAlign: 'center' }}>
-                        {pr.input_price_per_m === null || pr.input_price_per_m === undefined ? (
-                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>—</span>
-                        ) : (
-                          `$${pr.input_price_per_m.toFixed(3)}`
-                        )}
-                      </td>
-                      <td style={{ padding: '10px 12px', color: '#137333', fontWeight: 600, textAlign: 'center' }}>
-                        {pr.cached_input_price_per_m === null || pr.cached_input_price_per_m === undefined ? (
-                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>—</span>
-                        ) : (
-                          `$${pr.cached_input_price_per_m.toFixed(4)}`
-                        )}
+                        {formatPricingRate(pr.cached_input_price_per_m)}
                       </td>
                       <td style={{ padding: '10px 12px', color: 'var(--text)', textAlign: 'center' }}>
-                        {pr.output_price_per_m === null || pr.output_price_per_m === undefined ? (
-                          <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 400 }}>—</span>
-                        ) : (
-                          `$${pr.output_price_per_m.toFixed(2)}`
-                        )}
+                        {formatPricingRate(pr.output_price_per_m)}
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                         {['provider', 'third_party', 'api', 'manual'].includes(pr.source || '') ? (
@@ -1452,9 +1526,9 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                             }}
                           >
                             {pr.source === 'provider'
-                              ? 'Provider Official'
+                              ? 'Official'
                               : pr.source === 'third_party' || pr.source === 'api'
-                              ? '3rd-Party Backup'
+                              ? '3rd Party'
                               : 'Manual Override'}
                           </span>
                         ) : (
@@ -1518,28 +1592,9 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
               boxShadow: '0 8px 30px rgba(0,0,0,0.18)',
             }}
           >
-            <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
               Edit Token Price: {editingPricing.model_name || editingPricing.name}
             </h3>
-            <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Only token price fields can be modified here. Leave blank to set as null. Changes sync directly with Custom Models.
-            </p>
-
-            <div
-              style={{
-                backgroundColor: 'var(--tonal)',
-                borderRadius: '8px',
-                padding: '8px 12px',
-                marginBottom: '14px',
-                fontSize: '12px',
-                display: 'flex',
-                justifyContent: 'space-between',
-                color: 'var(--text-muted)',
-              }}
-            >
-              <span>Provider: <b style={{ color: 'var(--text)' }}>{editingPricing.provider}</b></span>
-              <span>Type: <b style={{ color: 'var(--text)', textTransform: 'capitalize' }}>{editingPricing.classification}</b></span>
-            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
@@ -1953,12 +2008,13 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                   onClick={() => {
                     const csvContent =
                       'data:text/csv;charset=utf-8,' +
-                      ['Timestamp,TurnID,Project,Model,Type,Input,Cached,Output,TPS,Cost']
+                      ['Timestamp,TurnID,Project,Agent,Model,Classification,Input,Cached,CacheHitRatio,Output,DurationMs,TPS,Cost']
                         .concat(
-                          filteredTelemetryEvents.map(
-                            (e) =>
-                              `${e.timestamp},${e.id},${e.project},${e.model},${e.classification},${e.input_tokens},${e.cached_tokens},${e.output_tokens},${e.tps},${e.cost_usd ?? 'null'}`
-                          )
+                          filteredTelemetryEvents.map((e) => {
+                            const ratio = e.input_tokens > 0 ? ((e.cached_tokens / e.input_tokens) * 100).toFixed(1) : '0.0'
+                            const role = e.agent_role || (e.is_subagent ? 'Sub-Agent' : 'Main Agent')
+                            return `${e.timestamp},${e.id},${e.project},${role},${e.model},${e.classification},${e.input_tokens},${e.cached_tokens},${ratio}%,${e.output_tokens},${e.duration_ms},${e.tps},${e.cost_usd ?? 'null'}`
+                          })
                         )
                         .join('\n')
                     const encodedUri = encodeURI(csvContent)
@@ -1995,10 +2051,12 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
                     <th style={{ padding: '8px 12px' }}>Time</th>
-                    <th style={{ padding: '8px 12px' }}>Session / Project</th>
+                    <th style={{ padding: '8px 12px' }}>Project</th>
                     <th style={{ padding: '8px 12px' }}>Agent</th>
                     <th style={{ padding: '8px 12px' }}>Model</th>
-                    <th style={{ padding: '8px 12px' }}>Tokens (In / Cache / Out)</th>
+                    <th style={{ padding: '8px 12px' }}>Input</th>
+                    <th style={{ padding: '8px 12px' }}>Output</th>
+                    <th style={{ padding: '8px 12px' }}>Duration</th>
                     <th style={{ padding: '8px 12px' }}>Speed</th>
                     <th style={{ padding: '8px 12px' }}>Cost</th>
                   </tr>
@@ -2006,48 +2064,65 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
                 <tbody>
                   {filteredTelemetryEvents.length === 0 ? (
                     <tr>
-                      <td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                      <td colSpan={9} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
                         No live telemetry sessions recorded for the selected filter.
                       </td>
                     </tr>
                   ) : (
-                    filteredTelemetryEvents.map((ev) => (
-                    <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{ev.timestamp}</td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <div style={{ fontWeight: 600, color: 'var(--text)' }}>{ev.project}</div>
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <span
-                        title={ev.id}
-                        style={{ fontWeight: 500, color: 'var(--text)', cursor: 'help' }}
-                      >
-                        {ev.agent_role || (ev.is_subagent ? 'Sub-Agent' : 'Main Agent')}
-                      </span>
-                    </td>
-                    <td style={{ padding: '10px 12px', fontWeight: 500, color: 'var(--text)' }}>
-                      <span
-                        title={`${ev.model || ev.canonical_id || ev.model_id || 'Model'} · ${formatClassification(ev.classification)}`}
-                        style={{ cursor: 'help' }}
-                      >
-                        {ev.model || ev.canonical_id || ev.model_id || 'Model'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <span>{formatTokens(ev.input_tokens)} in</span> •{' '}
-                      <span style={{ color: '#137333' }}>{formatTokens(ev.cached_tokens)} cache</span> •{' '}
-                      <span>{formatTokens(ev.output_tokens)} out</span>
-                    </td>
-                    <td style={{ padding: '10px 12px', fontWeight: 600, color: '#b06000' }}>
-                      {ev.tps && ev.tps > 0 ? `${ev.tps} TPS` : '— TPS'}
-                    </td>
-                    <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)' }}>
-                      {formatCost(ev.cost_usd)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
+                    filteredTelemetryEvents.map((ev) => {
+                      const promptTokens = ev.input_tokens
+                      const cacheRatio = promptTokens > 0 ? ((ev.cached_tokens / promptTokens) * 100).toFixed(1) : '0.0'
+                      return (
+                        <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{ev.timestamp}</td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <div style={{ fontWeight: 600, color: 'var(--text)' }}>{ev.project}</div>
+                          </td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <span
+                              title={ev.id}
+                              style={{ fontWeight: 500, color: 'var(--text)', cursor: 'help' }}
+                            >
+                              {ev.agent_role || (ev.is_subagent ? 'Sub-Agent' : 'Main Agent')}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 12px', fontWeight: 500, color: 'var(--text)' }}>
+                            <span
+                              title={[
+                                ev.model || ev.canonical_id || ev.model_id || 'Model',
+                                ev.routed_model ? `Routed: ${ev.routed_model}` : '',
+                                formatClassification(ev.classification),
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                              style={{ cursor: 'help' }}
+                            >
+                              {ev.model || ev.canonical_id || ev.model_id || 'Model'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 12px', fontVariantNumeric: 'tabular-nums' }}>
+                            <span>{formatTokens(promptTokens)}</span>{' '}
+                            <span style={{ color: ev.cached_tokens > 0 ? 'var(--green)' : 'var(--text-muted)', fontSize: '11px' }}>
+                              ({cacheRatio}%)
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 12px', color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
+                            {formatTokens(ev.output_tokens)}
+                          </td>
+                          <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                            {formatDuration(ev.duration_ms)}
+                          </td>
+                          <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--yellow)', fontVariantNumeric: 'tabular-nums' }}>
+                            {ev.tps && ev.tps > 0 ? `${ev.tps} TPS` : '— TPS'}
+                          </td>
+                          <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
+                            {formatCost(ev.cost_usd)}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
           </table>
         </div>
       </div>

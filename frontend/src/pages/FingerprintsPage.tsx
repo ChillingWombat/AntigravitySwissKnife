@@ -302,7 +302,7 @@ export const FingerprintsPage: React.FC<FingerprintsPageProps> = ({ accounts }) 
               maxHeight: '92vh',
               overflowY: 'auto',
               padding: '28px',
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface)',
               borderRadius: '10px',
               boxShadow: 'var(--shadow-md)',
             }}

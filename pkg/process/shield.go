@@ -3,6 +3,7 @@ package process
 import (
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,23 @@ import (
 )
 
 var relaunchMu sync.Mutex
+
+func isProxyEndpointAvailable(port int) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 80*time.Millisecond)
+	if err == nil {
+		_ = conn.Close()
+		return true
+	}
+	return false
+}
+
+func getHostLaunchEnv() []string {
+	base := CleanNativeEnvironment(os.Environ())
+	if isProxyEndpointAvailable(8765) {
+		base = append(base, "CLOUD_CODE_URL=http://127.0.0.1:8765")
+	}
+	return base
+}
 
 // ProcessInfo holds information about a detected system process.
 type ProcessInfo struct {
@@ -508,7 +526,7 @@ func (s *Shield) LaunchHostIDE() error {
 	} else {
 		cmd = exec.Command(binPath)
 	}
-	cmd.Env = append(os.Environ(), "CLOUD_CODE_URL=http://127.0.0.1:8765")
+	cmd.Env = getHostLaunchEnv()
 
 	if err := core.LaunchDetachedGUIProcess(cmd); err != nil {
 		return fmt.Errorf("failed to launch Antigravity (%s): %w", binPath, err)
@@ -734,7 +752,7 @@ func (s *Shield) RelaunchHostIDE() error {
 	} else {
 		cmd = exec.Command(binPath)
 	}
-	cmd.Env = append(os.Environ(), "CLOUD_CODE_URL=http://127.0.0.1:8765")
+	cmd.Env = getHostLaunchEnv()
 
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err == nil {

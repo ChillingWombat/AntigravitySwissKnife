@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/enhancements"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/plugins"
@@ -2342,7 +2341,7 @@ func generateBaseScript(cfg *Config) string {
           PRESET_COLORS.map(function(p) {
             return '<div class="swiss-preset-swatch swiss-menu-swatch" data-color="' + p.hex + '" title="' + p.name + '" style="width: 15px; height: 15px; border-radius: 50%%; background: ' + p.hex + '; cursor: pointer; transition: transform 0.12s; box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.25); flex-shrink: 0; box-sizing: border-box;"></div>';
           }).join("") +
-          '<div id="swiss-custom-trigger" class="swiss-menu-custom-trigger" title="Custom 10x10 Palette" style="width: 15px; height: 15px; border-radius: 50%%; background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red); cursor: pointer; transition: transform 0.12s, box-shadow 0.12s; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12); box-sizing: border-box;"></div>' +
+          '<div id="swiss-custom-trigger" class="swiss-menu-custom-trigger" title="Custom 10x10 Palette" style="width: 15px; height: 15px; border-radius: 50%%; border: 1px solid var(--border, rgba(128, 128, 128, 0.3)); background: var(--surface-variant, rgba(0, 0, 0, 0.04)); color: var(--muted-foreground, #71717a); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.12s, border-color 0.12s, color 0.12s, background-color 0.12s; flex-shrink: 0; box-sizing: border-box;"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-palette" style="display: block; pointer-events: none;"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/></svg></div>' +
         '</div>' +
         '<div id="swiss-custom-grid-container" class="swiss-menu-custom-grid" style="display: none; padding: 2px 6px 4px 6px;">' +
           '<div style="display: grid; grid-template-columns: repeat(10, 16px); gap: 3px; justify-content: center; background: var(--muted, rgba(0, 0, 0, 0.03)); padding: 6px; border-radius: 6px; border: 1px solid var(--border, rgba(0, 0, 0, 0.075));">' +
@@ -2362,16 +2361,29 @@ func generateBaseScript(cfg *Config) string {
       const customTrig = colorGroup.querySelector("#swiss-custom-trigger");
       if (customTrig) {
         customTrig.onmouseenter = () => {
-          customTrig.style.transform = "scale(1.3)";
+          customTrig.style.transform = "scale(1.15)";
+          customTrig.style.borderColor = "var(--primary, #0b57d0)";
+          customTrig.style.color = "var(--primary, #0b57d0)";
         };
         customTrig.onmouseleave = () => {
           customTrig.style.transform = "scale(1)";
+          const gridBox = colorGroup.querySelector("#swiss-custom-grid-container");
+          if (gridBox && gridBox.style.display !== "none") {
+            customTrig.style.borderColor = "var(--primary, #0b57d0)";
+            customTrig.style.color = "var(--primary, #0b57d0)";
+          } else {
+            customTrig.style.borderColor = "var(--border, rgba(128, 128, 128, 0.3))";
+            customTrig.style.color = "var(--muted-foreground, #71717a)";
+          }
         };
         customTrig.onclick = (e) => {
           e.stopPropagation();
           const gridBox = colorGroup.querySelector("#swiss-custom-grid-container");
           if (gridBox) {
-            gridBox.style.display = (gridBox.style.display === "none") ? "block" : "none";
+            const isHidden = (gridBox.style.display === "none");
+            gridBox.style.display = isHidden ? "block" : "none";
+            customTrig.style.borderColor = isHidden ? "var(--primary, #0b57d0)" : "var(--border, rgba(128, 128, 128, 0.3))";
+            customTrig.style.color = isHidden ? "var(--primary, #0b57d0)" : "var(--muted-foreground, #71717a)";
           }
         };
       }
@@ -2686,15 +2698,8 @@ func GenerateScript(cfg *Config) string {
 // GenerateScriptWithCustomModels generates the complete script including project tags, custom models, enhancements, and auxiliary plugins.
 func GenerateScriptWithCustomModels(cfg *Config, cmCfg *custommodels.Config) string {
 	var tokenScript string
-	if tok, err := core.GetLocalSessionToken(); err == nil && tok != "" {
-		tokenScript = fmt.Sprintf(`if (typeof window !== 'undefined') { window.__SWISS_SESSION_TOKEN__ = %q; try { sessionStorage.setItem('antigravity_swiss_session_token', %q); } catch (_) {} };
-`, tok, tok)
-	}
-	// The auth interceptor must be installed even before a token exists: it
-	// reads the token at request time, so a fresh install still authenticates
-	// as soon as the daemon writes session.token.
+	// Install the broker bridge before any injected module issues a fetch.
 	tokenScript += plugins.SwissAuthInterceptorScript
-	tokenScript += plugins.SwissOnboardingAutoAcceptScript
 
 	baseScript := generateBaseScript(cfg)
 

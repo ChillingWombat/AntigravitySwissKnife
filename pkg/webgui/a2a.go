@@ -40,6 +40,142 @@ func (s *Server) handleA2AAgentCard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, card)
 }
 
+// handleA2AAgentCardSpec serves the canonical A2A 0.3.0 Agent Card at
+// /.well-known/agent-card.json, which is the discovery path A2A clients read.
+func (s *Server) handleA2AAgentCardSpec(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	writeJSON(w, bridge.SpecAgentCard(s.a2aBaseURL(r)))
+}
+
+// a2aBaseURL resolves the externally reachable bridge URL for this request.
+func (s *Server) a2aBaseURL(r *http.Request) string {
+	gatewayURL := ""
+	if bridgeSvc := s.getBridgeService(); bridgeSvc != nil {
+		gatewayURL = bridgeSvc.GetStatus().GatewayURL
+	}
+	return bridge.ResolveExternalBaseURL(r, gatewayURL)
+}
+
+// a2aAuthorized enforces bridge authentication, writing the 401 challenge when
+// the caller is not allowed through.
+func (s *Server) a2aAuthorized(w http.ResponseWriter, r *http.Request, bridgeSvc *bridge.Service, realm string) bool {
+	granted, reason := bridgeSvc.ValidateRequest(r)
+	if granted {
+		return true
+	}
+	w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer realm=%q, resource_metadata="%s/.well-known/agent-card.json"`, realm, s.a2aBaseURL(r)))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      nil,
+		"error": map[string]interface{}{
+			"code":    bridge.A2AErrInvalidRequest,
+			"message": "unauthorized: " + reason,
+		},
+	})
+	return false
+}
+
+// handleA2AJSONRPC serves the A2A JSON-RPC 2.0 transport. Unary methods answer
+// with a single JSON response; streaming methods (message/stream,
+// tasks/resubscribe) answer with Server-Sent Events carrying one JSON-RPC
+// response per event.
+func (s *Server) handleA2AJSONRPC(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Swiss-KeepAlive")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(bridge.A2ARPCResponse{
+			JSONRPC: "2.0",
+			ID:      nil,
+			Error: &bridge.A2ARPCError{
+				Code:    bridge.A2AErrInvalidRequest,
+				Message: "only POST is supported; send a JSON-RPC 2.0 envelope",
+			},
+		})
+		return
+	}
+
+	bridgeSvc := s.getBridgeService()
+	if bridgeSvc == nil {
+		http.Error(w, `{"error":"bridge service not initialized"}`, http.StatusServiceUnavailable)
+		return
+	}
+	if !s.a2aAuthorized(w, r, bridgeSvc, "Antigravity Swiss Knife A2A") {
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+	if err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, bridge.A2ARPCResponse{
+			JSONRPC: "2.0",
+			Error:   &bridge.A2ARPCError{Code: bridge.A2AErrParseError, Message: "failed to read request body"},
+		})
+		return
+	}
+
+	result := bridgeSvc.HandleA2AJSONRPC(r.Context(), body)
+
+	// Unary path.
+	if result.Stream == nil {
+		writeJSON(w, result.Response)
+		return
+	}
+	if result.Response != nil {
+		// Errors detected before the stream started.
+		writeJSON(w, result.Response)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSONStatus(w, http.StatusInternalServerError, bridge.A2ARPCResponse{
+			JSONRPC: "2.0",
+			Error:   &bridge.A2ARPCError{Code: bridge.A2AErrInternal, Message: "streaming unsupported by this connection"},
+		})
+		return
+	}
+
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	for resp := range result.Stream {
+		data, mErr := json.Marshal(resp)
+		if mErr != nil {
+			continue
+		}
+		if _, wErr := fmt.Fprintf(w, "data: %s\n\n", data); wErr != nil {
+			return
+		}
+		flusher.Flush()
+	}
+}
+
 // handleA2ATasks handles task creation, status polling, cancellation, and SSE events.
 func (s *Server) handleA2ATasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")

@@ -38,7 +38,7 @@ func TestHandleAccountUpdate_PreservesEmptyAndHonorsClear(t *testing.T) {
 	}
 	seedAccount(t)
 
-	srv := NewServer("127.0.0.1:0", filepath.Join(home, "missing-ipc.sock"))
+	srv := newTestServer("127.0.0.1:0", filepath.Join(home, "missing-ipc.sock"))
 	updateCredentials := func(t *testing.T, value string) {
 		t.Helper()
 		body := fmt.Sprintf(`{"email":%q,"password":%q,"totp_secret":%q}`, email, value, value)
@@ -92,7 +92,7 @@ func TestHandleAccountUpdate_PreservesEmptyAndHonorsClear(t *testing.T) {
 }
 
 func TestCORS_VaryAndCredentials(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	handler := srv.corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -219,7 +219,7 @@ func TestCORS_VaryAndCredentials(t *testing.T) {
 }
 
 func TestCORS_PreservesExistingVary(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	handler := srv.corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -282,7 +282,7 @@ func TestAuthHotPath_LazyConfigLoad(t *testing.T) {
 		verifyAppPasswordForAuth = originalVerify
 	})
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 
 	// 1. A stale session-shaped token must fail closed before config load or PBKDF2.
 	staleToken := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -319,7 +319,7 @@ func TestAuthHotPath_SessionTokenShapedCandidateBypassesPBKDF2(t *testing.T) {
 		t.Fatalf("Save config: %v", err)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 
 	// 1. Candidate shaped like a session token in Authorization header should NOT be verified as app password
 	reqBearer := httptest.NewRequest(http.MethodGet, "/api/accounts", nil)
@@ -412,7 +412,7 @@ func TestAuthHotPath_AppPasswordVerificationIsRateLimited(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			verifications = 0
-			srv := NewServer("127.0.0.1:0", "")
+			srv := newTestServer("127.0.0.1:0", "")
 			for i := 0; i < legacyAppPasswordAttemptLimit*3; i++ {
 				req := httptest.NewRequest(http.MethodGet, "/api/accounts", nil)
 				req.RemoteAddr = "198.51.100.20:4321"
@@ -448,7 +448,7 @@ func TestAuthHotPath_AuthUnlockRateLimitsInvalidPasswordAttempts(t *testing.T) {
 		verifyAppPasswordForAuth = originalVerify
 	})
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	const limitedIP = "198.51.100.40:4321"
 	for i := 0; i < legacyAppPasswordAttemptLimit; i++ {
 		req := httptest.NewRequest(
@@ -510,7 +510,7 @@ func TestAuthHotPath_QueryPasswordRateLimitIsPerIP(t *testing.T) {
 		verifyAppPasswordForAuth = originalVerify
 	})
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	const limitedIP = "198.51.100.50:4321"
 	for i := 0; i < legacyAppPasswordAttemptLimit; i++ {
 		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/accounts?password=invalid-%d", i), nil)
@@ -534,7 +534,7 @@ func TestAuthHotPath_QueryPasswordRateLimitIsPerIP(t *testing.T) {
 }
 
 func TestAuthHotPath_PruneExpiredSessionTokens(t *testing.T) {
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 
 	t.Run("lookup prunes expired token", func(t *testing.T) {
 		expiredToken := "expiredtoken1234567890123456789012345678901234567890123456789012"
@@ -595,7 +595,7 @@ func TestAuthUnlock_CorruptConfig_FailsClosed(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 	_ = os.WriteFile(filepath.Join(tempDir, "config.json"), []byte("{corrupt-json"), 0600)
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	srv.authMu.RLock()
 	initialCount := len(srv.sessionTokens)
 	srv.authMu.RUnlock()

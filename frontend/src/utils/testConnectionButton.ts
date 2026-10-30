@@ -80,6 +80,27 @@ export function sanitizeConnectionErrorMessage(msg?: string): string {
   return cleaned || 'Connection test failed'
 }
 
+export function formatPing(ms?: number | null): string {
+  if (ms === undefined || ms === null || isNaN(ms)) return '0ms'
+  if (ms > 1000) {
+    return `${(ms / 1000).toFixed(2)}s`
+  }
+  return `${Math.round(ms)}ms`
+}
+
+export function getErrorCode(result: TestResult): number | string | null {
+  if (result.status_code && result.status_code > 0) {
+    return result.status_code
+  }
+  if (result.message) {
+    const match = result.message.match(/\b([1-5]\d\d)\b/)
+    if (match) {
+      return parseInt(match[1], 10)
+    }
+  }
+  return null
+}
+
 export function getTestConnectionButtonPresentation({
   isTesting,
   testResult,

@@ -19,7 +19,7 @@ const OVERLAY_STYLE: React.CSSProperties = {
 }
 
 const DIALOG_STYLE: React.CSSProperties = {
-  backgroundColor: '#ffffff',
+  backgroundColor: 'var(--surface)',
   borderRadius: '12px',
   border: '1px solid var(--border)',
   boxShadow: '0 12px 32px rgba(60, 64, 67, 0.24)',
@@ -48,13 +48,13 @@ const INPUT_STYLE: React.CSSProperties = {
   borderRadius: '6px',
   border: '1px solid var(--border)',
   color: 'var(--text)',
-  backgroundColor: '#ffffff',
+  backgroundColor: 'var(--surface)',
   boxSizing: 'border-box',
 }
 
 const ERROR_STYLE: React.CSSProperties = {
-  backgroundColor: '#fce8e6',
-  color: '#c5221f',
+  backgroundColor: 'var(--red-bg)',
+  color: 'var(--red)',
   border: '1px solid var(--border-danger, #f5c6c2)',
   borderRadius: '6px',
   padding: '8px 12px',

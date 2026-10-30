@@ -142,3 +142,51 @@ jobs:
 
       - name: Run frontend tests
         run: npm test --prefix frontend
+
+      - name: Build canonical web GUI
+        run: npm run build:frontend
+
+      - name: Test web GUI dist checks
+        if: runner.os == 'Linux'
+        run: node --test scripts/check-webgui-dist.test.js
+
+      - name: Check web GUI dist assets
+        if: runner.os == 'Linux'
+        run: node scripts/check-webgui-dist.js
+
+      - name: Check web GUI dist drift
+        if: runner.os == 'Linux'
+        run: git diff --exit-code -- pkg/webgui/dist
+
+  injected-runtime:
+    name: Injected Runtime Build & Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: injected-runtime/package-lock.json
+
+      - name: Install injected runtime dependencies
+        run: npm ci --prefix injected-runtime
+
+      - name: Typecheck injected runtime
+        run: npm run typecheck --prefix injected-runtime
+
+      - name: Test injected runtime
+        run: npm test --prefix injected-runtime
+
+      - name: Build injected runtime
+        run: npm run build --prefix injected-runtime
+
+      - name: Check runtime contract
+        run: node scripts/check-injected-runtime.mjs
+
+      - name: Check generated asset drift
+        run: git diff --exit-code -- pkg/injected/assets/runtime.js

@@ -8,17 +8,34 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import React from 'react'
-import { mount } from '../../test-dom'
+import React, { act } from 'react'
+import { initDOM, mount } from '../../test-dom'
 import { NavRail } from '../NavRail'
 import type { SystemStatus } from '../../types'
+import { parseHash, type Route } from '../../navigation/routes'
+import { useRouteNavigation } from '../../navigation/useRouteNavigation'
+
+const RouteNavRail: React.FC<{ status: SystemStatus | null }> = ({ status }) => {
+  const { route, navigate } = useRouteNavigation()
+  return React.createElement(NavRail, {
+    currentTool: route.tool,
+    navigate,
+    status,
+  })
+}
+
+const flushNavigation = async () => {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
 
 describe('Component DOM: NavRail (<NavRail />)', () => {
   it('renders brand header typography with Antigravity title and SWISS KNIFE subtitle', async () => {
     const { querySelector, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: () => {},
+        currentTool: 'switcher',
+        navigate: () => {},
         status: null,
       })
     )
@@ -34,35 +51,40 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
     unmount()
   })
 
-  it('renders active tool highlight on selected tab and triggers onSelectTool on click', async () => {
-    const selectedTools: number[] = []
+  it('renders active tool highlight on selected tab and navigates to semantic routes on click', async () => {
+    initDOM()
+    window.history.replaceState(null, '', '#/switcher/dashboard')
     const { querySelector, click, unmount } = await mount(
-      React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: (idx: number) => {
-          selectedTools.push(idx)
-        },
-        status: null,
-      })
+      React.createElement(RouteNavRail, { status: null })
     )
 
-    // Click Custom Models (tool 3)
+    const btnAccount = querySelector<HTMLButtonElement>('#btnNavAccountSwitcher')
+    assert.ok(btnAccount, 'Account Switcher button must exist')
+    assert.equal(btnAccount.style.fontWeight, '600', 'Selected tool must render its active highlight')
+
     const btnCustomModels = querySelector<HTMLButtonElement>('#btnNavCustomModels')
     assert.ok(btnCustomModels, 'btnNavCustomModels button must exist')
     await click(btnCustomModels)
-    assert.equal(selectedTools[selectedTools.length - 1], 3, 'Clicking Custom Models must fire onSelectTool(3)')
+    await flushNavigation()
+    assert.equal(window.location.hash, '#/custom-models')
+    assert.deepEqual(parseHash(window.location.hash), { tool: 'custom-models' })
+    assert.equal(btnCustomModels.style.fontWeight, '600', 'Custom Models must become the active tool')
 
-    // Click Remote Connect / Bridge (tool 10)
     const btnBridge = querySelector<HTMLButtonElement>('#btnNavBridge')
     assert.ok(btnBridge, 'btnNavBridge button must exist')
     await click(btnBridge)
-    assert.equal(selectedTools[selectedTools.length - 1], 10, 'Clicking Bridge must fire onSelectTool(10)')
+    await flushNavigation()
+    assert.equal(window.location.hash, '#/remote-connect')
+    assert.deepEqual(parseHash(window.location.hash), { tool: 'remote-connect', tab: 'remote' })
+    assert.equal(btnBridge.style.fontWeight, '600', 'Remote Connect must become the active tool')
 
-    // Click Token Monitor (tool 8)
     const btnTokens = querySelector<HTMLButtonElement>('#btnNavTokenMonitor')
     assert.ok(btnTokens, 'btnNavTokenMonitor button must exist')
     await click(btnTokens)
-    assert.equal(selectedTools[selectedTools.length - 1], 8, 'Clicking Token Monitor must fire onSelectTool(8)')
+    await flushNavigation()
+    assert.equal(window.location.hash, '#/token-monitor')
+    assert.deepEqual(parseHash(window.location.hash), { tool: 'token-monitor', tab: 'overview' })
+    assert.equal(btnTokens.style.fontWeight, '600', 'Token Monitor must become the active tool')
 
     unmount()
   })
@@ -77,8 +99,8 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
 
     const { querySelector, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: () => {},
+        currentTool: 'switcher',
+        navigate: () => {},
         status: offlineStatus,
       })
     )
@@ -89,30 +111,28 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
     unmount()
   })
 
-  it('renders Extensions button when daemon is online and dispatches onSelectTool(7)', async () => {
+  it('renders Extensions button when daemon is online and navigates to extensions', async () => {
     const onlineStatus: SystemStatus = {
       daemon_running: true,
       daemon_version: '0.2.0',
       active_account: null,
       total_accounts: 1,
     } as unknown as SystemStatus
+    initDOM()
+    window.history.replaceState(null, '', '#/switcher/dashboard')
 
-    const selectedTools: number[] = []
     const { querySelector, click, unmount } = await mount(
-      React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: (idx: number) => {
-          selectedTools.push(idx)
-        },
-        status: onlineStatus,
-      })
+      React.createElement(RouteNavRail, { status: onlineStatus })
     )
 
     const btnExtensions = querySelector<HTMLButtonElement>('#btnNavExtensions')
     assert.ok(btnExtensions, 'Extensions button must render when daemon is online')
 
     await click(btnExtensions)
-    assert.equal(selectedTools[selectedTools.length - 1], 7, 'Clicking Extensions must fire onSelectTool(7)')
+    await flushNavigation()
+    assert.equal(window.location.hash, '#/extensions')
+    assert.deepEqual(parseHash(window.location.hash), { tool: 'extensions', tab: 'built-in' })
+    assert.equal(btnExtensions.style.fontWeight, '600', 'Extensions must become the active tool')
 
     unmount()
   })
@@ -120,8 +140,8 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
   it('enforces white-space: nowrap and renders Lucide SVG icons on navigation buttons', async () => {
     const { querySelectorAll, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: () => {},
+        currentTool: 'switcher',
+        navigate: () => {},
         status: null,
       })
     )
@@ -145,11 +165,11 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
       active_account: null,
       total_accounts: 0,
     } as unknown as SystemStatus
-    const selectedTools: number[] = []
+    const selectedTools: Route[] = []
     const { querySelector, querySelectorAll, click, unmount } = await mount(
       React.createElement(NavRail, {
-        currentTool: 0,
-        onSelectTool: (idx: number) => selectedTools.push(idx),
+        currentTool: 'switcher',
+        navigate: (route: Route) => selectedTools.push(route),
         status: onlineStatus,
       })
     )
@@ -173,7 +193,7 @@ describe('Component DOM: NavRail (<NavRail />)', () => {
     const acpButton = querySelector<HTMLButtonElement>('#btnNavACPAgentMesh')
     assert.ok(acpButton, 'ACP Adapter button must exist')
     await click(acpButton)
-    assert.equal(selectedTools[selectedTools.length - 1], 11)
+    assert.deepEqual(selectedTools[selectedTools.length - 1], { tool: 'acp-adapter' })
 
     unmount()
   })

@@ -3,6 +3,7 @@ package custommodels
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/rendererbroker"
 )
 
 // GenerateCustomModelsScript produces the JavaScript logic injected into Antigravity
@@ -29,7 +30,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
 		}
 	}
 
-	return fmt.Sprintf(`
+	return rendererbroker.FetchScript + fmt.Sprintf(`
 /* === Antigravity Swiss Knife: Custom Model Provider Integration === */
 (() => {
   try {
@@ -72,12 +73,6 @@ func GenerateCustomModelsScript(cfg *Config) string {
     // Auth headers provider matching daemon session authentication
     function getSwissAuthHeaders(extra = {}) {
       const headers = Object.assign({ "Content-Type": "application/json" }, extra);
-      const tok = (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) ||
-        (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
-      if (tok) {
-        headers["X-Session-Token"] = tok;
-        headers["Authorization"] = "Bearer " + tok;
-      }
       return headers;
     }
 
@@ -176,7 +171,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
         (m.provider_type === "gcp" && inferredThinking)
       );
       if (!hasThinking) return [];
-      if (rawLevels.length >= 2) return rawLevels;
+      if (rawLevels.length > 0) return rawLevels;
       const base = ["low", "medium", "high"];
       const cur = (m.thinking_level || "").trim().toLowerCase();
       if (cur && cur !== "off" && !base.includes(cur)) {
@@ -278,6 +273,8 @@ func GenerateCustomModelsScript(cfg *Config) string {
         if (!(target instanceof Element)) return;
         if (target.closest(".swiss-custom-models-menu-group")) return;
         if (target.closest("#swiss-custom-thinking-submenu")) return;
+        if (target.closest('[data-testid="model-selector-custom-item"]')) return;
+        if (target.closest('[data-testid="model-selector-trigger"]')) return;
         const popover = getModelSelectorPopover();
         const nativeOption = target.closest(
           '[data-testid="model-selector-effort-option"], ' +
@@ -285,8 +282,8 @@ func GenerateCustomModelsScript(cfg *Config) string {
           '[data-testid="model-selector-item"], ' +
           '[data-testid="model-selector-effort-group"]'
         );
-        const panelItem = target.closest('[data-testid="model-selector-panel"] [role="menuitem"]');
-        const popoverItem = (popover && popover.contains(target)) ? target.closest('[role="menuitem"], [role="menuitemradio"], button') : null;
+        const panelItem = target.closest('[data-testid="model-selector-panel"] [role="menuitem"]:not([data-testid="model-selector-custom-item"])');
+        const popoverItem = (popover && popover.contains(target)) ? target.closest('[role="menuitem"]:not([data-testid="model-selector-custom-item"]), [role="menuitemradio"]') : null;
         const clickedItem = nativeOption || panelItem || popoverItem;
         if (!clickedItem || (clickedItem.textContent || "").trim() === "View Usage") return;
         clearSessionCustomModel();
@@ -697,6 +694,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
             const isCurrentlyActive = (activeCustomModel && activeCustomModel.id === m.id);
             const levels = getModelThinkingLevels(m);
             const supportsThinking = levels.length > 0;
+            const canChangeThinking = levels.length > 1;
             const curLevel = getActiveThinkingLevel(m, levels);
             const curLevelLabel = formatEffortLabel(curLevel);
 
@@ -727,7 +725,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
             const cleanDisplayName = cleanModelDisplayName(m.display_name || m.name);
 
             let trailingIconHTML = "";
-            if (supportsThinking) {
+            if (canChangeThinking) {
               if (isCurrentlyActive) {
                 trailingIconHTML =
                   '<span class="swiss-custom-check-wrap" style="display: flex; align-items: center; justify-content: center; width: 14px; height: 14px;">' + FACTORY_CHECK_SVG + '</span>' +
@@ -753,7 +751,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
             function syncHoverState(hovered) {
               itemEl.style.backgroundColor = (hovered || isCurrentlyActive) ? "var(--secondary, rgba(0, 0, 0, 0.06))" : "transparent";
               itemEl.style.color = (hovered || isCurrentlyActive) ? "var(--foreground, #101010)" : "var(--secondary-foreground, #334155)";
-              if (supportsThinking) {
+              if (canChangeThinking) {
                 const chk = itemEl.querySelector(".swiss-custom-check-wrap");
                 const chv = itemEl.querySelector(".swiss-custom-chevron-wrap");
                 if (chk) chk.style.display = hovered ? "none" : (isCurrentlyActive ? "flex" : "none");
@@ -882,11 +880,17 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
             itemEl.onmouseenter = () => {
               clearSubmenuCloseTimer();
-              const curSubmenu = document.getElementById("swiss-custom-thinking-submenu");
-              if (curSubmenu && curSubmenu.__sourceItem !== itemEl) {
+              if (canChangeThinking) {
+                const curSubmenu = document.getElementById("swiss-custom-thinking-submenu");
+                if (curSubmenu && curSubmenu.__sourceItem === itemEl) {
+                  syncHoverState(true);
+                  return;
+                }
+                openThinkingSubmenu();
+              } else {
                 removeCustomThinkingSubmenu();
+                syncHoverState(true);
               }
-              syncHoverState(true);
             };
             itemEl.onmouseleave = (e) => {
               const curSubmenu = document.getElementById("swiss-custom-thinking-submenu");

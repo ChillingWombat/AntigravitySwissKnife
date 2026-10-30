@@ -1,9 +1,11 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage, session, clipboard, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage, session, clipboard, screen, dialog } = require('electron');
 const path = require('path');
+const { sendTrayNavigation, TRAY_NAVIGATION_TARGETS, buildTrayApplicationMenu } = require('./tray-navigation');
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const { DaemonManager } = require('./daemon-manager');
+const { createDaemonBroker, shouldAttachDaemonSessionHeader } = require('./daemon-broker');
 const {
   isAccountExcludedFromSwitchMenu,
   rankAndFilterAccountsForTray,
@@ -112,18 +114,45 @@ function setRuntimeModeSetting(mode) {
 let teardownPromise = null;
 
 // Teardown routing depending on runtime mode
-async function teardownDaemonForAppExit() {
+async function teardownDaemonForAppExit(options = {}) {
   if (teardownPromise) {
     return teardownPromise;
   }
   teardownPromise = (async () => {
     isStoppingDaemon = true;
-    const mode = getRuntimeModeSetting();
+    const mode = options.mode || getRuntimeModeSetting();
+    const requestRestore = options.requestRestore || (() => requestDaemonJsonWithAuth(
+      '/api/custom_models/restore_native',
+      { validateResponse: isNativeRestoreResponse }
+    ));
+    const stopDaemon = options.stopDaemon || (() => daemonManager.stop({ force: true }));
+    const detachDaemon = options.detachDaemon || (() => daemonManager.detach());
+    const failures = [];
+
     console.log(`[App] Teardown daemon for app exit. Runtime mode: ${mode}`);
-    if (mode === 'daemon') {
-      daemonManager.detach();
-    } else {
-      await daemonManager.stop({ force: true });
+    try {
+      await requestRestore();
+    } catch (err) {
+      console.warn('[App] Failed to restore native Antigravity mode:', err.message || err);
+      failures.push(err);
+    }
+
+    try {
+      if (mode === 'daemon') {
+        await detachDaemon();
+      } else {
+        await stopDaemon();
+      }
+    } catch (err) {
+      console.warn('[App] Failed to stop daemon during app exit:', err.message || err);
+      failures.push(err);
+    }
+
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'daemon teardown failed');
     }
   })();
   return teardownPromise;
@@ -204,6 +233,39 @@ function getSwissConfigDir() {
   return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'antigravity-swiss');
 }
 
+const daemonBroker = createDaemonBroker({
+  getToken: () => getDaemonSessionToken(),
+  requestApproval: async ({ method, path, bodyPreview, resolvedPath, denialReason }) => {
+    const { dialog } = require('electron');
+    const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null;
+    const denied = Boolean(denialReason);
+    const detail = [
+      resolvedPath ? `Resolved path:\n${resolvedPath}` : '',
+      denied ? `Denied: ${denialReason}` : '',
+      !resolvedPath && !denied ? 'This request can change files or control applications on this machine.' : '',
+      bodyPreview ? `Body preview:\n${bodyPreview}` : '',
+    ].filter(Boolean).join('\n\n');
+    const result = await dialog.showMessageBox(owner, {
+      type: 'warning',
+      buttons: denied ? ['OK'] : ['Deny', 'Approve'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      title: denied ? 'File access denied' : resolvedPath ? 'Approve file access?' : 'Approve machine control?',
+      message: `${method} ${path}`,
+      detail,
+    });
+    return !denied && result.response === 1;
+  },
+});
+
+const {
+  installLegacySessionTokenCleanup,
+  isDaemonApiUrl,
+  shouldCancelDaemonSubFrameNavigation,
+} = require('./daemon-broker');
+installLegacySessionTokenCleanup(app);
+
 function getDaemonSessionToken(maxAgeMs = 3000) {
   const now = Date.now();
   if (cachedSessionToken && now - cachedSessionTokenAt < maxAgeMs) {
@@ -227,11 +289,20 @@ function attachDaemonAuthHeaders() {
     return;
   }
   const filter = { urls: [`${DAEMON_URL}/*`] };
+  session.defaultSession.webRequest.onBeforeRequest(filter, (details, callback) => {
+    callback({ cancel: shouldCancelDaemonSubFrameNavigation(details) });
+  });
   session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
     const requestHeaders = details.requestHeaders || {};
-    // Always use the daemon's current startup token. The renderer keeps a copy in
-    // localStorage that goes stale after a daemon restart; letting it win caused
-    // 401s until the silent-unlock round-trip completed.
+    for (const key of Object.keys(requestHeaders)) {
+      if (key.toLowerCase() === 'x-session-token') delete requestHeaders[key];
+    }
+    if (!shouldAttachDaemonSessionHeader(details)) {
+      callback({ requestHeaders });
+      return;
+    }
+    // Document/static loads need the startup token; renderer XHR/fetch must use
+    // the allowlisted IPC broker instead of receiving this credential implicitly.
     const token = getDaemonSessionToken();
     if (token) {
       requestHeaders['X-Session-Token'] = token;
@@ -249,6 +320,62 @@ function daemonAuthHeaders(extra = {}, maxAgeMs = 3000) {
     headers['X-Session-Token'] = token;
   }
   return headers;
+}
+
+function isNativeRestoreResponse(payload) {
+  return Boolean(payload) &&
+    typeof payload === 'object' &&
+    payload.success === true &&
+    payload.restored_native === true;
+}
+
+async function requestDaemonJsonWithAuth(path, options = {}) {
+  const baseUrl = options.baseUrl || DAEMON_URL;
+  const timeoutMs = options.timeoutMs ?? 2000;
+  const authHeaders = options.authHeaders || daemonAuthHeaders;
+  const requestUrl = new URL(path, baseUrl).toString();
+
+  const send = async (headers) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(requestUrl, {
+        method: 'POST',
+        headers,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new Error(`daemon request timed out after ${timeoutMs}ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  let response = await send(authHeaders());
+  if (response.status === 401) {
+    response = await send(authHeaders({}, 0));
+  }
+  if (response.status === 401) {
+    throw new Error('daemon authentication failed after token refresh (401)');
+  }
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`daemon responded ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`);
+  }
+
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (_) {
+    throw new Error('daemon returned invalid JSON');
+  }
+  if (typeof options.validateResponse === 'function' && !options.validateResponse(payload)) {
+    throw new Error('daemon returned unexpected response contract');
+  }
+  return payload;
 }
 
 // Module State
@@ -367,7 +494,7 @@ function buildConnectingFallbackHtml() {
   <meta charset="utf-8">
   <title>Antigravity Swiss Knife - Connecting</title>
   <style>
-    body { background: #131314; color: #e3e3e3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    body { background: #131314; color: #e3e3e3; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
     h2 { margin-bottom: 8px; font-weight: 500; }
     p { color: #8e918f; font-size: 14px; margin-bottom: 24px; }
     .actions { display: flex; gap: 12px; align-items: center; }
@@ -570,34 +697,17 @@ function applyTrayMenuState({
     return false;
   }
 
-  const template = buildTrayMenuTemplate({
+  const { menu: contextMenu } = buildTrayApplicationMenu({
+    Menu,
+    buildTemplate: buildTrayMenuTemplate,
     activeAlias,
     quotaInfo,
     switchMenuItems,
     accountsCount,
-    onOpenDashboard: async () => {
-      await showOrCreateMainWindow();
-    },
-    onSystemSettings: async () => {
-      await showOrCreateMainWindow();
-      if (mainWindow && (typeof mainWindow.isDestroyed !== 'function' || !mainWindow.isDestroyed())) {
-        if (mainWindow.webContents && typeof mainWindow.webContents.isLoading === 'function' && mainWindow.webContents.isLoading()) {
-          mainWindow.webContents.once('did-finish-load', () => {
-            if (mainWindow && (typeof mainWindow.isDestroyed !== 'function' || !mainWindow.isDestroyed())) {
-              mainWindow.webContents.send('desktop:navigate', 2);
-            }
-          });
-        } else if (mainWindow.webContents) {
-          mainWindow.webContents.send('desktop:navigate', 2);
-        }
-      }
-    },
-    onQuit: () => {
-      requestAppQuit();
-    },
+    showOrCreateMainWindow,
+    getMainWindow: () => mainWindow,
+    requestAppQuit,
   });
-
-  const contextMenu = Menu.buildFromTemplate(template);
   activeTrayContextMenu = contextMenu;
   tray.setContextMenu(contextMenu);
   lastTrayMenuSignature = signature;
@@ -1190,7 +1300,7 @@ async function createWindow(options = {}) {
 
   // Security: Prevent subframes from navigating away from local daemon origin (P1-16)
   mainWindow.webContents.on('will-frame-navigate', (event) => {
-    if (event.url && !isTrustedDaemonOrigin(event.url)) {
+    if (event.url && (!isTrustedDaemonOrigin(event.url) || isDaemonApiUrl(event.url))) {
       event.preventDefault();
     }
   });
@@ -1428,13 +1538,17 @@ function registerIpcHandlers() {
     }
   });
 
-  // Expose the local daemon session token so the renderer can authenticate
-  // directly (bypasses the need for the App Password lock screen in desktop mode).
-  ipcMain.handle('desktop:get-session-token', async (event) => {
+  ipcMain.handle('desktop:swiss-daemon-request', async (event, request) => {
     if (!isTrustedSender(event)) {
-      return null;
+      return { error: { code: 'UNTRUSTED_SENDER', message: 'Untrusted IPC sender' } };
     }
-    return getDaemonSessionToken();
+    try {
+      return await daemonBroker.request(request);
+    } catch (error) {
+      const code = error && typeof error.code === 'string' ? error.code : 'DAEMON_BROKER_ERROR';
+      const message = error && typeof error.message === 'string' ? error.message : 'Daemon broker request failed';
+      return { error: { code, message } };
+    }
   });
 
   ipcMain.handle('desktop:retry-daemon-connection', async (event) => {
@@ -1745,17 +1859,25 @@ if (app && typeof app.on === 'function') {
     setTimeout(() => {
       console.warn('[App] Hard quit fallback triggered');
       app.exit(0);
-    }, 3500).unref();
+    }, 5500).unref();
 
     try {
       await Promise.race([
         teardownDaemonForAppExit(),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Teardown timed out after 2500ms')), 2500)
+          setTimeout(() => reject(new Error('Teardown timed out after 4500ms')), 4500)
         ),
       ]);
     } catch (err) {
-      console.warn('[App] Warning during daemon stop on before-quit:', err.message || err);
+      const detail = err && err.message ? err.message : String(err);
+      console.warn('[App] Warning during daemon stop on before-quit:', detail);
+      try {
+        if (dialog && typeof dialog.showErrorBox === 'function') {
+          dialog.showErrorBox('Antigravity Swiss exit cleanup failed', detail);
+        }
+      } catch (dialogErr) {
+        console.error('[App] Failed to show teardown error:', dialogErr.message || dialogErr);
+      }
     } finally {
       teardownCompleted = true;
       try {
@@ -1842,6 +1964,8 @@ module.exports = {
   getRuntimeModeSetting,
   setRuntimeModeSetting,
   teardownDaemonForAppExit,
+  requestDaemonJsonWithAuth,
+  isNativeRestoreResponse,
   isAccountExcludedFromSwitchMenu,
   rankAndFilterAccountsForTray,
   buildSwitchMenuItems,

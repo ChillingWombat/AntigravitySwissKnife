@@ -150,7 +150,7 @@ describe('ACP Adapter page configurability', () => {
     cancelAllInFlightRequests()
   })
 
-  const mountPage = async (customFetch?: any) => {
+  const mountPage = async (customFetch?: any, activeTab?: number) => {
     if (customFetch) {
       globalThis.fetch = customFetch
     } else {
@@ -161,7 +161,7 @@ describe('ACP Adapter page configurability', () => {
       })) as any
     }
 
-    const rendered = await mount(React.createElement(ACPAgentMeshPage))
+    const rendered = await mount(React.createElement(ACPAgentMeshPage, { activeTab }))
     // Let the initial useEffect fetch resolve.
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
@@ -194,7 +194,7 @@ describe('ACP Adapter page configurability', () => {
       'Top handshake alert banner must not render'
     )
     assert.ok(
-      gadgetCards.some((card) => (card.textContent || '').includes('Antigravity ACP Adapter')),
+      gadgetCards.some((card) => (card.textContent || '').includes('Antigravity ACP Host Adapter')),
       'agent cards must still render'
     )
 
@@ -262,27 +262,38 @@ describe('ACP Adapter page configurability', () => {
 
     globalThis.fetch = (async (url: any) => {
       if (String(url).includes('/api/utilities/acp/detect')) {
+        const body = {
+          success: true,
+          count: 2,
+          status: 'success',
+          source: 'auto-detect',
+          candidates: [
+            {
+              endpoint: '\\\\.\\pipe\\antigravity-acp',
+              kind: 'pipe',
+              reachable: true,
+              note: 'OS default for this host',
+              source: 'os_default',
+              status: 'reachable',
+            },
+            {
+              endpoint: 'unix:///run/user/1000/antigravity-acp.sock',
+              kind: 'unix',
+              reachable: false,
+              note: 'Currently configured endpoint',
+              source: 'configured',
+              status: 'unreachable',
+            },
+          ],
+          os_default: '\\\\.\\pipe\\antigravity-acp',
+          pid: 0,
+        }
         return {
           ok: true,
           status: 200,
-          json: async () => ({
-            candidates: [
-              {
-                endpoint: '\\\\.\\pipe\\antigravity-acp',
-                kind: 'pipe',
-                reachable: true,
-                note: 'OS default for this host',
-              },
-              {
-                endpoint: 'unix:///run/user/1000/antigravity-acp.sock',
-                kind: 'unix',
-                reachable: false,
-                note: 'Currently configured endpoint',
-              },
-            ],
-            os_default: '\\\\.\\pipe\\antigravity-acp',
-            pid: 0,
-          }),
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          text: async () => JSON.stringify(body),
+          json: async () => body,
         } as any
       }
       return { ok: true, status: 200, json: async () => MESH_FIXTURE } as any
@@ -304,7 +315,7 @@ describe('ACP Adapter page configurability', () => {
   })
 
   it('falls back to the mesh and excludes idle/not-found nodes from ping success', async () => {
-    const rendered = await mountPage()
+    const rendered = await mountPage(undefined, 1)
 
     globalThis.fetch = (async (url: any) => {
       const target = String(url)
@@ -349,7 +360,7 @@ describe('ACP Adapter page configurability', () => {
   })
 
   it('uses the mesh fallback when an older API client has no ping method', async () => {
-    const rendered = await mountPage()
+    const rendered = await mountPage(undefined, 1)
     const originalPing = (api as any).pingAcpAgents
     ;(api as any).pingAcpAgents = undefined
 
@@ -456,12 +467,12 @@ describe('ACP Adapter page configurability', () => {
     const { querySelector, unmount } = await mountPage()
     const antigravityCard = querySelector('[data-acp-agent-id="agent-antigravity"]') as HTMLElement | null
     assert.ok(antigravityCard, 'Antigravity card must exist')
-    assert.match(antigravityCard?.textContent || '', /Antigravity ACP Adapter/)
+    assert.match(antigravityCard?.textContent || '', /Antigravity ACP Host Adapter/)
     assert.match(antigravityCard?.textContent || '', /Antigravity 2\.0/)
     assert.match(antigravityCard?.textContent || '', /Antigravity CLI/)
     assert.match(antigravityCard?.textContent || '', /Antigravity IDE Extension/)
-    assert.match(antigravityCard?.textContent || '', /Socket \/ Pipe:/)
-    assert.match(antigravityCard?.textContent || '', /Integration:/)
+    assert.ok(!antigravityCard?.textContent?.includes('Socket / Pipe:'), 'Socket / Pipe must be removed from sub-sections')
+    assert.ok(!antigravityCard?.textContent?.includes('Integration:'), 'Integration must be removed from sub-sections')
     assert.match(antigravityCard?.textContent || '', /Handshake:/)
     unmount()
   })
@@ -519,7 +530,7 @@ describe('ACP Adapter page configurability', () => {
 
     const antigravityCard = querySelector('[data-acp-agent-id="agent-antigravity-acp"]') as HTMLElement | null
     assert.ok(antigravityCard, 'Antigravity ACP card must exist')
-    assert.match(antigravityCard?.textContent || '', /Antigravity ACP Adapter/)
+    assert.match(antigravityCard?.textContent || '', /Antigravity ACP Host Adapter/)
     assert.match(antigravityCard?.textContent || '', /stdio \(process pipe\)/)
     assert.match(antigravityCard?.textContent || '', /Antigravity 2\.0/)
     assert.match(antigravityCard?.textContent || '', /Antigravity CLI/)
@@ -607,7 +618,339 @@ describe('ACP Adapter page configurability', () => {
     assert.notEqual(adapterSection, otherSection, 'Adapter and ordinary agent cards must reside in separate google-card sections')
 
     assert.match(adapterSection?.textContent || '', /Antigravity ACP Host Adapter/)
-    assert.match(otherSection?.textContent || '', /Connected Agent Nodes/)
+    assert.match(otherSection?.textContent || '', /OTHER AGENTS/)
+
+    unmount()
+  })
+
+  it('renders ordinary ACP cards sorted by connected > installed > notfound, then alphabetically', async () => {
+    const MESH_SORT_FIXTURE = {
+      status: 'online',
+      mesh_nodes: 8,
+      protocol_version: 'v1.2.0-draft',
+      agents: [
+        {
+          id: 'agent-antigravity-acp',
+          name: 'Antigravity ACP Adapter',
+          type: 'Host Adapter',
+          binary_path: '',
+          pid: 0,
+          port_socket: 'stdio',
+          acp_version: '1.2.0',
+          status: 'installed_idle',
+          ping_latency_ms: 0,
+          supported_tools: [],
+          last_handshake: 'never',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+        {
+          id: 'agent-devin',
+          name: 'Devin',
+          type: 'IDE',
+          binary_path: '',
+          pid: 0,
+          port_socket: '',
+          acp_version: '1.0',
+          status: 'not_found',
+          ping_latency_ms: 0,
+          supported_tools: [],
+          last_handshake: 'never',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+        {
+          id: 'agent-opencode',
+          name: 'OpenCode',
+          type: 'IDE',
+          binary_path: '',
+          pid: 0,
+          port_socket: '',
+          acp_version: '1.0',
+          status: 'not_found',
+          ping_latency_ms: 0,
+          supported_tools: [],
+          last_handshake: 'never',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+        {
+          id: 'agent-deepseek-harness',
+          name: 'DeepSeek Harness',
+          type: 'IDE',
+          binary_path: '',
+          pid: 0,
+          port_socket: '',
+          acp_version: '1.0',
+          status: 'not_found',
+          ping_latency_ms: 0,
+          supported_tools: [],
+          last_handshake: 'never',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+        {
+          id: 'agent-pi',
+          name: 'Pi',
+          type: 'Agent',
+          binary_path: '',
+          pid: 1234,
+          port_socket: '127.0.0.1:41888',
+          acp_version: '1.3.0',
+          status: 'connected',
+          ping_latency_ms: 233,
+          supported_tools: ['read', 'bash'],
+          last_handshake: '2026-10-30',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+        {
+          id: 'agent-codex',
+          name: 'Codex',
+          type: 'CLI',
+          binary_path: '/usr/bin/codex',
+          pid: 0,
+          port_socket: '127.0.0.1:48080',
+          acp_version: '1.0',
+          status: 'installed_idle',
+          ping_latency_ms: 0,
+          supported_tools: [],
+          last_handshake: 'never',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+        {
+          id: 'agent-claude-code',
+          name: 'Claude Code CLI',
+          type: 'CLI',
+          binary_path: '',
+          pid: 0,
+          port_socket: '',
+          acp_version: '1.0',
+          status: 'not_found',
+          ping_latency_ms: 0,
+          supported_tools: [],
+          last_handshake: 'never',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+        {
+          id: 'agent-cursor',
+          name: 'Cursor Editor Agent',
+          type: 'IDE',
+          binary_path: '',
+          pid: 0,
+          port_socket: '',
+          acp_version: '1.0',
+          status: 'not_found',
+          ping_latency_ms: 0,
+          supported_tools: [],
+          last_handshake: 'never',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+      ],
+    }
+
+    const { querySelectorAll, unmount } = await mountPage(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => MESH_SORT_FIXTURE,
+    }))
+
+    const allCards = querySelectorAll('[data-acp-agent-id]')
+    // First card is Antigravity host adapter
+    assert.equal(allCards[0].getAttribute('data-acp-agent-id'), 'agent-antigravity-acp')
+
+    // Remaining cards are the ordinary agent nodes in Section 2
+    const ordinaryCardIds = Array.from(allCards).slice(1).map((el) => el.getAttribute('data-acp-agent-id'))
+
+    assert.deepEqual(ordinaryCardIds, [
+      'agent-pi',                 // Connected
+      'agent-codex',              // Installed
+      'agent-claude-code',        // Not Found (alphabetical)
+      'agent-cursor',             // Not Found
+      'agent-deepseek-harness',   // Not Found
+      'agent-devin',              // Not Found
+      'agent-opencode',           // Not Found
+    ])
+
+    unmount()
+  })
+
+  it('enforces consistent status tag and omits socket and integration fields across 3 agy apps', async () => {
+    // 1. When online: all 3 show ACTIVE
+    const MESH_ONLINE = {
+      ...MESH_FIXTURE,
+      agents: [
+        {
+          id: 'agent-antigravity-acp',
+          name: 'Antigravity ACP Adapter',
+          type: 'Host Adapter',
+          binary_path: '',
+          pid: 100,
+          port_socket: 'stdio',
+          acp_version: '1.2.0',
+          status: 'connected',
+          ping_latency_ms: 2,
+          supported_tools: [],
+          last_handshake: 'now',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+      ],
+    }
+
+    const { querySelectorAll: querySelectorAll1, unmount: unmount1 } = await mountPage(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => MESH_ONLINE,
+    }))
+
+    const subCardsOnline = querySelectorAll1('[data-sub-agent-id]')
+    assert.equal(subCardsOnline.length, 3, 'Must render exactly 3 sub-cards')
+    for (const card of subCardsOnline) {
+      assert.ok(!card.textContent?.includes('Socket / Pipe:'), 'Must not render Socket / Pipe')
+      assert.ok(!card.textContent?.includes('Integration:'), 'Must not render Integration')
+      assert.match(card.textContent || '', /Handshake:/)
+      const spans = Array.from(card.querySelectorAll('span'))
+      const hasActive = spans.some((s) => s.textContent?.trim() === 'ACTIVE')
+      assert.ok(hasActive, 'All 3 sub-sections must show consistent ACTIVE status when online')
+    }
+    unmount1()
+
+    // 2. When idle/installed: all 3 show READY
+    const MESH_IDLE = {
+      ...MESH_FIXTURE,
+      agents: [
+        {
+          id: 'agent-antigravity-acp',
+          name: 'Antigravity ACP Adapter',
+          type: 'Host Adapter',
+          binary_path: '',
+          pid: 0,
+          port_socket: 'stdio',
+          acp_version: '1.2.0',
+          status: 'installed_idle',
+          ping_latency_ms: 0,
+          supported_tools: [],
+          last_handshake: 'never',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+      ],
+    }
+
+    const { querySelectorAll: querySelectorAll2, unmount: unmount2 } = await mountPage(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => MESH_IDLE,
+    }))
+
+    const subCardsIdle = querySelectorAll2('[data-sub-agent-id]')
+    assert.equal(subCardsIdle.length, 3, 'Must render exactly 3 sub-cards')
+    for (const card of subCardsIdle) {
+      assert.ok(!card.textContent?.includes('Socket / Pipe:'), 'Must not render Socket / Pipe')
+      assert.ok(!card.textContent?.includes('Integration:'), 'Must not render Integration')
+      assert.match(card.textContent || '', /Handshake:/)
+      const spans = Array.from(card.querySelectorAll('span'))
+      const hasReady = spans.some((s) => s.textContent?.trim() === 'READY')
+      assert.ok(hasReady, 'All 3 sub-sections must show consistent READY status when idle')
+    }
+    unmount2()
+  })
+
+  it('does not render OS default subtitle below endpoints on agent cards', async () => {
+    const MESH_WITH_AGENTS = {
+      ...MESH_FIXTURE,
+      agents: [
+        {
+          id: 'agent-antigravity-acp',
+          name: 'Antigravity ACP Adapter',
+          type: 'Host Adapter',
+          binary_path: '',
+          pid: 0,
+          port_socket: 'stdio',
+          acp_version: '1.2.0',
+          status: 'connected',
+          ping_latency_ms: 1,
+          supported_tools: [],
+          last_handshake: '1s ago',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+        {
+          id: 'agent-codex',
+          name: 'Codex',
+          type: 'Coding Agent',
+          binary_path: '/usr/local/bin/codex',
+          pid: 0,
+          port_socket: '127.0.0.1:48080',
+          acp_version: '1.0',
+          status: 'installed_idle',
+          ping_latency_ms: 0,
+          supported_tools: [],
+          last_handshake: 'never',
+          custom: false,
+          os_default: true,
+          editable: true,
+        },
+      ],
+    }
+
+    const { querySelectorAll, unmount } = await mountPage(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => MESH_WITH_AGENTS,
+    }))
+
+    const cards = querySelectorAll('[data-acp-agent-id]')
+    assert.equal(cards.length, 2)
+    for (const card of cards) {
+      assert.ok(
+        !card.textContent?.includes('OS default'),
+        `Card ${card.getAttribute('data-acp-agent-id')} must not render "OS default" below endpoint`
+      )
+    }
+
+    unmount()
+  })
+
+  it('switches between Agents and Logs tabs and relocates communication stream to Logs tab', async () => {
+    const { querySelector, querySelectorAll, click, unmount } = await mountPage()
+
+    // Tab 0 (Agents) by default
+    assert.ok(querySelector('[data-acp-agent-id="agent-antigravity"]'), 'Agents tab must show Antigravity agent')
+    assert.ok(querySelector('[data-acp-agent-id="custom-my-agent"]'), 'Agents tab must show Other Agents')
+    assert.ok(querySelector('#btnAcpSyncRegistry'), 'Sync Registry must be in Other Agents gadget header')
+    assert.ok(querySelector('#btnAcpAddAgent'), 'Add Agent must be in Other Agents gadget header')
+    assert.equal(querySelector('select[aria-label="Target ACP Agent"]'), null, 'Logs stream must not be visible on Agents tab')
+
+    // Switch to Logs tab
+    const tabs = querySelectorAll('button').filter((b) => b.textContent?.trim() === 'Logs' || b.textContent?.trim() === 'Agents')
+    const logsTab = tabs.find((b) => b.textContent?.trim() === 'Logs')
+    assert.ok(logsTab, 'Logs tab button must exist')
+    await click(logsTab)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    // Tab 1 (Logs)
+    assert.equal(querySelector('[data-acp-agent-id="agent-antigravity"]'), null, 'Agents cards must not be visible on Logs tab')
+    assert.ok(querySelector('select[aria-label="Target ACP Agent"]'), 'Target ACP Agent select must be visible on Logs tab')
+    assert.ok(querySelector('input[aria-label="ACP Prompt Input"]'), 'Prompt input must be visible on Logs tab')
+    assert.ok(querySelectorAll('button').some((b) => b.textContent?.includes('Ping All ACP Nodes')), 'Ping All ACP Nodes must be in Logs tab')
 
     unmount()
   })

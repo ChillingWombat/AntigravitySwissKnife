@@ -28,7 +28,7 @@ func TestGitHubHandlers(t *testing.T) {
 	tracker := github.NewAgentTracker("", store)
 	svc := github.NewService(tracker, store)
 
-	server := NewServer("127.0.0.1:0", "")
+	server := newTestServer("127.0.0.1:0", "")
 	server.SetGitHubService(svc)
 
 	// 1. Test /api/github/repo
@@ -182,7 +182,7 @@ func TestGitHubMutationHandlersRejectInvalidExplicitWorkspace(t *testing.T) {
 	if _, err := svc.DetectRepository(repoDir); err != nil {
 		t.Fatalf("seed last-good repository: %v", err)
 	}
-	server := NewServer("127.0.0.1:0", "")
+	server := newTestServer("127.0.0.1:0", "")
 	server.SetGitHubService(svc)
 
 	realGit, err := exec.LookPath("git")

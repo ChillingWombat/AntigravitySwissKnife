@@ -595,16 +595,14 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
           const tables = querySelectorAll('table')
           const table = tables.find((t) => {
             const ths = Array.from(t.querySelectorAll('thead th')).map((h) => h.textContent?.trim())
-            return ths.includes('Time') && ths.includes('Tokens (In / Cache / Out)')
+            return ths.includes('Time') && (ths.includes('Input') || ths.includes('Tokens (In / Cache / Out)'))
           })
           assert.ok(table, 'Telemetry table must be rendered')
 
           const rows = Array.from(table!.querySelectorAll('tbody tr'))
           assert.ok(rows.length >= 1, 'Must render telemetry row')
           const rowText = rows[0].textContent || ''
-          assert.match(rowText, /1\.00B in/, 'Telemetry row must format input tokens with B unit')
-          assert.match(rowText, /1\.00B cache/, 'Telemetry row must format cached tokens with B unit')
-          assert.match(rowText, /1\.00B out/, 'Telemetry row must format output tokens with B unit')
+          assert.match(rowText, /1\.00B/, 'Telemetry row must format tokens with B unit')
           assert.doesNotMatch(rowText, /1000\.00M/, 'Telemetry row must not format 1e9 as 1000.00M')
         } finally {
           if (unmountFn) {

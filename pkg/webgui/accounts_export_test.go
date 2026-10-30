@@ -43,7 +43,7 @@ func TestAccountsExportUnredactedCredentials(t *testing.T) {
 		t.Fatalf("expected 1 imported account, got %d", count)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestAccountsExportUnredactedCredentials(t *testing.T) {
 	// 3. Test round-trip restore into a new clean environment via batch import
 	tmpDir2 := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tmpDir2)
-	srv2 := NewServer("127.0.0.1:0", "")
+	srv2 := newTestServer("127.0.0.1:0", "")
 	if err := srv2.Start(); err != nil {
 		t.Fatalf("srv2.Start error: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestAccountsExportFilterByEmail(t *testing.T) {
 		t.Fatalf("failed to batch import accounts: %v", err)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}

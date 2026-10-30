@@ -2,7 +2,9 @@ package custommodels
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"fmt"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -59,7 +61,7 @@ func (p *Proxy) serveCatalog(w http.ResponseWriter, r *http.Request, body []byte
 
 	if entry, ok := p.catalog.current(key); ok {
 		p.catalog.begin(key, fetch)
-		writeCatalogResponse(w, entry.status, entry.header, entry.body)
+		p.writeCatalogResponse(w, entry.status, entry.header, entry.body, r)
 		return
 	}
 
@@ -71,18 +73,18 @@ func (p *Proxy) serveCatalog(w http.ResponseWriter, r *http.Request, body []byte
 	}
 
 	if call.result.cacheable {
-		writeCatalogResponse(w, call.result.status, call.result.header, call.result.body)
+		p.writeCatalogResponse(w, call.result.status, call.result.header, call.result.body, r)
 		return
 	}
 	if entry, ok := p.catalog.current(key); ok {
-		writeCatalogResponse(w, entry.status, entry.header, entry.body)
+		p.writeCatalogResponse(w, entry.status, entry.header, entry.body, r)
 		return
 	}
 	if call.result.err != nil {
 		http.Error(w, "upstream: "+call.result.err.Error(), http.StatusBadGateway)
 		return
 	}
-	writeCatalogResponse(w, call.result.status, call.result.header, call.result.body)
+	p.writeCatalogResponse(w, call.result.status, call.result.header, call.result.body, r)
 }
 
 func (c *catalogCache) begin(key string, fetch func() catalogResult) *catalogCall {
@@ -230,7 +232,240 @@ func catalogCacheKey(r *http.Request, body []byte) string {
 	return hex.EncodeToString(digest.Sum(nil))
 }
 
-func writeCatalogResponse(w http.ResponseWriter, status int, headers http.Header, body []byte) {
+func cleanBaseDisplayName(name string) string {
+	s := strings.TrimSpace(name)
+	for _, lvl := range []string{"High", "Medium", "Low", "Extra", "Max", "high", "medium", "low", "extra", "max"} {
+		suffix := " (" + lvl + ")"
+		if strings.HasSuffix(s, suffix) {
+			return strings.TrimSpace(strings.TrimSuffix(s, suffix))
+		}
+	}
+	return s
+}
+
+func orderedThinkingLevels(levels []string, preferred string) []string {
+	if len(levels) == 0 {
+		return nil
+	}
+	pref := strings.ToLower(strings.TrimSpace(preferred))
+	if pref == "" {
+		pref = "high"
+	}
+	seen := make(map[string]bool)
+	var ordered []string
+	if containsFold(levels, pref) {
+		ordered = append(ordered, pref)
+		seen[pref] = true
+	}
+	standardOrder := []string{"high", "medium", "low", "xhigh", "max"}
+	for _, std := range standardOrder {
+		if !seen[std] && containsFold(levels, std) {
+			ordered = append(ordered, std)
+			seen[std] = true
+		}
+	}
+	for _, l := range levels {
+		low := strings.ToLower(strings.TrimSpace(l))
+		if !seen[low] && low != "" {
+			ordered = append(ordered, low)
+			seen[low] = true
+		}
+	}
+	return ordered
+}
+
+func containsFold(slice []string, val string) bool {
+	for _, item := range slice {
+		if strings.EqualFold(strings.TrimSpace(item), val) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Proxy) augmentCatalog(r *http.Request, body []byte) []byte {
+	if r == nil || !strings.HasSuffix(r.URL.Path, ":fetchAvailableModels") {
+		return body
+	}
+	ua := strings.ToLower(r.Header.Get("User-Agent"))
+	if !strings.Contains(ua, "antigravity/cli") && !strings.Contains(ua, "agy") && r.Header.Get("X-Agy-CLI") != "true" && r.URL.Query().Get("cli") != "true" {
+		return body
+	}
+	if p.gw == nil {
+		return body
+	}
+	enabled := p.gw.enabledModels()
+	if len(enabled) == 0 {
+		return body
+	}
+
+	rawBody := body
+	if len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b {
+		if gz, err := gzip.NewReader(bytes.NewReader(body)); err == nil {
+			if decomp, err := io.ReadAll(gz); err == nil {
+				rawBody = decomp
+			}
+			_ = gz.Close()
+		}
+	}
+
+	var root map[string]interface{}
+	if err := json.Unmarshal(rawBody, &root); err != nil {
+		return body
+	}
+
+	modelsMap, ok := root["models"].(map[string]interface{})
+	if !ok || modelsMap == nil {
+		modelsMap = make(map[string]interface{})
+		root["models"] = modelsMap
+	}
+
+	var customIDs []string
+	for _, m := range enabled {
+		cliID := m.Name
+		if cliID == "" {
+			cliID = m.ID
+		}
+		if cliID == "" {
+			continue
+		}
+
+		label := m.DisplayName
+		if label == "" {
+			label = m.Name
+		}
+		if label == "" {
+			label = m.ID
+		}
+
+		modelProvider := "MODEL_PROVIDER_DEEPSEEK"
+		switch m.ProviderType {
+		case ProviderAnthropic:
+			modelProvider = "MODEL_PROVIDER_ANTHROPIC"
+		case ProviderOpenAI:
+			modelProvider = "MODEL_PROVIDER_OPENAI"
+		case ProviderGemini, ProviderGCP:
+			modelProvider = "MODEL_PROVIDER_GOOGLE"
+		}
+
+		baseLabel := cleanBaseDisplayName(label)
+		levels := orderedThinkingLevels(m.ThinkingLevels, m.ThinkingLevel)
+
+		if m.SupportsThinking && len(levels) > 1 {
+			for _, lvl := range levels {
+				variantID := fmt.Sprintf("%s-%s", cliID, strings.ToLower(lvl))
+				protoModel := "MODEL_PLACEHOLDER_M318"
+				budget := -1
+				switch strings.ToLower(lvl) {
+				case "high", "max", "xhigh":
+					protoModel = "MODEL_PLACEHOLDER_M318"
+					budget = -1
+				case "medium":
+					protoModel = "MODEL_PLACEHOLDER_M319"
+					budget = 4000
+				case "low":
+					protoModel = "MODEL_PLACEHOLDER_M320"
+					budget = 1000
+				}
+
+				variantMeta := map[string]interface{}{
+					"displayName":       fmt.Sprintf("%s (%s)", baseLabel, formatEffortLabel(lvl)),
+					"model":             protoModel,
+					"modelProvider":     modelProvider,
+					"apiProvider":       "API_PROVIDER_GOOGLE_GEMINI",
+					"supportsThinking":  true,
+					"thinkingBudget":    budget,
+					"minThinkingBudget": 32,
+					"maxTokens":         1048576,
+					"maxOutputTokens":   65536,
+				}
+				modelsMap[variantID] = variantMeta
+				if m.ID != "" && m.ID != cliID {
+					modelsMap[fmt.Sprintf("%s-%s", m.ID, strings.ToLower(lvl))] = variantMeta
+				}
+				customIDs = append(customIDs, variantID)
+			}
+
+			baseMeta := map[string]interface{}{
+				"displayName":       baseLabel,
+				"model":             "MODEL_PLACEHOLDER_M318",
+				"modelProvider":     modelProvider,
+				"apiProvider":       "API_PROVIDER_GOOGLE_GEMINI",
+				"supportsThinking":  true,
+				"thinkingBudget":    -1,
+				"minThinkingBudget": 32,
+				"maxTokens":         1048576,
+				"maxOutputTokens":   65536,
+			}
+			modelsMap[cliID] = baseMeta
+			if m.ID != "" && m.ID != cliID {
+				modelsMap[m.ID] = baseMeta
+			}
+		} else {
+			customMeta := map[string]interface{}{
+				"displayName":      label,
+				"model":            "MODEL_PLACEHOLDER_M318",
+				"modelProvider":    modelProvider,
+				"apiProvider":      "API_PROVIDER_GOOGLE_GEMINI",
+				"supportsThinking": m.SupportsThinking,
+				"maxTokens":        1048576,
+				"maxOutputTokens":  65536,
+			}
+			if len(m.ThinkingLevels) > 0 {
+				customMeta["thinkingLevels"] = m.ThinkingLevels
+			}
+			modelsMap[cliID] = customMeta
+			if m.ID != "" && m.ID != cliID {
+				modelsMap[m.ID] = customMeta
+			}
+			customIDs = append(customIDs, cliID)
+		}
+	}
+
+	sorts, ok := root["agentModelSorts"].([]interface{})
+	if !ok || len(sorts) == 0 {
+		root["agentModelSorts"] = []interface{}{
+			map[string]interface{}{
+				"displayName": "Recommended",
+				"groups": []interface{}{
+					map[string]interface{}{
+						"modelIds": customIDs,
+					},
+				},
+			},
+		}
+	} else if firstSort, ok := sorts[0].(map[string]interface{}); ok {
+		if groups, ok := firstSort["groups"].([]interface{}); ok && len(groups) > 0 {
+			if firstGroup, ok := groups[0].(map[string]interface{}); ok {
+				existing, _ := firstGroup["modelIds"].([]interface{})
+				seen := make(map[string]bool)
+				for _, item := range existing {
+					if s, ok := item.(string); ok {
+						seen[s] = true
+					}
+				}
+				for _, cid := range customIDs {
+					if !seen[cid] {
+						existing = append(existing, cid)
+						seen[cid] = true
+					}
+				}
+				firstGroup["modelIds"] = existing
+			}
+		}
+	}
+
+	augmented, err := json.Marshal(root)
+	if err != nil {
+		return body
+	}
+	return augmented
+}
+
+func (p *Proxy) writeCatalogResponse(w http.ResponseWriter, status int, headers http.Header, body []byte, r *http.Request) {
+	if status == http.StatusOK {
+		body = p.augmentCatalog(r, body)
+	}
 	for key, values := range headers {
 		if isHopByHopHeader(key) {
 			continue

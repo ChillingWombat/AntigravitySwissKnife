@@ -239,6 +239,29 @@ export const DiscordBridgePage: React.FC = () => {
 
       {/* 2. Bot Configuration Settings */}
       <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+              Setup
+            </h2>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {saveSuccess && (
+              <span style={{ fontSize: '12px', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <Check size={14} /> Discord settings saved
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleSaveConfig}
+              disabled={loading}
+              className="btn-pill-primary"
+            >
+              Save Settings
+            </button>
+          </div>
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
             <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>
@@ -329,21 +352,6 @@ export const DiscordBridgePage: React.FC = () => {
             disabled={loading}
             onChange={(next) => setConfig((prev: any) => ({ ...prev, ...next }))}
           />
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-            <button
-              onClick={handleSaveConfig}
-              disabled={loading}
-              className="btn-pill-primary"
-            >
-              Save Settings
-            </button>
-            {saveSuccess && (
-              <span style={{ fontSize: '12px', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                <Check size={14} /> Discord settings saved
-              </span>
-            )}
-          </div>
         </div>
       </div>
 

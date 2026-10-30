@@ -158,7 +158,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
           {/* Import Setup Wizard Card */}
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface)',
               border: '1px solid var(--border)',
               borderRadius: '10px',
               padding: '20px',
@@ -187,7 +187,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                     border: '1px solid var(--border)',
                     fontSize: '14px',
                     fontWeight: 600,
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--surface)',
                     color: 'var(--text)',
                   }}
                 >
@@ -220,7 +220,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                     border: '1px solid var(--border)',
                     fontSize: '14px',
                     fontWeight: 600,
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--surface)',
                     color: 'var(--text)',
                   }}
                 >
@@ -338,19 +338,19 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                      <th style={{ padding: '8px 10px', width: '30px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>
+                      <th style={{ padding: '8px 10px', width: '30px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1 }}>
                         <input
                           type="checkbox"
                           checked={candidates.length > 0 && candidates.every((c) => c.selected)}
                           onChange={(e) => setCandidates(candidates.map((c) => ({ ...c, selected: e.target.checked })))}
                         />
                       </th>
-                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Conversation Title</th>
-                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Source</th>
-                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Turns & Tools</th>
-                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Target Destination</th>
-                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Match Status</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', position: 'sticky', top: 0, backgroundColor: '#ffffff', zIndex: 1 }}>Preview</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1 }}>Conversation Title</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1 }}>Source</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1 }}>Turns & Tools</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1 }}>Target Destination</th>
+                      <th style={{ padding: '8px 10px', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1 }}>Match Status</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1 }}>Preview</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -495,7 +495,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
           {/* Import History Table */}
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface)',
               border: '1px solid var(--border)',
               borderRadius: '10px',
               padding: '20px',
@@ -571,7 +571,7 @@ export const UtilitiesPage: React.FC<UtilitiesPageProps> = ({
             >
               <div
                 style={{
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface)',
                   borderRadius: '10px',
                   padding: '24px',
                   width: '540px',

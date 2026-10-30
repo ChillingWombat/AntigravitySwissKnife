@@ -12,7 +12,38 @@ import (
 	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 )
+
+// activeModelExhaustedChecker is a test seam around the live quota probe.
+var activeModelExhaustedChecker = checkActiveModelExhausted
+
+func checkActiveModelExhausted() (bool, map[string]interface{}) {
+	store, err := keyring.NewStore("")
+	if err != nil {
+		return false, nil
+	}
+	active := store.ActiveAccount()
+	if active == "" {
+		return false, nil
+	}
+	cachedMap := quota.LoadQuotaCache()
+	activeCached := cachedMap[strings.ToLower(strings.TrimSpace(active))]
+	if activeCached == nil {
+		return false, nil
+	}
+
+	if activeCached.ClaudeWeeklyBucketPresent && (activeCached.Quota5hClaudeGPT <= 0 || activeCached.QuotaWeeklyClaudeGPT <= 0) {
+		return true, map[string]interface{}{
+			"model_family":              "Claude / Opus",
+			"claude_gpt_5h_percent":     activeCached.Quota5hClaudeGPT * 100,
+			"claude_gpt_weekly_percent": activeCached.QuotaWeeklyClaudeGPT * 100,
+			"account":                   active,
+		}
+	}
+	return false, nil
+}
 
 // LeadSession tracks an active Antigravity conversation orchestrated by Gemini.
 type LeadSession struct {
@@ -509,8 +540,10 @@ func (lh *LeadHandler) AwaitResponse(args map[string]interface{}) (string, error
 
 	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
 	pollInterval := 1500 * time.Millisecond
+	iterations := 0
 
 	for time.Now().Before(deadline) {
+		iterations++
 		stepIndex, isDone, content, err := lh.readTranscriptTail(convID)
 		if err == nil && isDone && stepIndex >= baselineStep && len(strings.TrimSpace(content)) > 0 {
 			artifacts := lh.listArtifacts(convID)
@@ -537,11 +570,42 @@ func (lh *LeadHandler) AwaitResponse(args map[string]interface{}) (string, error
 			return string(data), nil
 		}
 
+		// Detect Antigravity stuck on "Connecting..." due to exhausted Claude/Opus quota:
+		if iterations >= 10 && len(strings.TrimSpace(content)) == 0 && stepIndex == baselineStep {
+			if exhausted, info := activeModelExhaustedChecker(); exhausted {
+				res := map[string]interface{}{
+					"status":                "QUOTA_EXHAUSTED",
+					"conversation_id":       convID,
+					"error":                 "Antigravity appears hung on 'Connecting...' because the Claude / Opus model quota is exhausted (0% remaining).",
+					"exhaustion_details":    info,
+					"message":               "Antigravity is waiting on 'Connecting...' and cannot proceed with the exhausted Claude/Opus model. Switch the active model to Gemini 3.8 Flash or Gemini 4 Argon, or switch Google accounts.",
+					"actionable_suggestion": "Call antigravity_session_model_set with model='Gemini 3.8 Flash' or call antigravity_fleet_switch_account to switch to an account with available quota.",
+				}
+				data, _ := json.MarshalIndent(res, "", "  ")
+				return string(data), nil
+			}
+		}
+
 		time.Sleep(pollInterval)
 	}
 
 	// Timeout reached while still in progress
 	stepIndex, _, partialContent, _ := lh.readTranscriptTail(convID)
+	if len(strings.TrimSpace(partialContent)) == 0 && stepIndex == baselineStep {
+		if exhausted, info := activeModelExhaustedChecker(); exhausted {
+			res := map[string]interface{}{
+				"status":                "QUOTA_EXHAUSTED",
+				"conversation_id":       convID,
+				"error":                 "Antigravity timed out waiting on 'Connecting...' because the Claude / Opus model quota is exhausted (0% remaining).",
+				"exhaustion_details":    info,
+				"message":               "Antigravity is waiting on 'Connecting...' and cannot proceed with the exhausted Claude/Opus model.",
+				"actionable_suggestion": "Call antigravity_session_model_set with model='Gemini 3.8 Flash' or call antigravity_fleet_switch_account to switch to an account with available quota.",
+			}
+			data, _ := json.MarshalIndent(res, "", "  ")
+			return string(data), nil
+		}
+	}
+	stepIndex, _, partialContent, _ = lh.readTranscriptTail(convID)
 	artifacts := lh.listArtifacts(convID)
 
 	res := map[string]interface{}{

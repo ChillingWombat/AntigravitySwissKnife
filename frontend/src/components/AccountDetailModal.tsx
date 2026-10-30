@@ -810,7 +810,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           maxHeight: '92vh',
           overflowY: 'auto',
           padding: '28px',
-          backgroundColor: '#ffffff',
+          backgroundColor: 'var(--surface)',
           borderRadius: '10px',
           boxShadow: 'var(--shadow-md)',
         }}
@@ -985,7 +985,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       gap: '5px',
                       padding: '4px 10px',
                       borderRadius: '9999px',
-                      backgroundColor: '#ffffff',
+                      backgroundColor: 'var(--surface)',
                       border: '1px solid var(--border)',
                       color: 'var(--text)',
                       fontSize: '11.5px',
@@ -1010,7 +1010,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   gap: '5px',
                   padding: '4px 10px',
                   borderRadius: '9999px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface)',
                   border: '1px solid var(--border)',
                   color: 'var(--text)',
                   fontSize: '11.5px',
@@ -1801,11 +1801,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               maxWidth: '92vw',
               padding: '24px',
               boxShadow: 'var(--shadow-md)',
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#b3261e', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--red)', marginBottom: '12px' }}>
               <Trash2 size={20} />
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
                 Delete Account

@@ -276,7 +276,13 @@ func TestAdversarial_WebGUIEndpoints_EdgeCases(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
 
-	srv := webgui.NewServer("127.0.0.1:0", filepath.Join(tempDir, "test.sock"))
+	srv, err := webgui.NewRPCServer("127.0.0.1:0", filepath.Join(tempDir, "test.sock"))
+
+	if err != nil {
+
+		t.Fatalf("NewRPCServer: %v", err)
+
+	}
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start failed: %v", err)
 	}

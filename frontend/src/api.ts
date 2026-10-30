@@ -50,46 +50,56 @@ function formatErrorMessage(rawText: string, status: number): string {
   return singleLine.slice(0, 200) || `Request failed with status ${status}`
 }
 
+interface SwissDaemonBrokerResult {
+  ok: boolean
+  status: number
+  statusText: string
+  headers: Record<string, string>
+  body: string
+  error?: { code: string; message: string }
+}
+
+interface SwissDaemonBroker {
+  request(request: { method: string; path: string; body?: string; timeoutMs?: number }): Promise<SwissDaemonBrokerResult>
+}
+
+function getSwissDaemonBroker(): SwissDaemonBroker | null {
+  if (typeof window === 'undefined') return null
+  const broker = (window as Window & { swiss?: SwissDaemonBroker }).swiss
+  return broker && typeof broker.request === 'function' ? broker : null
+}
+
+function hasSwissDaemonBroker(): boolean {
+  return getSwissDaemonBroker() !== null
+}
+
 // --- Session token management -----------------------------------------------
-// The daemon enforces loopback auth (P0-50). Web clients authenticate by
-// presenting a session token obtained from /api/auth/unlock, a ?token= one-time
-// link, or the Electron shell. The token is persisted in localStorage so page
-// refreshes keep working; stale tokens are detected via 401, silently re-acquired
-// when no App Password is set, otherwise the lock screen is requested.
+// The daemon enforces loopback auth (P0-50). The Electron renderer never receives
+// the daemon token; the browser fallback keeps its unlocked token in memory only.
 const SESSION_TOKEN_KEY = 'swiss_session_token'
 
+try { globalThis.localStorage?.removeItem(SESSION_TOKEN_KEY) } catch {}
+try { globalThis.sessionStorage?.removeItem(SESSION_TOKEN_KEY) } catch {}
+
 let sessionToken: string | null = null
-try { sessionToken = localStorage.getItem(SESSION_TOKEN_KEY) } catch {}
 
 export function setSessionToken(token: string | null) {
   const clean = token && token.trim() ? token.trim() : null
+  if (hasSwissDaemonBroker()) {
+    sessionToken = null
+    return
+  }
   sessionToken = clean
-  try {
-    if (clean) localStorage.setItem(SESSION_TOKEN_KEY, clean)
-    else localStorage.removeItem(SESSION_TOKEN_KEY)
-  } catch {}
 }
 
 export function getSessionToken(): string | null {
   return sessionToken
 }
 
-// One-time ?token= link support (e.g. prepared URLs opened in an external or IDE
-// built-in browser). Capture once, then strip it from the address bar.
-try {
-  const parsedUrl = new URL(window.location.href)
-  const urlToken = parsedUrl.searchParams.get('token')
-  if (urlToken) {
-    setSessionToken(urlToken)
-    parsedUrl.searchParams.delete('token')
-    const rest = parsedUrl.searchParams.toString()
-    window.history.replaceState({}, '', parsedUrl.pathname + (rest ? `?${rest}` : '') + parsedUrl.hash)
-  }
-} catch {}
-
 let silentTokenRefresh: Promise<boolean> | null = null
 
 async function trySilentTokenRefresh(): Promise<boolean> {
+  if (hasSwissDaemonBroker()) return false
   if (!silentTokenRefresh) {
     silentTokenRefresh = (async () => {
       try {
@@ -166,6 +176,7 @@ export function cancelAllInFlightRequests(): void {
 export function shouldRunBackgroundPoll(
   visibilityState: DocumentVisibilityState | string = typeof document !== 'undefined' ? document.visibilityState : 'visible',
 ): boolean {
+  if (manualRecoveryLeaseActive()) return false
   return visibilityState !== 'hidden'
 }
 
@@ -208,6 +219,76 @@ export function isAbortError(err: unknown): boolean {
  * @param url Target endpoint URL
  * @param options Request options including HTTP method, headers, timeout, and cancellation controls
  */
+function isPublicDaemonPath(pathname: string): boolean {
+  return pathname === '/health' || pathname.startsWith('/api/auth/')
+}
+
+function resolveInternalURL(url: string): URL {
+  const baseHref = typeof window === 'undefined' ? '' : window.location?.href
+  try {
+    return new URL(url, baseHref || 'http://localhost')
+  } catch {
+    return new URL(url, 'http://localhost')
+  }
+}
+
+function dispatchDashboardMutation(url: string, method: string): void {
+  if (method === 'GET' || typeof window === 'undefined') return
+  const pathname = resolveInternalURL(url).pathname
+  let endpoint: 'rules' | 'projects' | 'accounts' | null = null
+  if (pathname.startsWith('/api/rules')) endpoint = 'rules'
+  else if (pathname.startsWith('/api/gui/projects') || pathname.startsWith('/api/projects')) endpoint = 'projects'
+  else if (pathname.startsWith('/api/accounts') && !pathname.endsWith('/switch')) endpoint = 'accounts'
+  if (endpoint) {
+    window.dispatchEvent(new CustomEvent('swiss:dashboard-mutated', { detail: { endpoint } }))
+  }
+}
+
+
+async function fetchDaemon(url: string, fetchOptions: RequestInit, timeoutMs: number): Promise<Response> {
+  const broker = getSwissDaemonBroker()
+  let parsed: URL
+  try {
+    parsed = new URL(url, window.location.href)
+  } catch {
+    return fetch(url, fetchOptions)
+  }
+  const isDaemonRequest = parsed.origin === 'http://127.0.0.1:8765' || parsed.origin === window.location.origin
+  if (!broker) {
+    if (isDaemonRequest && !isPublicDaemonPath(parsed.pathname)) {
+      const headers = new Headers(fetchOptions.headers || {})
+      if (!sessionToken && !headers.has('X-Session-Token')) {
+        const error = new Error('Daemon authentication is required; unlock this browser session or use the Electron app')
+        ;(error as Error & { code?: string }).code = 'DAEMON_AUTH_REQUIRED'
+        throw error
+      }
+    }
+    return fetch(url, fetchOptions)
+  }
+  if (!isDaemonRequest) {
+    return fetch(url, fetchOptions)
+  }
+
+  const method = String(fetchOptions.method || 'GET').toUpperCase()
+  const body = typeof fetchOptions.body === 'string' ? fetchOptions.body : undefined
+  const result = await broker.request({
+    method,
+    path: parsed.pathname + parsed.search,
+    body,
+    timeoutMs,
+  })
+  if (result.error) {
+    const error = new Error(result.error.message)
+    ;(error as Error & { code?: string }).code = result.error.code
+    throw error
+  }
+  return new Response(result.body, {
+    status: result.status,
+    statusText: result.statusText,
+    headers: result.headers,
+  })
+}
+
 export async function request<T>(url: string, options?: RequestOptions): Promise<T> {
   const method = (options?.method || 'GET').toUpperCase()
   const isGet = method === 'GET'
@@ -261,10 +342,19 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
         headers,
         signal: controller.signal,
       }
-      return fetch(url, fetchOptions)
+      return fetchDaemon(url, fetchOptions, timeoutMs)
     }
 
-    let res = await doFetch()
+    let res: Response
+    try {
+      res = await doFetch()
+    } catch (error) {
+      const code = (error as Error & { code?: string })?.code
+      if (code !== 'DAEMON_AUTH_REQUIRED' || !(await trySilentTokenRefresh())) {
+        throw error
+      }
+      res = await doFetch()
+    }
 
     if (res.status === 401) {
       if (await trySilentTokenRefresh()) {
@@ -287,12 +377,14 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
       throw new Error(formatErrorMessage(text, res.status))
     }
     if (res.status === 204) {
+      dispatchDashboardMutation(url, method)
       return {} as T
     }
     const data = (await res.json()) as T
     if (controller.signal.aborted) {
       throw controller.signal.reason || new DOMException('The operation was aborted', 'AbortError')
     }
+    dispatchDashboardMutation(url, method)
     return data
   } catch (err: any) {
     if (didTimeout) {
@@ -717,6 +809,38 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ app }) }
     ),
 
+  getCLIGatewayStatus: () =>
+    request<{
+      success: boolean
+      status: {
+        installed: boolean
+        configured: boolean
+        cli_path: string
+        wrapper_path?: string
+        shell_rc_hooked?: boolean
+        platform: string
+        gateway_url: string
+        gateway_token?: string
+        enabled_models?: string[]
+      }
+    }>('/api/custom_models/cli_status'),
+
+  setupCLIGateway: () =>
+    request<{
+      success: boolean
+      status: {
+        installed: boolean
+        configured: boolean
+        cli_path: string
+        wrapper_path?: string
+        shell_rc_hooked?: boolean
+        platform: string
+        gateway_url: string
+        gateway_token?: string
+        enabled_models?: string[]
+      }
+    }>('/api/custom_models/cli_setup', { method: 'POST' }),
+
   setActiveCustomModel: (modelId: string) =>
     request<{ success: boolean; active_model_id: string }>('/api/custom_models/active', {
       method: 'POST',
@@ -1106,8 +1230,13 @@ export const api = {
     }),
 
   // Real Token Analytics & Pricing API
-  getTokenSummary: (range?: TokenRange) =>
-    request<TokenSummaryResponse>(range ? `/api/tokens/summary?range=${encodeURIComponent(range)}` : '/api/tokens/summary'),
+  getTokenSummary: (range?: TokenRange, classification?: 'native' | 'custom' | 'all') => {
+    const params = new URLSearchParams()
+    if (range) params.set('range', range)
+    if (classification && classification !== 'all') params.set('classification', classification)
+    const qs = params.toString()
+    return request<TokenSummaryResponse>(qs ? `/api/tokens/summary?${qs}` : '/api/tokens/summary')
+  },
 
   getTokenPricing: (force?: boolean) =>
     request<{ success: boolean; pricing_records: ModelPricingRecord[]; models?: ModelPricingRecord[]; timestamp: string }>(
@@ -1365,3 +1494,59 @@ export const api = {
     }),
 }
 
+
+
+let fleetSnapshotInFlight: ReturnType<typeof api.getFleetQuota> | null = null
+let accountQuotaFlights = new Map<string, ReturnType<typeof api.refreshAccountQuota>>()
+let manualRecoveryLeaseUntil = 0
+
+export function requestFleetSnapshot(): ReturnType<typeof api.getFleetQuota> {
+  if (!fleetSnapshotInFlight) {
+    const promise: ReturnType<typeof api.getFleetQuota> = api.getFleetQuota().finally(() => {
+      if (fleetSnapshotInFlight === promise) fleetSnapshotInFlight = null
+    })
+    fleetSnapshotInFlight = promise
+  }
+  return fleetSnapshotInFlight
+}
+
+export function invalidateDashboardFlights(): void {
+  fleetSnapshotInFlight = null
+  accountQuotaFlights = new Map()
+}
+
+export function beginManualRecoveryLease(durationMs = 15_000): void {
+  manualRecoveryLeaseUntil = Math.max(manualRecoveryLeaseUntil, Date.now() + durationMs)
+}
+
+export function manualRecoveryLeaseActive(): boolean {
+  return Date.now() < manualRecoveryLeaseUntil
+}
+
+const requestAccountQuotaRefresh = api.refreshAccountQuota
+api.refreshAccountQuota = (email: string) => {
+  const key = email.trim().toLowerCase()
+  const existing = accountQuotaFlights.get(key)
+  if (existing) return existing
+  const promise = requestAccountQuotaRefresh(email).finally(() => {
+    if (accountQuotaFlights.get(key) === promise) accountQuotaFlights.delete(key)
+  })
+  accountQuotaFlights.set(key, promise)
+  return promise
+}
+
+const requestAccountSwitch = api.switchAccount
+api.switchAccount = async (...args: Parameters<typeof requestAccountSwitch>) => {
+  const result = await requestAccountSwitch(...args)
+  invalidateDashboardFlights()
+  if (typeof window !== 'undefined') {
+    const record = result as unknown as Record<string, unknown>
+    const activeAccount = typeof record.active_account === 'string'
+      ? record.active_account
+      : args[0]
+    window.dispatchEvent(new CustomEvent('swiss:account-switched', {
+      detail: { active_account: activeAccount },
+    }))
+  }
+  return result
+}

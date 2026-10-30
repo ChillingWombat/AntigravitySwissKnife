@@ -1,10 +1,6 @@
 package plugins
 
-import (
-	"fmt"
-
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
-)
+import "github.com/ChillingWombat/antigravity-swiss-knife/pkg/injected"
 
 // GenerateAuxiliaryPluginsCSS provides the Google-style minimalist CSS for in-app auxiliary panel tabs,
 // browser preview, file explorer, code editor, memo cards, and in-chat token telemetry badges.
@@ -1987,15 +1983,9 @@ code .swiss-inchat-metrics {
 // and in-chat token telemetry badges.
 func GenerateAuxiliaryPluginsScript() string {
 	var tokenScript string
-	if tok, err := core.GetLocalSessionToken(); err == nil && tok != "" {
-		tokenScript = fmt.Sprintf(`if (typeof window !== 'undefined') { window.__SWISS_SESSION_TOKEN__ = %q; try { sessionStorage.setItem('antigravity_swiss_session_token', %q); } catch (_) {} };
-`, tok, tok)
-	}
-	// The auth interceptor must be installed even before a token exists: it
-	// reads the token at request time, so a fresh install still authenticates
-	// as soon as the daemon writes session.token.
+	// Install the broker bridge before any injected module issues a fetch.
 	tokenScript += SwissAuthInterceptorScript
-	tokenScript += SwissOnboardingAutoAcceptScript
+	tokenScript += string(injected.RuntimeBundle())
 
 	return tokenScript + `(() => {
   try {
@@ -2024,13 +2014,7 @@ func GenerateAuxiliaryPluginsScript() string {
     }
 
     function getSwissAuthHeaders(customHeaders = {}) {
-      const headers = { "Content-Type": "application/json", ...customHeaders };
-      const tok = (typeof window !== "undefined" && window.__SWISS_SESSION_TOKEN__) ||
-        (typeof sessionStorage !== "undefined" && sessionStorage.getItem("antigravity_swiss_session_token")) || "";
-      if (tok) {
-        headers["X-Session-Token"] = tok;
-      }
-      return headers;
+      return { "Content-Type": "application/json", ...customHeaders };
     }
 
     const API_BASE = "http://127.0.0.1:8765";

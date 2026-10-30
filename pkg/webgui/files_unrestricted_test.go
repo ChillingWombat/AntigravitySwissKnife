@@ -58,7 +58,7 @@ func TestFilesUnrestricted_BrowseOutsideHome(t *testing.T) {
 		t.Errorf("[REGRESSION] validateJailedPath rejected outside-home dir %q: %v", outsideDir, err)
 	}
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
 		t.Fatalf("srv.Start error: %v", err)
 	}

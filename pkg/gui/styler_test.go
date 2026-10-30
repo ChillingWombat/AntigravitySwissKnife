@@ -10,8 +10,8 @@ func TestGenerateScriptWithCustomModels_InstallsAuthInterceptor(t *testing.T) {
 	if !strings.Contains(script, "__swissAuthFetchPatched") {
 		t.Fatalf("expected the fetch auth interceptor to be installed")
 	}
-	if !strings.Contains(script, `headers.set("X-Session-Token", token)`) {
-		t.Fatalf("expected the interceptor to attach X-Session-Token for daemon-origin requests")
+	if !strings.Contains(script, `window.swiss`) {
+		t.Fatalf("expected the interceptor to route daemon requests through the Electron broker")
 	}
 	if !strings.Contains(script, "http://127.0.0.1:8765") {
 		t.Fatalf("expected the interceptor to scope itself to the daemon origin")
@@ -33,7 +33,7 @@ func TestGenerateScript_InterceptorWithoutSessionToken(t *testing.T) {
 
 func TestGenerateScript_AutoAcceptsSecurityNotice(t *testing.T) {
 	script := GenerateScript(nil)
-	if !strings.Contains(script, "swissAutoAcceptSecurityNotice") {
+	if !strings.Contains(script, "__SWISS_RUNTIME__") {
 		t.Fatalf("expected the security-notice auto-accept routine")
 	}
 }

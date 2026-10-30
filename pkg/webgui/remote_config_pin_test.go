@@ -11,7 +11,7 @@ func TestRemoteConfigEndpointsExposeVisiblePIN(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
 	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
 
-	srv := NewServer("127.0.0.1:0", "")
+	srv := newTestServer("127.0.0.1:0", "")
 	srv.daemonSessionToken = "test-session-token"
 	handler := srv.authMiddleware(srv.setupRoutes())
 

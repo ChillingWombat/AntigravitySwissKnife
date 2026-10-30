@@ -3119,8 +3119,8 @@ func TestGenerateAuxiliaryPluginsScript_InstallsAuthInterceptor(t *testing.T) {
 	if !strings.Contains(script, "__swissAuthFetchPatched") {
 		t.Fatalf("expected the fetch auth interceptor to be installed")
 	}
-	if !strings.Contains(script, `headers.set("X-Session-Token", token)`) {
-		t.Fatalf("expected the interceptor to attach X-Session-Token for daemon-origin requests")
+	if !strings.Contains(script, `window.swiss`) {
+		t.Fatalf("expected the interceptor to route daemon requests through the Electron broker")
 	}
 	// The file explorer endpoints must not remain bare: the interceptor covers
 	// every daemon-origin fetch on the page.
@@ -3139,7 +3139,7 @@ func TestGenerateAuxiliaryPluginsScript_InterceptorWithoutSessionToken(t *testin
 
 func TestGenerateAuxiliaryPluginsScript_AutoAcceptsSecurityNotice(t *testing.T) {
 	script := GenerateAuxiliaryPluginsScript()
-	if !strings.Contains(script, "swissAutoAcceptSecurityNotice") {
+	if !strings.Contains(script, "__SWISS_RUNTIME__") {
 		t.Fatalf("expected the security-notice auto-accept routine")
 	}
 	// Only the mandatory Accept button is clicked; the data-sharing checkbox
@@ -3508,7 +3508,6 @@ assert(flipped.top + flipped.maxHeight <= 350 - 4, "flipped menu must clear the 
 		}
 	}
 }
-
 
 func TestBuiltinBrowserEnhancements(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()

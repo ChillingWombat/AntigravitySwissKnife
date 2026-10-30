@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"runtime"
@@ -208,7 +209,11 @@ func runDaemon(args []string) {
 
 	var webSrv *webgui.Server
 	if *withWeb {
-		webSrv = webgui.NewServer(*webAddr, *socketPath)
+		var initErr error
+		webSrv, initErr = webgui.NewServer(*webAddr, d.Backend(), ipc.NewClient(*socketPath))
+		if initErr != nil {
+			log.Fatalf("failed to initialize daemon web UI: %v", initErr)
+		}
 		if err := webSrv.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: failed to start web GUI on %s: %v. Stopping daemon.\n", *webAddr, err)
 			_ = d.Stop()
@@ -236,7 +241,10 @@ func runWeb(args []string) {
 	socketPath := fs.String("socket", core.GetSocketPath(), "Daemon socket path")
 	_ = fs.Parse(args)
 
-	srv := webgui.NewServer(*addr, *socketPath)
+	srv, initErr := webgui.NewRPCServer(*addr, *socketPath)
+	if initErr != nil {
+		log.Fatalf("failed to initialize standalone web UI: %v", initErr)
+	}
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting Web GUI: %v\n", err)
 		os.Exit(1)

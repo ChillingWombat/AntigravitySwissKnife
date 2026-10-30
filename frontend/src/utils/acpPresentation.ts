@@ -132,3 +132,41 @@ export function getAcpStatusPresentation(status: string) {
       }
   }
 }
+
+export type AcpStatusCategory = 'connected' | 'installed' | 'notfound'
+
+export function getAcpStatusCategory(status: string): AcpStatusCategory {
+  const normalized = (status || '').toLowerCase().replace(/[\s_-]+/g, '')
+  if (normalized === 'connected' || normalized === 'activehosting' || normalized === 'listening') {
+    return 'connected'
+  }
+  if (normalized === 'installedidle' || normalized === 'installed') {
+    return 'installed'
+  }
+  return 'notfound'
+}
+
+export function sortAcpAgents<T extends { name: string; status: string; id?: string }>(
+  agents: T[]
+): T[] {
+  const categoryOrder: Record<AcpStatusCategory, number> = {
+    connected: 0,
+    installed: 1,
+    notfound: 2,
+  }
+
+  return [...agents].sort((a, b) => {
+    const catA = categoryOrder[getAcpStatusCategory(a.status)]
+    const catB = categoryOrder[getAcpStatusCategory(b.status)]
+    if (catA !== catB) {
+      return catA - catB
+    }
+    const nameA = a.name || ''
+    const nameB = b.name || ''
+    const nameDiff = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' })
+    if (nameDiff !== 0) {
+      return nameDiff
+    }
+    return (a.id || '').localeCompare(b.id || '')
+  })
+}

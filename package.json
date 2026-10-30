@@ -6,7 +6,7 @@
   "scripts": {
     "build:frontend": "npm run build --prefix frontend",
     "build:go": "go build -o bin/swiss ./cmd/swiss && (cd antigravity-acp && go build -o ../bin/antigravity-acp ./cmd/antigravity-acp)",
-    "build": "npm run build:frontend && npm run build:go",
+    "build": "npm run build:injected-runtime && npm run build:frontend && npm run build:go",
     "desktop": "electron . --no-sandbox",
     "desktop:dev": "npm run build:frontend && electron . --no-sandbox",
     "desktop:minimized": "electron . --no-sandbox --minimized",
@@ -29,7 +29,10 @@
     "app:prod": "node scripts/build-release.js run",
     "worktree": "bash scripts/worktree.sh",
     "verify:packaging": "node scripts/verify-crossplatform-packaging.js",
-    "verify:release": "node scripts/verify-release-pipeline.js"
+    "verify:release": "node scripts/verify-release-pipeline.js",
+    "build:injected-runtime": "npm run build --prefix injected-runtime",
+    "test:injected-runtime": "npm test --prefix injected-runtime",
+    "check:injected-runtime": "node scripts/check-injected-runtime.mjs"
   },
   "build": {
     "appId": "com.antigravity.swiss-knife",

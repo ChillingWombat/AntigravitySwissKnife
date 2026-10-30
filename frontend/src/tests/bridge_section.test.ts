@@ -1,235 +1,183 @@
-import { describe, it } from 'node:test'
-import assert from 'node:assert'
-import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { afterEach, beforeEach, describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import React, { act } from 'react'
+import { BRIDGE_TABS, parseHash, routeToTool, serializeRoute } from '../navigation/routes'
+import { initDOM, mount, type RenderResult } from '../test-dom'
 
-describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
-  const __dirname = path.dirname(fileURLToPath(import.meta.url))
-  const navRailPath = path.resolve(__dirname, '../components/NavRail.tsx')
-  const appPath = path.resolve(__dirname, '../App.tsx')
-  const utilsPagePath = path.resolve(__dirname, '../pages/UtilitiesPage.tsx')
-  const bridgePagePath = path.resolve(__dirname, '../pages/BridgePage.tsx')
-  const remotePagePath = path.resolve(__dirname, '../pages/RemoteControlPage.tsx')
-  const geminiPagePath = path.resolve(__dirname, '../pages/GeminiBridgePage.tsx')
-  const waPagePath = path.resolve(__dirname, '../pages/WhatsAppBridgePage.tsx')
-  const tgPagePath = path.resolve(__dirname, '../pages/TelegramBridgePage.tsx')
-  const dsPagePath = path.resolve(__dirname, '../pages/DiscordBridgePage.tsx')
+const originalFetch = globalThis.fetch
+let originalWindowFetch: typeof fetch
+let originalElectronAPI: unknown
+let requestController: AbortController
+let view: RenderResult | null = null
+const requests: Array<{ method: string; path: string; body: string }> = []
 
-  const navContent = fs.readFileSync(navRailPath, 'utf8')
-  const appContent = fs.readFileSync(appPath, 'utf8')
-  const utilsContent = fs.readFileSync(utilsPagePath, 'utf8')
-  const bridgeContent = fs.readFileSync(bridgePagePath, 'utf8')
-  const remoteContent = fs.readFileSync(remotePagePath, 'utf8')
-  const geminiContent = fs.readFileSync(geminiPagePath, 'utf8')
-  const waContent = fs.readFileSync(waPagePath, 'utf8')
-  const tgContent = fs.readFileSync(tgPagePath, 'utf8')
-  const dsContent = fs.readFileSync(dsPagePath, 'utf8')
+const jsonResponse = (body: unknown): Response => ({
+  ok: true,
+  status: 200,
+  headers: {
+    get: (name: string) => name.toLowerCase() === 'content-type' ? 'application/json' : null,
+  },
+  json: async () => body,
+  text: async () => JSON.stringify(body),
+}) as unknown as Response
 
-  const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u
+const installFetchMock = () => {
+  requestController = new AbortController()
+  const fetchMock = async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    const url = new URL(raw, 'http://localhost')
+    const body = typeof init?.body === 'string' ? init.body : ''
+    requests.push({ method: init?.method || 'GET', path: url.pathname, body })
 
-  it('NavRail contains dedicated Remote Connect section button with Globe Lucide icon', () => {
-    assert.ok(navContent.includes('id="btnNavBridge"'))
-    assert.ok(navContent.includes('onSelectTool(10)'))
-    assert.ok(navContent.includes('<Globe size={18}'))
-    assert.ok(navContent.includes('Remote Connect'))
-  })
+    if (requestController.signal.aborted) {
+      throw new DOMException('Request aborted', 'AbortError')
+    }
 
-  it('App.tsx contains 5 segmented tabs for Bridge section in exact required order', () => {
-    assert.ok(appContent.includes("currentTool === 10"))
-    assert.ok(appContent.includes("['Remote', 'Gemini', 'WhatsApp', 'Telegram', 'Discord']"))
-    assert.ok(appContent.includes('<BridgePage'))
-  })
+    const path = url.pathname
+    if (path.endsWith('/api/auth/status')) return jsonResponse({ password_required: false })
+    if (path.endsWith('/api/status')) {
+      return jsonResponse({ daemon_running: true, active_account: 'bridge-test@example.com' })
+    }
+    if (path.includes('/api/quota/fleet')) return jsonResponse({ accounts: [], active_account: null })
+    if (path.includes('/api/rules')) return jsonResponse({})
+    if (path.includes('/api/gui/projects') || path.includes('/api/projects')) return jsonResponse([])
+    if (path.includes('/api/accounts')) return jsonResponse([])
+    if (path.endsWith('/api/bridge/remote/status')) {
+      return jsonResponse({
+        success: true,
+        status: {
+          tunnel: { active: false, type: 'loopback', logs: [] },
+          app_password_enabled: false,
+          use_app_password: false,
+        },
+        config: { use_app_password: false },
+      })
+    }
+    if (path.endsWith('/api/bridge/remote/config')) {
+      return jsonResponse({ success: true, config: { use_app_password: false } })
+    }
+    if (path.endsWith('/api/bridge/status')) {
+      return jsonResponse({
+        tunnel: { active: false, type: 'loopback' },
+        enabled: false,
+        operating_mode: 'manual',
+        agents: {},
+      })
+    }
+    if (path.endsWith('/api/bridge/http-allowlist')) {
+      return jsonResponse({
+        success: true,
+        mode: 'always_allow',
+        allowlist: [],
+        pending: [],
+      })
+    }
+    if (path.endsWith('/api/bridge/channels/status')) {
+      return jsonResponse({
+        success: true,
+        status: { whatsapp: {}, telegram: {}, discord: {} },
+      })
+    }
+    if (path.endsWith('/api/bridge/channels/config')) {
+      return jsonResponse({
+        success: true,
+        config: {
+          whatsapp: { enabled: false, allowed_phone_numbers: [] },
+          telegram: { enabled: false, allowed_chat_ids: [] },
+          discord: { enabled: false, allowed_channel_ids: [] },
+        },
+      })
+    }
+    return jsonResponse({ success: true })
+  }
 
-  it('promotes ACP Adapter and keeps Utilities tabs in the required order', () => {
-    assert.ok(appContent.includes('currentTool === 11'))
-    assert.ok(appContent.includes('id="acp-mesh-top-bar-portal"'))
-    assert.ok(appContent.includes('<ACPAgentMeshPage />'))
-    assert.ok(appContent.includes("id: 'cache' as const, label: 'Storage Manager', Icon: HardDrive"))
-    assert.ok(appContent.includes("id: 'archives' as const, label: 'Archived Projects', Icon: FolderArchive"))
-    assert.ok(appContent.includes("id: 'import' as const, label: 'Chat & Project Importer', Icon: ArrowRightLeft"))
-    assert.ok(!utilsContent.includes('GeminiBridgePage'))
-    assert.ok(utilsContent.includes('<BrainCachePage />'))
-    assert.ok(utilsContent.includes('<ArchivedProjectsPage />'))
-    assert.ok(!utilsContent.includes('<ACPAgentMeshPage />'))
-  })
+  globalThis.fetch = fetchMock as typeof fetch
+  window.fetch = fetchMock as typeof window.fetch
+}
 
-  it('BridgePage integrates all 5 sub-pages', () => {
-    assert.ok(bridgeContent.includes('<RemoteControlPage />'))
-    assert.ok(bridgeContent.includes('<GeminiBridgePage />'))
-    assert.ok(bridgeContent.includes('<WhatsAppBridgePage />'))
-    assert.ok(bridgeContent.includes('<TelegramBridgePage />'))
-    assert.ok(bridgeContent.includes('<DiscordBridgePage />'))
-  })
+const flush = async () => {
+  for (let i = 0; i < 3; i += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+  }
+}
 
-  it('RemoteControlPage uses one operational remote-access control', () => {
-    assert.strictEqual(emojiRegex.test(remoteContent), false, 'RemoteControlPage must not contain emojis')
-    assert.ok(remoteContent.includes('Access Mode'))
-    assert.strictEqual(remoteContent.includes('Remote Internet Access'), false)
-    assert.ok(remoteContent.includes('api.getRemoteControlStatus'))
-    assert.ok(remoteContent.includes('api.rotateRemotePIN'))
-    assert.ok(remoteContent.includes('Security PIN'))
-    assert.ok(remoteContent.includes('Use App Password'))
-    assert.ok(remoteContent.includes('ToggleSwitch'))
-    assert.ok(remoteContent.includes('Tailscale Funnel'))
-    assert.ok(remoteContent.includes('Tailscale Private Tailnet'))
-    assert.ok(remoteContent.includes("setTunnelType('tailnet')"))
-    assert.strictEqual(remoteContent.includes("copyToClipboard(config.security_pin"), false, 'Copy PIN button must be removed from Security PIN gadget')
-    assert.ok(remoteContent.includes('DevTools Port'))
-    assert.ok(remoteContent.includes('google-card'))
-    assert.ok(remoteContent.includes('Enable Remote Access'))
-    assert.ok(remoteContent.includes('ariaLabel="Enable Remote Access"'))
-    assert.strictEqual(remoteContent.includes('Start Remote Access'), false, 'start tunnel button must be replaced by the header toggle')
-    assert.strictEqual(remoteContent.includes('Stop Remote Access'), false, 'stop tunnel button must be replaced by the header toggle')
-    assert.strictEqual(remoteContent.includes('Remote Internet Pipe'), false, 'remote pipe metric card must be removed')
-    assert.strictEqual(remoteContent.includes('Account-Switch Resilience Mode'), false, 'no-op resilience toggle must be removed')
-    assert.strictEqual(remoteContent.includes('Listening Port'), false, 'Listening Port setting must be removed')
-    assert.strictEqual(remoteContent.includes('Stream Quality'), false, 'Stream Quality setting must be removed')
-    assert.strictEqual(remoteContent.includes('Remote Configuration'), false, 'Remote Configuration card must be removed')
-    assert.strictEqual(remoteContent.includes('Architecture & Guidance'), false, 'Architecture & Guidance card must be removed')
-    assert.strictEqual(remoteContent.includes('Host Antigravity PID'), false, 'developer PID gadget must be removed')
-    assert.strictEqual(remoteContent.includes('Survives account rotations'), false, 'duplicate resilience gadget must be removed')
-    assert.ok(remoteContent.includes('Remote Endpoint'))
-    assert.strictEqual(remoteContent.includes('badge-chip'), false, 'RemoteControlPage tunnel cards must not contain badge tags')
-    assert.strictEqual(remoteContent.includes('(Recommended)'), false, 'RemoteControlPage must not contain (Recommended) text')
-  })
+const clickTab = async (tab: string) => {
+  assert.ok(view)
+  await view.click(view.querySelector(`[data-route-tab="${tab}"]`))
+  await flush()
+  assert.equal(view.querySelector(`[data-route-tab="${tab}"]`)?.getAttribute('aria-pressed'), 'true')
+  assert.equal(
+    window.location.hash,
+    tab === 'remote' ? '#/remote-connect' : `#/remote-connect/${tab}`,
+  )
+}
 
-  it('WhatsAppBridgePage enforces David-Design and functional settings', () => {
-    assert.strictEqual(emojiRegex.test(waContent), false, 'WhatsAppBridgePage must not contain emojis')
-    assert.ok(waContent.includes('WhatsApp Agent Chat Bridge'))
-    assert.ok(waContent.includes('api.getChannelsStatus'))
-    assert.ok(waContent.includes('api.updateChannelsConfig'))
-    assert.strictEqual(waContent.includes('Test Bridge'), false, 'header test button must be removed')
-    assert.strictEqual(waContent.includes("api.testChannel('whatsapp')"), false)
-    assert.ok(waContent.includes('Allowed Phone Numbers'))
-    assert.ok(waContent.includes('google-card'))
-    assert.ok(waContent.includes('ToggleSwitch'))
-    // Issue #119: the header status chip is removed — state lives in the toggle and status cards.
-    assert.strictEqual(waContent.includes('badge-chip'), false, 'WhatsAppBridgePage header chip must be removed')
-  })
+beforeEach(() => {
+  initDOM()
+  requests.length = 0
+  originalWindowFetch = window.fetch
+  originalElectronAPI = (window as any).electronAPI
+  window.localStorage.clear()
+  window.history.replaceState(null, '', '#/remote-connect')
+  ;(window as any).electronAPI = { isElectron: false }
+  installFetchMock()
+})
 
-  it('TelegramBridgePage enforces David-Design and functional settings', () => {
-    assert.strictEqual(emojiRegex.test(tgContent), false, 'TelegramBridgePage must not contain emojis')
-    assert.ok(tgContent.includes('Telegram Agent Chat Bridge'))
-    assert.ok(tgContent.includes('api.getChannelsStatus'))
-    assert.ok(tgContent.includes('Bot Token (from @BotFather)'))
-    assert.strictEqual(tgContent.includes('Test Bot'), false, 'header test button must be removed')
-    assert.strictEqual(tgContent.includes("api.testChannel('telegram')"), false)
-    assert.ok(tgContent.includes('Allowed Chat IDs'))
-    assert.ok(tgContent.includes('google-card'))
-    assert.ok(tgContent.includes('ToggleSwitch'))
-    // Issue #119: the header status chip is removed — state lives in the toggle and status cards.
-    assert.strictEqual(tgContent.includes('badge-chip'), false, 'TelegramBridgePage header chip must be removed')
-  })
+afterEach(() => {
+  view?.unmount()
+  view = null
+  requestController?.abort()
+  globalThis.fetch = originalFetch
+  window.fetch = originalWindowFetch
+  ;(window as any).electronAPI = originalElectronAPI
+})
 
-  it('DiscordBridgePage enforces David-Design and functional settings', () => {
-    assert.strictEqual(emojiRegex.test(dsContent), false, 'DiscordBridgePage must not contain emojis')
-    assert.ok(dsContent.includes('Discord Agent Chat Bridge'))
-    assert.ok(dsContent.includes('Discord Bot Token'))
-    assert.ok(dsContent.includes('Application ID'))
-    assert.strictEqual(dsContent.includes('Test Bot'), false, 'header test button must be removed')
-    assert.strictEqual(dsContent.includes("api.testChannel('discord')"), false)
-    assert.ok(dsContent.includes('Allowed Channel IDs'))
-    assert.ok(dsContent.includes('google-card'))
-    assert.ok(dsContent.includes('ToggleSwitch'))
-    // Issue #119: the header status chip is removed — state lives in the toggle and status cards.
-    assert.strictEqual(dsContent.includes('badge-chip'), false, 'DiscordBridgePage header chip must be removed')
-  })
-
-  it('GeminiBridgePage enforces David-Design and functional settings', () => {
-    assert.strictEqual(emojiRegex.test(geminiContent), false, 'GeminiBridgePage must not contain emojis')
-    assert.ok(geminiContent.includes('Gemini Agent Chat Bridge'))
-    assert.ok(geminiContent.includes('api.getBridgeStatus'))
-    assert.ok(geminiContent.includes('google-card'))
-    assert.ok(geminiContent.includes('badge-chip'))
-    assert.ok(geminiContent.includes('Enable Remote Access'))
-    assert.ok(geminiContent.includes('Streamable HTTPS'))
-    assert.strictEqual(geminiContent.includes('Verify Bridge'), false, 'verify button must be replaced by the header toggle')
-    assert.strictEqual(geminiContent.includes('Enable Bridge'), false, 'duplicate top-level enable toggle must be removed')
-  })
-
-  it('bridge headers use Info tooltips instead of static descriptions', () => {
-    const headers = [
-      {
-        name: 'GeminiBridgePage',
-        content: geminiContent,
-        tooltip: 'Streamable HTTPS MCP gateway for Gemini App and Web orchestration.',
-        removedCopy: 'Exposes a live Streamable HTTPS Model Context Protocol (MCP) gateway',
-      },
-      {
-        name: 'RemoteControlPage',
-        content: remoteContent,
-        tooltip: 'Authenticated reverse proxy streaming the Antigravity web UI.',
-        removedCopy: 'Streams the live Antigravity 2.0 web interface over an authenticated reverse proxy',
-      },
-    ]
-
-    for (const header of headers) {
-      assert.match(
-        header.content,
-        /import\s*\{[\s\S]*?\bInfo\b[\s\S]*?\}\s*from 'lucide-react'/,
-        `${header.name} must import the Lucide Info icon`
-      )
-      assert.ok(header.content.includes('<Info size={13} aria-hidden="true" />'), `${header.name} must render the Info icon`)
-      assert.ok(header.content.includes(`title="${header.tooltip}"`), `${header.name} must expose the Info tooltip`)
-      assert.strictEqual(
-        header.content.includes(header.removedCopy),
-        false,
-        `${header.name} must not retain the static header paragraph`
-      )
+describe('Bridge Section rendered behavior', () => {
+  it('round-trips every typed bridge route', () => {
+    assert.deepEqual([...BRIDGE_TABS], ['remote', 'gemini', 'whatsapp', 'telegram', 'discord'])
+    for (const tab of BRIDGE_TABS) {
+      const hash = serializeRoute({ tool: 'remote-connect', tab })
+      assert.equal(routeToTool(parseHash(hash)), 'remote-connect')
+      assert.deepEqual(parseHash(hash), { tool: 'remote-connect', tab })
     }
   })
 
-  it('RemoteControlPage includes tunnel diagnostics log viewer and action feedback banner', () => {
-    assert.ok(remoteContent.includes('View Tunnel Diagnostics & Logs'), 'must contain tunnel diagnostics log viewer trigger')
-    assert.ok(remoteContent.includes('Hide Connection Logs'), 'must contain hide log toggle text')
-    assert.ok(remoteContent.includes('showTunnelLogs'), 'must have state for tunnel logs')
-    assert.ok(remoteContent.includes('actionFeedback'), 'must have state for action feedback')
-    assert.ok(remoteContent.includes('actionFeedback.text'), 'must render actionFeedback text')
-    assert.ok(remoteContent.includes('status?.tunnel?.logs'), 'must display tunnel logs from status')
-  })
+  it('mounts the App, renders all bridge tabs, and swaps the active panel', async () => {
+    const { App } = await import('../App')
+    view = await mount(React.createElement(App))
+    await flush()
 
-  it('WhatsAppBridgePage, TelegramBridgePage, and DiscordBridgePage update status on test and fetch unredacted config', () => {
-    for (const { name, content } of [
-      { name: 'WhatsAppBridgePage', content: waContent },
-      { name: 'TelegramBridgePage', content: tgContent },
-      { name: 'DiscordBridgePage', content: dsContent },
-    ]) {
-      assert.ok(
-        content.includes('api.getChannelsConfig(true)'),
-        `${name} must fetch unredacted config with getChannelsConfig(true)`
-      )
-      assert.ok(
-        content.includes('setStatus(res.status)'),
-        `${name} must update status with setStatus(res.status) on test / save`
-      )
-    }
-  })
+    const tabs = view.querySelectorAll<HTMLElement>('[data-route-tab]')
+    assert.deepEqual(tabs.map((tab) => tab.dataset.routeTab), [...BRIDGE_TABS])
+    assert.deepEqual(
+      tabs.map((tab) => tab.textContent?.trim()),
+      ['Remote', 'Gemini', 'WhatsApp', 'Telegram', 'Discord'],
+    )
+    assert.equal(view.querySelector('[data-route-tab="remote"]')?.getAttribute('aria-pressed'), 'true')
+    assert.match(view.container.textContent || '', /Security PIN/)
+    assert.ok(requests.some((request) => request.path.endsWith('/api/bridge/remote/status')))
 
-  it('GeminiBridgePage merges rotated credentials and seeds custom tunnel URL', () => {
-    assert.ok(geminiContent.includes('res.auth_token || res.status?.auth_token'))
-    assert.ok(geminiContent.includes('res.pairing_pin || res.status?.pairing_pin'))
-    assert.ok(geminiContent.includes('setCustomTunnelURL((prev) => prev || res.tunnel.gateway_url)'))
-  })
+    await clickTab('gemini')
+    assert.match(view.container.textContent || '', /Gemini Agent Chat Bridge/)
+    assert.doesNotMatch(view.container.textContent || '', /Security PIN/)
+    assert.ok(requests.some((request) => request.path.endsWith('/api/bridge/status')))
 
-  it('all 5 bridge pages eliminate banned AI buzzwords (utilize, supercharge, paradigm shift, delve)', () => {
-    const pages = [
-      { name: 'RemoteControlPage', content: remoteContent },
-      { name: 'GeminiBridgePage', content: geminiContent },
-      { name: 'WhatsAppBridgePage', content: waContent },
-      { name: 'TelegramBridgePage', content: tgContent },
-      { name: 'DiscordBridgePage', content: dsContent },
-      { name: 'BridgePage', content: bridgeContent },
-    ]
-    const banned = ['utilize', 'supercharge', 'paradigm shift', 'delve']
-    for (const page of pages) {
-      for (const word of banned) {
-        assert.strictEqual(
-          page.content.toLowerCase().includes(word),
-          false,
-          `${page.name} must not contain AI buzzword "${word}"`
-        )
-      }
-    }
+    await clickTab('whatsapp')
+    assert.match(view.container.textContent || '', /WhatsApp Agent Chat Bridge/)
+    assert.ok(requests.some((request) => request.path.endsWith('/api/bridge/channels/status')))
+
+    await clickTab('telegram')
+    assert.match(view.container.textContent || '', /Telegram Agent Chat Bridge/)
+
+    await clickTab('discord')
+    assert.match(view.container.textContent || '', /Discord Agent Chat Bridge/)
+
+    await clickTab('remote')
+    assert.match(view.container.textContent || '', /Security PIN/)
   })
 })

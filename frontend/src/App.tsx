@@ -1,5 +1,21 @@
-import React, { useState, useEffect } from 'react'
-import { ArrowRightLeft, FolderArchive, HardDrive } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import {
+  BRIDGE_TABS,
+  ENHANCEMENT_TABS,
+  EXTENSIONS_TABS,
+  SYSTEM_SETTINGS_TABS,
+  TOKEN_MONITOR_TABS,
+  routeFromNavigationTarget,
+  routeToTool,
+  type BridgeTab,
+  type EnhancementTab,
+  type ExtensionsTab,
+  type SystemSettingsTab,
+  type TokenMonitorTab,
+  type UtilitiesTab,
+} from './navigation/routes'
+import { useRouteNavigation } from './navigation/useRouteNavigation'
+import { ArrowRightLeft, FolderArchive, HardDrive, type LucideIcon } from 'lucide-react'
 import { NavRail } from './components/NavRail'
 import { TopRibbon } from './components/TopRibbon'
 import { QuotaDashboardPage } from './pages/QuotaDashboardPage'
@@ -15,49 +31,152 @@ import { BridgePage } from './pages/BridgePage'
 import { ACPAgentMeshPage } from './pages/ACPAgentMeshPage'
 import { AppLockScreen } from './components/AppLockScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import type { AccountState, FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
-import { toAccountState } from './types'
-import { api, setSessionToken, getSessionToken, runSingleFlightPoll, shouldRunBackgroundPoll } from './api'
+import { api, getSessionToken, shouldRunBackgroundPoll } from './api'
+import {
+  dashboardIsOffline,
+  type DashboardEndpoint,
+} from './utils/dashboardLoadState'
+import {
+  useDashboardData,
+  type DashboardLoaders,
+} from './hooks/useDashboardData'
 
-export const App: React.FC = () => {
-  const [currentTool, setCurrentTool] = useState<number>(0) // 0: Switcher, 2: Settings, 3: Custom Models, 4: Enhancements, 7: Extensions, 8: Token Monitor, 9: Utilities, 10: Remote Connect, 11: ACP Adapter
-  const [currentTab, setCurrentTab] = useState<number>(0) // 0: Dashboard, 1: FP, 2: Rules
-  const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
-  const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Auxiliary Panel
-  const [extensionsTab, setExtensionsTab] = useState<number>(0) // 0: Built-in, 1: Community
-  const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; color: string; order: number; is_archived: boolean }>>([])
-  const [utilitiesTab, setUtilitiesTab] = useState<'cache' | 'archives' | 'import'>('cache')
-  const [bridgeTab, setBridgeTab] = useState<number>(0) // 0: Remote, 1: Gemini, 2: WhatsApp, 3: Telegram, 4: Discord
-  const [tokenMonitorTab, setTokenMonitorTab] = useState<number>(0) // 0: Overview, 1: Telemetry & Logs, 2: Token Price
-  const [status, setStatus] = useState<SystemStatus | null>(null)
-  const [fleet, setFleet] = useState<FleetQuotaSummary | null>(null)
-  const [directAccounts, setDirectAccounts] = useState<any[]>([])
-  const [rules, setRules] = useState<RuleConfig | null>(null)
-  const [, setLoading] = useState<boolean>(true)
+interface SecondaryTabOption<T extends string> {
+  id: T
+  label: string
+  Icon?: LucideIcon
+}
+
+interface SecondaryTabsProps<T extends string> {
+  options: readonly SecondaryTabOption<T>[]
+  activeId: T
+  onSelect: (tab: T) => void
+}
+
+function SecondaryTabs<T extends string>({ options, activeId, onSelect }: SecondaryTabsProps<T>) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        backgroundColor: 'var(--tonal)',
+        borderRadius: '8px',
+        padding: '3px',
+        gap: '2px',
+      }}
+    >
+      {options.map(({ id, label, Icon }) => {
+        const isActive = activeId === id
+        return (
+          <button
+            key={id}
+            type="button"
+            data-route-tab={id}
+            aria-pressed={isActive}
+            onClick={() => onSelect(id)}
+            style={{
+              borderRadius: '6px',
+              padding: '6px 16px',
+              fontSize: '12px',
+              fontWeight: isActive ? 600 : 500,
+              color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+              backgroundColor: isActive ? 'var(--surface)' : 'transparent',
+              boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              border: 'none',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {Icon ? <Icon size={13} /> : null}
+              {label}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+const SYSTEM_SETTINGS_TAB_OPTIONS = [
+  { id: 'general', label: 'General' },
+  { id: 'storage', label: 'Path & Storage' },
+  { id: 'privacy', label: 'Error & Privacy' },
+  { id: 'about', label: 'About' },
+] as const satisfies ReadonlyArray<SecondaryTabOption<SystemSettingsTab>>
+
+const ENHANCEMENT_TAB_OPTIONS = [
+  { id: 'chat-view', label: 'Chat View' },
+  { id: 'project-panel', label: 'Project Panel' },
+  { id: 'auxiliary-panel', label: 'Auxiliary Panel' },
+] as const satisfies ReadonlyArray<SecondaryTabOption<EnhancementTab>>
+
+const EXTENSIONS_TAB_OPTIONS = [
+  { id: 'built-in', label: 'Built-in' },
+  { id: 'community', label: 'Community' },
+] as const satisfies ReadonlyArray<SecondaryTabOption<ExtensionsTab>>
+
+const TOKEN_MONITOR_TAB_OPTIONS = [
+  { id: 'overview', label: 'Consumption Overview' },
+  { id: 'telemetry', label: 'Telemetry & Logs' },
+  { id: 'token-price', label: 'Token Price' },
+] as const satisfies ReadonlyArray<SecondaryTabOption<TokenMonitorTab>>
+
+const UTILITIES_TAB_OPTIONS = [
+  { id: 'cache', label: 'Storage Manager', Icon: HardDrive },
+  { id: 'archives', label: 'Archived Projects', Icon: FolderArchive },
+  { id: 'import', label: 'Chat & Project Importer', Icon: ArrowRightLeft },
+] as const satisfies ReadonlyArray<SecondaryTabOption<UtilitiesTab>>
+
+const BRIDGE_TAB_OPTIONS = [
+  { id: 'remote', label: 'Remote' },
+  { id: 'gemini', label: 'Gemini' },
+  { id: 'whatsapp', label: 'WhatsApp' },
+  { id: 'telegram', label: 'Telegram' },
+  { id: 'discord', label: 'Discord' },
+] as const satisfies ReadonlyArray<SecondaryTabOption<BridgeTab>>
+
+export interface AppProps {
+  dashboardLoaders?: DashboardLoaders
+}
+
+export const App: React.FC<AppProps> = ({ dashboardLoaders }) => {
+  const { route, navigate } = useRouteNavigation()
+  const currentTool = routeToTool(route)
+  const currentTab = route.tool === 'switcher' ? route.tab : 'dashboard'
+  const utilitiesTab = route.tool === 'utilities' ? route.tab : 'cache'
+  const systemSettingsTab = route.tool === 'system-settings' ? route.tab : 'general'
+  const enhancementTab = route.tool === 'enhancements' ? route.tab : 'chat-view'
+  const extensionsTab = route.tool === 'extensions' ? route.tab : 'built-in'
+  const bridgeTab = route.tool === 'remote-connect' ? route.tab : 'remote'
+  const tokenMonitorTab = route.tool === 'token-monitor' ? route.tab : 'overview'
+  const onRulesSurface = route.tool === 'system-settings' ||
+    (route.tool === 'switcher' && route.tab === 'switcher-settings')
+  const onProjectsSurface = route.tool === 'switcher'
+  const {
+    state,
+    isLoading,
+    failedEndpoints,
+    effectiveAccounts,
+    directAccounts,
+    load: loadAllData,
+    refreshLive,
+    retry,
+  } = useDashboardData({ loaders: dashboardLoaders })
+  const status = state.status.data
+  const fleet = state.quota.data
+  const rules = state.rules.data
+  const availableProjects = state.projects.data ?? []
   const [isLocked, setIsLocked] = useState<boolean>(false)
-  const isPollingRef = React.useRef(false)
-
-  const effectiveAccounts: AccountState[] = React.useMemo(() => {
-    if (fleet?.accounts && fleet.accounts.length > 0) {
-      return fleet.accounts
-    }
-    if (directAccounts && directAccounts.length > 0) {
-      const active = status?.active_account || fleet?.active_account || ''
-      return directAccounts.map(a => toAccountState(a, active, rules?.allow_non_gemini_native_models))
-    }
-    return []
-  }, [fleet?.accounts, directAccounts, status?.active_account, fleet?.active_account, rules?.allow_non_gemini_native_models])
 
   const checkAuth = async () => {
     try {
-      // Desktop shell: bootstrap the daemon session token directly via IPC so the
-      // lock screen is never needed in the Electron app (it is a browser-access guard).
       const electronAPI = (window as any).electronAPI
-      if (electronAPI?.getSessionToken) {
-        try {
-          const injected = await electronAPI.getSessionToken()
-          if (injected) setSessionToken(injected)
-        } catch {}
+      const usesDaemonBroker = electronAPI?.isElectron === true &&
+        typeof (window as any).swiss?.request === 'function'
+      if (usesDaemonBroker) {
+        setIsLocked(false)
+        return
       }
       const res = await api.getAuthStatus()
       if (res.password_required) {
@@ -70,102 +189,26 @@ export const App: React.FC = () => {
     }
   }
 
-  const loadAllData = async () => {
-    try {
-      const [s, f, r, p, accs] = await Promise.allSettled([
-        api.getStatus(),
-        api.getFleetQuota(),
-        api.getRules(),
-        api.getGUIProjects(),
-        api.getAccounts(),
-      ])
-
-      if (s.status === 'fulfilled') setStatus(s.value)
-      if (f.status === 'fulfilled') setFleet(f.value)
-      if (r.status === 'fulfilled') setRules(r.value)
-      if (p.status === 'fulfilled' && Array.isArray(p.value)) {
-        const activeProjs = p.value.filter(proj => !proj.is_archived)
-        setAvailableProjects(activeProjs)
-        if (activeProjs.length > 0 && !localStorage.getItem('antigravity_last_active_project')) {
-          localStorage.setItem('antigravity_last_active_project', activeProjs[0].name)
-        }
-      }
-      if (accs.status === 'fulfilled' && Array.isArray(accs.value)) {
-        setDirectAccounts(accs.value)
-      }
-    } catch (err) {
-      console.error('Data loading error:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-
-  const pollStatus = () => runSingleFlightPoll(isPollingRef, loadAllData)
-
   useEffect(() => {
     checkAuth()
-    void pollStatus()
+    void loadAllData()
     // Listen for navigation requests from Electron system tray context menu
     let unsubNavigate: (() => void) | undefined
     const electronAPI = (window as any).electronAPI
     if (electronAPI?.onNavigate) {
-      unsubNavigate = electronAPI.onNavigate((target: number | string) => {
-        if (typeof target === 'string') {
-          const namedRouteMap: Record<string, number> = {
-            quota: 0,
-            dashboard: 0,
-            switcher: 0,
-            fingerprints: 0,
-            settings: 2,
-            models: 3,
-            custommodels: 3,
-            enhancements: 4,
-            archived: 6,
-            extensions: 7,
-            tokenmonitor: 8,
-            tokens: 8,
-            utilities: 9,
-            bridge: 10,
-            remote: 10,
-            acpmesh: 11,
-            'acp-mesh': 11,
-            'acp-adapter': 11,
-            acpadapter: 11,
-            adapter: 11,
-            'agent-communication': 11,
-            agentcommunication: 11,
-            communication: 11,
-          }
-          const lower = target.toLowerCase()
-          if (namedRouteMap[lower] !== undefined) {
-            if (lower === 'fingerprints') {
-              setCurrentTab(1)
-            }
-            setCurrentTool(namedRouteMap[lower])
-            return
-          }
-        }
-        if (typeof target === 'number' && !isNaN(target) && target >= 0 && target <= 11) {
-          if (target === 1 || target === 6) {
-            setUtilitiesTab('archives')
-            setCurrentTool(9)
-          } else if (target === 5) {
-            setCurrentTool(0)
-          } else {
-            setCurrentTool(target)
-          }
-        }
+      unsubNavigate = electronAPI.onNavigate((target: unknown) => {
+        const nextRoute = routeFromNavigationTarget(target)
+        if (nextRoute) navigate(nextRoute)
       })
     }
     // Poll status and fleet metrics periodically without overlapping requests.
     const interval = setInterval(() => {
       if (!shouldRunBackgroundPoll()) return
-      void pollStatus()
+      void refreshLive()
     }, 10000)
     const handleVisibilityChange = () => {
       if (shouldRunBackgroundPoll()) {
-        void pollStatus()
+        void refreshLive()
       }
     }
     if (typeof document !== 'undefined') {
@@ -180,7 +223,69 @@ export const App: React.FC = () => {
         document.removeEventListener('visibilitychange', handleVisibilityChange)
       }
     }
-  }, [])
+  }, [loadAllData, navigate, refreshLive])
+
+  const accountsFallbackRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const quota = state.quota
+    const fleetHasAccounts = (quota.data?.accounts.length ?? 0) > 0
+    const needsAccounts = quota.status === 'error' ||
+      quota.status === 'degraded' ||
+      (quota.status === 'ready' && !fleetHasAccounts)
+    const key = `${quota.status}:${quota.updatedAt ?? 0}:${quota.error ?? ''}`
+    if (needsAccounts && accountsFallbackRef.current !== key) {
+      accountsFallbackRef.current = key
+      void retry(['accounts'])
+    } else if (fleetHasAccounts) {
+      accountsFallbackRef.current = null
+    }
+  }, [retry, state.quota])
+
+  const rulesSurfaceRef = useRef(onRulesSurface)
+  const projectsSurfaceRef = useRef(onProjectsSurface)
+
+  useEffect(() => {
+    const entered = !rulesSurfaceRef.current && onRulesSurface
+    rulesSurfaceRef.current = onRulesSurface
+    if (entered) {
+      void retry(['rules'])
+    }
+  }, [onRulesSurface, retry])
+
+  useEffect(() => {
+    const entered = !projectsSurfaceRef.current && onProjectsSurface
+    projectsSurfaceRef.current = onProjectsSurface
+    if (entered) {
+      void retry(['projects'])
+    }
+  }, [onProjectsSurface, retry])
+
+  useEffect(() => {
+    const onAccountSwitched = () => { void refreshLive() }
+    const onDashboardMutation = (event: Event) => {
+      const endpoint = (event as CustomEvent<{ endpoint?: string }>).detail?.endpoint
+      if (endpoint === 'rules' || endpoint === 'projects' || endpoint === 'accounts') {
+        void retry([endpoint])
+      }
+    }
+    window.addEventListener('swiss:account-switched', onAccountSwitched)
+    window.addEventListener('swiss:dashboard-mutated', onDashboardMutation)
+    return () => {
+      window.removeEventListener('swiss:account-switched', onAccountSwitched)
+      window.removeEventListener('swiss:dashboard-mutated', onDashboardMutation)
+    }
+  }, [refreshLive, retry])
+
+  useEffect(() => {
+    const activeProjects = availableProjects.filter((project) => !project.is_archived)
+    if (
+      activeProjects.length > 0 &&
+      !localStorage.getItem('antigravity_last_active_project')
+    ) {
+      localStorage.setItem('antigravity_last_active_project', activeProjects[0].name)
+    }
+  }, [availableProjects])
 
   useEffect(() => {
     // A 401 that could not be auto-recovered means interactive unlock is needed.
@@ -189,32 +294,23 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('swiss:auth-required', onAuthRequired)
   }, [])
 
-  useEffect(() => {
-    if (currentTool === 1 || currentTool === 6) {
-      setUtilitiesTab('archives')
-      setCurrentTool(9)
-    } else if (currentTool === 5) {
-      setCurrentTool(0)
-    }
-  }, [currentTool])
-
   if (isLocked) {
     return (
       <AppLockScreen
         onUnlocked={() => {
           setIsLocked(false)
-          loadAllData()
+          void loadAllData()
         }}
       />
     )
   }
 
   return (
-    <div style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+    <div data-active-tool={currentTool} style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
       {/* 1. Left Navigation Rail (Fixed 200px) */}
       <NavRail
         currentTool={currentTool}
-        onSelectTool={setCurrentTool}
+        navigate={navigate}
         status={status}
       />
 
@@ -230,13 +326,13 @@ export const App: React.FC = () => {
         }}
       >
         {/* Top Header / Ribbon */}
-        {currentTool === 0 ? (
+        {currentTool === 'switcher' ? (
           <TopRibbon
             currentTab={currentTab}
-            onSelectTab={setCurrentTab}
+            navigate={navigate}
             activeAccount={status?.active_account || fleet?.active_account || null}
           />
-        ) : (currentTool !== 6) ? (
+        ) : (
           <header
             style={{
               height: '72px',
@@ -251,256 +347,70 @@ export const App: React.FC = () => {
             }}
           >
             <div id="top-bar-left" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              {currentTool === 3 && (
+              {currentTool === 'custom-models' && (
                 <div
                   id="custom-models-top-bar-portal"
                   style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
                 />
               )}
-              {currentTool === 11 && (
-                <span style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                  ACP Adapter
-                </span>
-              )}
-              {currentTool === 4 && (
-                /* UI Enhancement Segmented Tabs */
+              {currentTool === 'acp-adapter' && (
                 <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {['Chat View', 'Project Panel', 'Auxiliary Panel'].map((tab, idx) => {
-                    const isActive = enhancementTab === idx
-                    return (
-                      <button
-                        key={tab}
-                        onClick={() => setEnhancementTab(idx)}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    )
-                  })}
-                </div>
+                  id="acp-adapter-top-bar-portal"
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
+                />
+              )}
+              {currentTool === 'enhancements' && (
+                <SecondaryTabs
+                  options={ENHANCEMENT_TAB_OPTIONS}
+                  activeId={enhancementTab}
+                  onSelect={(tab) => navigate({ tool: 'enhancements', tab })}
+                />
               )}
 
-              {currentTool === 7 && (
-                /* Extensions Segmented Tabs */
-                <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {['Built-in', 'Community'].map((tab, idx) => {
-                    const isActive = extensionsTab === idx
-                    return (
-                      <button
-                        key={tab}
-                        onClick={() => setExtensionsTab(idx)}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    )
-                  })}
-                </div>
+              {currentTool === 'extensions' && (
+                <SecondaryTabs
+                  options={EXTENSIONS_TAB_OPTIONS}
+                  activeId={extensionsTab}
+                  onSelect={(tab) => navigate({ tool: 'extensions', tab })}
+                />
               )}
 
-              {currentTool === 8 && (
-                /* Token Monitor Segmented Tabs */
-                <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {['Consumption Overview', 'Telemetry & Logs', 'Token Price'].map((tab, idx) => {
-                    const isActive = tokenMonitorTab === idx
-                    return (
-                      <button
-                        key={tab}
-                        onClick={() => setTokenMonitorTab(idx)}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    )
-                  })}
-                </div>
+              {currentTool === 'token-monitor' && (
+                <SecondaryTabs
+                  options={TOKEN_MONITOR_TAB_OPTIONS}
+                  activeId={tokenMonitorTab}
+                  onSelect={(tab) => navigate({ tool: 'token-monitor', tab })}
+                />
               )}
 
-              {currentTool === 9 && (
-                /* Utilities Segmented Tabs */
-                <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {[
-                    { id: 'cache' as const, label: 'Storage Manager', Icon: HardDrive },
-                    { id: 'archives' as const, label: 'Archived Projects', Icon: FolderArchive },
-                    { id: 'import' as const, label: 'Chat & Project Importer', Icon: ArrowRightLeft },
-                  ].map(({ id, label, Icon }) => {
-                    const isActive = utilitiesTab === id
-                    return (
-                      <button
-                        key={id}
-                        onClick={() => setUtilitiesTab(id)}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <Icon size={13} />
-                          {label}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
+              {currentTool === 'utilities' && (
+                <SecondaryTabs
+                  options={UTILITIES_TAB_OPTIONS}
+                  activeId={utilitiesTab}
+                  onSelect={(tab) => navigate({ tool: 'utilities', tab })}
+                />
               )}
 
-              {currentTool === 10 && (
-                /* Remote Connect Segmented Tabs */
-                <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {['Remote', 'Gemini', 'WhatsApp', 'Telegram', 'Discord'].map((tab, idx) => {
-                    const isActive = bridgeTab === idx
-                    return (
-                      <button
-                        key={tab}
-                        onClick={() => setBridgeTab(idx)}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    )
-                  })}
-                </div>
+              {currentTool === 'remote-connect' && (
+                <SecondaryTabs
+                  options={BRIDGE_TAB_OPTIONS}
+                  activeId={bridgeTab}
+                  onSelect={(tab) => navigate({ tool: 'remote-connect', tab })}
+                />
               )}
 
-              {currentTool === 2 && (
-                /* System Settings Category Tabs */
-                <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {['General', 'Path & Storage', 'Error & Privacy', 'About'].map((tab, idx) => {
-                    const isActive = systemSettingsTab === idx
-                    return (
-                      <button
-                        key={tab}
-                        onClick={() => setSystemSettingsTab(idx)}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    )
-                  })}
-                </div>
+              {currentTool === 'system-settings' && (
+                <SecondaryTabs
+                  options={SYSTEM_SETTINGS_TAB_OPTIONS}
+                  activeId={systemSettingsTab}
+                  onSelect={(tab) => navigate({ tool: 'system-settings', tab })}
+                />
               )}
 
             </div>
 
             <div id="top-bar-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {currentTool === 11 && (
+              {currentTool === 'acp-adapter' && (
                 <div
                   id="acp-mesh-top-bar-portal"
                   style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
@@ -508,10 +418,58 @@ export const App: React.FC = () => {
               )}
             </div>
           </header>
-        ) : null}
+        )}
+
+        {failedEndpoints.length > 0 && (
+          <div
+            data-dashboard-health
+            role="status"
+            aria-live="polite"
+            style={{
+              minHeight: '36px',
+              boxSizing: 'border-box',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px',
+              padding: '0 24px',
+              backgroundColor: 'var(--tonal)',
+              borderBottom: '1px solid var(--border)',
+              color: 'var(--text-muted)',
+              fontSize: '12px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span>
+              {dashboardIsOffline(state)
+                ? 'Daemon offline'
+                : `${failedEndpoints.length} source${failedEndpoints.length === 1 ? '' : 's'} unavailable \u00b7 Stale data`}
+            </span>
+            <button
+              data-dashboard-retry
+              type="button"
+              disabled={isLoading}
+              onClick={() => void retry(failedEndpoints as DashboardEndpoint[])}
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                padding: '4px 12px',
+                backgroundColor: 'var(--surface)',
+                color: 'var(--text)',
+                fontSize: '12px',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                cursor: isLoading ? 'default' : 'pointer',
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* Scrollable Feature Page View (Whole Page Scrolls) */}
         <main
+          aria-busy={isLoading}
           style={{
             flex: 1,
             overflowY: 'auto',
@@ -519,9 +477,9 @@ export const App: React.FC = () => {
           }}
         >
           <ErrorBoundary>
-            {currentTool === 0 && (
+            {currentTool === 'switcher' && (
               <ErrorBoundary>
-                {currentTab === 0 && (
+                {currentTab === 'dashboard' && (
                   <QuotaDashboardPage
                     fleet={fleet}
                     directAccounts={directAccounts}
@@ -529,15 +487,15 @@ export const App: React.FC = () => {
                     rules={rules}
                     onRefresh={loadAllData}
                     onAutoSwitchToggled={(val) => {
-                      if (rules) setRules({ ...rules, auto_switch_enabled: val })
-                      loadAllData()
+                      void val
+                      void loadAllData()
                     }}
                   />
                 )}
-                {currentTab === 1 && (
+                {currentTab === 'fingerprints' && (
                   <FingerprintsPage accounts={effectiveAccounts} />
                 )}
-                {currentTab === 2 && (
+                {currentTab === 'switcher-settings' && (
                   <SwitcherSettingsPage
                     initialRules={rules}
                     onSaved={loadAllData}
@@ -546,60 +504,72 @@ export const App: React.FC = () => {
               </ErrorBoundary>
             )}
 
-            {currentTool === 2 && (
+            {currentTool === 'system-settings' && (
               <ErrorBoundary>
                 <SystemSettingsPage
                   status={status}
                   onRefresh={loadAllData}
-                  activeTab={systemSettingsTab}
-                  onTabChange={setSystemSettingsTab}
+                  activeTab={SYSTEM_SETTINGS_TABS.indexOf(systemSettingsTab)}
+                  onTabChange={(tab) => {
+                    const nextTab = SYSTEM_SETTINGS_TABS[tab]
+                    if (nextTab) navigate({ tool: 'system-settings', tab: nextTab })
+                  }}
                 />
               </ErrorBoundary>
             )}
-            {currentTool === 3 && (
+            {currentTool === 'custom-models' && (
               <ErrorBoundary>
                 <CustomModelsPage />
               </ErrorBoundary>
             )}
-            {currentTool === 4 && (
+            {currentTool === 'enhancements' && (
               <ErrorBoundary>
-                <AppEnhancementsPage activeCategoryTab={enhancementTab} />
+                <AppEnhancementsPage activeCategoryTab={ENHANCEMENT_TABS.indexOf(enhancementTab)} />
               </ErrorBoundary>
             )}
-            {currentTool === 7 && (
+            {currentTool === 'extensions' && (
               <ErrorBoundary>
                 <ExtensionsPage
-                  activeTab={extensionsTab}
-                  onTabChange={setExtensionsTab}
+                  activeTab={EXTENSIONS_TABS.indexOf(extensionsTab)}
+                  onTabChange={(tab) => {
+                    const nextTab = EXTENSIONS_TABS[tab]
+                    if (nextTab) navigate({ tool: 'extensions', tab: nextTab })
+                  }}
                   fallbackProject={availableProjects[0]?.name}
                 />
               </ErrorBoundary>
             )}
-            {currentTool === 8 && (
+            {currentTool === 'token-monitor' && (
               <ErrorBoundary>
                 <TokenMonitorPage
-                  activeTab={tokenMonitorTab}
-                  onTabChange={setTokenMonitorTab}
+                  activeTab={TOKEN_MONITOR_TABS.indexOf(tokenMonitorTab)}
+                  onTabChange={(tab) => {
+                    const nextTab = TOKEN_MONITOR_TABS[tab]
+                    if (nextTab) navigate({ tool: 'token-monitor', tab: nextTab })
+                  }}
                 />
               </ErrorBoundary>
             )}
-            {currentTool === 9 && (
+            {currentTool === 'utilities' && (
               <ErrorBoundary>
                 <UtilitiesPage
                   activeTab={utilitiesTab}
-                  onTabChange={setUtilitiesTab}
+                  onTabChange={(tab) => navigate({ tool: 'utilities', tab })}
                 />
               </ErrorBoundary>
             )}
-            {currentTool === 10 && (
+            {currentTool === 'remote-connect' && (
               <ErrorBoundary>
                 <BridgePage
-                  activeTab={bridgeTab}
-                  onTabChange={setBridgeTab}
+                  activeTab={BRIDGE_TABS.indexOf(bridgeTab)}
+                  onTabChange={(tab) => {
+                    const nextTab = BRIDGE_TABS[tab]
+                    if (nextTab) navigate({ tool: 'remote-connect', tab: nextTab })
+                  }}
                 />
               </ErrorBoundary>
             )}
-            {currentTool === 11 && (
+            {currentTool === 'acp-adapter' && (
               <ErrorBoundary>
                 <ACPAgentMeshPage />
               </ErrorBoundary>

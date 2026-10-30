@@ -471,3 +471,129 @@ func TestProxyCatalogServesLastKnownGoodOnRefreshFailure(t *testing.T) {
 		t.Fatalf("upstream calls=%d, want one successful seed and one failed refresh", got)
 	}
 }
+
+func TestSyncModelIdentityInRequest(t *testing.T) {
+	model := &CustomModel{
+		ID:               "openai-deepseek-v4-flash-1",
+		Name:             "deepseek-v4.1-flash",
+		DisplayName:      "DeepSeek V4.1 Flash (OpenCode)",
+		ThinkingLevel:    "high",
+		SupportsThinking: true,
+	}
+
+	originalText := "<USER_REQUEST>\nwhat model are u\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nThe current local time is: 2026-10-29T17:16:43+11:00.\n</ADDITIONAL_METADATA>\n<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Gemini 3.8 Flash (High). No need to comment on this change if the user doesn't ask about it. If reporting what model you are, please use a human readable name instead of the exact string.\n</USER_SETTINGS_CHANGE>"
+
+	req := &geminiRequest{
+		Contents: []geminiContent{
+			{
+				Role: "user",
+				Parts: []geminiPart{
+					{Text: originalText},
+				},
+			},
+		},
+		SystemInstruction: &geminiContent{
+			Role: "system",
+			Parts: []geminiPart{
+				{Text: "You are Antigravity, a powerful agentic AI coding assistant designed by Google."},
+			},
+		},
+	}
+
+	syncModelIdentityInRequest(req, model)
+
+	resultText := req.Contents[0].Parts[0].Text
+	if !strings.Contains(resultText, "DeepSeek V4.1 Flash (OpenCode) (High)") {
+		t.Errorf("expected rewritten USER_SETTINGS_CHANGE to contain DeepSeek V4.1 Flash (OpenCode) (High), got: %s", resultText)
+	}
+	if strings.Contains(resultText, "Gemini 3.8 Flash") {
+		t.Errorf("result text should no longer contain Gemini 3.8 Flash, got: %s", resultText)
+	}
+	if !strings.Contains(resultText, "No need to comment on this change") {
+		t.Errorf("expected trailing guidance in USER_SETTINGS_CHANGE to be preserved, got: %s", resultText)
+	}
+
+	sysText := req.SystemInstruction.Parts[len(req.SystemInstruction.Parts)-1].Text
+	if !strings.Contains(sysText, "DeepSeek V4.1 Flash (OpenCode)") {
+		t.Errorf("expected system instruction to include active model environment, got: %s", sysText)
+	}
+}
+
+func TestExtractConversationID(t *testing.T) {
+	reqID := "agent/e05a681a-1e3c-47f0-b217-aaadc7625295/1793254603527/3362b57d-514b-4be0-a7ab-aab12cf4c165/1"
+	got := extractConversationID(reqID, nil)
+	if got != "e05a681a-1e3c-47f0-b217-aaadc7625295" {
+		t.Errorf("extractConversationID from reqID = %q, want e05a681a-1e3c-47f0-b217-aaadc7625295", got)
+	}
+
+	raw := json.RawMessage(`{"cascade_id":"11223344-5566-7788-99aa-bbccddeeff00"}`)
+	got2 := extractConversationID("no-uuid", raw)
+	if got2 != "11223344-5566-7788-99aa-bbccddeeff00" {
+		t.Errorf("extractConversationID from cascade_id = %q, want 11223344-5566-7788-99aa-bbccddeeff00", got2)
+	}
+}
+
+func TestStore_RecordAndGetConversationModel(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	store.RecordConversationModel("conv-1234", "custom-model-abc")
+	if got := store.GetConversationModel("conv-1234"); got != "custom-model-abc" {
+		t.Errorf("GetConversationModel = %q, want custom-model-abc", got)
+	}
+
+	// Verify persistence
+	store2, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore 2: %v", err)
+	}
+	if got := store2.GetConversationModel("conv-1234"); got != "custom-model-abc" {
+		t.Errorf("GetConversationModel after reload = %q, want custom-model-abc", got)
+	}
+}
+
+func TestProxyCatalogAugmentsForAgyCLI(t *testing.T) {
+	const rawUpstreamCatalog = `{"agentModelSorts":[{"displayName":"Recommended","groups":[{"modelIds":["gemini-3.8-flash"]}]}],"models":{"gemini-3.8-flash":{"displayName":"Gemini 3.8 Flash"}}}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(rawUpstreamCatalog))
+	}))
+	defer upstream.Close()
+
+	_, proxy := newProxyFixture(t, upstream.URL)
+
+	// 1. Non-CLI caller: receives upstream catalog unchanged
+	reqNonCLI := httptest.NewRequest(http.MethodPost, "/v1internal:fetchAvailableModels", strings.NewReader(`{}`)).WithContext(context.Background())
+	reqNonCLI.Header.Set("Authorization", "Bearer account-test")
+	rrNonCLI := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rrNonCLI, reqNonCLI)
+	if rrNonCLI.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rrNonCLI.Code)
+	}
+	if rrNonCLI.Body.String() != rawUpstreamCatalog {
+		t.Fatalf("expected raw catalog for non-CLI caller, got: %s", rrNonCLI.Body.String())
+	}
+
+	// 2. Agy CLI caller: receives augmented catalog containing both native and custom models
+	reqCLI := httptest.NewRequest(http.MethodPost, "/v1internal:fetchAvailableModels", strings.NewReader(`{}`)).WithContext(context.Background())
+	reqCLI.Header.Set("Authorization", "Bearer account-test")
+	reqCLI.Header.Set("User-Agent", "antigravity/cli/1.4.10 (aidev_client; os_type=linux; arch=amd64)")
+	rrCLI := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rrCLI, reqCLI)
+	if rrCLI.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rrCLI.Code)
+	}
+
+	body := rrCLI.Body.String()
+	// Must contain native model
+	if !strings.Contains(body, "gemini-3.8-flash") {
+		t.Errorf("augmented catalog missing native model gemini-3.8-flash: %s", body)
+	}
+	// Must contain custom model configured in newProxyFixture ("deepseek-chat" / "deepseek-proxy")
+	if !strings.Contains(body, "deepseek-chat") && !strings.Contains(body, "deepseek-proxy") {
+		t.Errorf("augmented catalog missing custom model: %s", body)
+	}
+}
