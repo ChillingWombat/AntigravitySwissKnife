@@ -31,9 +31,15 @@ import { BridgePage } from './pages/BridgePage'
 import { ACPAgentMeshPage } from './pages/ACPAgentMeshPage'
 import { AppLockScreen } from './components/AppLockScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import type { AccountState, FleetQuotaSummary, RuleConfig, SystemStatus } from './types'
-import { toAccountState } from './types'
-import { api, getSessionToken, runSingleFlightPoll, shouldRunBackgroundPoll } from './api'
+import { api, getSessionToken, shouldRunBackgroundPoll } from './api'
+import {
+  dashboardIsOffline,
+  type DashboardEndpoint,
+} from './utils/dashboardLoadState'
+import {
+  useDashboardData,
+  type DashboardLoaders,
+} from './hooks/useDashboardData'
 
 interface SecondaryTabOption<T extends string> {
   id: T
@@ -130,7 +136,11 @@ const BRIDGE_TAB_OPTIONS = [
   { id: 'discord', label: 'Discord' },
 ] as const satisfies ReadonlyArray<SecondaryTabOption<BridgeTab>>
 
-export const App: React.FC = () => {
+export interface AppProps {
+  dashboardLoaders?: DashboardLoaders
+}
+
+export const App: React.FC<AppProps> = ({ dashboardLoaders }) => {
   const { route, navigate } = useRouteNavigation()
   const currentTool = routeToTool(route)
   const currentTab = route.tool === 'switcher' ? route.tab : 'dashboard'
@@ -140,25 +150,20 @@ export const App: React.FC = () => {
   const extensionsTab = route.tool === 'extensions' ? route.tab : 'built-in'
   const bridgeTab = route.tool === 'remote-connect' ? route.tab : 'remote'
   const tokenMonitorTab = route.tool === 'token-monitor' ? route.tab : 'overview'
-  const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; color: string; order: number; is_archived: boolean }>>([])
-  const [status, setStatus] = useState<SystemStatus | null>(null)
-  const [fleet, setFleet] = useState<FleetQuotaSummary | null>(null)
-  const [directAccounts, setDirectAccounts] = useState<any[]>([])
-  const [rules, setRules] = useState<RuleConfig | null>(null)
-  const [, setLoading] = useState<boolean>(true)
+  const {
+    state,
+    isLoading,
+    failedEndpoints,
+    effectiveAccounts,
+    directAccounts,
+    load: loadAllData,
+    retry,
+  } = useDashboardData({ loaders: dashboardLoaders })
+  const status = state.status.data
+  const fleet = state.quota.data
+  const rules = state.rules.data
+  const availableProjects = state.projects.data ?? []
   const [isLocked, setIsLocked] = useState<boolean>(false)
-  const isPollingRef = React.useRef(false)
-
-  const effectiveAccounts: AccountState[] = React.useMemo(() => {
-    if (fleet?.accounts && fleet.accounts.length > 0) {
-      return fleet.accounts
-    }
-    if (directAccounts && directAccounts.length > 0) {
-      const active = status?.active_account || fleet?.active_account || ''
-      return directAccounts.map(a => toAccountState(a, active, rules?.allow_non_gemini_native_models))
-    }
-    return []
-  }, [fleet?.accounts, directAccounts, status?.active_account, fleet?.active_account, rules?.allow_non_gemini_native_models])
 
   const checkAuth = async () => {
     try {
@@ -180,42 +185,9 @@ export const App: React.FC = () => {
     }
   }
 
-  const loadAllData = async () => {
-    try {
-      const [s, f, r, p, accs] = await Promise.allSettled([
-        api.getStatus(),
-        api.getFleetQuota(),
-        api.getRules(),
-        api.getGUIProjects(),
-        api.getAccounts(),
-      ])
-
-      if (s.status === 'fulfilled') setStatus(s.value)
-      if (f.status === 'fulfilled') setFleet(f.value)
-      if (r.status === 'fulfilled') setRules(r.value)
-      if (p.status === 'fulfilled' && Array.isArray(p.value)) {
-        const activeProjs = p.value.filter(proj => !proj.is_archived)
-        setAvailableProjects(activeProjs)
-        if (activeProjs.length > 0 && !localStorage.getItem('antigravity_last_active_project')) {
-          localStorage.setItem('antigravity_last_active_project', activeProjs[0].name)
-        }
-      }
-      if (accs.status === 'fulfilled' && Array.isArray(accs.value)) {
-        setDirectAccounts(accs.value)
-      }
-    } catch (err) {
-      console.error('Data loading error:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-
-  const pollStatus = () => runSingleFlightPoll(isPollingRef, loadAllData)
-
   useEffect(() => {
     checkAuth()
-    void pollStatus()
+    void loadAllData()
     // Listen for navigation requests from Electron system tray context menu
     let unsubNavigate: (() => void) | undefined
     const electronAPI = (window as any).electronAPI
@@ -228,11 +200,11 @@ export const App: React.FC = () => {
     // Poll status and fleet metrics periodically without overlapping requests.
     const interval = setInterval(() => {
       if (!shouldRunBackgroundPoll()) return
-      void pollStatus()
+      void loadAllData()
     }, 10000)
     const handleVisibilityChange = () => {
       if (shouldRunBackgroundPoll()) {
-        void pollStatus()
+        void loadAllData()
       }
     }
     if (typeof document !== 'undefined') {
@@ -247,7 +219,17 @@ export const App: React.FC = () => {
         document.removeEventListener('visibilitychange', handleVisibilityChange)
       }
     }
-  }, [navigate])
+  }, [loadAllData, navigate])
+
+  useEffect(() => {
+    const activeProjects = availableProjects.filter((project) => !project.is_archived)
+    if (
+      activeProjects.length > 0 &&
+      !localStorage.getItem('antigravity_last_active_project')
+    ) {
+      localStorage.setItem('antigravity_last_active_project', activeProjects[0].name)
+    }
+  }, [availableProjects])
 
   useEffect(() => {
     // A 401 that could not be auto-recovered means interactive unlock is needed.
@@ -261,7 +243,7 @@ export const App: React.FC = () => {
       <AppLockScreen
         onUnlocked={() => {
           setIsLocked(false)
-          loadAllData()
+          void loadAllData()
         }}
       />
     )
@@ -382,8 +364,56 @@ export const App: React.FC = () => {
           </header>
         )}
 
+        {failedEndpoints.length > 0 && (
+          <div
+            data-dashboard-health
+            role="status"
+            aria-live="polite"
+            style={{
+              minHeight: '36px',
+              boxSizing: 'border-box',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px',
+              padding: '0 24px',
+              backgroundColor: 'var(--tonal)',
+              borderBottom: '1px solid var(--border)',
+              color: 'var(--text-muted)',
+              fontSize: '12px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span>
+              {dashboardIsOffline(state)
+                ? 'Daemon offline'
+                : `${failedEndpoints.length} source${failedEndpoints.length === 1 ? '' : 's'} unavailable \u00b7 Stale data`}
+            </span>
+            <button
+              data-dashboard-retry
+              type="button"
+              disabled={isLoading}
+              onClick={() => void retry(failedEndpoints as DashboardEndpoint[])}
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                padding: '4px 12px',
+                backgroundColor: 'var(--surface)',
+                color: 'var(--text)',
+                fontSize: '12px',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                cursor: isLoading ? 'default' : 'pointer',
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Scrollable Feature Page View (Whole Page Scrolls) */}
         <main
+          aria-busy={isLoading}
           style={{
             flex: 1,
             overflowY: 'auto',
@@ -401,8 +431,8 @@ export const App: React.FC = () => {
                     rules={rules}
                     onRefresh={loadAllData}
                     onAutoSwitchToggled={(val) => {
-                      if (rules) setRules({ ...rules, auto_switch_enabled: val })
-                      loadAllData()
+                      void val
+                      void loadAllData()
                     }}
                   />
                 )}
