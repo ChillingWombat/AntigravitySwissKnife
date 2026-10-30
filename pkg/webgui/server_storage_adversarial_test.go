@@ -28,7 +28,7 @@ func TestAdversarial_HTTPStorageLockdown(t *testing.T) {
 	// Write legacy config with "app_portable"
 	legacyConfig := filepath.Join(sysDir, "config.json")
 	_ = os.WriteFile(legacyConfig, []byte(`{"storage_mode":"app_portable"}`), 0600)
-	_ = os.WriteFile(filepath.Join(sysDir, "accounts.json"), []byte(`[{"id":"user1"}]`), 0600)
+	_ = os.WriteFile(filepath.Join(sysDir, "accounts.json"), []byte(`{"active_account":"user1@example.com","accounts":[{"email":"user1@example.com"}]}`), 0600)
 
 	srv := newTestServer("127.0.0.1:0", filepath.Join(tmpDir, "test.sock"))
 	if err := srv.Start(); err != nil {

@@ -150,24 +150,67 @@ func TestBackendConstructorFailureStopsStartup(t *testing.T) {
 		}
 	})
 
-	t.Run("required store failure", func(t *testing.T) {
+	t.Run("missing quota backend", func(t *testing.T) {
+		guiStore, err := gui.NewStore("")
+		if err != nil {
+			t.Fatalf("gui.NewStore: %v", err)
+		}
+		_, err = NewServer(
+			"127.0.0.1:0",
+			testBackend{accounts: testAccountService{}, gui: &testGUIService{store: guiStore}},
+			ipc.NewClient(filepath.Join(t.TempDir(), "unused.sock")),
+		)
+		if err == nil || !strings.Contains(err.Error(), "quota backend is required") {
+			t.Fatalf("NewServer error = %v, want quota backend failure", err)
+		}
+	})
+
+	t.Run("missing GUI backend", func(t *testing.T) {
+		_, err := NewServer(
+			"127.0.0.1:0",
+			testBackend{accounts: testAccountService{}, quota: testQuotaService{}},
+			ipc.NewClient(filepath.Join(t.TempDir(), "unused.sock")),
+		)
+		if err == nil || !strings.Contains(err.Error(), "GUI backend is required") {
+			t.Fatalf("NewServer error = %v, want GUI backend failure", err)
+		}
+	})
+
+	t.Run("daemon server skips local GUI store", func(t *testing.T) {
 		original := newGUIConfigStore
 		newGUIConfigStore = func(string) (*gui.Store, error) {
 			return nil, errors.New("injected GUI store failure")
 		}
 		t.Cleanup(func() { newGUIConfigStore = original })
 
-		_, err := NewServer(
+		guiStore, err := gui.NewStore("")
+		if err != nil {
+			t.Fatalf("gui.NewStore: %v", err)
+		}
+		_, err = NewServer(
 			"127.0.0.1:0",
-			testBackend{accounts: testAccountService{}},
+			testBackend{
+				accounts: testAccountService{},
+				quota:    testQuotaService{},
+				gui:      &testGUIService{store: guiStore},
+			},
 			ipc.NewClient(filepath.Join(t.TempDir(), "unused.sock")),
 		)
-		if err == nil {
-			t.Fatal("NewServer ignored a required store failure")
+		if err != nil {
+			t.Fatalf("NewServer created a duplicate local GUI store: %v", err)
 		}
-		if !strings.Contains(err.Error(), "initialize GUI store") ||
-			!strings.Contains(err.Error(), "injected GUI store failure") {
-			t.Fatalf("NewServer error = %q, want wrapped GUI store failure", err)
+	})
+
+	t.Run("standalone GUI store failure", func(t *testing.T) {
+		original := newGUIConfigStore
+		newGUIConfigStore = func(string) (*gui.Store, error) {
+			return nil, errors.New("injected GUI store failure")
+		}
+		t.Cleanup(func() { newGUIConfigStore = original })
+
+		_, err := NewRPCServer("127.0.0.1:0", filepath.Join(t.TempDir(), "unused.sock"))
+		if err == nil || !strings.Contains(err.Error(), "initialize GUI store") {
+			t.Fatalf("NewRPCServer error = %v, want subsystem-named GUI store failure", err)
 		}
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/backend"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
@@ -24,6 +25,171 @@ type daemonBackend struct {
 
 func (b daemonBackend) Accounts() backend.AccountService {
 	return daemonAccounts{daemon: b.daemon}
+}
+
+func (b daemonBackend) Quota() backend.QuotaService {
+	return daemonQuota{daemon: b.daemon}
+}
+
+func (b daemonBackend) GUI() backend.GUIService {
+	return daemonGUI{daemon: b.daemon}
+}
+
+type daemonQuota struct {
+	daemon *Daemon
+}
+
+func (s daemonQuota) GetSummary(email string, refresh bool) (*quota.QuotaSummary, error) {
+	target := strings.TrimSpace(email)
+	if target == "" {
+		target = s.daemon.Keyring.ActiveAccount()
+	}
+	normTarget := strings.ToLower(target)
+
+	if !refresh {
+		if cached := s.daemon.getQuotaSummary(target); cached != nil {
+			return cached, nil
+		}
+		diskCache := quota.LoadQuotaCache()
+		if cached, ok := diskCache[normTarget]; ok && cached != nil {
+			s.daemon.setQuotaSummary(target, cached)
+			return cached, nil
+		}
+	}
+
+	acc, _ := s.daemon.Keyring.GetAccount(target)
+	now := time.Now()
+	if acc != nil && (acc.AccessToken != "" || acc.RefreshToken != "") {
+		oldToken := acc.AccessToken
+		summary, err := quota.PollAndCacheAccount(acc, s.daemon.Keyring)
+		if summary != nil {
+			s.daemon.setQuotaSummary(target, summary)
+			if err == nil && strings.EqualFold(target, s.daemon.Keyring.ActiveAccount()) && acc.AccessToken != "" && acc.AccessToken != oldToken {
+				s.daemon.syncActiveAccountSurfaces(acc)
+			}
+			return summary, nil
+		}
+	}
+	if !refresh {
+		if cached := s.daemon.getQuotaSummary(target); cached != nil {
+			return cached, nil
+		}
+	}
+	return &quota.QuotaSummary{
+		AccountEmail:  target,
+		Models:        []quota.ModelQuota{},
+		MinFraction:   0.0,
+		OverallHealth: core.StatusExhausted,
+		LastPolled:    now,
+	}, nil
+}
+
+func (s daemonQuota) GetFleet() *quota.FleetQuotaSummary {
+	var allEmails []string
+	for _, account := range s.daemon.Keyring.ListAccounts() {
+		allEmails = append(allEmails, account.Email)
+	}
+	_, _ = s.daemon.Keyring.ReconcileActiveAccount(s.daemon.Config.AutoImportActiveAccount, allEmails, s.daemon.Profiles)
+
+	accounts := s.daemon.Keyring.ListAccounts()
+	active := s.daemon.Keyring.ActiveAccount()
+	summaries := s.daemon.getQuotaSummaries()
+	if len(summaries) == 0 && len(accounts) > 0 {
+		s.daemon.triggerQuotaRefreshAsync()
+	}
+
+	s.daemon.mu.RLock()
+	threshold := s.daemon.Config.AutoSwitchThreshold
+	weeklyThreshold := s.daemon.Config.AutoSwitchWeeklyThreshold
+	switchMode := s.daemon.Config.SwitchMode
+	allowNonGemini := s.daemon.Config.AllowNonGeminiNativeModels
+	s.daemon.mu.RUnlock()
+	if threshold <= 0 {
+		threshold = core.DefaultAutoSwitchThresholdFraction
+	}
+	if weeklyThreshold <= 0 {
+		weeklyThreshold = core.DefaultAutoSwitchWeeklyThresholdFraction
+	}
+	if switchMode == "" {
+		switchMode = core.DefaultSwitchMode
+	}
+
+	states := quota.BuildAccountQuotaStatesFromMapWithThresholds(accounts, summaries, threshold, weeklyThreshold, allowNonGemini)
+	states = quota.SortAccountQuotaStatesWithThresholds(states, active, threshold, weeklyThreshold, "auto", switchMode, allowNonGemini)
+	summary := quota.ComputeFleetSummary(states, active)
+	for i := range summary.Accounts {
+		summary.Accounts[i].Password = ""
+		summary.Accounts[i].TOTPSecret = ""
+		summary.Accounts[i].AccessToken = ""
+		if strings.TrimSpace(summary.Accounts[i].RefreshToken) != "" {
+			summary.Accounts[i].RefreshToken = "[REDACTED]"
+		}
+	}
+	s.daemon.pollingMu.Lock()
+	summary.Refreshing = s.daemon.isPollingFleet
+	s.daemon.pollingMu.Unlock()
+	return &summary
+}
+
+func (s daemonQuota) RefreshFleet() error {
+	s.daemon.triggerQuotaRefreshAsync()
+	return nil
+}
+
+type daemonGUI struct {
+	daemon *Daemon
+}
+
+func (s daemonGUI) GetConfig() gui.Config {
+	return s.daemon.GUIStore.GetConfig()
+}
+
+func (s daemonGUI) UpdateConfigPartial(rawJSON []byte) (*gui.GUIConfig, error) {
+	return s.daemon.GUIStore.UpdateConfigPartial(rawJSON)
+}
+
+func (s daemonGUI) DetectProjects() ([]gui.ProjectItem, error) {
+	return s.daemon.GUIStore.DetectProjects()
+}
+
+func (s daemonGUI) SetProjectColor(projectName, hexColor string) error {
+	return s.daemon.GUIStore.SetProjectColor(projectName, hexColor)
+}
+
+func (s daemonGUI) DeleteProject(projectName string) error {
+	return s.daemon.GUIStore.DeleteProject(projectName)
+}
+
+func (s daemonGUI) RemoveProjectColor(projectName string) error {
+	return s.daemon.GUIStore.RemoveProjectColor(projectName)
+}
+
+func (s daemonGUI) UpdateProjectOrder(order []string) error {
+	return s.daemon.GUIStore.UpdateProjectOrder(order)
+}
+
+func (s daemonGUI) Apply() (*gui.ApplyResult, error) {
+	return s.daemon.GUIStore.Apply()
+}
+
+func (s daemonGUI) GetArchivedProjects() ([]gui.ArchivedProjectItem, error) {
+	return s.daemon.GUIStore.GetArchivedProjects()
+}
+
+func (s daemonGUI) ArchiveProject(projectName string) error {
+	return s.daemon.GUIStore.ArchiveProject(projectName)
+}
+
+func (s daemonGUI) RestoreProject(projectName string) error {
+	return s.daemon.GUIStore.RestoreProject(projectName)
+}
+
+func (s daemonGUI) OpenProjectSettings(projectName string) error {
+	return s.daemon.GUIStore.OpenProjectSettings(projectName)
+}
+
+func (s daemonGUI) ArchiveStaleConversations(horizon string) (*gui.AutoArchiveResult, error) {
+	return s.daemon.GUIStore.ArchiveStaleConversations(horizon)
 }
 
 type daemonAccounts struct {

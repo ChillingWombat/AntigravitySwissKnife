@@ -2,9 +2,11 @@ package webgui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/backend"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
@@ -15,7 +17,15 @@ func newTestServer(addr, socketPath string) *Server {
 	if err != nil {
 		panic(err)
 	}
-	server, err := NewServer(addr, testBackend{accounts: testAccountService{store: store}}, ipc.NewClient(socketPath))
+	guiStore, err := gui.NewStore("")
+	if err != nil {
+		panic(err)
+	}
+	server, err := NewServer(addr, testBackend{
+		accounts: testAccountService{store: store},
+		quota:    testQuotaService{store: store},
+		gui:      &testGUIService{store: guiStore},
+	}, ipc.NewClient(socketPath))
 	if err != nil {
 		panic(err)
 	}
@@ -24,9 +34,103 @@ func newTestServer(addr, socketPath string) *Server {
 
 type testBackend struct {
 	accounts backend.AccountService
+	quota    backend.QuotaService
+	gui      backend.GUIService
 }
 
 func (b testBackend) Accounts() backend.AccountService { return b.accounts }
+func (b testBackend) Quota() backend.QuotaService      { return b.quota }
+func (b testBackend) GUI() backend.GUIService          { return b.gui }
+
+type testQuotaService struct {
+	store *keyring.Store
+}
+
+func (s testQuotaService) GetSummary(email string, refresh bool) (*quota.QuotaSummary, error) {
+	if email == "" && s.store != nil {
+		email = s.store.ActiveAccount()
+	}
+	return &quota.QuotaSummary{
+		AccountEmail:  email,
+		Models:        []quota.ModelQuota{},
+		OverallHealth: core.StatusExhausted,
+		LastPolled:    time.Now(),
+	}, nil
+}
+
+func (s testQuotaService) GetFleet() *quota.FleetQuotaSummary {
+	var accounts []*keyring.Account
+	active := ""
+	if s.store != nil {
+		accounts = s.store.ListAccounts()
+		active = s.store.ActiveAccount()
+	}
+	states := quota.BuildAccountQuotaStatesFromMapWithThresholds(
+		accounts,
+		nil,
+		core.DefaultAutoSwitchThresholdFraction,
+		core.DefaultAutoSwitchWeeklyThresholdFraction,
+		false,
+	)
+	summary := quota.ComputeFleetSummary(states, active)
+	return &summary
+}
+
+func (s testQuotaService) RefreshFleet() error { return nil }
+
+type testGUIService struct {
+	store *gui.Store
+}
+
+func (s *testGUIService) SetStore(store *gui.Store) { s.store = store }
+
+func (s *testGUIService) GetConfig() gui.Config { return s.store.GetConfig() }
+
+func (s *testGUIService) UpdateConfigPartial(rawJSON []byte) (*gui.GUIConfig, error) {
+	return s.store.UpdateConfigPartial(rawJSON)
+}
+
+func (s *testGUIService) DetectProjects() ([]gui.ProjectItem, error) {
+	return s.store.DetectProjects()
+}
+
+func (s *testGUIService) SetProjectColor(projectName, hexColor string) error {
+	return s.store.SetProjectColor(projectName, hexColor)
+}
+
+func (s *testGUIService) DeleteProject(projectName string) error {
+	return s.store.DeleteProject(projectName)
+}
+
+func (s *testGUIService) RemoveProjectColor(projectName string) error {
+	return s.store.RemoveProjectColor(projectName)
+}
+
+func (s *testGUIService) UpdateProjectOrder(order []string) error {
+	return s.store.UpdateProjectOrder(order)
+}
+
+func (s *testGUIService) Apply() (*gui.ApplyResult, error) { return s.store.Apply() }
+
+func (s *testGUIService) GetArchivedProjects() ([]gui.ArchivedProjectItem, error) {
+	return s.store.GetArchivedProjects()
+}
+
+func (s *testGUIService) ArchiveProject(projectName string) error {
+	return s.store.ArchiveProject(projectName)
+}
+
+func (s *testGUIService) RestoreProject(projectName string) error {
+	return s.store.RestoreProject(projectName)
+}
+
+func (s *testGUIService) ArchiveStaleConversations(horizon string) (*gui.AutoArchiveResult, error) {
+	return s.store.ArchiveStaleConversations(horizon)
+}
+
+func (s *testGUIService) OpenProjectSettings(projectName string) error {
+	return s.store.OpenProjectSettings(projectName)
+}
 
 type testAccountService struct {
 	store *keyring.Store
