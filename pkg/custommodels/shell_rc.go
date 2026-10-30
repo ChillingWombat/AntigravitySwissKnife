@@ -63,9 +63,13 @@ var commitShellRC = commitShellRCFile
 
 // CleanShellRCHooks removes only complete Swiss Knife managed blocks from user shell RC files.
 func CleanShellRCHooks() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("resolve home directory: %w", err)
+	home := os.Getenv("HOME")
+	var err error
+	if home == "" {
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("resolve home directory: %w", err)
+		}
 	}
 	if home == "" {
 		return nil

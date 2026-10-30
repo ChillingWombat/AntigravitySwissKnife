@@ -139,8 +139,12 @@ func TestCleanSingleShellRCPreservesMetadataAndAtomicReplace(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resolved != target {
-			t.Fatalf("symlink target = %q, want %q", resolved, target)
+		resolvedTarget, err := filepath.EvalSymlinks(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolved != resolvedTarget {
+			t.Fatalf("symlink target = %q, want %q", resolved, resolvedTarget)
 		}
 	}
 	info, err := os.Stat(target)
