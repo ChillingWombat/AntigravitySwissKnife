@@ -1024,6 +1024,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) loadStatus() (map[string]interface{}, error) {
+	if s.backend != nil {
+		if active := s.backend.ActiveState(); active != nil {
+			return activeStateStatusPayload(active.Snapshot(false)), nil
+		}
+	}
 	if service := s.accountService(); service != nil {
 		accounts := service.ListAccounts()
 		return statusPayload(activeAccountEmail(accounts), len(accounts), true), nil

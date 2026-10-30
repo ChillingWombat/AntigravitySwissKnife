@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, requestFleetSnapshot } from '../api'
 import type { FleetQuotaSummary, RuleConfig, SystemStatus } from '../types'
 import { toAccountState } from '../types'
 import {
@@ -14,6 +14,8 @@ import {
   type DashboardLoadAction,
   type DashboardProject,
 } from '../utils/dashboardLoadState'
+
+const BOOTSTRAP_ENDPOINTS = ['status', 'quota', 'rules', 'projects'] as const satisfies readonly DashboardEndpoint[]
 
 export interface DashboardLoaders {
   status: () => Promise<SystemStatus>
@@ -37,7 +39,7 @@ function requireArray<T>(value: T[]): T[] {
 
 export const defaultDashboardLoaders: DashboardLoaders = {
   status: () => api.getStatus(),
-  quota: () => api.getFleetQuota(),
+  quota: () => requestFleetSnapshot(),
   rules: () => api.getRules(),
   projects: async () => requireArray(await api.getGUIProjects()),
   accounts: async () => requireArray(await api.getAccounts()),
@@ -98,20 +100,27 @@ export function useDashboardData({
     return promise
   }, [])
 
+  const refreshLive = useCallback(
+    () => runLoad(['status', 'quota'], true),
+    [runLoad],
+  )
+
   const load = useCallback(
-    () => runLoad(DASHBOARD_ENDPOINTS, false),
+    () => runLoad(BOOTSTRAP_ENDPOINTS, false),
     [runLoad],
   )
 
   const failedEndpoints = useMemo(() => failedDashboardEndpoints(state), [state])
+  const failedEndpointsRef = useRef<DashboardEndpoint[]>(failedEndpoints)
+  failedEndpointsRef.current = failedEndpoints
 
   const retry = useCallback(
-    (endpoints: readonly DashboardEndpoint[] = failedEndpoints) => runLoad(endpoints, true),
-    [failedEndpoints, runLoad],
+    (endpoints: readonly DashboardEndpoint[] = failedEndpointsRef.current) => runLoad(endpoints, true),
+    [runLoad],
   )
 
   useEffect(() => {
-    if (autoLoad) void runLoad(DASHBOARD_ENDPOINTS, false)
+    if (autoLoad) void runLoad(BOOTSTRAP_ENDPOINTS, false)
     return () => {
       epochRef.current += 1
       inFlightRef.current = null
@@ -147,6 +156,7 @@ export function useDashboardData({
     effectiveAccounts,
     directAccounts,
     load,
+    refreshLive,
     retry,
   }
 }

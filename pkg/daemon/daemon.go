@@ -62,6 +62,7 @@ type Daemon struct {
 	quotaCacheMu   sync.RWMutex
 	isPollingFleet bool
 	pollingMu      sync.Mutex
+	activeState    activeStateCache
 
 	ignitedAccounts map[string]time.Time
 	ignitedMu       sync.RWMutex
@@ -259,6 +260,7 @@ func (d *Daemon) removeQuotaSummary(email string) {
 }
 
 func (d *Daemon) syncActiveAccountSurfaces(acc *keyring.Account) {
+	d.invalidateActiveState()
 	if acc == nil {
 		return
 	}
@@ -316,34 +318,7 @@ func (d *Daemon) triggerQuotaRefreshAsync() {
 func (d *Daemon) registerRPCHandlers() {
 	// 1. Status
 	statusHandler := func(params json.RawMessage) (interface{}, *ipc.RPCError) {
-		procs, _ := d.Shield.FindAntigravityUIProcesses()
-		var hostPID int
-		if len(procs) > 0 {
-			hostPID = procs[0].PID
-		}
-		if d.Shield.ProtectedPID() > 0 {
-			hostPID = d.Shield.ProtectedPID()
-		}
-
-		// Reconcile active account with running Antigravity sessions across all surfaces
-		var allEmails []string
-		for _, a := range d.Keyring.ListAccounts() {
-			allEmails = append(allEmails, a.Email)
-		}
-		_, _ = d.Keyring.ReconcileActiveAccount(d.Config.AutoImportActiveAccount, allEmails, d.Profiles)
-
-		accounts := d.Keyring.ListAccounts()
-		return map[string]interface{}{
-			"daemon_running":              true,
-			"daemon_pid":                  os.Getpid(),
-			"pid":                         os.Getpid(),
-			"version":                     core.AppVersion,
-			"active_account":              d.Keyring.ActiveAccount(),
-			"total_accounts":              len(accounts),
-			"antigravity_running":         len(procs) > 0,
-			"antigravity_pid":             hostPID,
-			"running_antigravity_account": keyring.ResolveRunningAntigravityAccountRedacted("", ""),
-		}, nil
+		return statusPayloadFromActiveState(d.activeState.snapshot(false, d.buildActiveStateSnapshot)), nil
 	}
 	d.Server.Register("swiss.getStatus", statusHandler)
 	d.Server.Register("status.get", statusHandler)
@@ -377,6 +352,7 @@ func (d *Daemon) registerRPCHandlers() {
 		if err := json.Unmarshal(params, &p); err != nil || p.Email == "" {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "missing required 'email'"}
 		}
+		d.invalidateActiveState()
 		acc, err := d.Keyring.ImportAccount(p.Email, p.RefreshToken, p.AccessToken, p.Label, p.TOTPSecret)
 		if err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
@@ -419,6 +395,7 @@ func (d *Daemon) registerRPCHandlers() {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: core.ErrInvalidSecret.Error()}
 		}
 		prevActive := d.Keyring.ActiveAccount()
+		d.invalidateActiveState()
 		if err := d.Keyring.UpdateAccountFull(p.Email, p.Label, p.PlanTier, p.Status, p.Priority, p.Notes, p.Password, p.TOTPSecret, p.RefreshToken, p.Credits, p.EnableCreditOverages, p.AllowClaudeGPT, p.SetActive); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
@@ -459,7 +436,7 @@ func (d *Daemon) registerRPCHandlers() {
 						_, _ = d.Revival.CapturePreSwitchIntents(core.TargetAppDesktop)
 					}
 					_ = gui.NewInjector(0).CaptureActiveConversationPath()
-					if err := d.Shield.RelaunchHostIDE(); err != nil {
+					if err := d.relaunchHostIDE(); err != nil {
 						log.Printf("[Daemon updateAccount] RelaunchHostIDE error: %v", err)
 					}
 				} else {
@@ -493,6 +470,7 @@ func (d *Daemon) registerRPCHandlers() {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "missing required 'email'"}
 		}
 		prevActive := d.Keyring.ActiveAccount()
+		d.invalidateActiveState()
 		if err := d.Keyring.RemoveAccount(p.Email); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
@@ -512,7 +490,7 @@ func (d *Daemon) registerRPCHandlers() {
 						_, _ = d.Revival.CapturePreSwitchIntents(core.TargetAppDesktop)
 					}
 					_ = gui.NewInjector(0).CaptureActiveConversationPath()
-					if err := d.Shield.RelaunchHostIDE(); err != nil {
+					if err := d.relaunchHostIDE(); err != nil {
 						log.Printf("[Daemon removeAccount] RelaunchHostIDE error: %v", err)
 					}
 				}
@@ -555,6 +533,7 @@ func (d *Daemon) registerRPCHandlers() {
 		if len(items) == 0 {
 			return nil, &ipc.RPCError{Code: ipc.InvalidParams, Message: "no valid account entries found in JSON"}
 		}
+		d.invalidateActiveState()
 		count, err := d.Keyring.BatchImportAccounts(items)
 		if err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
@@ -599,7 +578,7 @@ func (d *Daemon) registerRPCHandlers() {
 		isAll := targetApp == "" || targetApp == core.TargetAppAll || !isIndividual
 
 		if isAll || targetApp == core.TargetAppDesktop {
-			if err := d.Keyring.SetActiveAccount(p.Email); err != nil {
+			if err := d.setActiveAccount(p.Email); err != nil {
 				return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 			}
 		}
@@ -645,7 +624,7 @@ func (d *Daemon) registerRPCHandlers() {
 		if shouldRelaunch {
 			if d.Shield != nil && d.Shield.IsAntigravityRunning() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
 				_ = gui.NewInjector(0).CaptureActiveConversationPath()
-				if err := d.Shield.RelaunchHostIDE(); err != nil {
+				if err := d.relaunchHostIDE(); err != nil {
 					log.Printf("[Daemon switchAccount] RelaunchHostIDE error: %v", err)
 				}
 			}
@@ -678,7 +657,7 @@ func (d *Daemon) registerRPCHandlers() {
 				"message": "Antigravity host IDE relaunch skipped (dry run)",
 			}, nil
 		}
-		if err := d.Shield.RelaunchHostIDE(); err != nil {
+		if err := d.relaunchHostIDE(); err != nil {
 			return nil, &ipc.RPCError{Code: ipc.InternalError, Message: err.Error()}
 		}
 		return map[string]interface{}{
@@ -1318,6 +1297,7 @@ func (d *Daemon) registerRPCHandlers() {
 		}
 		_ = d.Config.Save()
 		d.mu.Unlock()
+		d.invalidateActiveState()
 		d.notifyConfigUpdated()
 		if applyVSCodeNow && d.GUIStore != nil {
 			go func() {
@@ -1983,13 +1963,13 @@ func (d *Daemon) runLoop() {
 								d.switchMu.Lock()
 								// Issue 35: Verify Keyring.SetActiveAccount succeeds before committing Config.SetActiveAppAccount
 								if app == core.TargetAppDesktop {
-									if err := d.Keyring.SetActiveAccount(successor.Email); err != nil {
+									if err := d.setActiveAccount(successor.Email); err != nil {
 										log.Printf("[Daemon Auto-Switch] Alert: failed to activate successor %s in keyring: %v; aborting switch", successor.Email, err)
 										d.switchMu.Unlock()
 										continue
 									}
 									if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
-										_ = d.Keyring.SetActiveAccount(successor.Email)
+										_ = d.setActiveAccount(successor.Email)
 									}
 									if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
 										log.Printf("[Daemon Auto-Switch] Alert: failed to activate successor %s (current: %s); aborting switch", successor.Email, d.Keyring.ActiveAccount())
@@ -2015,7 +1995,7 @@ func (d *Daemon) runLoop() {
 									// Issue 23 & 37: Synchronous relaunch without 200ms guess, and only revive on actual relaunch
 									if app == core.TargetAppDesktop && d.Shield != nil && d.Shield.IsAntigravityRunning() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
 										_ = gui.NewInjector(0).CaptureActiveConversationPath()
-										if err := d.Shield.RelaunchHostIDE(); err != nil {
+										if err := d.relaunchHostIDE(); err != nil {
 											log.Printf("[Daemon Auto-Switch] RelaunchHostIDE error: %v", err)
 										}
 									}
@@ -2054,13 +2034,13 @@ func (d *Daemon) runLoop() {
 
 							d.switchMu.Lock()
 							// Issue 35: Verify Keyring.SetActiveAccount succeeds before committing Config
-							if err := d.Keyring.SetActiveAccount(successor.Email); err != nil {
+							if err := d.setActiveAccount(successor.Email); err != nil {
 								log.Printf("[Daemon Auto-Switch] Alert: failed to activate successor %s in keyring: %v; aborting switch", successor.Email, err)
 								d.switchMu.Unlock()
 								continue
 							}
 							if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
-								_ = d.Keyring.SetActiveAccount(successor.Email)
+								_ = d.setActiveAccount(successor.Email)
 							}
 							if !strings.EqualFold(d.Keyring.ActiveAccount(), successor.Email) {
 								log.Printf("[Daemon Auto-Switch] Alert: failed to activate successor %s (current: %s); aborting switch", successor.Email, d.Keyring.ActiveAccount())
@@ -2085,7 +2065,7 @@ func (d *Daemon) runLoop() {
 								// Issue 23 & 37: Synchronous relaunch without 200ms guess, and only revive on actual relaunch
 								if d.Shield != nil && d.Shield.IsAntigravityRunning() && os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") != "1" {
 									_ = gui.NewInjector(0).CaptureActiveConversationPath()
-									if err := d.Shield.RelaunchHostIDE(); err != nil {
+									if err := d.relaunchHostIDE(); err != nil {
 										log.Printf("[Daemon Auto-Switch] RelaunchHostIDE error: %v", err)
 									}
 								}

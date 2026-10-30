@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import type { FleetQuotaSummary, SystemStatus } from '../types'
+import { beginManualRecoveryLease, manualRecoveryLeaseActive } from '../api'
 import {
   createInitialDashboardLoadState,
   dashboardReducer,
@@ -127,4 +128,11 @@ describe('dashboardLoadState', () => {
     assert.deepEqual(state.accounts.data, fleet.accounts)
     assert.deepEqual(failedDashboardEndpoints(state), ['accounts'])
   })
+  it('holds a manual recovery lease before timer polling resumes', async () => {
+    beginManualRecoveryLease(8)
+    assert.equal(manualRecoveryLeaseActive(), true)
+    await new Promise((resolve) => setTimeout(resolve, 12))
+    assert.equal(manualRecoveryLeaseActive(), false)
+  })
+
 })

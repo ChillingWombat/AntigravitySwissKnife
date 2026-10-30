@@ -5,6 +5,7 @@ import { App } from '../App'
 import { useDashboardData, type DashboardLoaders } from '../hooks/useDashboardData'
 import type { FleetQuotaSummary, RuleConfig, SystemStatus } from '../types'
 import { initDOM, mount, type RenderResult } from '../test-dom'
+import { api, invalidateDashboardFlights, requestFleetSnapshot } from '../api'
 
 const status: SystemStatus = {
   daemon_running: true,
@@ -26,21 +27,7 @@ const fleet: FleetQuotaSummary = {
   }],
 }
 
-const laterFleet: FleetQuotaSummary = {
-  ...fleet,
-  active_account: 'fleet@example.com',
-  accounts: [{ ...fleet.accounts[0], email: 'fleet@example.com' }],
-}
 
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise
-    reject = rejectPromise
-  })
-  return { promise, resolve, reject }
-}
 
 const makeLoaders = (overrides: Partial<DashboardLoaders> = {}): DashboardLoaders => ({
   status: async () => status,
@@ -67,13 +54,6 @@ const flush = async () => {
   }
 }
 
-const assertDegradedFleetAccounts = (view: RenderResult) => {
-  const text = view.container.textContent ?? ''
-  assert.match(text, /fleet@example\.com/)
-  assert.match(text, /1 source unavailable/)
-  assert.ok(view.querySelector('[data-dashboard-health][role="status"][aria-live="polite"]'))
-  assert.ok(view.querySelector('[data-dashboard-retry]'))
-}
 
 describe('App resilient dashboard loading', () => {
   const originalFetch = globalThis.fetch
@@ -112,52 +92,28 @@ describe('App resilient dashboard loading', () => {
     assert.ok(view.querySelector('main[aria-busy="false"]'))
   })
 
-  it('keeps accounts failed when fleet quota fulfills after the accounts request fails', async () => {
-    const accounts = deferred<Awaited<ReturnType<DashboardLoaders['accounts']>>>()
-    const quota = deferred<FleetQuotaSummary>()
+  it('does not request direct accounts when fleet returns accounts', async () => {
+    let accountCalls = 0
     const loaders = makeLoaders({
-      accounts: () => accounts.promise,
-      quota: () => quota.promise,
+      accounts: async () => { accountCalls += 1; return [{ email: 'known@example.com' }] },
     })
     view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
     await flush()
-
-    await act(async () => {
-      accounts.reject(new Error('accounts offline'))
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-    await flush()
-    await act(async () => {
-      quota.resolve(laterFleet)
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-    await flush()
-
-    assertDegradedFleetAccounts(view)
+    assert.equal(accountCalls, 0)
+    assert.match(view.container.textContent ?? '', /known@example\.com/)
   })
 
-  it('keeps accounts degraded when the accounts request fails after fleet quota succeeds', async () => {
-    const accounts = deferred<Awaited<ReturnType<DashboardLoaders['accounts']>>>()
-    const quota = deferred<FleetQuotaSummary>()
+  it('fetches direct accounts when fleet has no account payload', async () => {
+    let accountCalls = 0
+    const emptyFleet = { ...fleet, total_accounts: 0, accounts: [] }
     const loaders = makeLoaders({
-      accounts: () => accounts.promise,
-      quota: () => quota.promise,
+      quota: async () => emptyFleet,
+      accounts: async () => { accountCalls += 1; return [{ email: 'known@example.com' }] },
     })
     view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
     await flush()
-
-    await act(async () => {
-      quota.resolve(laterFleet)
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-    await flush()
-    await act(async () => {
-      accounts.reject(new Error('accounts offline'))
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-    await flush()
-
-    assertDegradedFleetAccounts(view)
+    assert.equal(accountCalls, 1)
+    assert.match(view.container.textContent ?? '', /known@example\.com/)
   })
 
   it('clears degraded health after retrying only the failed endpoints', async () => {
@@ -239,5 +195,112 @@ describe('App resilient dashboard loading', () => {
     })
 
     assert.equal(dashboard!.state.status.data?.active_account, 'newer@example.com')
+  })
+  it('background refresh requests only status and fleet', async () => {
+    const calls: string[] = []
+    const loaders = makeLoaders({
+      status: async () => { calls.push('status'); return status },
+      quota: async () => { calls.push('quota'); return fleet },
+      rules: async () => { calls.push('rules'); return {} as RuleConfig },
+      projects: async () => { calls.push('projects'); return [] },
+      accounts: async () => { calls.push('accounts'); return [{ email: 'known@example.com' }] },
+    })
+    view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
+    await flush()
+    calls.length = 0
+    await act(async () => {
+      document.dispatchEvent(new window.Event('visibilitychange'))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+    assert.deepEqual(calls.sort(), ['quota', 'status'])
+  })
+
+  it('fetches accounts when the fleet refresh fails', async () => {
+    let fleetFails = false
+    let accountCalls = 0
+    const loaders = makeLoaders({
+      quota: async () => {
+        if (fleetFails) throw new Error('fleet offline')
+        return fleet
+      },
+      accounts: async () => {
+        accountCalls += 1
+        return [{ email: 'known@example.com' }]
+      },
+    })
+    view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
+    await flush()
+    accountCalls = 0
+    fleetFails = true
+    await act(async () => {
+      document.dispatchEvent(new window.Event('visibilitychange'))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+    assert.equal(accountCalls, 1)
+  })
+
+  it('forces a fresh status read after a successful account switch', async () => {
+    let statusCalls = 0
+    const loaders = makeLoaders({
+      status: async () => { statusCalls += 1; return status },
+    })
+    view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
+    await flush()
+    statusCalls = 0
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('swiss:account-switched', { detail: { active_account: 'next@example.com' } }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+    assert.ok(statusCalls >= 1)
+  })
+
+  it('refreshes rules after a successful mutation event', async () => {
+    let ruleCalls = 0
+    const loaders = makeLoaders({
+      rules: async () => { ruleCalls += 1; return {} as RuleConfig },
+    })
+    view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
+    await flush()
+    ruleCalls = 0
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('swiss:dashboard-mutated', { detail: { endpoint: 'rules' } }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+    assert.equal(ruleCalls, 1)
+  })
+
+  it('keeps a newer fleet request in flight when an invalidated older request settles', async () => {
+    const originalGetFleetQuota = api.getFleetQuota
+    const pending: Array<(value: FleetQuotaSummary) => void> = []
+    api.getFleetQuota = () => new Promise<FleetQuotaSummary>((resolve) => {
+      pending.push(resolve)
+    })
+
+    try {
+      const older = requestFleetSnapshot()
+      invalidateDashboardFlights()
+      const newer = requestFleetSnapshot()
+
+      pending[0](fleet)
+      await older
+
+      assert.equal(requestFleetSnapshot(), newer)
+      assert.equal(pending.length, 2)
+
+      pending[1](fleet)
+      await newer
+
+      const next = requestFleetSnapshot()
+      assert.equal(pending.length, 3)
+      pending[2](fleet)
+      await next
+    } finally {
+      pending.forEach((resolve) => resolve(fleet))
+      api.getFleetQuota = originalGetFleetQuota
+    }
   })
 })
