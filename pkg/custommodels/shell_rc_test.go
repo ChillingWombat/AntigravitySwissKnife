@@ -45,6 +45,18 @@ func TestPlanShellRCRewrite(t *testing.T) {
 			owned: true, changed: true, legacy: true,
 		},
 		{
+			name:  "indented managed markers with CRLF",
+			data:  "before\r\n\t" + shellRCBeginMarker + "  \r\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\r\n  " + shellRCEndMarker + "\r\nafter\r\n",
+			want:  "before\r\nafter\r\n",
+			owned: true, changed: true,
+		},
+		{
+			name:  "indented legacy block with CRLF",
+			data:  "alias keep=1\r\n\t# Antigravity Swiss Knife - CLI Integration Environment\r\n  export CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\r\nexport AGY_LLM_GATEWAY_URL=\"http://127.0.0.1:8765\"\r\nalias after=1\r\n",
+			want:  "alias keep=1\r\nalias after=1\r\n",
+			owned: true, changed: true, legacy: true,
+		},
+		{
 			name:  "legacy block removed once",
 			data:  "alias ls='ls --color=auto'\n# Antigravity Swiss Knife - CLI Integration Environment\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\nexport AGY_LLM_GATEWAY_URL=\"http://127.0.0.1:8765\"\n",
 			want:  "alias ls='ls --color=auto'\n",
@@ -135,8 +147,8 @@ func TestCleanSingleShellRCPreservesMetadataAndAtomicReplace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Windows and macOS do not preserve Unix permission or ownership semantics consistently.
-	if runtime.GOOS == "linux" && info.Mode().Perm() != 0o600 {
+	// Windows does not preserve Unix permission semantics consistently.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode = %o, want 600", info.Mode().Perm())
 	}
 	data, err := os.ReadFile(target)
