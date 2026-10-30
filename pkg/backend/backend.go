@@ -88,4 +88,5 @@ type GUIService interface {
 	ArchiveProject(projectName string) error
 	RestoreProject(projectName string) error
 	OpenProjectSettings(projectName string) error
+	ArchiveStaleConversations(horizon string) (*gui.AutoArchiveResult, error)
 }

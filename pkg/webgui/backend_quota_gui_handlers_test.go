@@ -2,10 +2,12 @@ package webgui
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
+	_ "modernc.org/sqlite"
 )
 
 type ownedQuotaService struct {
@@ -168,6 +171,158 @@ func TestGUIConfigMutationThroughHTTPVisibleThroughRPC(t *testing.T) {
 	}
 	if rpcConfig.AutoInject != want {
 		t.Fatalf("RPC auto_inject = %v, want %v", rpcConfig.AutoInject, want)
+	}
+}
+
+func TestGUIAutoArchiveThroughHTTPUsesDaemonOwnedGUIState(t *testing.T) {
+	configDir := t.TempDir()
+	antiDir := filepath.Join(configDir, "antigravity")
+	if err := os.MkdirAll(antiDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(antiDir, "conversation_summaries.db"))
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE conversation_summaries (
+		conversation_id TEXT PRIMARY KEY,
+		title TEXT,
+		last_modified_time TEXT
+	)`); err != nil {
+		_ = db.Close()
+		t.Fatalf("create conversation_summaries: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close conversation_summaries: %v", err)
+	}
+
+	t.Setenv("ANTIGRAVITY_CONFIG_DIR", antiDir)
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", configDir)
+	t.Setenv("HOME", configDir)
+	t.Setenv("USERPROFILE", configDir)
+	t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+	t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
+
+	socketPath := filepath.Join(configDir, "daemon.sock")
+	d, err := daemon.NewDaemon(core.DefaultConfig(), socketPath)
+	if err != nil {
+		t.Fatalf("NewDaemon: %v", err)
+	}
+	if err := d.Start(); err != nil {
+		t.Fatalf("daemon Start: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+
+	wantHorizon := "37d"
+	cfg := d.GUIStore.GetConfig()
+	cfg.AutoArchiveHorizon = wantHorizon
+	rawConfig, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal GUI config: %v", err)
+	}
+	if _, err := d.GUIStore.UpdateConfigPartial(rawConfig); err != nil {
+		t.Fatalf("set daemon GUI config: %v", err)
+	}
+
+	server, err := NewServer("127.0.0.1:0", d.Backend(), ipc.NewClient(socketPath))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if server.guiStore != nil {
+		t.Fatal("daemon-backed server opened a local GUI store")
+	}
+
+	original := newGUIConfigStore
+	localStoreOpens := 0
+	newGUIConfigStore = func(string) (*gui.Store, error) {
+		localStoreOpens++
+		return nil, errors.New("local GUI store must not open")
+	}
+	t.Cleanup(func() { newGUIConfigStore = original })
+
+	rec := httptest.NewRecorder()
+	server.handleGUIConversationsAutoArchive(rec, httptest.NewRequest(
+		http.MethodPost,
+		"/api/gui/conversations/auto-archive",
+		bytes.NewReader([]byte(`{"horizon":""}`)),
+	))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("auto-archive status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if localStoreOpens != 0 {
+		t.Fatalf("auto-archive opened %d local GUI stores", localStoreOpens)
+	}
+
+	var result gui.AutoArchiveResult
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode auto-archive result: %v", err)
+	}
+	if !result.Success || result.Horizon != wantHorizon {
+		t.Fatalf("auto-archive result = %+v, want success at %s", result, wantHorizon)
+	}
+
+	var rpcConfig gui.Config
+	if err := ipc.NewClient(socketPath).Call("swiss.getGUIConfig", nil, &rpcConfig); err != nil {
+		t.Fatalf("swiss.getGUIConfig: %v", err)
+	}
+	if rpcConfig.AutoArchiveHorizon != wantHorizon {
+		t.Fatalf("RPC auto_archive_horizon = %q, want %q", rpcConfig.AutoArchiveHorizon, wantHorizon)
+	}
+}
+
+func TestGUIAutoArchiveStandaloneStoreStillWorks(t *testing.T) {
+	antiDir := filepath.Join(t.TempDir(), "antigravity")
+	if err := os.MkdirAll(antiDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(antiDir, "conversation_summaries.db"))
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE conversation_summaries (
+		conversation_id TEXT PRIMARY KEY,
+		title TEXT,
+		last_modified_time TEXT
+	)`); err != nil {
+		_ = db.Close()
+		t.Fatalf("create conversation_summaries: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close conversation_summaries: %v", err)
+	}
+	t.Setenv("ANTIGRAVITY_CONFIG_DIR", antiDir)
+
+	store, err := gui.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("gui.NewStore: %v", err)
+	}
+	cfg := store.GetConfig()
+	cfg.AutoArchiveHorizon = "21d"
+	rawConfig, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal GUI config: %v", err)
+	}
+	if _, err := store.UpdateConfigPartial(rawConfig); err != nil {
+		t.Fatalf("set standalone GUI config: %v", err)
+	}
+
+	server := &Server{guiStore: store}
+	rec := httptest.NewRecorder()
+	server.handleGUIConversationsAutoArchive(rec, httptest.NewRequest(
+		http.MethodPost,
+		"/api/gui/conversations/auto-archive",
+		bytes.NewReader([]byte(`{"horizon":""}`)),
+	))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("auto-archive status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	var result gui.AutoArchiveResult
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode auto-archive result: %v", err)
+	}
+	if !result.Success || result.Horizon != "21d" {
+		t.Fatalf("auto-archive result = %+v, want success at 21d", result)
 	}
 }
 

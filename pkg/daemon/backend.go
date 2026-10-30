@@ -188,6 +188,10 @@ func (s daemonGUI) OpenProjectSettings(projectName string) error {
 	return s.daemon.GUIStore.OpenProjectSettings(projectName)
 }
 
+func (s daemonGUI) ArchiveStaleConversations(horizon string) (*gui.AutoArchiveResult, error) {
+	return s.daemon.GUIStore.ArchiveStaleConversations(horizon)
+}
+
 type daemonAccounts struct {
 	daemon *Daemon
 }

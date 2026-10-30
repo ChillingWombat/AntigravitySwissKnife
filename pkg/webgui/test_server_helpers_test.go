@@ -124,6 +124,10 @@ func (s *testGUIService) RestoreProject(projectName string) error {
 	return s.store.RestoreProject(projectName)
 }
 
+func (s *testGUIService) ArchiveStaleConversations(horizon string) (*gui.AutoArchiveResult, error) {
+	return s.store.ArchiveStaleConversations(horizon)
+}
+
 func (s *testGUIService) OpenProjectSettings(projectName string) error {
 	return s.store.OpenProjectSettings(projectName)
 }

@@ -2606,6 +2606,16 @@ func (s *Server) handleGUIConversationsAutoArchive(w http.ResponseWriter, r *htt
 	}
 	_ = json.NewDecoder(r.Body).Decode(&p)
 
+	if service := s.guiService(); service != nil {
+		result, err := service.ArchiveStaleConversations(p.Horizon)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("GUI backend auto-archive failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, result)
+		return
+	}
+
 	guiStore := s.getGUIStore()
 	if guiStore == nil {
 		http.Error(w, "gui store not initialized", http.StatusInternalServerError)
