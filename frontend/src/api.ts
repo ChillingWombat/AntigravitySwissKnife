@@ -799,7 +799,7 @@ export const api = {
       '/api/custom_models/integration'
     ),
   updateCustomModelIntegration: (integration: any) =>
-    request<{ success: boolean; integration: any }>('/api/custom_models/integration', {
+    request<{ success: boolean; integration: any; pin_set: boolean }>('/api/custom_models/integration', {
       method: 'POST',
       body: JSON.stringify(integration),
     }),

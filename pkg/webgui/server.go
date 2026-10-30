@@ -3531,12 +3531,13 @@ func (s *Server) handleCustomModelIntegration(w http.ResponseWriter, r *http.Req
 	}
 	switch r.Method {
 	case http.MethodGet:
+		integration, pinSet := redactIntegrationSettings(store.IntegrationSettings())
 		writeJSON(w, map[string]interface{}{
 			"success":     true,
-			"integration": store.IntegrationSettings(),
+			"integration": integration,
 			"endpoint":    "http://" + loopbackAddr(s.addr) + "/v1",
 			"gemini_base": "http://" + loopbackAddr(s.addr) + "/v1beta",
-			"pin_set":     store.IntegrationSettings().Proxy.PIN != "",
+			"pin_set":     pinSet,
 		})
 	case http.MethodPost:
 		var payload custommodels.IntegrationSettings
@@ -3544,14 +3545,29 @@ func (s *Server) handleCustomModelIntegration(w http.ResponseWriter, r *http.Req
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
+		existing := store.IntegrationSettings()
+		if payload.Proxy.PIN == "" || payload.Proxy.PIN == "[REDACTED]" {
+			payload.Proxy.PIN = existing.Proxy.PIN
+		}
 		if err := store.SetIntegrationSettings(payload); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, map[string]interface{}{"success": true, "integration": store.IntegrationSettings()})
+		integration, pinSet := redactIntegrationSettings(store.IntegrationSettings())
+		writeJSON(w, map[string]interface{}{
+			"success":     true,
+			"integration": integration,
+			"pin_set":     pinSet,
+		})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func redactIntegrationSettings(settings custommodels.IntegrationSettings) (custommodels.IntegrationSettings, bool) {
+	pinSet := settings.Proxy.PIN != ""
+	settings.Proxy.PIN = ""
+	return settings, pinSet
 }
 
 // handleCustomModelAppProxy launches (or restarts) the Antigravity app with
@@ -3737,6 +3753,7 @@ func (s *Server) handleCustomModelCLIStatus(w http.ResponseWriter, r *http.Reque
 	}
 	store := s.getCustomModelsStore()
 	status := custommodels.CheckCLIGatewayStatus(store)
+	status.GatewayToken = ""
 	writeJSON(w, map[string]interface{}{"success": true, "status": status})
 }
 
@@ -3752,6 +3769,7 @@ func (s *Server) handleCustomModelCLISetup(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	status := custommodels.CheckCLIGatewayStatus(store)
+	status.GatewayToken = ""
 	writeJSON(w, map[string]interface{}{"success": true, "status": status})
 }
 

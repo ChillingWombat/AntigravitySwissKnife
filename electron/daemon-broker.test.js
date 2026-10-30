@@ -100,6 +100,73 @@ test('broker allows the ACP mesh read used by the agent registry', async () => {
   assert.deepEqual(calls, ['http://127.0.0.1:8765/api/utilities/acp']);
 });
 
+test('ACP endpoint probes are allowed without machine-control approval', async () => {
+  const calls = [];
+  let approvals = 0;
+  const broker = createDaemonBroker({
+    getToken: () => 'main-process-secret',
+    requestApproval: async () => {
+      approvals += 1;
+      return true;
+    },
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return fakeResponse(200, '{}', { 'Content-Type': 'application/json' });
+    },
+  });
+
+  for (const path of ['/api/utilities/acp/detect', '/api/utilities/acp/ping']) {
+    const result = await broker.request({
+      method: 'POST',
+      path,
+      body: JSON.stringify({ id: 'agent-codex' }),
+    });
+    assert.equal(result.status, 200);
+    assert.equal(ALLOWED_ROUTES.POST.has(path), true, `${path} must be an allowed POST`);
+    assert.equal(PRIVILEGED_ROUTES.POST.has(path), false, `${path} must not require approval`);
+  }
+  assert.equal(approvals, 0);
+  assert.deepEqual(calls, [
+    'http://127.0.0.1:8765/api/utilities/acp/detect',
+    'http://127.0.0.1:8765/api/utilities/acp/ping',
+  ]);
+});
+
+test('custom model settings reads are allowed without machine-control approval', async () => {
+  const calls = [];
+  let approvals = 0;
+  const broker = createDaemonBroker({
+    getToken: () => 'main-process-secret',
+    requestApproval: async () => {
+      approvals += 1;
+      return true;
+    },
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return fakeResponse(200, '{}', { 'Content-Type': 'application/json' });
+    },
+  });
+
+  for (const path of ['/api/custom_models/integration', '/api/custom_models/cli_status']) {
+    const result = await broker.request({ method: 'GET', path });
+    assert.equal(result.status, 200);
+    assert.equal(ALLOWED_ROUTES.GET.has(path), true, `${path} must be an allowed GET`);
+    assert.equal(PRIVILEGED_ROUTES.GET.has(path), false, `${path} must not require approval`);
+  }
+  assert.equal(approvals, 0);
+  assert.deepEqual(calls, [
+    'http://127.0.0.1:8765/api/custom_models/integration',
+    'http://127.0.0.1:8765/api/custom_models/cli_status',
+  ]);
+});
+
+test('OAuth cancellation is direct while start and exchange remain approval-gated', async () => {
+  assert.equal(ALLOWED_ROUTES.POST.has('/api/oauth/google/cancel'), true);
+  assert.equal(PRIVILEGED_ROUTES.POST.has('/api/oauth/google/cancel'), false);
+  assert.equal(PRIVILEGED_ROUTES.POST.has('/api/oauth/google/start'), true);
+  assert.equal(PRIVILEGED_ROUTES.POST.has('/api/oauth/google/exchange'), true);
+});
+
 test('broker rejects unknown methods, paths, bodies, and redirects with typed errors', async () => {
   let daemonCalls = 0;
   const broker = createDaemonBroker({
@@ -133,7 +200,7 @@ test('broker allowlist contains approved reads and exact mutation routes', () =>
   ]) {
     assert.equal(ALLOWED_ROUTES.GET.has(route), true, route);
   }
-  for (const route of ['/api/enhancements', '/api/gui/color', '/api/conversations/ack', '/api/memos/save', '/api/memos/extract', '/api/github/issues/comment']) {
+  for (const route of ['/api/enhancements', '/api/gui/color', '/api/conversations/ack', '/api/memos/save', '/api/memos/extract']) {
     assert.equal(ALLOWED_ROUTES.POST.has(route), true, route);
   }
   for (const route of ['/api/accounts/export', '/api/totp', '/api/custom_models/key', '/api/utilities/import/scan']) {
@@ -141,6 +208,21 @@ test('broker allowlist contains approved reads and exact mutation routes', () =>
   }
   assert.equal(ALLOWED_ROUTES.POST.has('/api/custom_models'), false);
   assert.equal(PRIVILEGED_ROUTES.POST.has('/api/custom_models'), true);
+  for (const route of [
+    '/api/custom_models/test',
+    '/api/custom_models/fetch_quota',
+    '/api/custom_models/refresh_quotas',
+    '/api/custom_models/fetch_models',
+    '/api/custom_models/security-audit',
+    '/api/github/issues/update',
+    '/api/github/issues/comment',
+    '/api/github/kanban/move',
+    '/api/github/agent-tasks/label',
+    '/api/github/agent-tasks/bind',
+  ]) {
+    assert.equal(ALLOWED_ROUTES.POST.has(route), false, route);
+    assert.equal(PRIVILEGED_ROUTES.POST.has(route), true, route);
+  }
   assert.equal(PRIVILEGED_ROUTES.POST.has('/api/system/factory_reset'), true);
   assert.equal(PRIVILEGED_ROUTES.POST.has('/api/settings/factory-reset'), false);
   for (const route of ['/api/custom_models', '/api/extensions/community', '/api/utilities/acp/agents', '/api/tokens/pricing']) {
@@ -218,8 +300,6 @@ test('sensitive GETs require approval except redacted channel config', async () 
     '/api/accounts/export?email=person@example.com',
     '/api/totp?email=person@example.com',
     '/api/custom_models/key?id=model-1',
-    '/api/custom_models/integration',
-    '/api/custom_models/cli_status',
     '/api/utilities/import/scan?source=opencode',
     '/api/bridge/remote/config',
     '/api/bridge/channels/config?unredacted=true',
@@ -230,15 +310,13 @@ test('sensitive GETs require approval except redacted channel config', async () 
     '/api/accounts/export?email=person@example.com',
     '/api/totp?email=person@example.com',
     '/api/custom_models/key?id=model-1',
-    '/api/custom_models/integration',
-    '/api/custom_models/cli_status',
     '/api/utilities/import/scan?source=opencode',
     '/api/bridge/remote/config',
     '/api/bridge/channels/config?unredacted=true',
   ]);
 
   await broker.request({ method: 'GET', path: '/api/bridge/channels/config' });
-  assert.equal(approvals.length, 8);
+  assert.equal(approvals.length, 6);
 });
 
 test('file reads and listings require approval and approve the resolved workspace path', async (t) => {
@@ -613,4 +691,11 @@ test('production renderer and broker sources contain no daemon token leaks', () 
   const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
   assert.match(main, /dialog\.showMessageBox/);
   assert.match(main, /requestApproval:/);
+});
+
+test('approval dialog distinguishes sensitive reads from machine control', () => {
+  const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
+  assert.match(main, /Approve sensitive read\?/);
+  assert.match(main, /This request reads sensitive data from this machine\./);
+  assert.match(main, /Approve machine control\?/);
 });

@@ -112,6 +112,7 @@ export const ModelSourceTab: React.FC = () => {
   const [integration, setIntegration] = useState<Integration>(DEFAULT_INTEGRATION)
   const [endpoint, setEndpoint] = useState('')
   const [geminiBase, setGeminiBase] = useState('')
+  const [pinSet, setPinSet] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [launching, setLaunching] = useState<AppKey | null>(null)
@@ -128,6 +129,7 @@ export const ModelSourceTab: React.FC = () => {
       if (res?.integration) setIntegration({ ...DEFAULT_INTEGRATION, ...res.integration })
       setEndpoint(res?.endpoint || '')
       setGeminiBase(res?.gemini_base || '')
+      setPinSet(Boolean(res?.pin_set))
       try {
         const cliRes = await api.getCLIGatewayStatus()
         if (cliRes?.status) setCliStatus(cliRes.status)
@@ -150,6 +152,7 @@ export const ModelSourceTab: React.FC = () => {
     try {
       const res = await api.updateCustomModelIntegration(next)
       if (res?.integration) setIntegration({ ...DEFAULT_INTEGRATION, ...res.integration })
+      if (typeof res?.pin_set === 'boolean') setPinSet(res.pin_set)
     } catch (err) {
       setFeedback({ text: `Save failed: ${(err as Error).message}`, isError: true })
     } finally {
@@ -424,7 +427,7 @@ export const ModelSourceTab: React.FC = () => {
                   value={integration.proxy.pin || ''}
                   onChange={(e) => setIntegration({ ...integration, proxy: { ...integration.proxy, pin: e.target.value } })}
                   onBlur={() => save(integration)}
-                  placeholder="Required"
+                  placeholder={pinSet ? 'Configured' : 'Required'}
                   style={{ flex: '1 1 240px', minWidth: '200px', padding: '7px 10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '12px' }}
                 />
               </div>

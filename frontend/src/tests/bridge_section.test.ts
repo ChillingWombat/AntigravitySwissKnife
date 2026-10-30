@@ -176,6 +176,11 @@ describe('Bridge Section rendered behavior', () => {
 
     await clickTab('discord')
     assert.match(view.container.textContent || '', /Discord Agent Chat Bridge/)
+    assert.equal(
+      requests.some((request) => request.path.includes('/api/bridge/channels/config?unredacted=true')),
+      false,
+      'Channel pages must load redacted configuration',
+    )
 
     await clickTab('remote')
     assert.match(view.container.textContent || '', /Security PIN/)

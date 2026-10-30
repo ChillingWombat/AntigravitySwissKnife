@@ -168,6 +168,36 @@ function frontendDaemonRoutes(parsedSource: ts.SourceFile = sourceFile): { route
   return { routes: [...routes.values()], unresolved }
 }
 
+function productionSourceFiles(directory: string): string[] {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(directory, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === 'tests') return []
+      return productionSourceFiles(entryPath)
+    }
+    if (entry.name.includes('.test.')) return []
+    return entry.name.endsWith('.ts') || entry.name.endsWith('.tsx') ? [entryPath] : []
+  })
+}
+
+function daemonPathLiteralLines(parsed: ts.SourceFile): number[] {
+  const lines: number[] = []
+  const visit = (node: ts.Node) => {
+    let value: string | null = null
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      value = node.text
+    } else if (ts.isTemplateExpression(node)) {
+      value = node.head.text + node.templateSpans.map((span) => '${}' + span.literal.text).join('')
+    }
+    if (value?.includes('/api/') && !/^https?:\/\//.test(value)) {
+      lines.push(parsed.getLineAndCharacterOfPosition(node.getStart()).line + 1)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  return lines
+}
+
 describe('daemon broker route policy coverage', () => {
   const { routes: frontendRoutes, unresolved } = frontendDaemonRoutes()
 
@@ -199,6 +229,34 @@ describe('daemon broker route policy coverage', () => {
     const result = frontendDaemonRoutes(fixture)
     assert.deepEqual(result.routes, [])
     assert.equal(result.unresolved.length, 5)
+  })
+
+  it('keeps direct daemon calls centralized in api.ts', () => {
+    const violations: string[] = []
+    for (const file of productionSourceFiles(path.join(repoRoot, 'frontend', 'src'))) {
+      if (file === apiSourcePath) continue
+      const parsed = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+      for (const line of daemonPathLiteralLines(parsed)) {
+        violations.push(`${path.relative(repoRoot, file)}:${line}`)
+      }
+    }
+    assert.deepEqual(violations, [])
+  })
+
+  it('detects daemon paths stored in variables or string concatenations', () => {
+    const fixture = ts.createSourceFile(
+      path.join(repoRoot, 'frontend', 'src', 'route-centralization-fixture.ts'),
+      `
+        const route = '/api/status'
+        fetch(route)
+        fetch(base + '/api/accounts')
+        fetch(\`\${base}/api/quota\`)
+      `,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    )
+    assert.deepEqual(daemonPathLiteralLines(fixture), [2, 4, 5])
   })
 
   it('preserves approval semantics for every query variant', () => {

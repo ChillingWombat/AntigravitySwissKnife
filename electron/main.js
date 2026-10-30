@@ -239,10 +239,15 @@ const daemonBroker = createDaemonBroker({
     const { dialog } = require('electron');
     const owner = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null;
     const denied = Boolean(denialReason);
+    const sensitiveRead = method === 'GET';
     const detail = [
       resolvedPath ? `Resolved path:\n${resolvedPath}` : '',
       denied ? `Denied: ${denialReason}` : '',
-      !resolvedPath && !denied ? 'This request can change files or control applications on this machine.' : '',
+      !resolvedPath && !denied
+        ? sensitiveRead
+          ? 'This request reads sensitive data from this machine.'
+          : 'This request can change files or control applications on this machine.'
+        : '',
       bodyPreview ? `Body preview:\n${bodyPreview}` : '',
     ].filter(Boolean).join('\n\n');
     const result = await dialog.showMessageBox(owner, {
@@ -251,7 +256,13 @@ const daemonBroker = createDaemonBroker({
       defaultId: 0,
       cancelId: 0,
       noLink: true,
-      title: denied ? 'File access denied' : resolvedPath ? 'Approve file access?' : 'Approve machine control?',
+      title: denied
+        ? 'File access denied'
+        : resolvedPath
+          ? 'Approve file access?'
+          : sensitiveRead
+            ? 'Approve sensitive read?'
+            : 'Approve machine control?',
       message: `${method} ${path}`,
       detail,
     });

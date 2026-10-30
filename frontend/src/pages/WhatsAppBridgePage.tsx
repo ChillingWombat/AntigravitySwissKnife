@@ -44,12 +44,7 @@ export const WhatsAppBridgePage: React.FC = () => {
       if (res && res.status) {
         setStatus(res.status)
       }
-      let cfgRes: any = null
-      try {
-        cfgRes = await api.getChannelsConfig(true)
-      } catch {
-        cfgRes = await api.getChannelsConfig()
-      }
+      const cfgRes = await api.getChannelsConfig()
       if (cfgRes && cfgRes.config) {
         setConfig(cfgRes.config)
         if (cfgRes.config.whatsapp?.allowed_numbers) {
