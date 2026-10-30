@@ -1142,14 +1142,6 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 		transcriptPath = normalizeTokenCacheKey(tPath)
 	}
 
-	if cacheKey != "" {
-		if info, err := os.Stat(cacheKey); err == nil {
-			if cached, ok := tokenCacheStore.getConvModel(cacheKey, info, time.Now()); ok {
-				return cached.modelID, cached.displayName, cached.provider
-			}
-		}
-	}
-
 	var convID string
 	if convDBPath != "" && strings.HasSuffix(convDBPath, ".db") {
 		convID = strings.TrimSuffix(filepath.Base(convDBPath), ".db")
@@ -1176,6 +1168,16 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 					}
 					return cm.Name, disp, prov
 				}
+			}
+		}
+	}
+
+	// The sidecar can change without touching the transcript, so it must run
+	// before the transcript-keyed warm cache.
+	if cacheKey != "" {
+		if info, err := os.Stat(cacheKey); err == nil {
+			if cached, ok := tokenCacheStore.getConvModel(cacheKey, info, time.Now()); ok {
+				return cached.modelID, cached.displayName, cached.provider
 			}
 		}
 	}
@@ -1236,9 +1238,14 @@ func detectConversationModel(convDBPath string, customModels []custommodels.Cust
 	return mID, mName, mProv
 }
 
-// resolveConversationModel resolves the active model for a conversation ID or path by reading transcript.jsonl step 0.
+// resolveConversationModel resolves the active model for a conversation ID,
+// giving the proxy sidecar priority over transcript and native attribution.
 func resolveConversationModel(convID string) (modelID, displayName, provider string) {
-	mID, mName, mProv := detectConversationModelWithTranscript("", convID, nil, nil)
+	var customModels []custommodels.CustomModel
+	if store, err := custommodels.NewStore(""); err == nil {
+		customModels = store.ListModels()
+	}
+	mID, mName, mProv := detectConversationModelWithTranscript("", convID, customModels, nil)
 	if mID == "" {
 		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"
 	}

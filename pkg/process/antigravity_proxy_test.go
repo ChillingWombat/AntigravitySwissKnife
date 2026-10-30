@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -73,5 +74,85 @@ func TestIsProxyEndpointAvailable(t *testing.T) {
 	unboundPort := 59876
 	if isProxyEndpointAvailable(unboundPort) {
 		t.Errorf("expected isProxyEndpointAvailable(%d) = false for unbound port", unboundPort)
+	}
+}
+
+func TestRestartAntigravityAppsToNativePropagatesFailures(t *testing.T) {
+	detectionErr := errors.New("detection failed")
+	relaunchErr := errors.New("relaunch failed")
+	terminationErr := errors.New("termination failed")
+	tests := []struct {
+		name       string
+		deps       restartNativeDeps
+		wantErrors []error
+	}{
+		{
+			name: "detection",
+			deps: restartNativeDeps{
+				desktopRunning: func(*Shield) (bool, error) { return false, detectionErr },
+				relaunch:       func(*Shield) error { return nil },
+				terminate:      func(*Shield) error { return nil },
+			},
+			wantErrors: []error{detectionErr},
+		},
+		{
+			name: "relaunch",
+			deps: restartNativeDeps{
+				desktopRunning: func(*Shield) (bool, error) { return true, nil },
+				relaunch:       func(*Shield) error { return relaunchErr },
+				terminate:      func(*Shield) error { return nil },
+			},
+			wantErrors: []error{relaunchErr},
+		},
+		{
+			name: "termination",
+			deps: restartNativeDeps{
+				desktopRunning: func(*Shield) (bool, error) { return false, nil },
+				relaunch:       func(*Shield) error { return nil },
+				terminate:      func(*Shield) error { return terminationErr },
+			},
+			wantErrors: []error{terminationErr},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := restartAntigravityAppsToNative(NewShield(0), tt.deps)
+			for _, want := range tt.wantErrors {
+				if !errors.Is(err, want) {
+					t.Fatalf("expected error %v, got %v", want, err)
+				}
+			}
+		})
+	}
+}
+
+func TestRestartAntigravityAppsToNativeDoesNotLaunchOnDiscoveryFailure(t *testing.T) {
+	discoveryErr := errors.New("discovery failed")
+	launchCalled := false
+	deps := restartNativeDeps{
+		desktopRunning: func(*Shield) (bool, error) { return true, nil },
+		relaunch: func(shield *Shield) error {
+			_, err := launchAntigravityWithCloudCodeProxy("", true, shield, launchAntigravityDeps{
+				find: func(*Shield) ([]ProcessInfo, error) { return nil, discoveryErr },
+				launch: func(string) (int, error) {
+					launchCalled = true
+					return 1, nil
+				},
+			})
+			return err
+		},
+		terminate: func(*Shield) error { return nil },
+	}
+
+	err := restartAntigravityAppsToNative(NewShield(0), deps)
+	if !errors.Is(err, discoveryErr) {
+		t.Fatalf("expected discovery error %v, got %v", discoveryErr, err)
+	}
+	if !strings.Contains(err.Error(), "discover Antigravity processes") {
+		t.Fatalf("expected discovery error context, got %v", err)
+	}
+	if launchCalled {
+		t.Fatal("launched Antigravity after discovery failed")
 	}
 }

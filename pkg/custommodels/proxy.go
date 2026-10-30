@@ -7,12 +7,8 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 var (
@@ -64,6 +60,10 @@ func extractConversationID(requestID string, requestRaw json.RawMessage) string 
 	return ""
 }
 
+// Source of truth: transcript.jsonl is the Antigravity host's conversation
+// log. Proxy/model attribution never writes it; explicit chat import
+// (pkg/importer and scripts/agent_importer.py) is the sole Swiss Knife writer.
+// conversation_models.json is authoritative only for custom-model attribution.
 func syncModelIdentityInRequest(req *geminiRequest, model *CustomModel) {
 	if req == nil || model == nil {
 		return
@@ -94,34 +94,6 @@ func syncModelIdentityInRequest(req *geminiRequest, model *CustomModel) {
 		}
 	} else {
 		req.SystemInstruction.Parts = append(req.SystemInstruction.Parts, geminiPart{Text: instruction})
-	}
-}
-
-func syncTranscriptModelOnDisk(convID string, targetModelText string) {
-	if convID == "" || targetModelText == "" {
-		return
-	}
-	brainDir := filepath.Join(core.GetAntigravityDir(), "brain")
-	tPath := filepath.Join(brainDir, convID, ".system_generated", "logs", "transcript.jsonl")
-	data, err := os.ReadFile(tPath)
-	if err != nil || len(data) == 0 {
-		return
-	}
-
-	lines := bytes.Split(data, []byte("\n"))
-	changed := false
-	for i, line := range lines {
-		if bytes.Contains(line, []byte("<USER_SETTINGS_CHANGE>")) {
-			newLine := userSettingsSentenceRegex.ReplaceAll(line, []byte("${1}"+targetModelText+"${3}"))
-			if !bytes.Equal(newLine, line) {
-				lines[i] = newLine
-				changed = true
-			}
-			break
-		}
-	}
-	if changed {
-		_ = os.WriteFile(tPath, bytes.Join(lines, []byte("\n")), 0644)
 	}
 }
 
@@ -249,21 +221,13 @@ func (p *Proxy) tryCustomModel(w http.ResponseWriter, r *http.Request, body []by
 	}
 	log.Printf("[cloudcode-proxy] %s model=%q -> custom %q (%s)", r.URL.Path, envelope.Model, model.ID, model.ProviderType)
 
-		convID := extractConversationID(envelope.RequestID, envelope.Request)
-		if convID != "" && p.store != nil {
-			p.store.RecordConversationModel(convID, model.ID)
+	convID := extractConversationID(envelope.RequestID, envelope.Request)
+	if convID != "" && p.store != nil {
+		if err := p.store.RecordConversationModel(convID, model.ID); err != nil {
+			log.Printf("[cloudcode-proxy] persist conversation model %s: %v", convID, err)
 		}
-		syncModelIdentityInRequest(&request, model)
-		if convID != "" {
-			targetModelText := model.DisplayName
-			if targetModelText == "" {
-				targetModelText = model.Name
-			}
-			if model.ThinkingLevel != "" && strings.ToLower(model.ThinkingLevel) != "off" {
-				targetModelText += fmt.Sprintf(" (%s)", formatEffortLabel(model.ThinkingLevel))
-			}
-			go syncTranscriptModelOnDisk(convID, targetModelText)
-		}
+	}
+	syncModelIdentityInRequest(&request, model)
 
 	requestID := envelope.RequestID
 	emit := func(frame geminiResponse) error {
