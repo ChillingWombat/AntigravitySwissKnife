@@ -16,18 +16,20 @@ import (
 
 func transcriptFixtureLine(t *testing.T, stepIndex int, content string) []byte {
 	t.Helper()
-	line, err := json.Marshal(map[string]any{
+	var line bytes.Buffer
+	encoder := json.NewEncoder(&line)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(map[string]any{
 		"step_index":    stepIndex,
 		"source":        "SYSTEM",
 		"type":          "SYSTEM_MESSAGE",
 		"content":       content,
 		"input_tokens":  1,
 		"output_tokens": 1,
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("marshal transcript line: %v", err)
 	}
-	return append(line, '\n')
+	return line.Bytes()
 }
 
 func openAIStreamFixture() *httptest.Server {
@@ -70,6 +72,9 @@ func TestProxyCustomRequestsNeverRewriteHostTranscript(t *testing.T) {
 	hostLine := transcriptFixtureLine(t, 0, "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Gemini 3.8 Flash (High). No need to comment on this change if the user doesn't ask about it.\n</USER_SETTINGS_CHANGE>")
 	if err := os.WriteFile(transcriptPath, hostLine, 0644); err != nil {
 		t.Fatalf("write host transcript: %v", err)
+	}
+	if !bytes.Contains(hostLine, []byte("<USER_SETTINGS_CHANGE>")) {
+		t.Fatal("fixture must retain the literal settings tag that triggers the legacy rewrite")
 	}
 
 	upstream := openAIStreamFixture()
