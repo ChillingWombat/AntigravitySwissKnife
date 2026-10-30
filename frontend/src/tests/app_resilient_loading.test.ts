@@ -240,4 +240,81 @@ describe('App resilient dashboard loading', () => {
 
     assert.equal(dashboard!.state.status.data?.active_account, 'newer@example.com')
   })
+  it('background refresh requests only status and fleet', async () => {
+    const calls: string[] = []
+    const loaders = makeLoaders({
+      status: async () => { calls.push('status'); return status },
+      quota: async () => { calls.push('quota'); return fleet },
+      rules: async () => { calls.push('rules'); return {} as RuleConfig },
+      projects: async () => { calls.push('projects'); return [] },
+      accounts: async () => { calls.push('accounts'); return [{ email: 'known@example.com' }] },
+    })
+    view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
+    await flush()
+    calls.length = 0
+    await act(async () => {
+      document.dispatchEvent(new window.Event('visibilitychange'))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+    assert.deepEqual(calls.sort(), ['quota', 'status'])
+  })
+
+  it('fetches accounts when the fleet refresh fails', async () => {
+    let fleetFails = false
+    let accountCalls = 0
+    const loaders = makeLoaders({
+      quota: async () => {
+        if (fleetFails) throw new Error('fleet offline')
+        return fleet
+      },
+      accounts: async () => {
+        accountCalls += 1
+        return [{ email: 'known@example.com' }]
+      },
+    })
+    view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
+    await flush()
+    accountCalls = 0
+    fleetFails = true
+    await act(async () => {
+      document.dispatchEvent(new window.Event('visibilitychange'))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+    assert.equal(accountCalls, 1)
+  })
+
+  it('forces a fresh status read after a successful account switch', async () => {
+    let statusCalls = 0
+    const loaders = makeLoaders({
+      status: async () => { statusCalls += 1; return status },
+    })
+    view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
+    await flush()
+    statusCalls = 0
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('swiss:account-switched', { detail: { active_account: 'next@example.com' } }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+    assert.ok(statusCalls >= 1)
+  })
+
+  it('refreshes rules after a successful mutation event', async () => {
+    let ruleCalls = 0
+    const loaders = makeLoaders({
+      rules: async () => { ruleCalls += 1; return {} as RuleConfig },
+    })
+    view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
+    await flush()
+    ruleCalls = 0
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('swiss:dashboard-mutated', { detail: { endpoint: 'rules' } }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+    assert.equal(ruleCalls, 1)
+  })
+
 })

@@ -55,6 +55,10 @@ func (b daemonBackend) Revival() backend.RevivalService {
 	return b.daemon.Revival
 }
 
+func (b daemonBackend) ActiveState() backend.ActiveStateService {
+	return daemonActiveState{daemon: b.daemon}
+}
+
 type daemonQuota struct {
 	daemon *Daemon
 }
@@ -165,6 +169,7 @@ func (s daemonGUI) GetConfig() gui.Config {
 }
 
 func (s daemonGUI) UpdateConfigPartial(rawJSON []byte) (*gui.GUIConfig, error) {
+	defer s.daemon.invalidateActiveState()
 	return s.daemon.GUIStore.UpdateConfigPartial(rawJSON)
 }
 
@@ -229,6 +234,7 @@ func (s daemonAccounts) ScanAccounts() ([]keyring.DiscoveredAccount, error) {
 }
 
 func (s daemonAccounts) ImportAccount(req backend.AccountImport) (*keyring.Account, error) {
+	defer s.daemon.invalidateActiveState()
 	acc, err := s.daemon.Keyring.ImportAccount(req.Email, req.RefreshToken, req.AccessToken, req.Label, req.TOTPSecret)
 	if err != nil {
 		return nil, err
@@ -249,6 +255,7 @@ func (s daemonAccounts) ImportAccount(req backend.AccountImport) (*keyring.Accou
 }
 
 func (s daemonAccounts) UpdateAccount(req backend.AccountUpdate) (map[string]interface{}, error) {
+	defer s.daemon.invalidateActiveState()
 	existing, _ := s.daemon.Keyring.GetAccount(req.Email)
 	if existing != nil {
 		if req.Password == "[REDACTED]" || req.Password == "" {
@@ -335,6 +342,7 @@ func (s daemonAccounts) UpdateAccount(req backend.AccountUpdate) (map[string]int
 }
 
 func (s daemonAccounts) RemoveAccount(email string) (map[string]interface{}, error) {
+	defer s.daemon.invalidateActiveState()
 	prevActive := s.daemon.Keyring.ActiveAccount()
 	if err := s.daemon.Keyring.RemoveAccount(email); err != nil {
 		return nil, err
@@ -364,6 +372,7 @@ func (s daemonAccounts) RemoveAccount(email string) (map[string]interface{}, err
 }
 
 func (s daemonAccounts) SwitchAccount(req backend.AccountSwitch) (backend.AccountSwitchResult, error) {
+	defer s.daemon.invalidateActiveState()
 	email := strings.TrimSpace(req.Email)
 	if email == "" {
 		return backend.AccountSwitchResult{}, fmt.Errorf("email is required")
@@ -432,5 +441,6 @@ func (s daemonAccounts) ExportAccounts() []keyring.AccountExport {
 }
 
 func (s daemonAccounts) BatchImportAccounts(items []keyring.BatchImportItem) (int, error) {
+	defer s.daemon.invalidateActiveState()
 	return s.daemon.Keyring.BatchImportAccounts(items)
 }

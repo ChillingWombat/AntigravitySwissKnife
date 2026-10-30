@@ -52,6 +52,7 @@ func newTestServer(addr, socketPath string) *Server {
 }
 
 type testBackend struct {
+	activeState  backend.ActiveStateService
 	accounts     backend.AccountService
 	customModels backend.CustomModelsService
 	enhancements backend.EnhancementsService
@@ -70,6 +71,23 @@ func (b testBackend) GUI() backend.GUIService                   { return b.gui }
 func (b testBackend) GitHub() backend.GitHubService             { return b.github }
 func (b testBackend) Vault() backend.VaultService               { return b.vault }
 func (b testBackend) Revival() backend.RevivalService           { return b.revival }
+func (b testBackend) ActiveState() backend.ActiveStateService {
+	if b.activeState != nil {
+		return b.activeState
+	}
+	accounts := b.accounts.ListAccounts()
+	return testActiveStateService{snapshot: backend.ActiveStateSnapshot{
+		ActiveAccount: activeAccountEmail(accounts),
+		TotalAccounts: len(accounts),
+	}}
+}
+
+type testActiveStateService struct {
+	snapshot backend.ActiveStateSnapshot
+}
+
+func (s testActiveStateService) Snapshot(bool) backend.ActiveStateSnapshot { return s.snapshot }
+func (testActiveStateService) Invalidate()                                 {}
 
 func newTestBackendOwners() (backend.GitHubService, backend.VaultService, backend.RevivalService) {
 	githubStore, err := github.NewStore("")

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, requestFleetSnapshot } from '../api'
 import type { FleetQuotaSummary, RuleConfig, SystemStatus } from '../types'
 import { toAccountState } from '../types'
 import {
@@ -37,7 +37,7 @@ function requireArray<T>(value: T[]): T[] {
 
 export const defaultDashboardLoaders: DashboardLoaders = {
   status: () => api.getStatus(),
-  quota: () => api.getFleetQuota(),
+  quota: () => requestFleetSnapshot(),
   rules: () => api.getRules(),
   projects: async () => requireArray(await api.getGUIProjects()),
   accounts: async () => requireArray(await api.getAccounts()),
@@ -98,16 +98,23 @@ export function useDashboardData({
     return promise
   }, [])
 
+  const refreshLive = useCallback(
+    () => runLoad(['status', 'quota'], true),
+    [runLoad],
+  )
+
   const load = useCallback(
     () => runLoad(DASHBOARD_ENDPOINTS, false),
     [runLoad],
   )
 
   const failedEndpoints = useMemo(() => failedDashboardEndpoints(state), [state])
+  const failedEndpointsRef = useRef<DashboardEndpoint[]>(failedEndpoints)
+  failedEndpointsRef.current = failedEndpoints
 
   const retry = useCallback(
-    (endpoints: readonly DashboardEndpoint[] = failedEndpoints) => runLoad(endpoints, true),
-    [failedEndpoints, runLoad],
+    (endpoints: readonly DashboardEndpoint[] = failedEndpointsRef.current) => runLoad(endpoints, true),
+    [runLoad],
   )
 
   useEffect(() => {
@@ -147,6 +154,7 @@ export function useDashboardData({
     effectiveAccounts,
     directAccounts,
     load,
+    refreshLive,
     retry,
   }
 }

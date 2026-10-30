@@ -176,6 +176,7 @@ export function cancelAllInFlightRequests(): void {
 export function shouldRunBackgroundPoll(
   visibilityState: DocumentVisibilityState | string = typeof document !== 'undefined' ? document.visibilityState : 'visible',
 ): boolean {
+  if (manualRecoveryLeaseActive()) return false
   return visibilityState !== 'hidden'
 }
 
@@ -221,6 +222,19 @@ export function isAbortError(err: unknown): boolean {
 function isPublicDaemonPath(pathname: string): boolean {
   return pathname === '/health' || pathname.startsWith('/api/auth/')
 }
+
+function dispatchDashboardMutation(url: string, method: string): void {
+  if (method === 'GET' || typeof window === 'undefined') return
+  const pathname = new URL(url, window.location.href).pathname
+  let endpoint: 'rules' | 'projects' | 'accounts' | null = null
+  if (pathname.startsWith('/api/rules')) endpoint = 'rules'
+  else if (pathname.startsWith('/api/gui/projects') || pathname.startsWith('/api/projects')) endpoint = 'projects'
+  else if (pathname.startsWith('/api/accounts') && !pathname.endsWith('/switch')) endpoint = 'accounts'
+  if (endpoint) {
+    window.dispatchEvent(new CustomEvent('swiss:dashboard-mutated', { detail: { endpoint } }))
+  }
+}
+
 
 async function fetchDaemon(url: string, fetchOptions: RequestInit, timeoutMs: number): Promise<Response> {
   const broker = getSwissDaemonBroker()
@@ -354,12 +368,14 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
       throw new Error(formatErrorMessage(text, res.status))
     }
     if (res.status === 204) {
+      dispatchDashboardMutation(url, method)
       return {} as T
     }
     const data = (await res.json()) as T
     if (controller.signal.aborted) {
       throw controller.signal.reason || new DOMException('The operation was aborted', 'AbortError')
     }
+    dispatchDashboardMutation(url, method)
     return data
   } catch (err: any) {
     if (didTimeout) {
@@ -1469,3 +1485,44 @@ export const api = {
     }),
 }
 
+
+
+let fleetSnapshotInFlight: ReturnType<typeof api.getFleetQuota> | null = null
+let manualRecoveryLeaseUntil = 0
+
+export function requestFleetSnapshot(): ReturnType<typeof api.getFleetQuota> {
+  if (!fleetSnapshotInFlight) {
+    fleetSnapshotInFlight = api.getFleetQuota().finally(() => {
+      fleetSnapshotInFlight = null
+    })
+  }
+  return fleetSnapshotInFlight
+}
+
+export function invalidateDashboardFlights(): void {
+  fleetSnapshotInFlight = null
+}
+
+export function beginManualRecoveryLease(durationMs = 15_000): void {
+  manualRecoveryLeaseUntil = Math.max(manualRecoveryLeaseUntil, Date.now() + durationMs)
+}
+
+export function manualRecoveryLeaseActive(): boolean {
+  return Date.now() < manualRecoveryLeaseUntil
+}
+
+const requestAccountSwitch = api.switchAccount
+api.switchAccount = async (...args: Parameters<typeof requestAccountSwitch>) => {
+  const result = await requestAccountSwitch(...args)
+  invalidateDashboardFlights()
+  if (typeof window !== 'undefined') {
+    const record = result as unknown as Record<string, unknown>
+    const activeAccount = typeof record.active_account === 'string'
+      ? record.active_account
+      : args[0]
+    window.dispatchEvent(new CustomEvent('swiss:account-switched', {
+      detail: { active_account: activeAccount },
+    }))
+  }
+  return result
+}

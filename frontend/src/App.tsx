@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   BRIDGE_TABS,
   ENHANCEMENT_TABS,
@@ -150,6 +150,9 @@ export const App: React.FC<AppProps> = ({ dashboardLoaders }) => {
   const extensionsTab = route.tool === 'extensions' ? route.tab : 'built-in'
   const bridgeTab = route.tool === 'remote-connect' ? route.tab : 'remote'
   const tokenMonitorTab = route.tool === 'token-monitor' ? route.tab : 'overview'
+  const onRulesSurface = route.tool === 'system-settings' ||
+    (route.tool === 'switcher' && route.tab === 'switcher-settings')
+  const onProjectsSurface = route.tool === 'switcher'
   const {
     state,
     isLoading,
@@ -157,6 +160,7 @@ export const App: React.FC<AppProps> = ({ dashboardLoaders }) => {
     effectiveAccounts,
     directAccounts,
     load: loadAllData,
+    refreshLive,
     retry,
   } = useDashboardData({ loaders: dashboardLoaders })
   const status = state.status.data
@@ -200,11 +204,11 @@ export const App: React.FC<AppProps> = ({ dashboardLoaders }) => {
     // Poll status and fleet metrics periodically without overlapping requests.
     const interval = setInterval(() => {
       if (!shouldRunBackgroundPoll()) return
-      void loadAllData()
+      void refreshLive()
     }, 10000)
     const handleVisibilityChange = () => {
       if (shouldRunBackgroundPoll()) {
-        void loadAllData()
+        void refreshLive()
       }
     }
     if (typeof document !== 'undefined') {
@@ -219,7 +223,59 @@ export const App: React.FC<AppProps> = ({ dashboardLoaders }) => {
         document.removeEventListener('visibilitychange', handleVisibilityChange)
       }
     }
-  }, [loadAllData, navigate])
+  }, [loadAllData, navigate, refreshLive])
+
+  const accountsFallbackRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const quota = state.quota
+    const fleetHasAccounts = (quota.data?.accounts.length ?? 0) > 0
+    const needsAccounts = quota.status === 'error' ||
+      quota.status === 'degraded' ||
+      (quota.status === 'ready' && !fleetHasAccounts)
+    const key = `${quota.status}:${quota.updatedAt ?? 0}:${quota.error ?? ''}`
+    if (needsAccounts && accountsFallbackRef.current !== key) {
+      accountsFallbackRef.current = key
+      void retry(['accounts'])
+    } else if (fleetHasAccounts) {
+      accountsFallbackRef.current = null
+    }
+  }, [retry, state.quota])
+
+  const rulesSurfaceRef = useRef(onRulesSurface)
+  const projectsSurfaceRef = useRef(onProjectsSurface)
+
+  useEffect(() => {
+    const entered = !rulesSurfaceRef.current && onRulesSurface
+    rulesSurfaceRef.current = onRulesSurface
+    if (entered) {
+      void retry(['rules'])
+    }
+  }, [onRulesSurface, retry])
+
+  useEffect(() => {
+    const entered = !projectsSurfaceRef.current && onProjectsSurface
+    projectsSurfaceRef.current = onProjectsSurface
+    if (entered) {
+      void retry(['projects'])
+    }
+  }, [onProjectsSurface, retry])
+
+  useEffect(() => {
+    const onAccountSwitched = () => { void refreshLive() }
+    const onDashboardMutation = (event: Event) => {
+      const endpoint = (event as CustomEvent<{ endpoint?: string }>).detail?.endpoint
+      if (endpoint === 'rules' || endpoint === 'projects' || endpoint === 'accounts') {
+        void retry([endpoint])
+      }
+    }
+    window.addEventListener('swiss:account-switched', onAccountSwitched)
+    window.addEventListener('swiss:dashboard-mutated', onDashboardMutation)
+    return () => {
+      window.removeEventListener('swiss:account-switched', onAccountSwitched)
+      window.removeEventListener('swiss:dashboard-mutated', onDashboardMutation)
+    }
+  }, [refreshLive, retry])
 
   useEffect(() => {
     const activeProjects = availableProjects.filter((project) => !project.is_archived)

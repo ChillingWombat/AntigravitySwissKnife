@@ -32,6 +32,7 @@ import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
+import { beginManualRecoveryLease, invalidateDashboardFlights, requestFleetSnapshot } from '../api'
 import { antigravityLogoUrl as antigravityLogo } from '../assets/browserAssets'
 
 import { sortAccounts, rankStandbyAccounts, getNextSortState, type SortMode, type SortDirection } from '../utils/accountSorting'
@@ -224,7 +225,10 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     if (isRefreshing) return
     setIsRefreshing(true)
     try {
+      beginManualRecoveryLease()
+      invalidateDashboardFlights()
       await api.refreshFleetQuota().catch(() => {})
+      await requestFleetSnapshot().catch(() => {})
       // Fleet refresh runs async on the daemon; poll until it reports done (cap to 30s max, abort on 3 consecutive errors)
       const deadline = Date.now() + 30_000
       let consecutiveErrors = 0

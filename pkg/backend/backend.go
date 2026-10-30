@@ -21,6 +21,7 @@ type BackendService interface {
 	GitHub() GitHubService
 	Vault() VaultService
 	Revival() RevivalService
+	ActiveState() ActiveStateService
 }
 
 // CustomModelsService is the daemon-owned custom-model state group.
