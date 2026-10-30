@@ -26,13 +26,6 @@ func (b daemonBackend) Accounts() backend.AccountService {
 	return daemonAccounts{daemon: b.daemon}
 }
 
-func (b daemonBackend) Quota() backend.QuotaService              { return nil }
-func (b daemonBackend) CustomModels() backend.CustomModelService { return nil }
-func (b daemonBackend) Enhancements() backend.EnhancementService { return nil }
-func (b daemonBackend) GitHub() backend.GitHubService            { return nil }
-func (b daemonBackend) Vault() backend.VaultService              { return nil }
-func (b daemonBackend) Revival() backend.RevivalService          { return nil }
-
 type daemonAccounts struct {
 	daemon *Daemon
 }
@@ -242,6 +235,10 @@ func (s daemonAccounts) SwitchAccount(req backend.AccountSwitch) (backend.Accoun
 		MultiAppSyncMode:  s.daemon.Config.GetMultiAppSyncMode(),
 		ActiveAppAccounts: s.daemon.Config.GetActiveAppAccounts(),
 	}, nil
+}
+
+func (s daemonAccounts) SetTOTPSecret(email, secret string) error {
+	return s.daemon.Keyring.SetTOTPSecret(email, secret)
 }
 
 func (s daemonAccounts) ExportAccounts() []keyring.AccountExport {

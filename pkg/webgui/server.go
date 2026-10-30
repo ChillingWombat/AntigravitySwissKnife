@@ -51,6 +51,8 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
+var newGUIConfigStore = gui.NewStore
+
 // RPCClient is the explicit daemon transport used by standalone web mode.
 type RPCClient interface {
 	Call(method string, params interface{}, out interface{}) error
@@ -132,7 +134,7 @@ func newServer(addr string, service backend.BackendService, rpc RPCClient) (*Ser
 	if addr == "" {
 		addr = "127.0.0.1:8765"
 	}
-	guiStore, err := gui.NewStore("")
+	guiStore, err := newGUIConfigStore("")
 	if err != nil {
 		return nil, fmt.Errorf("initialize GUI store: %w", err)
 	}
@@ -950,39 +952,10 @@ func isAllowedLoopbackOrigin(origin string) bool {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	var status map[string]interface{}
-	if err := s.client.Call("swiss.getStatus", nil, &status); err != nil {
-		// Direct store fallback when daemon is inactive
-		store, _ := keyring.NewStore("")
-		active := ""
-		total := 0
-		if store != nil {
-			c, _ := core.LoadConfig()
-			var allEmails []string
-			for _, a := range store.ListAccounts() {
-				allEmails = append(allEmails, a.Email)
-			}
-			_, _ = store.ReconcileActiveAccount(c.AutoImportActiveAccount, allEmails, nil)
-			active = store.ActiveAccount()
-			total = len(store.ListAccounts())
-		}
-		shield := process.NewShield(0)
-		procs, _ := shield.FindAntigravityUIProcesses()
-		hostRunning := len(procs) > 0
-		var hostPID int
-		if hostRunning {
-			hostPID = procs[0].PID
-		}
-		status = map[string]interface{}{
-			"daemon_running":              false,
-			"daemon_pid":                  0,
-			"version":                     core.AppVersion,
-			"active_account":              active,
-			"total_accounts":              total,
-			"antigravity_running":         hostRunning,
-			"antigravity_pid":             hostPID,
-			"running_antigravity_account": keyring.ResolveRunningAntigravityAccountRedacted("", ""),
-		}
+	status, err := s.loadStatus()
+	if err != nil {
+		writeAccountBackendError(w, err)
+		return
 	}
 	if accObj, ok := status["running_antigravity_account"].(map[string]interface{}); ok {
 		delete(accObj, "access_token")
@@ -990,6 +963,38 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		delete(accObj, "id_token")
 	}
 	writeJSON(w, status)
+}
+
+func (s *Server) loadStatus() (map[string]interface{}, error) {
+	if service := s.accountService(); service != nil {
+		accounts := service.ListAccounts()
+		return statusPayload(activeAccountEmail(accounts), len(accounts), true), nil
+	}
+	var status map[string]interface{}
+	if err := s.callAccountOwnerRPC("get status", "swiss.getStatus", nil, &status); err != nil {
+		return nil, err
+	}
+	return status, nil
+}
+
+func statusPayload(active string, total int, daemonRunning bool) map[string]interface{} {
+	shield := process.NewShield(0)
+	procs, _ := shield.FindAntigravityUIProcesses()
+	hostRunning := len(procs) > 0
+	var hostPID int
+	if hostRunning {
+		hostPID = procs[0].PID
+	}
+	return map[string]interface{}{
+		"daemon_running":              daemonRunning,
+		"daemon_pid":                  0,
+		"version":                     core.AppVersion,
+		"active_account":              active,
+		"total_accounts":              total,
+		"antigravity_running":         hostRunning,
+		"antigravity_pid":             hostPID,
+		"running_antigravity_account": keyring.ResolveRunningAntigravityAccountRedacted("", ""),
+	}
 }
 
 func redactAccount(acc keyring.Account) keyring.Account {
@@ -1301,6 +1306,42 @@ func (s *Server) accountService() backend.AccountService {
 	return s.backend.Accounts()
 }
 
+type accountBackendError struct {
+	operation string
+	err       error
+}
+
+func (e *accountBackendError) Error() string {
+	return fmt.Sprintf("account backend %s failed: %v", e.operation, e.err)
+}
+
+func (e *accountBackendError) Unwrap() error {
+	return e.err
+}
+
+func (s *Server) callAccountOwnerRPC(operation, method string, params, out interface{}) error {
+	if s.client == nil {
+		return &accountBackendError{operation: operation, err: errors.New("daemon RPC client is not initialized")}
+	}
+	if err := s.client.Call(method, params, out); err != nil {
+		return &accountBackendError{operation: operation, err: err}
+	}
+	return nil
+}
+
+func writeAccountBackendError(w http.ResponseWriter, err error) {
+	http.Error(w, err.Error(), http.StatusBadGateway)
+}
+
+func activeAccountEmail(accounts []*keyring.Account) string {
+	for _, account := range accounts {
+		if account.IsActive {
+			return account.Email
+		}
+	}
+	return ""
+}
+
 func (s *Server) accountsSnapshot() ([]*keyring.Account, error) {
 	if service := s.accountService(); service != nil {
 		return service.ListAccounts(), nil
@@ -1415,50 +1456,54 @@ func (s *Server) handleTOTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var res map[string]interface{}
-		if err := s.client.Call("swiss.setTOTPSecret", p, &res); err != nil {
-			store, storeErr := keyring.NewStore("")
-			if storeErr != nil {
-				http.Error(w, storeErr.Error(), http.StatusInternalServerError)
-				return
-			}
-			if err := store.SetTOTPSecret(p.Email, p.Secret); err != nil {
+		if service := s.accountService(); service != nil {
+			if err := service.SetTOTPSecret(p.Email, p.Secret); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			res = map[string]interface{}{"success": true}
+		} else if err := s.callAccountOwnerRPC("set TOTP secret", "swiss.setTOTPSecret", p, &res); err != nil {
+			writeAccountBackendError(w, err)
+			return
 		}
 		writeJSON(w, res)
 		return
 	}
 
-	var res map[string]interface{}
-	if err := s.client.Call("swiss.getTOTPCode", map[string]string{"email": email}, &res); err != nil {
-		store, _ := keyring.NewStore("")
+	if service := s.accountService(); service != nil {
 		target := email
-		if target == "" && store != nil {
-			target = store.ActiveAccount()
+		if target == "" {
+			target = activeAccountEmail(service.ListAccounts())
 		}
-		if store != nil {
-			acc, _ := store.GetAccount(target)
-			if acc != nil && acc.TOTPSecret != "" {
-				eng := totp.NewEngine()
-				now := time.Now()
-				code, _ := eng.GenerateCode(acc.TOTPSecret, now)
-				cd := eng.GetCountdown(now)
-				writeJSON(w, map[string]interface{}{
-					"code":              code,
-					"remaining_seconds": cd.RemainingSeconds,
-					"progress_fraction": cd.ProgressFraction,
-					"has_totp":          true,
-				})
-				return
-			}
+		acc, err := service.GetAccount(target)
+		if err != nil && !errors.Is(err, core.ErrAccountNotFound) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
+		if acc == nil || acc.TOTPSecret == "" {
+			writeJSON(w, map[string]interface{}{
+				"code":              "------",
+				"remaining_seconds": 0,
+				"has_totp":          false,
+			})
+			return
+		}
+		eng := totp.NewEngine()
+		now := time.Now()
+		code, _ := eng.GenerateCode(acc.TOTPSecret, now)
+		cd := eng.GetCountdown(now)
 		writeJSON(w, map[string]interface{}{
-			"code":              "------",
-			"remaining_seconds": 0,
-			"has_totp":          false,
+			"code":              code,
+			"remaining_seconds": cd.RemainingSeconds,
+			"progress_fraction": cd.ProgressFraction,
+			"has_totp":          true,
 		})
+		return
+	}
+
+	var res map[string]interface{}
+	if err := s.callAccountOwnerRPC("get TOTP code", "swiss.getTOTPCode", map[string]string{"email": email}, &res); err != nil {
+		writeAccountBackendError(w, err)
 		return
 	}
 	writeJSON(w, res)

@@ -26,13 +26,7 @@ type testBackend struct {
 	accounts backend.AccountService
 }
 
-func (b testBackend) Accounts() backend.AccountService         { return b.accounts }
-func (b testBackend) Quota() backend.QuotaService              { return nil }
-func (b testBackend) CustomModels() backend.CustomModelService { return nil }
-func (b testBackend) Enhancements() backend.EnhancementService { return nil }
-func (b testBackend) GitHub() backend.GitHubService            { return nil }
-func (b testBackend) Vault() backend.VaultService              { return nil }
-func (b testBackend) Revival() backend.RevivalService          { return nil }
+func (b testBackend) Accounts() backend.AccountService { return b.accounts }
 
 type testAccountService struct {
 	store *keyring.Store
@@ -187,6 +181,10 @@ func (s testAccountService) SwitchAccount(req backend.AccountSwitch) (backend.Ac
 		MultiAppSyncMode:  cfg.GetMultiAppSyncMode(),
 		ActiveAppAccounts: cfg.GetActiveAppAccounts(),
 	}, nil
+}
+
+func (s testAccountService) SetTOTPSecret(email, secret string) error {
+	return s.store.SetTOTPSecret(email, secret)
 }
 
 func (s testAccountService) ExportAccounts() []keyring.AccountExport {

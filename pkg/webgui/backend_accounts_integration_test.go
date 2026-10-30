@@ -3,12 +3,15 @@ package webgui
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/daemon"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
@@ -68,6 +71,33 @@ func TestAccountSwitchThroughHTTPUsesDaemonState(t *testing.T) {
 	if status.ActiveAccount != "secondary@example.com" {
 		t.Fatalf("RPC active account = %q, want secondary@example.com", status.ActiveAccount)
 	}
+
+	totpBody, _ := json.Marshal(map[string]interface{}{
+		"email":  "secondary@example.com",
+		"secret": "JBSWY3DPEHPK3PXP",
+	})
+	reqTOTP, err := http.NewRequest(http.MethodPost, "http://"+server.Addr()+"/api/totp", bytes.NewReader(totpBody))
+	if err != nil {
+		t.Fatalf("create TOTP request: %v", err)
+	}
+	reqTOTP.Header.Set("Content-Type", "application/json")
+	reqTOTP.Header.Set("X-Session-Token", server.GetSessionToken())
+	respTOTP, err := http.DefaultClient.Do(reqTOTP)
+	if err != nil {
+		t.Fatalf("POST /api/totp: %v", err)
+	}
+	respTOTP.Body.Close()
+	if respTOTP.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/totp status = %d, want %d", respTOTP.StatusCode, http.StatusOK)
+	}
+
+	var totp map[string]interface{}
+	if err := ipc.NewClient(socketPath).Call("swiss.getTOTPCode", map[string]string{"email": "secondary@example.com"}, &totp); err != nil {
+		t.Fatalf("swiss.getTOTPCode: %v", err)
+	}
+	if totp["has_totp"] != true {
+		t.Fatalf("RPC TOTP state = %+v, want has_totp=true", totp)
+	}
 }
 
 func TestStandaloneWebServerUsesExplicitRPCClient(t *testing.T) {
@@ -110,11 +140,34 @@ func TestStandaloneWebServerUsesExplicitRPCClient(t *testing.T) {
 }
 
 func TestBackendConstructorFailureStopsStartup(t *testing.T) {
-	server, err := NewServer("127.0.0.1:0", nil, nil)
-	if err == nil {
-		if server != nil {
-			_ = server.Stop()
+	t.Run("missing backend", func(t *testing.T) {
+		server, err := NewServer("127.0.0.1:0", nil, nil)
+		if err == nil {
+			if server != nil {
+				_ = server.Stop()
+			}
+			t.Fatal("NewServer accepted a missing account backend")
 		}
-		t.Fatal("NewServer accepted a missing account backend")
-	}
+	})
+
+	t.Run("required store failure", func(t *testing.T) {
+		original := newGUIConfigStore
+		newGUIConfigStore = func(string) (*gui.Store, error) {
+			return nil, errors.New("injected GUI store failure")
+		}
+		t.Cleanup(func() { newGUIConfigStore = original })
+
+		_, err := NewServer(
+			"127.0.0.1:0",
+			testBackend{accounts: testAccountService{}},
+			ipc.NewClient(filepath.Join(t.TempDir(), "unused.sock")),
+		)
+		if err == nil {
+			t.Fatal("NewServer ignored a required store failure")
+		}
+		if !strings.Contains(err.Error(), "initialize GUI store") ||
+			!strings.Contains(err.Error(), "injected GUI store failure") {
+			t.Fatalf("NewServer error = %q, want wrapped GUI store failure", err)
+		}
+	})
 }
