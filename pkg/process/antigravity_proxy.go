@@ -61,16 +61,41 @@ func LaunchAntigravityWithCloudCodeProxy(endpoint string, restart bool, shield *
 	if shield == nil {
 		shield = NewShield(0)
 	}
-	procs, err := shield.FindAntigravityProcesses()
-	if err == nil && len(procs) > 0 {
+	return launchAntigravityWithCloudCodeProxy(endpoint, restart, shield, defaultLaunchAntigravityDeps())
+}
+
+type launchAntigravityDeps struct {
+	find   func(*Shield) ([]ProcessInfo, error)
+	kill   func(*Shield, int, syscall.Signal) error
+	launch func(string) (int, error)
+}
+
+func defaultLaunchAntigravityDeps() launchAntigravityDeps {
+	return launchAntigravityDeps{
+		find: func(shield *Shield) ([]ProcessInfo, error) {
+			return shield.FindAntigravityProcesses()
+		},
+		kill: func(shield *Shield, pid int, signal syscall.Signal) error {
+			return shield.SafeKill(pid, signal)
+		},
+		launch: launchAntigravity,
+	}
+}
+
+func launchAntigravityWithCloudCodeProxy(endpoint string, restart bool, shield *Shield, deps launchAntigravityDeps) (int, error) {
+	procs, err := deps.find(shield)
+	if err != nil {
+		return 0, fmt.Errorf("discover Antigravity processes: %w", err)
+	}
+	if len(procs) > 0 {
 		if !restart {
 			return procs[0].PID, fmt.Errorf("Antigravity is already running (PID %d); restart it to pick up the Cloud Code proxy", procs[0].PID)
 		}
 		var killErrs []error
 		for _, proc := range procs {
-			if err := shield.SafeKill(proc.PID, syscall.SIGTERM); err != nil {
+			if err := deps.kill(shield, proc.PID, syscall.SIGTERM); err != nil {
 				// Windows does not implement SIGTERM for os.Process.
-				if killErr := shield.SafeKill(proc.PID, syscall.SIGKILL); killErr != nil {
+				if killErr := deps.kill(shield, proc.PID, syscall.SIGKILL); killErr != nil {
 					killErrs = append(killErrs, fmt.Errorf("stop Antigravity PID %d: %w", proc.PID, killErr))
 				}
 			}
@@ -80,7 +105,7 @@ func LaunchAntigravityWithCloudCodeProxy(endpoint string, restart bool, shield *
 		}
 		deadline := time.Now().Add(10 * time.Second)
 		for {
-			remaining, findErr := shield.FindAntigravityProcesses()
+			remaining, findErr := deps.find(shield)
 			if findErr != nil {
 				return 0, fmt.Errorf("verify Antigravity shutdown: %w", findErr)
 			}
@@ -94,6 +119,10 @@ func LaunchAntigravityWithCloudCodeProxy(endpoint string, restart bool, shield *
 		}
 	}
 
+	return deps.launch(endpoint)
+}
+
+func launchAntigravity(endpoint string) (int, error) {
 	cmd, err := antigravityLaunchSpec(endpoint)
 	if err != nil {
 		return 0, err
@@ -123,7 +152,7 @@ func defaultRestartNativeDeps() restartNativeDeps {
 			return len(procs) > 0, nil
 		},
 		relaunch: func(shield *Shield) error {
-			_, err := LaunchAntigravityWithCloudCodeProxy("", true, shield)
+			_, err := launchAntigravityWithCloudCodeProxy("", true, shield, defaultLaunchAntigravityDeps())
 			return err
 		},
 		terminate: terminateAgyLanguageServers,

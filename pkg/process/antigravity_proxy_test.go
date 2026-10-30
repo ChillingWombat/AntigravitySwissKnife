@@ -126,3 +126,33 @@ func TestRestartAntigravityAppsToNativePropagatesFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestRestartAntigravityAppsToNativeDoesNotLaunchOnDiscoveryFailure(t *testing.T) {
+	discoveryErr := errors.New("discovery failed")
+	launchCalled := false
+	deps := restartNativeDeps{
+		desktopRunning: func(*Shield) (bool, error) { return true, nil },
+		relaunch: func(shield *Shield) error {
+			_, err := launchAntigravityWithCloudCodeProxy("", true, shield, launchAntigravityDeps{
+				find: func(*Shield) ([]ProcessInfo, error) { return nil, discoveryErr },
+				launch: func(string) (int, error) {
+					launchCalled = true
+					return 1, nil
+				},
+			})
+			return err
+		},
+		terminate: func(*Shield) error { return nil },
+	}
+
+	err := restartAntigravityAppsToNative(NewShield(0), deps)
+	if !errors.Is(err, discoveryErr) {
+		t.Fatalf("expected discovery error %v, got %v", discoveryErr, err)
+	}
+	if !strings.Contains(err.Error(), "discover Antigravity processes") {
+		t.Fatalf("expected discovery error context, got %v", err)
+	}
+	if launchCalled {
+		t.Fatal("launched Antigravity after discovery failed")
+	}
+}
