@@ -1,7 +1,21 @@
 import React, { useState, useEffect } from 'react'
-import { routeFromNavigationTarget, routeToTool } from './navigation/routes'
+import {
+  BRIDGE_TABS,
+  ENHANCEMENT_TABS,
+  EXTENSIONS_TABS,
+  SYSTEM_SETTINGS_TABS,
+  TOKEN_MONITOR_TABS,
+  routeFromNavigationTarget,
+  routeToTool,
+  type BridgeTab,
+  type EnhancementTab,
+  type ExtensionsTab,
+  type SystemSettingsTab,
+  type TokenMonitorTab,
+  type UtilitiesTab,
+} from './navigation/routes'
 import { useRouteNavigation } from './navigation/useRouteNavigation'
-import { ArrowRightLeft, FolderArchive, HardDrive } from 'lucide-react'
+import { ArrowRightLeft, FolderArchive, HardDrive, type LucideIcon } from 'lucide-react'
 import { NavRail } from './components/NavRail'
 import { TopRibbon } from './components/TopRibbon'
 import { QuotaDashboardPage } from './pages/QuotaDashboardPage'
@@ -21,17 +35,112 @@ import type { AccountState, FleetQuotaSummary, RuleConfig, SystemStatus } from '
 import { toAccountState } from './types'
 import { api, getSessionToken, runSingleFlightPoll, shouldRunBackgroundPoll } from './api'
 
+interface SecondaryTabOption<T extends string> {
+  id: T
+  label: string
+  Icon?: LucideIcon
+}
+
+interface SecondaryTabsProps<T extends string> {
+  options: readonly SecondaryTabOption<T>[]
+  activeId: T
+  onSelect: (tab: T) => void
+}
+
+function SecondaryTabs<T extends string>({ options, activeId, onSelect }: SecondaryTabsProps<T>) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        backgroundColor: 'var(--tonal)',
+        borderRadius: '8px',
+        padding: '3px',
+        gap: '2px',
+      }}
+    >
+      {options.map(({ id, label, Icon }) => {
+        const isActive = activeId === id
+        return (
+          <button
+            key={id}
+            type="button"
+            data-route-tab={id}
+            aria-pressed={isActive}
+            onClick={() => onSelect(id)}
+            style={{
+              borderRadius: '6px',
+              padding: '6px 16px',
+              fontSize: '12px',
+              fontWeight: isActive ? 600 : 500,
+              color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+              backgroundColor: isActive ? 'var(--surface)' : 'transparent',
+              boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              border: 'none',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {Icon ? <Icon size={13} /> : null}
+              {label}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+const SYSTEM_SETTINGS_TAB_OPTIONS = [
+  { id: 'general', label: 'General' },
+  { id: 'storage', label: 'Path & Storage' },
+  { id: 'privacy', label: 'Error & Privacy' },
+  { id: 'about', label: 'About' },
+] as const satisfies ReadonlyArray<SecondaryTabOption<SystemSettingsTab>>
+
+const ENHANCEMENT_TAB_OPTIONS = [
+  { id: 'chat-view', label: 'Chat View' },
+  { id: 'project-panel', label: 'Project Panel' },
+  { id: 'auxiliary-panel', label: 'Auxiliary Panel' },
+] as const satisfies ReadonlyArray<SecondaryTabOption<EnhancementTab>>
+
+const EXTENSIONS_TAB_OPTIONS = [
+  { id: 'built-in', label: 'Built-in' },
+  { id: 'community', label: 'Community' },
+] as const satisfies ReadonlyArray<SecondaryTabOption<ExtensionsTab>>
+
+const TOKEN_MONITOR_TAB_OPTIONS = [
+  { id: 'overview', label: 'Consumption Overview' },
+  { id: 'telemetry', label: 'Telemetry & Logs' },
+  { id: 'token-price', label: 'Token Price' },
+] as const satisfies ReadonlyArray<SecondaryTabOption<TokenMonitorTab>>
+
+const UTILITIES_TAB_OPTIONS = [
+  { id: 'cache', label: 'Storage Manager', Icon: HardDrive },
+  { id: 'archives', label: 'Archived Projects', Icon: FolderArchive },
+  { id: 'import', label: 'Chat & Project Importer', Icon: ArrowRightLeft },
+] as const satisfies ReadonlyArray<SecondaryTabOption<UtilitiesTab>>
+
+const BRIDGE_TAB_OPTIONS = [
+  { id: 'remote', label: 'Remote' },
+  { id: 'gemini', label: 'Gemini' },
+  { id: 'whatsapp', label: 'WhatsApp' },
+  { id: 'telegram', label: 'Telegram' },
+  { id: 'discord', label: 'Discord' },
+] as const satisfies ReadonlyArray<SecondaryTabOption<BridgeTab>>
+
 export const App: React.FC = () => {
   const { route, navigate } = useRouteNavigation()
   const currentTool = routeToTool(route)
   const currentTab = route.tool === 'switcher' ? route.tab : 'dashboard'
   const utilitiesTab = route.tool === 'utilities' ? route.tab : 'cache'
-  const [systemSettingsTab, setSystemSettingsTab] = useState<number>(0) // 0: General, 1: Path & Storage, 2: Error & Privacy, 3: About
-  const [enhancementTab, setEnhancementTab] = useState<number>(0) // 0: Chat View, 1: Project Panel, 2: Auxiliary Panel
-  const [extensionsTab, setExtensionsTab] = useState<number>(0) // 0: Built-in, 1: Community
+  const systemSettingsTab = route.tool === 'system-settings' ? route.tab : 'general'
+  const enhancementTab = route.tool === 'enhancements' ? route.tab : 'chat-view'
+  const extensionsTab = route.tool === 'extensions' ? route.tab : 'built-in'
+  const bridgeTab = route.tool === 'remote-connect' ? route.tab : 'remote'
+  const tokenMonitorTab = route.tool === 'token-monitor' ? route.tab : 'overview'
   const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; color: string; order: number; is_archived: boolean }>>([])
-  const [bridgeTab, setBridgeTab] = useState<number>(0) // 0: Remote, 1: Gemini, 2: WhatsApp, 3: Telegram, 4: Discord
-  const [tokenMonitorTab, setTokenMonitorTab] = useState<number>(0) // 0: Overview, 1: Telemetry & Logs, 2: Token Price
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [fleet, setFleet] = useState<FleetQuotaSummary | null>(null)
   const [directAccounts, setDirectAccounts] = useState<any[]>([])
@@ -159,7 +268,7 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+    <div data-active-tool={currentTool} style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
       {/* 1. Left Navigation Rail (Fixed 200px) */}
       <NavRail
         currentTool={currentTool}
@@ -213,238 +322,51 @@ export const App: React.FC = () => {
                 />
               )}
               {currentTool === 'enhancements' && (
-                /* UI Enhancement Segmented Tabs */
-                <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {['Chat View', 'Project Panel', 'Auxiliary Panel'].map((tab, idx) => {
-                    const isActive = enhancementTab === idx
-                    return (
-                      <button
-                        key={tab}
-                        onClick={() => setEnhancementTab(idx)}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    )
-                  })}
-                </div>
+                <SecondaryTabs
+                  options={ENHANCEMENT_TAB_OPTIONS}
+                  activeId={enhancementTab}
+                  onSelect={(tab) => navigate({ tool: 'enhancements', tab })}
+                />
               )}
 
               {currentTool === 'extensions' && (
-                /* Extensions Segmented Tabs */
-                <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {['Built-in', 'Community'].map((tab, idx) => {
-                    const isActive = extensionsTab === idx
-                    return (
-                      <button
-                        key={tab}
-                        onClick={() => setExtensionsTab(idx)}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    )
-                  })}
-                </div>
+                <SecondaryTabs
+                  options={EXTENSIONS_TAB_OPTIONS}
+                  activeId={extensionsTab}
+                  onSelect={(tab) => navigate({ tool: 'extensions', tab })}
+                />
               )}
 
               {currentTool === 'token-monitor' && (
-                /* Token Monitor Segmented Tabs */
-                <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {['Consumption Overview', 'Telemetry & Logs', 'Token Price'].map((tab, idx) => {
-                    const isActive = tokenMonitorTab === idx
-                    return (
-                      <button
-                        key={tab}
-                        onClick={() => setTokenMonitorTab(idx)}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    )
-                  })}
-                </div>
+                <SecondaryTabs
+                  options={TOKEN_MONITOR_TAB_OPTIONS}
+                  activeId={tokenMonitorTab}
+                  onSelect={(tab) => navigate({ tool: 'token-monitor', tab })}
+                />
               )}
 
               {currentTool === 'utilities' && (
-                /* Utilities Segmented Tabs */
-                <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {[
-                    { id: 'cache' as const, label: 'Storage Manager', Icon: HardDrive },
-                    { id: 'archives' as const, label: 'Archived Projects', Icon: FolderArchive },
-                    { id: 'import' as const, label: 'Chat & Project Importer', Icon: ArrowRightLeft },
-                  ].map(({ id, label, Icon }) => {
-                    const isActive = utilitiesTab === id
-                    return (
-                      <button
-                        key={id}
-                        onClick={() => navigate({ tool: 'utilities', tab: id })}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <Icon size={13} />
-                          {label}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
+                <SecondaryTabs
+                  options={UTILITIES_TAB_OPTIONS}
+                  activeId={utilitiesTab}
+                  onSelect={(tab) => navigate({ tool: 'utilities', tab })}
+                />
               )}
 
               {currentTool === 'remote-connect' && (
-                /* Remote Connect Segmented Tabs */
-                <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {['Remote', 'Gemini', 'WhatsApp', 'Telegram', 'Discord'].map((tab, idx) => {
-                    const isActive = bridgeTab === idx
-                    return (
-                      <button
-                        key={tab}
-                        onClick={() => setBridgeTab(idx)}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    )
-                  })}
-                </div>
+                <SecondaryTabs
+                  options={BRIDGE_TAB_OPTIONS}
+                  activeId={bridgeTab}
+                  onSelect={(tab) => navigate({ tool: 'remote-connect', tab })}
+                />
               )}
 
               {currentTool === 'system-settings' && (
-                /* System Settings Category Tabs */
-                <div
-                  style={{
-                    display: 'flex',
-                    backgroundColor: 'var(--tonal)',
-                    borderRadius: '8px',
-                    padding: '3px',
-                    gap: '2px',
-                  }}
-                >
-                  {['General', 'Path & Storage', 'Error & Privacy', 'About'].map((tab, idx) => {
-                    const isActive = systemSettingsTab === idx
-                    return (
-                      <button
-                        key={tab}
-                        onClick={() => setSystemSettingsTab(idx)}
-                        style={{
-                          borderRadius: '6px',
-                          padding: '6px 16px',
-                          fontSize: '12px',
-                          fontWeight: isActive ? 600 : 500,
-                          color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                          backgroundColor: isActive ? 'var(--surface)' : 'transparent',
-                          boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {tab}
-                      </button>
-                    )
-                  })}
-                </div>
+                <SecondaryTabs
+                  options={SYSTEM_SETTINGS_TAB_OPTIONS}
+                  activeId={systemSettingsTab}
+                  onSelect={(tab) => navigate({ tool: 'system-settings', tab })}
+                />
               )}
 
             </div>
@@ -501,8 +423,11 @@ export const App: React.FC = () => {
                 <SystemSettingsPage
                   status={status}
                   onRefresh={loadAllData}
-                  activeTab={systemSettingsTab}
-                  onTabChange={setSystemSettingsTab}
+                  activeTab={SYSTEM_SETTINGS_TABS.indexOf(systemSettingsTab)}
+                  onTabChange={(tab) => {
+                    const nextTab = SYSTEM_SETTINGS_TABS[tab]
+                    if (nextTab) navigate({ tool: 'system-settings', tab: nextTab })
+                  }}
                 />
               </ErrorBoundary>
             )}
@@ -513,14 +438,17 @@ export const App: React.FC = () => {
             )}
             {currentTool === 'enhancements' && (
               <ErrorBoundary>
-                <AppEnhancementsPage activeCategoryTab={enhancementTab} />
+                <AppEnhancementsPage activeCategoryTab={ENHANCEMENT_TABS.indexOf(enhancementTab)} />
               </ErrorBoundary>
             )}
             {currentTool === 'extensions' && (
               <ErrorBoundary>
                 <ExtensionsPage
-                  activeTab={extensionsTab}
-                  onTabChange={setExtensionsTab}
+                  activeTab={EXTENSIONS_TABS.indexOf(extensionsTab)}
+                  onTabChange={(tab) => {
+                    const nextTab = EXTENSIONS_TABS[tab]
+                    if (nextTab) navigate({ tool: 'extensions', tab: nextTab })
+                  }}
                   fallbackProject={availableProjects[0]?.name}
                 />
               </ErrorBoundary>
@@ -528,8 +456,11 @@ export const App: React.FC = () => {
             {currentTool === 'token-monitor' && (
               <ErrorBoundary>
                 <TokenMonitorPage
-                  activeTab={tokenMonitorTab}
-                  onTabChange={setTokenMonitorTab}
+                  activeTab={TOKEN_MONITOR_TABS.indexOf(tokenMonitorTab)}
+                  onTabChange={(tab) => {
+                    const nextTab = TOKEN_MONITOR_TABS[tab]
+                    if (nextTab) navigate({ tool: 'token-monitor', tab: nextTab })
+                  }}
                 />
               </ErrorBoundary>
             )}
@@ -544,8 +475,11 @@ export const App: React.FC = () => {
             {currentTool === 'remote-connect' && (
               <ErrorBoundary>
                 <BridgePage
-                  activeTab={bridgeTab}
-                  onTabChange={setBridgeTab}
+                  activeTab={BRIDGE_TABS.indexOf(bridgeTab)}
+                  onTabChange={(tab) => {
+                    const nextTab = BRIDGE_TABS[tab]
+                    if (nextTab) navigate({ tool: 'remote-connect', tab: nextTab })
+                  }}
                 />
               </ErrorBoundary>
             )}

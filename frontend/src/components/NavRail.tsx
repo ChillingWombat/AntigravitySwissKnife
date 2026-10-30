@@ -161,7 +161,7 @@ export const NavRail: React.FC<NavRailProps> = ({
 
         <button
           id="btnNavTokenMonitor"
-          onClick={() => navigate({ tool: 'token-monitor' })}
+          onClick={() => navigate({ tool: 'token-monitor', tab: 'overview' })}
           style={{
             width: '100%',
             textAlign: 'left',
@@ -184,7 +184,7 @@ export const NavRail: React.FC<NavRailProps> = ({
         <button
           id="btnNavBridge"
           data-testid="btnNavRemoteConnect"
-          onClick={() => navigate({ tool: 'remote-connect' })}
+          onClick={() => navigate({ tool: 'remote-connect', tab: 'remote' })}
           style={{
             width: '100%',
             textAlign: 'left',
@@ -231,7 +231,7 @@ export const NavRail: React.FC<NavRailProps> = ({
           <button
             id="btnNavExtensions"
             data-testid="btnNavExtensions"
-            onClick={() => navigate({ tool: 'extensions' })}
+            onClick={() => navigate({ tool: 'extensions', tab: 'built-in' })}
             style={{
               width: '100%',
               textAlign: 'left',
@@ -253,7 +253,7 @@ export const NavRail: React.FC<NavRailProps> = ({
         )}
         <button
           id="btnNavEnhancements"
-          onClick={() => navigate({ tool: 'enhancements' })}
+          onClick={() => navigate({ tool: 'enhancements', tab: 'chat-view' })}
           style={{
             width: '100%',
             textAlign: 'left',
@@ -337,7 +337,7 @@ export const NavRail: React.FC<NavRailProps> = ({
       {/* Dedicated System Settings Button Pinned at Bottom-Left of Whole GUI */}
       <button
         id="btnNavSystemSettings"
-        onClick={() => navigate({ tool: 'system-settings' })}
+        onClick={() => navigate({ tool: 'system-settings', tab: 'general' })}
         style={{
           width: '100%',
           textAlign: 'left',

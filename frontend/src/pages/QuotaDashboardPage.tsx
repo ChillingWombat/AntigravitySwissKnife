@@ -32,7 +32,7 @@ import { HorizontalQuotaBar } from '../components/HorizontalQuotaBar'
 import { AccountDetailModal } from '../components/AccountDetailModal'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
-import antigravityLogo from '../assets/antigravity_logo.png'
+import { antigravityLogoUrl as antigravityLogo } from '../assets/browserAssets'
 
 import { sortAccounts, rankStandbyAccounts, getNextSortState, type SortMode, type SortDirection } from '../utils/accountSorting'
 

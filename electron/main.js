@@ -1,6 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, shell, Notification, nativeImage, session, clipboard, screen, dialog } = require('electron');
 const path = require('path');
-const { sendTrayNavigation, TRAY_NAVIGATION_TARGETS } = require('./tray-navigation');
+const { sendTrayNavigation, TRAY_NAVIGATION_TARGETS, buildTrayApplicationMenu } = require('./tray-navigation');
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
@@ -697,34 +697,17 @@ function applyTrayMenuState({
     return false;
   }
 
-  const template = buildTrayMenuTemplate({
+  const { menu: contextMenu } = buildTrayApplicationMenu({
+    Menu,
+    buildTemplate: buildTrayMenuTemplate,
     activeAlias,
     quotaInfo,
     switchMenuItems,
     accountsCount,
-    onOpenDashboard: async () => {
-      await showOrCreateMainWindow();
-    },
-    onSystemSettings: async () => {
-      await showOrCreateMainWindow();
-      if (mainWindow && (typeof mainWindow.isDestroyed !== 'function' || !mainWindow.isDestroyed())) {
-        if (mainWindow.webContents && typeof mainWindow.webContents.isLoading === 'function' && mainWindow.webContents.isLoading()) {
-          mainWindow.webContents.once('did-finish-load', () => {
-            if (mainWindow && (typeof mainWindow.isDestroyed !== 'function' || !mainWindow.isDestroyed())) {
-              sendTrayNavigation(mainWindow, TRAY_NAVIGATION_TARGETS.systemSettings);
-            }
-          });
-        } else if (mainWindow.webContents) {
-          sendTrayNavigation(mainWindow, TRAY_NAVIGATION_TARGETS.systemSettings);
-        }
-      }
-    },
-    onQuit: () => {
-      requestAppQuit();
-    },
+    showOrCreateMainWindow,
+    getMainWindow: () => mainWindow,
+    requestAppQuit,
   });
-
-  const contextMenu = Menu.buildFromTemplate(template);
   activeTrayContextMenu = contextMenu;
   tray.setContextMenu(contextMenu);
   lastTrayMenuSignature = signature;

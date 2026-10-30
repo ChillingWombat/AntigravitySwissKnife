@@ -3,6 +3,7 @@ import assert from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { BRIDGE_TABS, parseHash, routeToTool, serializeRoute } from '../navigation/routes'
 
 describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
   const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -30,24 +31,31 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
 
   it('NavRail contains dedicated Remote Connect section button with Globe Lucide icon', () => {
     assert.ok(navContent.includes('id="btnNavBridge"'))
-    assert.ok(navContent.includes('onSelectTool(10)'))
+    assert.ok(navContent.includes("navigate({ tool: 'remote-connect', tab: 'remote' })"))
     assert.ok(navContent.includes('<Globe size={18}'))
     assert.ok(navContent.includes('Remote Connect'))
   })
 
-  it('App.tsx contains 5 segmented tabs for Bridge section in exact required order', () => {
-    assert.ok(appContent.includes("currentTool === 10"))
-    assert.ok(appContent.includes("['Remote', 'Gemini', 'WhatsApp', 'Telegram', 'Discord']"))
+  it('App.tsx exposes all five typed Remote Connect routes', () => {
+    assert.deepEqual([...BRIDGE_TABS], ['remote', 'gemini', 'whatsapp', 'telegram', 'discord'])
+    for (const tab of BRIDGE_TABS) {
+      const hash = serializeRoute({ tool: 'remote-connect', tab })
+      assert.equal(routeToTool(parseHash(hash)), 'remote-connect')
+      assert.deepEqual(parseHash(hash), { tool: 'remote-connect', tab })
+    }
+    assert.ok(appContent.includes("currentTool === 'remote-connect'"))
+    assert.ok(appContent.includes("navigate({ tool: 'remote-connect', tab })"))
     assert.ok(appContent.includes('<BridgePage'))
   })
 
   it('promotes ACP Adapter and keeps Utilities tabs in the required order', () => {
-    assert.ok(appContent.includes('currentTool === 11'))
+    assert.ok(appContent.includes("currentTool === 'acp-adapter'"))
     assert.ok(appContent.includes('id="acp-mesh-top-bar-portal"'))
     assert.ok(appContent.includes('<ACPAgentMeshPage />'))
-    assert.ok(appContent.includes("id: 'cache' as const, label: 'Storage Manager', Icon: HardDrive"))
-    assert.ok(appContent.includes("id: 'archives' as const, label: 'Archived Projects', Icon: FolderArchive"))
-    assert.ok(appContent.includes("id: 'import' as const, label: 'Chat & Project Importer', Icon: ArrowRightLeft"))
+    // TODO(#367): replace these source greps with rendered tab-order behavior.
+    assert.ok(appContent.includes("id: 'cache', label: 'Storage Manager', Icon: HardDrive"))
+    assert.ok(appContent.includes("id: 'archives', label: 'Archived Projects', Icon: FolderArchive"))
+    assert.ok(appContent.includes("id: 'import', label: 'Chat & Project Importer', Icon: ArrowRightLeft"))
     assert.ok(!utilsContent.includes('GeminiBridgePage'))
     assert.ok(utilsContent.includes('<BrainCachePage />'))
     assert.ok(utilsContent.includes('<ArchivedProjectsPage />'))

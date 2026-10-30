@@ -274,13 +274,13 @@ describe('Adversarial Stress: NavRail Exhaustive Tab Dispatch & Layout Invariant
 
     const expectedButtons: { id: string; route: Route }[] = [
       { id: '#btnNavCustomModels', route: { tool: 'custom-models' } },
-      { id: '#btnNavEnhancements', route: { tool: 'enhancements' } },
-      { id: '#btnNavExtensions', route: { tool: 'extensions' } },
-      { id: '#btnNavBridge', route: { tool: 'remote-connect' } },
-      { id: '#btnNavTokenMonitor', route: { tool: 'token-monitor' } },
+      { id: '#btnNavEnhancements', route: { tool: 'enhancements', tab: 'chat-view' } },
+      { id: '#btnNavExtensions', route: { tool: 'extensions', tab: 'built-in' } },
+      { id: '#btnNavBridge', route: { tool: 'remote-connect', tab: 'remote' } },
+      { id: '#btnNavTokenMonitor', route: { tool: 'token-monitor', tab: 'overview' } },
       { id: '#btnNavUtilities', route: { tool: 'utilities', tab: 'cache' } },
       { id: '#btnNavACPAgentMesh', route: { tool: 'acp-adapter' } },
-      { id: '#btnNavSystemSettings', route: { tool: 'system-settings' } },
+      { id: '#btnNavSystemSettings', route: { tool: 'system-settings', tab: 'general' } },
     ]
 
     for (const item of expectedButtons) {

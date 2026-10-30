@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { EXTENSIONS_TABS, parseHash, serializeRoute } from '../navigation/routes'
 import React, { act } from 'react'
 import { initDOM, mount, type RenderResult } from '../test-dom'
 import { ExtensionsPage } from '../pages/ExtensionsPage'
@@ -129,45 +130,19 @@ describe('Extensions top tab switcher & Community Extensions UI (#203)', () => {
     cancelAllInFlightRequests()
   })
 
-  it('1. App.tsx renders the top header segmented switcher with Built-in and Community tabs when currentTool === 7', () => {
+  it('1. App.tsx renders typed Built-in and Community routes', () => {
+    assert.deepEqual([...EXTENSIONS_TABS], ['built-in', 'community'])
+    for (const tab of EXTENSIONS_TABS) {
+      const hash = serializeRoute({ tool: 'extensions', tab })
+      assert.deepEqual(parseHash(hash), { tool: 'extensions', tab })
+    }
+
     const __dirname = path.dirname(fileURLToPath(import.meta.url))
     const appSrc = fs.readFileSync(path.resolve(__dirname, '../App.tsx'), 'utf8')
-
-    // Header condition allows currentTool === 7 to render top header
-    assert.ok(
-      appSrc.includes('currentTool !== 6'),
-      'header condition must permit currentTool === 7'
-    )
-    assert.ok(
-      !appSrc.includes('currentTool !== 7'),
-      'old header exclusion for tool 7 must be removed'
-    )
-
-    // State definition for extensionsTab
-    assert.ok(
-      appSrc.includes('const [extensionsTab, setExtensionsTab] = useState<number>(0)'),
-      'App must declare extensionsTab state defaulting to 0'
-    )
-
-    // Segmented tab switcher for tool 7
-    assert.ok(
-      appSrc.includes("['Built-in', 'Community'].map("),
-      'App must map over Built-in and Community tabs'
-    )
-    assert.ok(
-      appSrc.includes('currentTool === 7 &&'),
-      'App must conditionally render segmented switcher for currentTool === 7'
-    )
-
-    // ExtensionsPage receives activeTab and onTabChange
-    assert.ok(
-      appSrc.includes('activeTab={extensionsTab}'),
-      'ExtensionsPage must receive activeTab prop'
-    )
-    assert.ok(
-      appSrc.includes('onTabChange={setExtensionsTab}'),
-      'ExtensionsPage must receive onTabChange prop'
-    )
+    assert.ok(appSrc.includes("route.tool === 'extensions' ? route.tab"))
+    assert.ok(appSrc.includes("navigate({ tool: 'extensions', tab })"))
+    assert.ok(appSrc.includes('data-route-tab={id}'))
+    assert.ok(appSrc.includes('<ExtensionsPage'))
   })
 
   it('2. ExtensionsPage defaults to Built-in (activeTab === 0) and renders all built-in gadgets', async () => {

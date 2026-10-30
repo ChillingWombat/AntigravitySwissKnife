@@ -31,9 +31,9 @@ describe('semantic navigation controls', () => {
     assert.deepEqual(calls, [
       { tool: 'custom-models' },
       { tool: 'utilities', tab: 'cache' },
-      { tool: 'remote-connect' },
+      { tool: 'remote-connect', tab: 'remote' },
       { tool: 'acp-adapter' },
-      { tool: 'system-settings' },
+      { tool: 'system-settings', tab: 'general' },
     ])
   })
 

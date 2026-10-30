@@ -48,6 +48,9 @@ export const TopRibbon: React.FC<TopRibbonProps> = ({
           return (
             <button
               key={id}
+              type="button"
+              data-route-tab={id}
+              aria-pressed={isActive}
               onClick={() => navigate({ tool: 'switcher', tab: id })}
               style={{
                 borderRadius: '6px',
