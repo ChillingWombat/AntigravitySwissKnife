@@ -60,6 +60,7 @@ type TokenProjectBreakdown struct {
 	CacheHitRatio float64 `json:"cache_hit_ratio"`
 	SessionsCount int     `json:"sessions_count"`
 	Requests      int     `json:"requests"`
+	AvgTPS        float64 `json:"avg_tps"`
 	LastActive    string  `json:"last_active"`
 	PrimaryModel  string  `json:"primary_model"`
 }
@@ -72,6 +73,7 @@ type TokenTelemetryEvent struct {
 	Model           string                           `json:"model"`
 	ModelID         string                           `json:"model_id"`
 	CanonicalID     string                           `json:"canonical_id,omitempty"`
+	RoutedModel     string                           `json:"routed_model,omitempty"`
 	Provider        string                           `json:"provider"`
 	Classification  custommodels.ModelClassification `json:"classification"`
 	InputTokens     int64                            `json:"input_tokens"`
@@ -136,11 +138,176 @@ type cachedConvModel struct {
 	provider    string
 }
 
+type protobufWireField struct {
+	number   int
+	wireType int
+	bytes    []byte
+	varint   uint64
+}
+
 var (
 	tokenCacheMu       sync.RWMutex
 	transcriptCacheMap = make(map[string]cachedTranscriptStats)
 	convModelCacheMap  = make(map[string]cachedConvModel)
 )
+
+func readProtobufVarint(data []byte, offset *int) (uint64, bool) {
+	var value uint64
+	for shift := uint(0); shift < 64 && *offset < len(data); shift += 7 {
+		current := data[*offset]
+		*offset = *offset + 1
+		value |= uint64(current&0x7f) << shift
+		if current&0x80 == 0 {
+			return value, true
+		}
+	}
+	return 0, false
+}
+
+func parseProtobufWireFields(data []byte) ([]protobufWireField, bool) {
+	var fields []protobufWireField
+	for offset := 0; offset < len(data); {
+		key, ok := readProtobufVarint(data, &offset)
+		if !ok {
+			return nil, false
+		}
+		number := int(key >> 3)
+		wireType := int(key & 0x7)
+		if number <= 0 {
+			return nil, false
+		}
+
+		field := protobufWireField{number: number, wireType: wireType}
+		switch wireType {
+		case 0:
+			value, ok := readProtobufVarint(data, &offset)
+			if !ok {
+				return nil, false
+			}
+			field.varint = value
+		case 1:
+			if offset+8 > len(data) {
+				return nil, false
+			}
+			offset += 8
+		case 2:
+			length, ok := readProtobufVarint(data, &offset)
+			if !ok || length > uint64(len(data)-offset) {
+				return nil, false
+			}
+			field.bytes = data[offset : offset+int(length)]
+			offset += int(length)
+		case 5:
+			if offset+4 > len(data) {
+				return nil, false
+			}
+			offset += 4
+		default:
+			return nil, false
+		}
+		fields = append(fields, field)
+	}
+	return fields, true
+}
+
+func routedModelMetadataPair(data []byte) (key, value string, ok bool) {
+	fields, valid := parseProtobufWireFields(data)
+	if !valid {
+		return "", "", false
+	}
+	for _, field := range fields {
+		if field.wireType != 2 {
+			continue
+		}
+		switch field.number {
+		case 1:
+			key = string(field.bytes)
+		case 2:
+			value = string(field.bytes)
+		}
+	}
+	return key, value, key != ""
+}
+
+func isRoutedModelIdentifier(value string) bool {
+	if len(value) < 3 || len(value) > 128 {
+		return false
+	}
+	for _, ch := range value {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') || strings.ContainsRune("._-/:", ch) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func parseRoutedModelMetadata(data []byte) (responseStep int, routedModel string, ok bool) {
+	outerFields, valid := parseProtobufWireFields(data)
+	if !valid {
+		return 0, "", false
+	}
+	for _, outer := range outerFields {
+		if outer.number != 1 || outer.wireType != 2 {
+			continue
+		}
+		generationFields, valid := parseProtobufWireFields(outer.bytes)
+		if !valid {
+			continue
+		}
+		lastStepIndex := -1
+		var route string
+		for _, field := range generationFields {
+			switch {
+			case field.number == 19 && field.wireType == 2:
+				if candidate := string(field.bytes); isRoutedModelIdentifier(candidate) {
+					route = candidate
+				}
+			case field.number == 20 && field.wireType == 2:
+				key, value, valid := routedModelMetadataPair(field.bytes)
+				if valid && key == "last_step_index" {
+					if parsed, err := strconv.Atoi(value); err == nil {
+						lastStepIndex = parsed
+					}
+				}
+			}
+		}
+		if route != "" && lastStepIndex >= 0 {
+			return lastStepIndex + 1, route, true
+		}
+	}
+	return 0, "", false
+}
+
+func readRoutedModelByStep(dbPath string) map[int]string {
+	routes := make(map[int]string)
+	if dbPath == "" {
+		return routes
+	}
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro&_busy_timeout=2000", dbPath))
+	if err != nil {
+		return routes
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 128")
+	if err != nil {
+		return routes
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var data []byte
+		if err := rows.Scan(&data); err != nil {
+			continue
+		}
+		if responseStep, routedModel, ok := parseRoutedModelMetadata(data); ok {
+			routes[responseStep] = routedModel
+		}
+	}
+	return routes
+}
 
 // SetCustomModelsStore replaces the customModelsStore on the server (useful for isolated tests).
 func (s *Server) SetCustomModelsStore(store *custommodels.Store) {
@@ -313,15 +480,24 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 		}
 
 		hasTokens := bytes.Contains(line, []byte("input_tokens")) || bytes.Contains(line, []byte("output_tokens")) || bytes.Contains(line, []byte("cache_read_tokens"))
-		var entry struct {
-			Type            string `json:"type"`
-			StepIndex       int    `json:"step_index"`
-			DurationMs      int64  `json:"duration_ms"`
-			InputTokens     int64  `json:"input_tokens"`
-			OutputTokens    int64  `json:"output_tokens"`
-			CacheReadTokens int64  `json:"cache_read_tokens"`
+		var itemType string
+		if bytes.Contains(line, []byte("USER_INPUT")) || bytes.Contains(line, []byte("USER_EXPLICIT")) {
+			itemType = "USER_INPUT"
+		} else if bytes.Contains(line, []byte("PLANNER_RESPONSE")) {
+			itemType = "PLANNER_RESPONSE"
+		} else if bytes.Contains(line, []byte("GENERIC")) {
+			itemType = "GENERIC"
 		}
+
 		if hasTokens {
+			var entry struct {
+				Type            string `json:"type"`
+				StepIndex       int    `json:"step_index"`
+				DurationMs      int64  `json:"duration_ms"`
+				InputTokens     int64  `json:"input_tokens"`
+				OutputTokens    int64  `json:"output_tokens"`
+				CacheReadTokens int64  `json:"cache_read_tokens"`
+			}
 			if err := json.Unmarshal(line, &entry); err == nil {
 				if entry.InputTokens > 0 || entry.OutputTokens > 0 || entry.CacheReadTokens > 0 {
 					stats.freshInput += entry.InputTokens
@@ -345,8 +521,7 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 		}
 
 		items = append(items, transcriptItem{
-			stepIndex: entry.StepIndex,
-			itemType:  entry.Type,
+			itemType:  itemType,
 			timestamp: parsedTime,
 			hasTokens: false,
 		})
@@ -369,10 +544,23 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 					diff := nextItem.timestamp.Sub(item.timestamp).Milliseconds()
 					if diff >= 200 && diff <= 600000 {
 						impliedTPS := float64(item.outputTokens) / (float64(diff) / 1000.0)
-						if impliedTPS >= 3.0 && impliedTPS <= 220.0 {
+						if strings.HasPrefix(nextItem.itemType, "USER") && diff > 120000 {
+							continue
+						}
+						if impliedTPS >= 3.0 && impliedTPS <= 350.0 {
 							durMs = diff
 							break
 						}
+					}
+				}
+			}
+			// Terminal step at end of conversation file: evaluate against file modification time
+			if durMs <= 0 && info != nil && !info.ModTime().IsZero() && info.ModTime().After(item.timestamp) {
+				mDiff := info.ModTime().Sub(item.timestamp).Milliseconds()
+				if mDiff >= 200 && mDiff <= 120000 {
+					impliedTPS := float64(item.outputTokens) / (float64(mDiff) / 1000.0)
+					if impliedTPS >= 3.0 && impliedTPS <= 350.0 {
+						durMs = mDiff
 					}
 				}
 			}
@@ -380,12 +568,12 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 
 		if durMs > 0 && item.outputTokens > 0 {
 			rawTPS := float64(item.outputTokens) / (float64(durMs) / 1000.0)
-			if rawTPS >= 3.0 && rawTPS <= 220.0 {
+			if rawTPS >= 3.0 && rawTPS <= 350.0 {
 				stats.totalDurationMs += durMs
 				stats.timedOutputTokens += item.outputTokens
-			} else if rawTPS > 220.0 {
+			} else if rawTPS > 350.0 {
 				// Bound realistic generation speed
-				clampedDurMs := int64(math.Ceil(float64(item.outputTokens) / 220.0 * 1000.0))
+				clampedDurMs := int64(math.Ceil(float64(item.outputTokens) / 350.0 * 1000.0))
 				durMs = clampedDurMs
 				stats.totalDurationMs += clampedDurMs
 				stats.timedOutputTokens += item.outputTokens
@@ -412,6 +600,151 @@ func parseTranscriptFile(tPath string, info os.FileInfo) cachedTranscriptStats {
 }
 
 var modelSelectionRegex = regexp.MustCompile(`(?i)setting\s+[` + "`" + `']Model Selection[` + "`" + `'].*?to\s+(.+?)(?:\.\s+|\.?(?:\r|\n|</USER_SETTINGS_CHANGE>))`)
+var effortSuffixRegex = regexp.MustCompile(`(?i)\s*\(?(?:low|medium|high|extra|xhigh|max|off)\)?\s*$`)
+
+func stripEffortSuffix(name string) string {
+	cleaned := strings.TrimSpace(effortSuffixRegex.ReplaceAllString(name, ""))
+	return strings.TrimSpace(cleaned)
+}
+
+type magpieSpeedSnapshot struct {
+	overallSpeed float64
+	modelSpeeds  map[string]float64
+	fetchedAt    time.Time
+}
+
+var (
+	magpieSpeedMu       sync.RWMutex
+	cachedMagpieSpeed   magpieSpeedSnapshot
+	magpieUsageEndpoint = "http://127.0.0.1:3425/v1/magpie/usage"
+)
+
+// SetMagpieEndpointForTest allows tests to point to a mock Magpie endpoint or empty string to disable.
+func SetMagpieEndpointForTest(endpoint string) {
+	magpieSpeedMu.Lock()
+	defer magpieSpeedMu.Unlock()
+	magpieUsageEndpoint = endpoint
+	cachedMagpieSpeed = magpieSpeedSnapshot{}
+}
+
+func getMagpieSpeedData(ctx context.Context) (float64, map[string]float64) {
+	magpieSpeedMu.RLock()
+	endpoint := magpieUsageEndpoint
+	if endpoint == "" {
+		magpieSpeedMu.RUnlock()
+		return 0, nil
+	}
+	if time.Since(cachedMagpieSpeed.fetchedAt) < 15*time.Second && cachedMagpieSpeed.modelSpeeds != nil {
+		ov := cachedMagpieSpeed.overallSpeed
+		m := cachedMagpieSpeed.modelSpeeds
+		magpieSpeedMu.RUnlock()
+		return ov, m
+	}
+	magpieSpeedMu.RUnlock()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, nil
+	}
+	client := &http.Client{Timeout: 250 * time.Millisecond}
+	resp, err := client.Do(req)
+	if err != nil {
+		magpieSpeedMu.Lock()
+		cachedMagpieSpeed = magpieSpeedSnapshot{fetchedAt: time.Now()}
+		magpieSpeedMu.Unlock()
+		return 0, nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		magpieSpeedMu.Lock()
+		cachedMagpieSpeed = magpieSpeedSnapshot{fetchedAt: time.Now()}
+		magpieSpeedMu.Unlock()
+		return 0, nil
+	}
+
+	var data struct {
+		DecodeMs  int64 `json:"decode_ms"`
+		DecodeOut int64 `json:"decode_out"`
+		Models    []struct {
+			ID        string `json:"id"`
+			Model     string `json:"model"`
+			Name      string `json:"name"`
+			DecodeMs  int64  `json:"decode_ms"`
+			DecodeOut int64  `json:"decode_out"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return 0, nil
+	}
+
+	overall := 0.0
+	if data.DecodeMs > 0 && data.DecodeOut > 0 {
+		overall = float64(data.DecodeOut) * 1000.0 / float64(data.DecodeMs)
+	}
+
+	mSpeeds := make(map[string]float64)
+	for _, m := range data.Models {
+		if m.DecodeMs > 0 && m.DecodeOut > 0 {
+			spd := float64(m.DecodeOut) * 1000.0 / float64(m.DecodeMs)
+			recordModelSpeedKey(mSpeeds, m.ID, spd)
+			recordModelSpeedKey(mSpeeds, m.Model, spd)
+			recordModelSpeedKey(mSpeeds, m.Name, spd)
+		}
+	}
+
+	magpieSpeedMu.Lock()
+	cachedMagpieSpeed = magpieSpeedSnapshot{
+		overallSpeed: overall,
+		modelSpeeds:  mSpeeds,
+		fetchedAt:    time.Now(),
+	}
+	magpieSpeedMu.Unlock()
+	return overall, mSpeeds
+}
+
+func recordModelSpeedKey(target map[string]float64, raw string, spd float64) {
+	if raw == "" {
+		return
+	}
+	clean := strings.ToLower(stripEffortSuffix(raw))
+	target[clean] = spd
+	if parts := strings.Split(clean, "/"); len(parts) > 1 {
+		target[parts[len(parts)-1]] = spd
+	}
+	if atIdx := strings.Index(clean, " @ "); atIdx > 0 {
+		beforeAt := strings.TrimSpace(clean[:atIdx])
+		target[beforeAt] = spd
+		if parts := strings.Split(beforeAt, "/"); len(parts) > 1 {
+			target[parts[len(parts)-1]] = spd
+		}
+	}
+}
+
+func lookupModelSpeed(modelID, modelName string, speeds map[string]float64) float64 {
+	if speeds == nil {
+		return 0
+	}
+	candidates := []string{
+		strings.ToLower(modelID),
+		strings.ToLower(stripEffortSuffix(modelID)),
+		strings.ToLower(modelName),
+		strings.ToLower(stripEffortSuffix(modelName)),
+	}
+	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
+		if spd, ok := speeds[c]; ok && spd > 0 {
+			return spd
+		}
+		if parts := strings.Split(c, "/"); len(parts) > 1 {
+			if spd, ok := speeds[parts[len(parts)-1]]; ok && spd > 0 {
+				return spd
+			}
+		}
+	}
+	return 0
+}
 
 // extractModelFromTranscript reads step 0 from transcript.jsonl and extracts any model selection from <USER_SETTINGS_CHANGE>.
 func extractModelFromTranscript(tPath string) (modelName string, ok bool) {
@@ -463,9 +796,18 @@ func mapModelNameToMetadata(rawName string, customModels []custommodels.CustomMo
 		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"
 	}
 
+	cleanedName := stripEffortSuffix(rawTrimmed)
+	lower := strings.ToLower(rawTrimmed)
+	lowerClean := strings.ToLower(cleanedName)
+
 	// 1. Match custom models
 	for _, cm := range customModels {
-		if strings.EqualFold(cm.Name, rawTrimmed) || (cm.DisplayName != "" && strings.EqualFold(cm.DisplayName, rawTrimmed)) {
+		cmName := strings.ToLower(cm.Name)
+		cmDisp := strings.ToLower(cm.DisplayName)
+		if strings.EqualFold(cm.Name, rawTrimmed) || strings.EqualFold(cm.DisplayName, rawTrimmed) ||
+			(cleanedName != "" && (strings.EqualFold(cm.Name, cleanedName) || strings.EqualFold(cm.DisplayName, cleanedName))) ||
+			(cmDisp != "" && (strings.Contains(lower, cmDisp) || strings.Contains(lowerClean, cmDisp))) ||
+			(cmName != "" && (strings.Contains(lower, cmName) || strings.Contains(lowerClean, cmName))) {
 			disp := cm.DisplayName
 			if disp == "" {
 				disp = cm.Name
@@ -485,7 +827,6 @@ func mapModelNameToMetadata(rawName string, customModels []custommodels.CustomMo
 	}
 
 	// 3. Gemini Native model family mappings
-	lower := strings.ToLower(rawTrimmed)
 	if strings.Contains(lower, "gemini 4") || strings.Contains(lower, "gemini-4") {
 		return "gemini-4-argon", "Gemini 4 Argon", "gemini"
 	}
@@ -606,6 +947,44 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 			return cached.modelID, cached.displayName, cached.provider
 		}
 		tokenCacheMu.RUnlock()
+	}
+
+	var convID string
+	if convDBPath != "" && strings.HasSuffix(convDBPath, ".db") {
+		convID = strings.TrimSuffix(filepath.Base(convDBPath), ".db")
+	} else if convDBPath != "" && !strings.Contains(convDBPath, string(filepath.Separator)) {
+		convID = convDBPath
+	} else if tPath != "" {
+		dir := filepath.Dir(tPath)
+		dir = filepath.Dir(dir)
+		convID = filepath.Base(filepath.Dir(dir))
+	}
+
+	// 0. Priority: Check if Swiss Knife proxy recorded an active custom model for this conversation
+	if convID != "" {
+		if customModelID := custommodels.GetRoutedConversationModel(convID); customModelID != "" {
+			for _, cm := range customModels {
+				if cm.ID == customModelID || cm.Name == customModelID {
+					disp := cm.DisplayName
+					if disp == "" {
+						disp = cm.Name
+					}
+					prov := custommodels.NormalizePricingProvider(string(cm.ProviderType), cm.Name)
+					if cacheKey != "" {
+						tokenCacheMu.Lock()
+						convModelCacheMap[cacheKey] = cachedConvModel{
+							modTimeNano: cacheModTime,
+							size:        cacheSize,
+							modelID:     cm.Name,
+							displayName: disp,
+							provider:    prov,
+						}
+						tokenCacheMu.Unlock()
+					}
+					return cm.Name, disp, prov
+				}
+			}
+		}
 	}
 
 	// 1. Authoritative check: transcript.jsonl step 0 <USER_SETTINGS_CHANGE>
@@ -1068,6 +1447,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	// Time window filter (#125/#126): the KPI cards and the histogram consume the
 	// same window so the displayed totals always match the selected range.
 	rangeSpec := parseTokenRange(r.URL.Query().Get("range"))
+	classFilter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("classification")))
 	now := time.Now()
 	cutoff := rangeSpec.cutoff(now)
 
@@ -1082,6 +1462,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	customModelsList := store.ListModels()
 
 	dataDir := s.getAntigravityDataDir()
+	magpieOverall, magpieModelSpeeds := getMagpieSpeedData(r.Context())
 	brainDir := filepath.Join(dataDir, "brain")
 	convDir := filepath.Join(dataDir, "conversations")
 	summariesDB := filepath.Join(dataDir, "conversation_summaries.db")
@@ -1121,6 +1502,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		costUSD       float64
 		savedUSD      float64
 		sessionsCount int
+		durationMs    int64
+		timedOutput   int64
 		lastActive    time.Time
 		tokensByModel map[string]int64
 	}
@@ -1259,6 +1642,13 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 				mDisplayName = pRec.Name
 			}
 
+			// Classification filter (#native vs #custom vs all)
+			if classFilter == "native" || classFilter == "custom" {
+				if string(pRec.Classification) != classFilter {
+					continue
+				}
+			}
+
 			// Window-filtered aggregation of this conversation's real steps.
 			agg := aggregateSteps(tStats.steps, cutoff)
 			if agg.requests == 0 {
@@ -1352,6 +1742,10 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			pa.savedUSD += convSaved
 			pa.sessionsCount++
 			pa.tokensByModel[mDisplayName] += convTotalTokens
+			if agg.durationMs > 0 && agg.timedOutput > 0 {
+				pa.durationMs += agg.durationMs
+				pa.timedOutput += agg.timedOutput
+			}
 			if tStats.lastActive.After(pa.lastActive) {
 				pa.lastActive = tStats.lastActive
 			}
@@ -1431,10 +1825,15 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			pct = math.Round((float64(mTotal)/float64(totalTokens))*1000) / 10
 		}
 		avgTPS := 0.0
-		if ma.durationMs > 0 && ma.timedOutput > 0 {
+		if magpieModelSpeeds != nil {
+			if spd := lookupModelSpeed(ma.modelID, ma.modelName, magpieModelSpeeds); spd > 0 {
+				avgTPS = math.Round(spd*10) / 10
+			}
+		}
+		if avgTPS <= 0 && ma.durationMs > 0 && ma.timedOutput > 0 {
 			rawTPS := float64(ma.timedOutput) / (float64(ma.durationMs) / 1000.0)
-			if rawTPS > 220.0 {
-				rawTPS = 220.0
+			if rawTPS > 350.0 {
+				rawTPS = 350.0
 			}
 			avgTPS = math.Round(rawTPS*10) / 10
 		}
@@ -1479,6 +1878,27 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		if pPrompt > 0 {
 			cacheRatio = math.Round((float64(pa.cachedInput)/float64(pPrompt))*1000) / 10
 		}
+		pAvgTPS := 0.0
+		if pa.durationMs > 0 && pa.timedOutput > 0 {
+			rawTPS := float64(pa.timedOutput) / (float64(pa.durationMs) / 1000.0)
+			if rawTPS > 350.0 {
+				rawTPS = 350.0
+			}
+			pAvgTPS = math.Round(rawTPS*10) / 10
+		}
+		if pAvgTPS <= 0 && magpieModelSpeeds != nil {
+			var weightedSpeedSum float64
+			var weightSum float64
+			for mName, tok := range pa.tokensByModel {
+				if spd := lookupModelSpeed("", mName, magpieModelSpeeds); spd > 0 && tok > 0 {
+					weightedSpeedSum += spd * float64(tok)
+					weightSum += float64(tok)
+				}
+			}
+			if weightSum > 0 {
+				pAvgTPS = math.Round((weightedSpeedSum/weightSum)*10) / 10
+			}
+		}
 		projectBreakdowns = append(projectBreakdowns, TokenProjectBreakdown{
 			ProjectName:   pa.projectName,
 			WorkspacePath: pa.workspacePath,
@@ -1491,6 +1911,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			CacheHitRatio: cacheRatio,
 			SessionsCount: pa.sessionsCount,
 			Requests:      pa.requests,
+			AvgTPS:        pAvgTPS,
 			LastActive:    formatRelativeTime(pa.lastActive),
 			PrimaryModel:  primaryModel,
 		})
@@ -1509,15 +1930,29 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	if len(allRecentSteps) > 30 {
 		allRecentSteps = allRecentSteps[:30]
 	}
+	routedModelsByConversation := make(map[string]map[int]string)
+	for _, st := range allRecentSteps {
+		if _, exists := routedModelsByConversation[st.convID]; exists {
+			continue
+		}
+		routedModelsByConversation[st.convID] = readRoutedModelByStep(filepath.Join(convDir, st.convID+".db"))
+	}
 	telemetryEvents := make([]TokenTelemetryEvent, 0, len(allRecentSteps))
 	for idx, st := range allRecentSteps {
 		tps := 0.0
-		if st.durationMs > 0 && st.output > 0 {
-			rawTPS := float64(st.output) / (float64(st.durationMs) / 1000.0)
-			if rawTPS > 220.0 {
-				rawTPS = 220.0
+		durMs := st.durationMs
+		if durMs > 0 && st.output > 0 {
+			rawTPS := float64(st.output) / (float64(durMs) / 1000.0)
+			if rawTPS > 350.0 {
+				rawTPS = 350.0
 			}
 			tps = math.Round(rawTPS*10) / 10
+		}
+		if (tps <= 0 || durMs <= 0) && st.output > 0 && magpieModelSpeeds != nil {
+			if spd := lookupModelSpeed(st.modelID, st.modelName, magpieModelSpeeds); spd > 0 {
+				tps = math.Round(spd*10) / 10
+				durMs = int64(math.Round(float64(st.output) / spd * 1000.0))
+			}
 		}
 		tsStr := st.createdAt.Local().Format("2006-01-02 15:04:05")
 		telemetryEvents = append(telemetryEvents, TokenTelemetryEvent{
@@ -1527,6 +1962,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			Model:           st.modelName,
 			ModelID:         st.modelID,
 			CanonicalID:     st.modelID,
+			RoutedModel:     routedModelsByConversation[st.convID][st.stepIndex],
 			Provider:        st.provider,
 			Classification:  st.classification,
 			InputTokens:     st.freshInput + st.cachedInput,
@@ -1534,7 +1970,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			OutputTokens:    st.output,
 			CostUSD:         st.costUSD,
 			PriceConfigured: st.priceConfigured,
-			DurationMs:      st.durationMs,
+			DurationMs:      durMs,
 			TPS:             tps,
 			IsSubagent:      st.isSubagent,
 			AgentRole:       st.agentRole,
@@ -1542,10 +1978,12 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	avgTPS := 0.0
-	if totalDurationMs > 0 && totalTimedOutputTokens > 0 {
+	if magpieOverall > 0 {
+		avgTPS = math.Round(magpieOverall*10) / 10
+	} else if totalDurationMs > 0 && totalTimedOutputTokens > 0 {
 		rawTPS := float64(totalTimedOutputTokens) / (float64(totalDurationMs) / 1000.0)
-		if rawTPS > 220.0 {
-			rawTPS = 220.0
+		if rawTPS > 350.0 {
+			rawTPS = 350.0
 		}
 		avgTPS = math.Round(rawTPS*10) / 10
 	} else if len(telemetryEvents) > 0 {
@@ -1559,8 +1997,8 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 		}
 		if count > 0 {
 			rawTPS := sum / float64(count)
-			if rawTPS > 220.0 {
-				rawTPS = 220.0
+			if rawTPS > 350.0 {
+				rawTPS = 350.0
 			}
 			avgTPS = math.Round(rawTPS*10) / 10
 		}
@@ -1769,6 +2207,14 @@ type ChatMetricsPrompt struct {
 	Text  string `json:"text"`
 }
 
+// ChatContextWindow is the active context budget reported by the host language
+// server. MaxTokens is the denominator that decides when compaction fires.
+type ChatContextWindow struct {
+	UsedTokens int64  `json:"used_tokens"`
+	MaxTokens  int64  `json:"max_tokens"`
+	Source     string `json:"source"`
+}
+
 // ChatMetricsResponse is returned by /api/tokens/chat-metrics.
 type ChatMetricsResponse struct {
 	Success         bool                `json:"success"`
@@ -1778,6 +2224,7 @@ type ChatMetricsResponse struct {
 	Prompts         []ChatMetricsPrompt `json:"prompts"`
 	Summary         ChatMetricsSummary  `json:"summary"`
 	Turns           []ChatMetricsTurn   `json:"turns"`
+	ContextWindow   *ChatContextWindow  `json:"context_window,omitempty"`
 }
 
 // isSafeConversationID validates conversation identifiers against directory traversal and illegal characters.
@@ -1887,8 +2334,8 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 		tps := 0.0
 		if curTurn.durationMs > 0 && curTurn.outputTokens > 0 {
 			rawTPS := float64(curTurn.outputTokens) / (float64(curTurn.durationMs) / 1000.0)
-			if rawTPS > 220.0 {
-				rawTPS = 220.0
+			if rawTPS > 350.0 {
+				rawTPS = 350.0
 			}
 			tps = math.Round(rawTPS*10) / 10
 		}
@@ -1972,7 +2419,7 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 						// Final step followed by user response: count if within 2 minutes and plausible speed
 						if diffNext >= 200 && diffNext <= 120000 && out > 0 {
 							impliedTPS := float64(out) / (float64(diffNext) / 1000.0)
-							if impliedTPS >= 3.0 && impliedTPS <= 220.0 {
+							if impliedTPS >= 3.0 && impliedTPS <= 350.0 {
 								durMs = diffNext
 							}
 						}
@@ -2059,8 +2506,8 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 	overallSpeed := 0.0
 	if totalDurationMs > 0 && totalTimedOut > 0 {
 		rawSpeed := float64(totalTimedOut) / (float64(totalDurationMs) / 1000.0)
-		if rawSpeed > 220.0 {
-			rawSpeed = 220.0
+		if rawSpeed > 350.0 {
+			rawSpeed = 350.0
 		}
 		overallSpeed = math.Round(rawSpeed*10) / 10
 	} else if len(turns) > 0 {
@@ -2074,8 +2521,8 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 		}
 		if count > 0 {
 			rawSpeed := sum / float64(count)
-			if rawSpeed > 220.0 {
-				rawSpeed = 220.0
+			if rawSpeed > 350.0 {
+				rawSpeed = 350.0
 			}
 			overallSpeed = math.Round(rawSpeed*10) / 10
 		}
@@ -2084,6 +2531,20 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 	var latestContext int64
 	if len(turns) > 0 {
 		latestContext = turns[len(turns)-1].ContextTokens
+	}
+
+	var contextWindow *ChatContextWindow
+	conversationsDir := filepath.Join(home, ".gemini", "antigravity", "conversations")
+	if hostWindow, ok := readHostContextWindow(conversationsDir, convID); ok {
+		usedTokens := hostWindow.UsedTokens
+		if usedTokens <= 0 {
+			usedTokens = latestContext
+		}
+		contextWindow = &ChatContextWindow{
+			UsedTokens: usedTokens,
+			MaxTokens:  hostWindow.MaxTokens,
+			Source:     "language_server",
+		}
 	}
 
 	return &ChatMetricsResponse{
@@ -2100,7 +2561,8 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 			CacheHitRatio:   overallHitRatio,
 			GenerationSpeed: overallSpeed,
 		},
-		Turns: turns,
+		Turns:         turns,
+		ContextWindow: contextWindow,
 	}, nil
 }
 

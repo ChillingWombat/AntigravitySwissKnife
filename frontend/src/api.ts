@@ -717,6 +717,38 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ app }) }
     ),
 
+  getCLIGatewayStatus: () =>
+    request<{
+      success: boolean
+      status: {
+        installed: boolean
+        configured: boolean
+        cli_path: string
+        wrapper_path?: string
+        shell_rc_hooked?: boolean
+        platform: string
+        gateway_url: string
+        gateway_token?: string
+        enabled_models?: string[]
+      }
+    }>('/api/custom_models/cli_status'),
+
+  setupCLIGateway: () =>
+    request<{
+      success: boolean
+      status: {
+        installed: boolean
+        configured: boolean
+        cli_path: string
+        wrapper_path?: string
+        shell_rc_hooked?: boolean
+        platform: string
+        gateway_url: string
+        gateway_token?: string
+        enabled_models?: string[]
+      }
+    }>('/api/custom_models/cli_setup', { method: 'POST' }),
+
   setActiveCustomModel: (modelId: string) =>
     request<{ success: boolean; active_model_id: string }>('/api/custom_models/active', {
       method: 'POST',
@@ -1106,8 +1138,13 @@ export const api = {
     }),
 
   // Real Token Analytics & Pricing API
-  getTokenSummary: (range?: TokenRange) =>
-    request<TokenSummaryResponse>(range ? `/api/tokens/summary?range=${encodeURIComponent(range)}` : '/api/tokens/summary'),
+  getTokenSummary: (range?: TokenRange, classification?: 'native' | 'custom' | 'all') => {
+    const params = new URLSearchParams()
+    if (range) params.set('range', range)
+    if (classification && classification !== 'all') params.set('classification', classification)
+    const qs = params.toString()
+    return request<TokenSummaryResponse>(qs ? `/api/tokens/summary?${qs}` : '/api/tokens/summary')
+  },
 
   getTokenPricing: (force?: boolean) =>
     request<{ success: boolean; pricing_records: ModelPricingRecord[]; models?: ModelPricingRecord[]; timestamp: string }>(

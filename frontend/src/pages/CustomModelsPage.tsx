@@ -53,6 +53,8 @@ import {
 import {
   getTestConnectionButtonPresentation,
   sanitizeConnectionErrorMessage,
+  formatPing,
+  getErrorCode,
 } from '../utils/testConnectionButton'
 import { MODEL_CARD_MIN_WIDTH, MODEL_CARD_GRID_GAP } from '../utils/layoutTokens'
 import { api } from '../api'
@@ -108,6 +110,7 @@ export const CustomModelsPage: React.FC = () => {
   const [testingModelId, setTestingModelId] = useState<string | null>(null)
   const [auditingModelId, setAuditingModelId] = useState<string | null>(null)
   const [cardTestResults, setCardTestResults] = useState<Record<string, TestResult>>({})
+  const cardTestTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false)
@@ -199,6 +202,7 @@ export const CustomModelsPage: React.FC = () => {
   const [gcpBalanceValue, setGcpBalanceValue] = useState<string>('')
   const [gcpBudgetCapType, setGcpBudgetCapType] = useState<'none' | 'dollar' | 'percentage' | 'tokens'>('none')
   const [gcpBudgetCapValue, setGcpBudgetCapValue] = useState<number | null>(null)
+  const [gcpNotes, setGcpNotes] = useState<string>('')
   // Independent fold state so the custom-model Quota & Price and the GCP Quota & Budget
   // sections do not share (and clobber) each other's collapsed/expanded state.
   const [isGcpQuotaBudgetOpen, setIsGcpQuotaBudgetOpen] = useState<boolean>(false)
@@ -221,6 +225,7 @@ export const CustomModelsPage: React.FC = () => {
     setGcpBalanceValue('')
     setGcpBudgetCapType('none')
     setGcpBudgetCapValue(null)
+    setGcpNotes('')
     setIsGcpModalOpen(true)
   }
 
@@ -243,6 +248,7 @@ export const CustomModelsPage: React.FC = () => {
     setGcpBalanceValue(model.balance_value || '')
     setGcpBudgetCapType((model.budget_cap_type as 'none' | 'dollar' | 'percentage' | 'tokens') || 'none')
     setGcpBudgetCapValue(model.budget_cap_value !== undefined && model.budget_cap_value !== null ? model.budget_cap_value : null)
+    setGcpNotes(model.notes || '')
 
     let initialBalance = model.balance_value || ''
     if (!initialBalance && model.prepaid_balance > 0) {
@@ -506,7 +512,7 @@ export const CustomModelsPage: React.FC = () => {
             ? gcpEditingModel.thinking_level
             : 'high')
         : 'off',
-      notes: `GCP Vertex AI (${region}) - Project ${project} via ${gcpClientEmail || 'Service Account'}`,
+      notes: gcpNotes.trim(),
     }
 
     try {
@@ -568,6 +574,12 @@ export const CustomModelsPage: React.FC = () => {
 
   useEffect(() => {
     loadData()
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      Object.values(cardTestTimersRef.current).forEach((t) => clearTimeout(t))
+    }
   }, [])
 
   // Click-outside listener to dismiss popover dropdowns
@@ -1183,6 +1195,10 @@ export const CustomModelsPage: React.FC = () => {
   }
 
   const handleCardTest = async (model: CustomModel) => {
+    if (cardTestTimersRef.current[model.id]) {
+      clearTimeout(cardTestTimersRef.current[model.id])
+      delete cardTestTimersRef.current[model.id]
+    }
     setTestingModelId(model.id)
     try {
       const res = await api.testCustomModel(model)
@@ -1219,6 +1235,14 @@ export const CustomModelsPage: React.FC = () => {
       }))
     } finally {
       setTestingModelId(null)
+      cardTestTimersRef.current[model.id] = setTimeout(() => {
+        setCardTestResults((prev) => {
+          const next = { ...prev }
+          delete next[model.id]
+          return next
+        })
+        delete cardTestTimersRef.current[model.id]
+      }, 4000)
     }
   }
 
@@ -1639,40 +1663,9 @@ export const CustomModelsPage: React.FC = () => {
                         {m.base_url}
                       </div>
 
-                      {/* Budget Cap & Token Price Badges */}
-                      {((m.budget_cap_type && m.budget_cap_type !== 'none' && m.budget_cap_value !== null && m.budget_cap_value !== undefined) || (m.input_price_per_m !== undefined)) && (
+                      {/* Token Price Badges */}
+                      {((m.input_price_per_m !== null && m.input_price_per_m !== undefined) || (m.price_source === 'unconfigured' || m.input_price_per_m === null)) && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
-                          {m.budget_cap_type && m.budget_cap_type !== 'none' && m.budget_cap_value !== null && m.budget_cap_value !== undefined && (
-                            <span
-                              style={{
-                                backgroundColor: '#fef3c7',
-                                color: '#b45309',
-                                fontSize: '10px',
-                                fontWeight: 600,
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '3px',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              <span>
-                                Cap:{' '}
-                                {m.budget_cap_type === 'dollar'
-                                  ? `$${m.budget_cap_value}`
-                                  : m.budget_cap_type === 'percentage'
-                                  ? `${m.budget_cap_value}%`
-                                  : `${
-                                      m.budget_cap_value >= 1_000_000
-                                        ? `${(m.budget_cap_value / 1_000_000).toFixed(m.budget_cap_value % 1_000_000 === 0 ? 0 : 1)}M`
-                                        : m.budget_cap_value >= 1_000
-                                        ? `${(m.budget_cap_value / 1_000).toFixed(m.budget_cap_value % 1_000 === 0 ? 0 : 1)}k`
-                                        : m.budget_cap_value
-                                    } tokens`}
-                              </span>
-                            </span>
-                          )}
                           {m.input_price_per_m !== null && m.input_price_per_m !== undefined ? (
                             <span
                               style={{
@@ -1733,35 +1726,6 @@ export const CustomModelsPage: React.FC = () => {
                       />
                     </div>
                   </div>
-
-                  {/* Live Test Feedback if run */}
-                  {testResult && (
-                    <div
-                      style={{
-                        marginTop: '12px',
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        backgroundColor: testResult.success ? 'var(--green-bg)' : '#fce8e6',
-                        color: testResult.success ? 'var(--green)' : '#b3261e',
-                        fontSize: '11px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                      }}
-                    >
-                      {testResult.success ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
-                      <span>
-                        {testResult.success
-                          ? `Connection verified: OK (${testResult.latency_ms}ms)`
-                          : (() => {
-                              const cleanMsg = sanitizeConnectionErrorMessage(testResult.message)
-                              return cleanMsg.toLowerCase().startsWith('test failed') || cleanMsg.toLowerCase().startsWith('connection test failed')
-                                ? cleanMsg
-                                : `Test failed: ${cleanMsg}`
-                            })()}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
                 {/* Card Footer Actions */}
@@ -1779,22 +1743,97 @@ export const CustomModelsPage: React.FC = () => {
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'nowrap', flexShrink: 0 }}>
-                    <button
-                      onClick={() => handleCardTest(m)}
-                      disabled={isTesting}
-                      className="btn-pill-tonal"
-                      style={{
-                        padding: '5px 12px',
-                        fontSize: '11px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {isTesting ? <Loader2 size={12} className="spin" /> : <Zap size={12} />}
-                      <span>{isTesting ? 'Testing...' : 'Test Connection'}</span>
-                    </button>
+                    {(() => {
+                      if (isTesting) {
+                        return (
+                          <button
+                            disabled
+                            className="btn-pill-tonal"
+                            style={{
+                              padding: '5px 12px',
+                              fontSize: '11px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <Loader2 size={12} className="spin" />
+                            <span>Testing...</span>
+                          </button>
+                        )
+                      }
+                      if (testResult) {
+                        if (testResult.success) {
+                          const pingStr = formatPing(testResult.latency_ms)
+                          return (
+                            <button
+                              onClick={() => handleCardTest(m)}
+                              style={{
+                                padding: '5px 12px',
+                                borderRadius: '20px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                whiteSpace: 'nowrap',
+                                backgroundColor: '#e6f4ea',
+                                color: '#137333',
+                                border: '1px solid #ceead6',
+                                cursor: 'pointer',
+                              }}
+                              title={`Connection verified: OK (${pingStr}) (Click to re-test)`}
+                            >
+                              <CheckCircle2 size={12} />
+                              <span>OK ({pingStr})</span>
+                            </button>
+                          )
+                        }
+                        const errorCode = getErrorCode(testResult)
+                        const errLabel = errorCode ? `Error (${errorCode})` : 'Error'
+                        return (
+                          <button
+                            onClick={() => handleCardTest(m)}
+                            style={{
+                              padding: '5px 12px',
+                              borderRadius: '20px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              whiteSpace: 'nowrap',
+                              backgroundColor: '#fce8e6',
+                              color: '#c5221f',
+                              border: '1px solid #fad2cf',
+                              cursor: 'pointer',
+                            }}
+                            title={testResult.message ? `Connection failed: ${testResult.message} (Click to re-test)` : 'Connection test failed (Click to re-test)'}
+                          >
+                            <AlertCircle size={12} />
+                            <span>{errLabel}</span>
+                          </button>
+                        )
+                      }
+                      return (
+                        <button
+                          onClick={() => handleCardTest(m)}
+                          className="btn-pill-tonal"
+                          style={{
+                            padding: '5px 12px',
+                            fontSize: '11px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <Zap size={12} />
+                          <span>Test Connection</span>
+                        </button>
+                      )
+                    })()}
 
                     {m.security_risk_level ? (
                       <button
@@ -2231,11 +2270,6 @@ export const CustomModelsPage: React.FC = () => {
                               <span style={{ fontWeight: 500, color: 'var(--text)' }}>
                                 {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
                               </span>
-                              {lvl.toLowerCase() !== 'off' && (
-                                <span style={{ fontSize: '10px', color: 'var(--primary)', fontWeight: 600, backgroundColor: 'rgba(26,115,232,0.08)', padding: '2px 6px', borderRadius: '4px' }}>
-                                  Reasoning
-                                </span>
-                              )}
                             </div>
                           ))}
                         </div>
@@ -2412,20 +2446,6 @@ export const CustomModelsPage: React.FC = () => {
                     >
                       {quotaType === 'balance' ? 'Balance' : quotaType === 'quota' ? 'Quota' : 'N/A'}
                     </span>
-                    {budgetCapType !== 'none' && budgetCapValue !== null && (
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: '#fef3c7',
-                          color: '#b45309',
-                          fontWeight: 600,
-                        }}
-                      >
-                        Cap: {budgetCapType === 'dollar' ? `$${budgetCapValue}` : budgetCapType === 'percentage' ? `${budgetCapValue}%` : `${budgetCapValue} tok`}
-                      </span>
-                    )}
                   </div>
 
                   <button
@@ -2753,9 +2773,9 @@ export const CustomModelsPage: React.FC = () => {
                             }}
                           >
                             {priceSource === 'provider'
-                              ? 'Provider Official'
+                              ? 'Official'
                               : priceSource === 'third_party' || priceSource === 'api'
-                              ? '3rd-Party Backup'
+                              ? '3rd Party'
                               : 'Manual Override'}
                           </span>
                         )}
@@ -2831,16 +2851,16 @@ export const CustomModelsPage: React.FC = () => {
                         {[
                           { id: 'none' as const, label: 'No Cap', available: true },
                           {
-                            id: 'dollar' as const,
-                            label: 'Dollar Spend Cap ($)',
-                            available: quotaType === 'balance' || inputPricePerM !== null || outputPricePerM !== null,
-                          },
-                          {
                             id: 'percentage' as const,
-                            label: 'Usage Cap (%)',
+                            label: 'Usage',
                             available: quotaType === 'quota' || quotaType === 'balance',
                           },
-                          { id: 'tokens' as const, label: 'Token Count Cap', available: true },
+                          {
+                            id: 'dollar' as const,
+                            label: 'Value',
+                            available: quotaType === 'balance' || inputPricePerM !== null || outputPricePerM !== null,
+                          },
+                          { id: 'tokens' as const, label: 'Tokens', available: true },
                         ].map((c) => (
                           <button
                             key={c.id}
@@ -3213,6 +3233,29 @@ export const CustomModelsPage: React.FC = () => {
               />
             </div>
 
+            {/* Notes Section: User Notes */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                Notes:
+              </label>
+              <textarea
+                placeholder="Optional notes or description for this model (e.g. usage guidelines, proxy cluster, billing owner)..."
+                value={gcpNotes}
+                onChange={(e) => setGcpNotes(e.target.value)}
+                rows={2}
+                style={{
+                  width: '100%',
+                  fontSize: '12px',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
             {/* Foldable Quota & Budget Section — GCP models are manual-entry only (no auto probe) */}
             <div style={{ border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
               <button
@@ -3266,9 +3309,9 @@ export const CustomModelsPage: React.FC = () => {
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                       {[
                         { id: 'none' as const, label: 'No Cap' },
-                        { id: 'dollar' as const, label: 'USD Cap ($)' },
-                        { id: 'percentage' as const, label: 'Usage Cap (%)' },
-                        { id: 'tokens' as const, label: 'Token Count Cap' },
+                        { id: 'percentage' as const, label: 'Usage' },
+                        { id: 'dollar' as const, label: 'Value' },
+                        { id: 'tokens' as const, label: 'Tokens' },
                       ].map((c) => (
                         <button
                           key={c.id}

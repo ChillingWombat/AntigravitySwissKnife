@@ -20,10 +20,11 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
 
   it('exclusively utilizes Lucide icons for UI symbols', () => {
     assert.ok(content.includes("from 'lucide-react'"))
-    assert.ok(content.includes('<Radio'))
+    assert.ok(content.includes('<Copy'))
     assert.ok(content.includes('<Bot'))
     assert.ok(content.includes('<Layers'))
     assert.ok(content.includes('<Terminal'))
+    assert.strictEqual(content.includes('<Radio'), false, 'Radio icon before Active Endpoint header must be removed')
   })
 
   it('implements zero-setup remote tunneling controls without decorative tags', () => {
@@ -47,8 +48,8 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
   it('uses tunnel lifecycle as the only operational bridge control', () => {
     assert.ok(content.includes('Enable Remote Access'))
     assert.ok(content.includes('ariaLabel="Enable Remote Access"'))
-    assert.ok(content.includes('Gateway Status'))
-    assert.ok(content.includes('Operating Mode'))
+    assert.strictEqual(content.includes('Gateway Status'), false, 'Gateway Status gadget must be removed')
+    assert.strictEqual(content.includes('Operating Mode'), false, 'Operating Mode gadget must be removed')
     assert.strictEqual(content.includes('Verify Bridge'), false, 'verify button must be replaced by the header toggle')
     assert.strictEqual(content.includes('Remote Internet Pipe'), false, 'remote pipe metric card must be removed')
     assert.strictEqual(content.includes('Start Remote Access'), false, 'start tunnel button must be replaced by the header toggle')
@@ -92,6 +93,8 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.ok(content.includes('OAuth 2.0'))
     assert.ok(content.includes('status?.oauth_client_id'))
     assert.ok(content.includes('Copy Client ID'))
+    assert.strictEqual(content.includes('Rotate Credentials'), false, 'Rotate Credentials button must be removed')
+    assert.strictEqual(content.includes('Copy JSON Config'), false, 'Copy JSON Config button must be removed')
     assert.ok(content.includes("'AGY Bridge':"))
     assert.ok(content.includes('OAuth Client Secret / Bearer Token'))
     assert.ok(content.includes('Streamable HTTPS'))
@@ -102,6 +105,20 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.ok(content.includes('Hybrid Mode (Recommended)'))
     assert.ok(content.includes('Lead & Messenger Mode'))
     assert.ok(content.includes('Direct Actuator Mode'))
+  })
+
+  it('renders default Antigravity agent selection without slop copy or in-use indicator', () => {
+    assert.ok(content.includes('Default Antigravity Agent'))
+    assert.strictEqual(
+      content.includes('Which surface Gemini drives for conversations and model selection.'),
+      false,
+      'Explanatory text under Default Antigravity Agent must be removed'
+    )
+    assert.strictEqual(
+      content.includes('In use now:'),
+      false,
+      'In use now footer under Default Antigravity Agent must be removed'
+    )
   })
 
   it('includes active Antigravity lead session monitor with response forwarding', () => {
@@ -138,8 +155,8 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     }
   })
 
-  it('provides Outbound HTTP Allowlist mode switch between Always Allow and Whitelist Only without slop subtitle', () => {
-    assert.ok(content.includes('Outbound HTTP Allowlist'))
+  it('provides Allowed URL mode switch between Always Allow and Whitelist Only without slop subtitle', () => {
+    assert.ok(content.includes('Allowed URL'))
     assert.ok(content.includes('Always Allow'))
     assert.ok(content.includes('Whitelist Only'))
     assert.ok(content.includes('api.setBridgeHTTPAllowlistMode'))
@@ -151,5 +168,17 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
       false,
       'Explanatory subtitle under Outbound HTTP Allowlist header must be removed'
     )
+    const allowedUrlIndex = content.indexOf('Allowed URL')
+    const auditLogIndex = content.indexOf('Remote Invocations & Access Audit')
+    assert.ok(allowedUrlIndex >= 0)
+    assert.ok(auditLogIndex > allowedUrlIndex, 'Remote Invocations & Access Audit must be at the bottom after Allowed URL')
+  })
+
+  it('enforces fixed height 340px and internal scroll on Remote Invocations & Access Audit gadget', () => {
+    const auditGadgetIndex = content.indexOf('Remote Invocations & Access Audit')
+    assert.ok(auditGadgetIndex >= 0, 'Audit gadget must exist')
+    const auditSection = content.slice(auditGadgetIndex - 300, auditGadgetIndex + 450)
+    assert.match(auditSection, /height:\s*'340px'/, 'Audit gadget card must specify fixed height 340px')
+    assert.match(auditSection, /overflowY:\s*'auto'/, 'Audit log table wrapper must specify overflowY auto')
   })
 })

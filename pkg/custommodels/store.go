@@ -14,11 +14,31 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
+var (
+	globalStoreMu sync.RWMutex
+	globalStore   *Store
+)
+
+// SetGlobalStore sets the default global Store instance for cross-package lookups.
+func SetGlobalStore(s *Store) {
+	globalStoreMu.Lock()
+	defer globalStoreMu.Unlock()
+	globalStore = s
+}
+
+// GetGlobalStore returns the registered global Store instance, if any.
+func GetGlobalStore() *Store {
+	globalStoreMu.RLock()
+	defer globalStoreMu.RUnlock()
+	return globalStore
+}
+
 // Store manages the custom models configuration file and project bindings.
 type Store struct {
 	mu         sync.RWMutex
 	configPath string
 	config     *Config
+	convModels map[string]string // convID -> modelID
 }
 
 // NewStore initializes a Store with config path in core.GetConfigDir().
@@ -34,7 +54,9 @@ func NewStore(configDir string) (*Store, error) {
 	s := &Store{
 		configPath: configPath,
 		config:     DefaultConfig(),
+		convModels: make(map[string]string),
 	}
+	SetGlobalStore(s)
 
 	if err := s.load(); err != nil && !os.IsNotExist(err) {
 		return nil, err
@@ -44,6 +66,14 @@ func NewStore(configDir string) (*Store, error) {
 }
 
 func (s *Store) load() error {
+	convPath := filepath.Join(filepath.Dir(s.configPath), "conversation_models.json")
+	if cdata, err := os.ReadFile(convPath); err == nil && len(cdata) > 0 {
+		var mapping map[string]string
+		if err := json.Unmarshal(cdata, &mapping); err == nil {
+			s.convModels = mapping
+		}
+	}
+
 	data, err := os.ReadFile(s.configPath)
 	if err != nil {
 		return err
@@ -55,6 +85,7 @@ func (s *Store) load() error {
 	}
 	cfg.InferenceSupported = true
 	s.config = &cfg
+
 	migrated := false
 	for i := range s.config.Models {
 		prevSupports := s.config.Models[i].SupportsThinking
@@ -139,6 +170,67 @@ func (s *Store) Save() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.saveLocked()
+}
+
+// RecordConversationModel associates an Antigravity conversation ID with the custom model ID that handled it.
+func (s *Store) RecordConversationModel(convID, modelID string) {
+	convID = strings.TrimSpace(convID)
+	modelID = strings.TrimSpace(modelID)
+	if convID == "" || modelID == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.convModels == nil {
+		s.convModels = make(map[string]string)
+	}
+	if s.convModels[convID] == modelID {
+		s.mu.Unlock()
+		return
+	}
+	s.convModels[convID] = modelID
+	data, err := json.MarshalIndent(s.convModels, "", "  ")
+	s.mu.Unlock()
+
+	if err == nil {
+		convPath := filepath.Join(filepath.Dir(s.configPath), "conversation_models.json")
+		_ = os.WriteFile(convPath, data, 0600)
+	}
+}
+
+// GetConversationModel returns the custom model ID associated with convID, or empty string.
+func (s *Store) GetConversationModel(convID string) string {
+	convID = strings.TrimSpace(convID)
+	if convID == "" {
+		return ""
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.convModels != nil {
+		return s.convModels[convID]
+	}
+	return ""
+}
+
+// GetRoutedConversationModel looks up the custom model ID for convID from the global store,
+// falling back to reading conversation_models.json from core.GetConfigDir().
+func GetRoutedConversationModel(convID string) string {
+	convID = strings.TrimSpace(convID)
+	if convID == "" {
+		return ""
+	}
+	if store := GetGlobalStore(); store != nil {
+		if mID := store.GetConversationModel(convID); mID != "" {
+			return mID
+		}
+	}
+	convPath := filepath.Join(core.GetConfigDir(), "conversation_models.json")
+	if data, err := os.ReadFile(convPath); err == nil && len(data) > 0 {
+		var mapping map[string]string
+		if err := json.Unmarshal(data, &mapping); err == nil {
+			return mapping[convID]
+		}
+	}
+	return ""
 }
 
 // GetConfig returns a deep copy of the current configuration.
@@ -517,6 +609,28 @@ func (s *Store) SetIntegrationSettings(in IntegrationSettings) error {
 	defer s.mu.Unlock()
 	s.config.Integration = in
 	return s.saveLocked()
+}
+
+// IsProxyModeActive reports whether API proxy integration is active or any app
+// profile routes to the custom model proxy.
+func (s *Store) IsProxyModeActive() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.config.Integration.Mode == IntegrationAPIProxy {
+		return true
+	}
+	if s.config.ActiveModelID != "" {
+		return true
+	}
+	for _, app := range s.config.Integration.Apps {
+		if app.Source == ModelSourceCustom {
+			return true
+		}
+	}
+	return false
 }
 
 // GatewayToken returns the bearer token for the local LLM gateway, creating and

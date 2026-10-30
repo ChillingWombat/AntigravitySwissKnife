@@ -211,6 +211,29 @@ export const WhatsAppBridgePage: React.FC = () => {
 
       {/* 2. Channel Configuration Settings */}
       <div className="google-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
+              Setup
+            </h2>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {saveSuccess && (
+              <span style={{ fontSize: '12px', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <Check size={14} /> WhatsApp settings saved
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleSaveConfig}
+              disabled={loading}
+              className="btn-pill-primary"
+            >
+              Save Settings
+            </button>
+          </div>
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
             <div>
@@ -346,21 +369,6 @@ export const WhatsAppBridgePage: React.FC = () => {
             disabled={loading}
             onChange={(next) => setConfig((prev: any) => ({ ...prev, ...next }))}
           />
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-            <button
-              onClick={handleSaveConfig}
-              disabled={loading}
-              className="btn-pill-primary"
-            >
-              Save Settings
-            </button>
-            {saveSuccess && (
-              <span style={{ fontSize: '12px', color: 'var(--green)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                <Check size={14} /> WhatsApp settings saved
-              </span>
-            )}
-          </div>
         </div>
       </div>
 

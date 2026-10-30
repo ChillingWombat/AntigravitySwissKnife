@@ -169,8 +169,11 @@ func pgrepACPAgent(id string) (bool, int) {
 		}
 	}
 	for _, pattern := range patterns[id] {
-		if pids := pgrepPIDs("-f", pattern); len(pids) > 0 {
-			return true, pids[0]
+		for _, pid := range pgrepPIDs("-f", pattern) {
+			if id == acpmesh.PresetAntigravityACP && !antigravityCmdlineAllowed(pid) {
+				continue
+			}
+			return true, pid
 		}
 	}
 	return false, 0

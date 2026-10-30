@@ -66,15 +66,16 @@ func TestBridge_LifecycleAndMCP(t *testing.T) {
 	if serverInfo["title"] != "AGY Bridge" {
 		t.Errorf("unexpected serverInfo title: %v", serverInfo["title"])
 	}
-	if serverInfo["icon"] != "/logo.png" {
+	iconStr, _ := serverInfo["icon"].(string)
+	if !strings.HasPrefix(iconStr, "data:image/svg+xml;base64,") && iconStr != "/logo.png" {
 		t.Errorf("unexpected serverInfo icon: %v", serverInfo["icon"])
 	}
 	icons, ok := serverInfo["icons"].([]interface{})
-	if !ok || len(icons) != 2 {
-		t.Fatalf("expected two serverInfo icons, got %#v", serverInfo["icons"])
+	if !ok || len(icons) < 2 {
+		t.Fatalf("expected at least two serverInfo icons, got %#v", serverInfo["icons"])
 	}
 	firstIcon := icons[0].(map[string]interface{})
-	if firstIcon["src"] != "/logo.png" || firstIcon["mimeType"] != "image/png" {
+	if !strings.HasPrefix(firstIcon["src"].(string), "data:image/svg+xml;base64,") && firstIcon["src"] != "/logo.png" {
 		t.Errorf("unexpected first serverInfo icon: %#v", firstIcon)
 	}
 

@@ -409,3 +409,75 @@ func TestParseTokenRange_Canonicalization(t *testing.T) {
 		}
 	}
 }
+
+// TestTokenSummary_ClassificationFilter verifies that the classification query
+// parameter filters the summary and breakdowns to native, custom, or all models.
+func TestTokenSummary_ClassificationFilter(t *testing.T) {
+	now := time.Now()
+	dataDir := t.TempDir()
+	brainDir := filepath.Join(dataDir, "brain")
+
+	// 1 native conversation and 1 custom conversation
+	writeRangeTranscript(t, brainDir, "conv-native", "gemini-3.8-flash", now, []fixtureStep{
+		{ago: 1 * time.Hour, freshInput: 1000, cachedInput: 0, outputTokens: 200},
+	})
+	writeRangeTranscript(t, brainDir, "conv-custom", "gpt-4o", now, []fixtureStep{
+		{ago: 1 * time.Hour, freshInput: 500, cachedInput: 0, outputTokens: 50},
+	})
+	srv := newRangeTestServer(t, dataDir, []custommodels.CustomModel{
+		seedManualModel("gpt-4o", "GPT-4o", 1, 0.25, 2),
+	})
+	srv.catalogFetcher = func(bool) []custommodels.CatalogModelInput {
+		return []custommodels.CatalogModelInput{
+			{ID: "gemini-3.8-flash-high", DisplayName: "Gemini 3.8 Flash (High)", Provider: "google"},
+		}
+	}
+
+	// 1. All (default)
+	reqAll := httptest.NewRequest(http.MethodGet, "/api/tokens/summary?range=24h&classification=all", nil)
+	recAll := httptest.NewRecorder()
+	srv.handleTokensSummary(recAll, reqAll)
+	if recAll.Code != http.StatusOK {
+		t.Fatalf("all: expected HTTP 200, got %d", recAll.Code)
+	}
+	var resAll tokenSummaryFixture
+	if err := json.Unmarshal(recAll.Body.Bytes(), &resAll); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if resAll.TotalTokens != 1750 { // 1200 native + 550 custom
+		t.Errorf("all: expected 1750 total tokens, got %d", resAll.TotalTokens)
+	}
+	if len(resAll.ModelBreakdowns) != 2 {
+		t.Errorf("all: expected 2 model breakdowns, got %d", len(resAll.ModelBreakdowns))
+	}
+
+	// 2. Native only
+	reqNative := httptest.NewRequest(http.MethodGet, "/api/tokens/summary?range=24h&classification=native", nil)
+	recNative := httptest.NewRecorder()
+	srv.handleTokensSummary(recNative, reqNative)
+	var resNative tokenSummaryFixture
+	if err := json.Unmarshal(recNative.Body.Bytes(), &resNative); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if resNative.TotalTokens != 1200 {
+		t.Errorf("native: expected 1200 total tokens, got %d", resNative.TotalTokens)
+	}
+	if len(resNative.ModelBreakdowns) != 1 {
+		t.Errorf("native: expected 1 model breakdown, got %d", len(resNative.ModelBreakdowns))
+	}
+
+	// 3. Custom only
+	reqCustom := httptest.NewRequest(http.MethodGet, "/api/tokens/summary?range=24h&classification=custom", nil)
+	recCustom := httptest.NewRecorder()
+	srv.handleTokensSummary(recCustom, reqCustom)
+	var resCustom tokenSummaryFixture
+	if err := json.Unmarshal(recCustom.Body.Bytes(), &resCustom); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if resCustom.TotalTokens != 550 {
+		t.Errorf("custom: expected 550 total tokens, got %d", resCustom.TotalTokens)
+	}
+	if len(resCustom.ModelBreakdowns) != 1 {
+		t.Errorf("custom: expected 1 model breakdown, got %d", len(resCustom.ModelBreakdowns))
+	}
+}

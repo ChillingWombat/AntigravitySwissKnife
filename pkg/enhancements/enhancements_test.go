@@ -1566,8 +1566,8 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing(t *testing.T) {
 	if !strings.Contains(script, "renderContextWindowProgressRing") {
 		t.Errorf("expected script to contain renderContextWindowProgressRing")
 	}
-	if !strings.Contains(script, "getModelContextWindow") {
-		t.Errorf("expected script to contain getModelContextWindow")
+	if !strings.Contains(script, "cachedContextWindowByConv") {
+		t.Errorf("expected script to cache the host-reported context window")
 	}
 	if !strings.Contains(script, "formatTokensUnit") {
 		t.Errorf("expected script to contain formatTokensUnit")
@@ -1589,26 +1589,12 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing(t *testing.T) {
 		}
 	}
 
-	// Verify dynamic custom model context window lookup and 1M native default
-	if !strings.Contains(script, "customModelsListCache") || !strings.Contains(script, "/api/custom_models") {
-		t.Errorf("expected script to dynamically check custom models from /api/custom_models")
+	// Verify the denominator comes from the language server, not a model-name heuristic.
+	if !strings.Contains(script, "data.context_window") || !strings.Contains(script, "hostContextWindow.max_tokens") {
+		t.Errorf("expected script to use the host-reported context window")
 	}
-	if !strings.Contains(script, "return 1000000") {
-		t.Errorf("expected script to default native Antigravity models to 1M")
-	}
-
-	// Verify dynamic model context window sizes
-	if !strings.Contains(script, `clean.includes("claude")`) || !strings.Contains(script, "200000") {
-		t.Errorf("expected script to adapt Claude context window to 200K")
-	}
-	if !strings.Contains(script, `clean.includes("gpt-4")`) || !strings.Contains(script, "128000") {
-		t.Errorf("expected script to adapt GPT-4o context window to 128K")
-	}
-	if !strings.Contains(script, `clean.includes("pro")`) || !strings.Contains(script, "2000000") {
-		t.Errorf("expected script to adapt Gemini Pro context window to 2M")
-	}
-	if !strings.Contains(script, `clean.includes("flash")`) || !strings.Contains(script, "1000000") {
-		t.Errorf("expected script to adapt Flash context window to 1M")
+	if strings.Contains(script, "getModelContextWindow") || strings.Contains(script, "customModelsListCache") {
+		t.Errorf("model-name context window heuristics must not remain")
 	}
 
 	// Verify subagent progress ring rendering
@@ -1617,21 +1603,16 @@ func TestGenerateEnhancementsScript_ContextWindowProgressRing(t *testing.T) {
 	}
 
 	// Verify tooltip percentage and format
-	if !strings.Contains(script, `pct + "% (" + formattedUsed + "/" + formattedMax + ")"`) {
-		t.Errorf("expected script to contain formatted tooltip with used and max context window")
+	if !strings.Contains(script, `pct + "% (" + formattedUsed + "/" + formattedMax + " active)"`) {
+		t.Errorf("expected script to contain formatted tooltip with used and active host context window")
 	}
 
-	// Verify data.summary fallback and clamped percentage
+	// Verify summary fallback and clamped percentage
 	if !strings.Contains(script, "data.summary ? (data.summary.context_tokens || ((data.summary.input_tokens || 0) + (data.summary.output_tokens || 0))) : 0") {
 		t.Errorf("expected script to contain summary fallback for conversations without turns")
 	}
 	if !strings.Contains(script, "Math.max(0, Math.min(100, Math.round((usedTokens / validMax) * 100)))") {
 		t.Errorf("expected script to clamp token percentage strictly to [0, 100]")
-	}
-
-	// Verify subagent model selector lookup
-	if !strings.Contains(script, "subModelName = subTrigger ? subTrigger.innerText.trim() : \"\"") {
-		t.Errorf("expected script to resolve subagent model selector when present")
 	}
 }
 

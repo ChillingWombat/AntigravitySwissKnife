@@ -327,4 +327,60 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     assert.ok(regexStr.includes('claude-opus'), 'isReasoning must cover claude-opus')
     assert.ok(regexStr.includes('deepseek-flash'), 'isReasoning must cover deepseek-flash')
   })
+
+  it('budget cap options are renamed to Usage, Value, Tokens with Usage as the second option', () => {
+    // Both generic modal and GCP modal must use No Cap, Usage, Value, Tokens in order
+    assert.ok(!pageContent.includes("label: 'Dollar Spend Cap ($)'"), 'Old Dollar Spend Cap label must be removed')
+    assert.ok(!pageContent.includes("label: 'USD Cap ($)'"), 'Old USD Cap label must be removed')
+    assert.ok(!pageContent.includes("label: 'Usage Cap (%)'"), 'Old Usage Cap label must be removed')
+    assert.ok(!pageContent.includes("label: 'Token Count Cap'"), 'Old Token Count Cap label must be removed')
+
+    // Generic modal order check
+    const genericCapMatch = pageContent.match(/Model Budget \/ Usage Cap:[\s\S]*?\[([\s\S]*?)\]\.map/)
+    assert.ok(genericCapMatch, 'Generic budget cap buttons must exist')
+    const genericButtons = genericCapMatch[1]
+    const gNone = genericButtons.indexOf("'No Cap'")
+    const gUsage = genericButtons.indexOf("'Usage'")
+    const gValue = genericButtons.indexOf("'Value'")
+    const gTokens = genericButtons.indexOf("'Tokens'")
+    assert.ok(gNone !== -1 && gUsage !== -1 && gValue !== -1 && gTokens !== -1, 'All cap option labels must exist')
+    assert.ok(gNone < gUsage, 'Usage must come after No Cap')
+    assert.ok(gUsage < gValue, 'Usage must come before Value (second option)')
+    assert.ok(gValue < gTokens, 'Value must come before Tokens')
+
+    // GCP modal order check
+    const gcpCapMatch = pageContent.match(/Budget Cap:[\s\S]*?\[([\s\S]*?)\]\.map/)
+    assert.ok(gcpCapMatch, 'GCP budget cap buttons must exist')
+    const gcpButtons = gcpCapMatch[1]
+    const cNone = gcpButtons.indexOf("'No Cap'")
+    const cUsage = gcpButtons.indexOf("'Usage'")
+    const cValue = gcpButtons.indexOf("'Value'")
+    const cTokens = gcpButtons.indexOf("'Tokens'")
+    assert.ok(cNone !== -1 && cUsage !== -1 && cValue !== -1 && cTokens !== -1, 'All GCP cap option labels must exist')
+    assert.ok(cNone < cUsage, 'Usage must come after No Cap in GCP modal')
+    assert.ok(cUsage < cValue, 'Usage must come before Value in GCP modal (second option)')
+    assert.ok(cValue < cTokens, 'Value must come before Tokens in GCP modal')
+  })
+
+  it('removes tags for cap values from model cards and accordion headers', () => {
+    // Cap tags/badges (Cap: ...) on model cards must not be rendered
+    assert.ok(!pageContent.includes("Cap:{' '}"), 'Cap: badge must be removed from model card')
+    assert.ok(!pageContent.includes('Cap: {budgetCapType ==='), 'Cap: badge must be removed from Quota & Price header')
+  })
+
+  it('GCP modal includes a Note input field like ordinary custom models', () => {
+    assert.ok(pageContent.includes('const [gcpNotes, setGcpNotes] = useState<string>'), 'gcpNotes state must exist')
+    assert.ok(pageContent.includes('setGcpNotes(model.notes || \'\')'), 'openEditGcpModal must populate gcpNotes')
+    assert.ok(pageContent.includes('setGcpNotes(\'\')'), 'openAddGcpModal must reset gcpNotes')
+    assert.ok(pageContent.includes('notes: gcpNotes.trim()'), 'handleSaveGcpModel must save gcpNotes.trim()')
+    assert.ok(pageContent.includes('value={gcpNotes}'), 'GCP modal must render input/textarea bound to gcpNotes')
+  })
+
+  it('replaces the green connection verified banner with inline button state on card', () => {
+    assert.ok(!pageContent.includes('Connection verified: OK (${testResult.latency_ms}ms)'), 'Green connection banner must be removed')
+    assert.ok(pageContent.includes('OK (${pingStr})'), 'Card button must render inline OK with ping')
+    assert.ok(pageContent.includes('formatPing'), 'Card button must format ping with formatPing')
+    assert.ok(pageContent.includes('getErrorCode'), 'Card button must extract error code with getErrorCode')
+    assert.ok(pageContent.includes('cardTestTimersRef'), 'Card test results must be timed and reset')
+  })
 })

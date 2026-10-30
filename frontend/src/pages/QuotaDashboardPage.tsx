@@ -7,6 +7,8 @@ import {
   Copy,
   AlertTriangle,
   AlertCircle,
+  ArrowUp,
+  ArrowDown,
   ArrowUpDown,
   X,
   Search,
@@ -32,7 +34,7 @@ import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 import antigravityLogo from '../assets/antigravity_logo.png'
 
-import { sortAccounts, rankStandbyAccounts, type SortMode } from '../utils/accountSorting'
+import { sortAccounts, rankStandbyAccounts, getNextSortState, type SortMode, type SortDirection } from '../utils/accountSorting'
 
 function withMfaState(account: AccountState): AccountState {
   const hasTotp = Boolean((account as any).has_totp || account.totp_secret)
@@ -43,7 +45,7 @@ function withMfaState(account: AccountState): AccountState {
   } as AccountState
 }
 
-export { sortAccounts, type SortMode }
+export { sortAccounts, getNextSortState, type SortMode, type SortDirection }
 
 
 interface QuotaDashboardPageProps {
@@ -150,6 +152,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 }) => {
   const [selectedRowAccount, setSelectedRowAccount] = useState<AccountState | null>(null)
   const [sortMode, setSortMode] = useState<SortMode>('auto')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [isTogglingRules, setIsTogglingRules] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
   const [switchFeedback, setSwitchFeedback] = useState<string | null>(null)
@@ -417,7 +420,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
     })
   }
 
-  const sortedAccounts = sortAccounts(accounts, activeAccount, threshold, sortMode, rules?.switch_mode, thresholdWeekly, rules?.allow_non_gemini_native_models)
+  const sortedAccounts = sortAccounts(accounts, activeAccount, threshold, sortMode, rules?.switch_mode, thresholdWeekly, rules?.allow_non_gemini_native_models, sortDirection)
 
   const errorAccountsCount = accounts.filter((a) =>
     a.status?.toUpperCase().includes('ERROR')
@@ -469,6 +472,12 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
 
   const rawWeekly = fleet?.fleet_weekly_available ?? fallbackWeekly
   const gaugeWeekly = rawWeekly !== null && !isNaN(rawWeekly) ? Math.round(rawWeekly * 100) : null
+
+  const handleSortColumn = (column: SortMode) => {
+    const next = getNextSortState(sortMode, sortDirection, column)
+    setSortMode(next.mode)
+    setSortDirection(next.direction)
+  }
 
   const nextSwitchCandidate = React.useMemo(() => {
     if (!autoSwitchOn || sortMode !== 'auto') return null
@@ -989,7 +998,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             <thead>
               <tr>
                 <th
-                  onClick={() => setSortMode('identity')}
+                  onClick={() => handleSortColumn('identity')}
                   style={{
                     width: '244px',
                     minWidth: '244px',
@@ -1005,18 +1014,24 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     cursor: 'pointer',
                     userSelect: 'none',
                   }}
-                  title="Click to sort by Account Name"
+                  title={
+                    sortMode === 'identity'
+                      ? sortDirection === 'asc'
+                        ? 'Click to sort descendingly'
+                        : 'Click to exit sort'
+                      : 'Click to sort by Account Name'
+                  }
                 >
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                   <span>Account</span>
-                  {sortMode === 'identity' && <ArrowUpDown size={11} />}
+                  {sortMode === 'identity' && (sortDirection === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
                 </div>
               </th>
               <th style={{ width: '80px', minWidth: '80px', padding: '12px 8px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Plan
               </th>
               <th
-                onClick={() => setSortMode('quota_5h')}
+                onClick={() => handleSortColumn('quota_5h')} /* setSortMode('quota_5h') */
                 style={{
                   width: '180px',
                   minWidth: '180px',
@@ -1032,15 +1047,21 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   cursor: 'pointer',
                   userSelect: 'none',
                 }}
-                title="Click to sort by 5H Quota"
+                title={
+                  sortMode === 'quota_5h'
+                    ? sortDirection === 'asc'
+                      ? 'Click to sort descendingly'
+                      : 'Click to exit sort'
+                    : 'Click to sort by 5H Quota'
+                }
               >
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                   <span>5H Quota</span>
-                  {sortMode === 'quota_5h' && <ArrowUpDown size={11} />}
+                  {sortMode === 'quota_5h' && (sortDirection === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
                 </div>
               </th>
               <th
-                onClick={() => setSortMode('quota_weekly')}
+                onClick={() => handleSortColumn('quota_weekly')} /* setSortMode('quota_weekly') */
                 style={{
                   width: '180px',
                   minWidth: '180px',
@@ -1056,15 +1077,21 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   cursor: 'pointer',
                   userSelect: 'none',
                 }}
-                title="Click to sort by 7D Quota"
+                title={
+                  sortMode === 'quota_weekly'
+                    ? sortDirection === 'asc'
+                      ? 'Click to sort descendingly'
+                      : 'Click to exit sort'
+                    : 'Click to sort by 7D Quota'
+                }
               >
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                   <span>7D Quota</span>
-                  {sortMode === 'quota_weekly' && <ArrowUpDown size={11} />}
+                  {sortMode === 'quota_weekly' && (sortDirection === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
                 </div>
               </th>
               <th
-                onClick={() => setSortMode('credits')}
+                onClick={() => handleSortColumn('credits')}
                 style={{
                   width: '76px',
                   minWidth: '76px',
@@ -1080,15 +1107,21 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   cursor: 'pointer',
                   userSelect: 'none',
                 }}
-                title="Click to sort by Available Credit"
+                title={
+                  sortMode === 'credits'
+                    ? sortDirection === 'asc'
+                      ? 'Click to sort descendingly'
+                      : 'Click to exit sort'
+                    : 'Click to sort by Available Credit'
+                }
               >
                 <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                   <span>Credit</span>
-                  {sortMode === 'credits' && <ArrowUpDown size={11} />}
+                  {sortMode === 'credits' && (sortDirection === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
                 </div>
               </th>
               <th
-                onClick={() => setSortMode('priority')}
+                onClick={() => handleSortColumn('priority')}
                 style={{
                   width: '76px',
                   minWidth: '76px',
@@ -1104,11 +1137,17 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                   cursor: 'pointer',
                   userSelect: 'none',
                 }}
-                title="Click to sort by Priority"
+                title={
+                  sortMode === 'priority'
+                    ? sortDirection === 'asc'
+                      ? 'Click to sort descendingly'
+                      : 'Click to exit sort'
+                    : 'Click to sort by Priority'
+                }
               >
                 <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                   <span>Priority</span>
-                  {sortMode === 'priority' && <ArrowUpDown size={11} />}
+                  {sortMode === 'priority' && (sortDirection === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
                 </div>
               </th>
               <th style={{ width: '130px', minWidth: '130px', padding: '12px 16px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--canvas)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -1158,6 +1197,9 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               const hasNonGeminiHealthy = Boolean(rules?.allow_non_gemini_native_models) && claude5h > threshold && isClaudeWeeklyHealthy
               const hasArgon5hQuota = typeof acc.quota_5h_argon === 'number'
               const hasArgonWeeklyQuota = typeof acc.quota_weekly_argon === 'number'
+              const hasClaude5hQuota = Boolean(rules?.allow_non_gemini_native_models) && typeof acc.quota_5h_claude_gpt === 'number' && acc.quota_5h_claude_gpt !== null
+              const hasClaudeWeeklyQuota = Boolean(rules?.allow_non_gemini_native_models) && typeof acc.quota_weekly_claude_gpt === 'number' && acc.quota_weekly_claude_gpt !== null
+              const showGeminiLabel = hasArgon5hQuota || hasArgonWeeklyQuota || hasClaude5hQuota || hasClaudeWeeklyQuota
               const isHealthy = (hasGeminiHealthy || hasNonGeminiHealthy) && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('BANNED') && Boolean(acc.refresh_token?.trim())
               const isNextSwitch = Boolean(nextSwitchCandidate && acc.email.toLowerCase() === nextSwitchCandidate.toLowerCase())
               return (
@@ -1218,7 +1260,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     {renderPlanTierBadge(acc.plan_tier)}
                   </td>
 
-                  <td style={{ padding: '12px', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '12px', verticalAlign: 'top' }}>
                     {(() => {
                       const avail5h = acc.quota_5h_available ?? current5h
                       const hasDiff = Math.abs(avail5h - current5h) > 0.001
@@ -1242,7 +1284,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                 maxWidth="100%"
                               />
                             </div>
-                            {hasArgon5hQuota && (
+                          {hasArgon5hQuota && (
                               <div>
                                 <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                                   <span>Argon</span>
@@ -1254,16 +1296,21 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                                 />
                               </div>
                             )}
-                            <div>
-                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                                <span>Non-Gemini</span>
+                            {!hasArgon5hQuota && hasArgonWeeklyQuota && hasClaude5hQuota && (
+                              <div style={{ height: '29px' }} aria-hidden="true" />
+                            )}
+                            {hasClaude5hQuota && (
+                              <div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                  <span>Non-Gemini</span>
+                                </div>
+                                <HorizontalQuotaBar
+                                  fraction={acc.quota_5h_claude_gpt}
+                                  title="Non-Gemini 5h cycle"
+                                  maxWidth="100%"
+                                />
                               </div>
-                              <HorizontalQuotaBar
-                                fraction={acc.quota_5h_claude_gpt ?? 0}
-                                title="Non-Gemini 5h cycle"
-                                maxWidth="100%"
-                              />
-                            </div>
+                            )}
                           </div>
                         )
                       }
@@ -1307,6 +1354,20 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           </div>
                         )
                       }
+                      if (showGeminiLabel) {
+                        return (
+                          <div>
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              <span>Gemini</span>
+                            </div>
+                            <HorizontalQuotaBar
+                              fraction={current5h}
+                              title={tooltip5hGemini}
+                              maxWidth="100%"
+                            />
+                          </div>
+                        )
+                      }
                       return (
                         <HorizontalQuotaBar
                           fraction={current5h}
@@ -1317,7 +1378,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     })()}
                   </td>
 
-                  <td style={{ padding: '12px', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '12px', verticalAlign: 'top' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       {hasArgonWeeklyQuota ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1343,19 +1404,35 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                           </div>
                         </div>
                       ) : (
+                        showGeminiLabel ? (
+                          <div>
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              <span>Gemini</span>
+                            </div>
+                            <HorizontalQuotaBar
+                              fraction={acc.quota_weekly ?? 0}
+                              title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
+                              maxWidth="100%"
+                            />
+                          </div>
+                        ) : (
                         <HorizontalQuotaBar
                           fraction={acc.quota_weekly ?? 0}
                           title={acc.reset_horizon_weekly_text || 'Gemini 7D cycle'}
                           maxWidth="100%"
                         />
+                        )
                       )}
-                      {rules?.allow_non_gemini_native_models && (
+                      {hasArgon5hQuota && !hasArgonWeeklyQuota && hasClaudeWeeklyQuota && (
+                        <div style={{ height: '29px' }} aria-hidden="true" />
+                      )}
+                      {rules?.allow_non_gemini_native_models && hasClaudeWeeklyQuota && (
                         <div>
-                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600 }}>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '1px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             <span>Non-Gemini</span>
                           </div>
                           <HorizontalQuotaBar
-                            fraction={acc.quota_weekly_claude_gpt ?? 0}
+                            fraction={acc.quota_weekly_claude_gpt}
                             title="Non-Gemini 7D cycle"
                             maxWidth="100%"
                           />
@@ -1725,7 +1802,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
         >
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface)',
               borderRadius: '10px',
               width: '460px',
               maxWidth: '90vw',
@@ -1908,7 +1985,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
             top: contextMenuPosition?.top ?? -9999,
             left: contextMenuPosition?.left ?? -9999,
             visibility: contextMenuPosition ? 'visible' : 'hidden',
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--surface)',
             border: '1px solid var(--border)',
             borderRadius: '10px',
             boxShadow: 'var(--shadow-md)',
@@ -2121,7 +2198,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
         >
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface)',
               borderRadius: '10px',
               width: '540px',
               maxWidth: '92vw',
@@ -2137,7 +2214,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Search size={20} color="#1a73e8" />
+                <Search size={20} color="var(--primary)" />
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
                   Discovered Local Accounts ({discoveredAccounts.length})
                 </h3>

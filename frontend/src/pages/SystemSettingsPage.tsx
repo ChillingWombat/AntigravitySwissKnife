@@ -1251,11 +1251,20 @@ export const SystemSettingsPage: React.FC<SystemSettingsPageProps> = ({
                           <button
                             type="button"
                             onClick={() => copyPath(`${appType}_detected`, detectedPath)}
-                            className="btn-pill-tonal"
-                            style={{ padding: '6px 10px', fontSize: '11px' }}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              padding: '2px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: 'var(--text-muted)',
+                              cursor: 'pointer',
+                            }}
                             title="Copy path"
+                            aria-label="Copy path"
                           >
-                            {copiedKey === `${appType}_detected` ? <Check size={12} /> : <Copy size={12} />}
+                            {copiedKey === `${appType}_detected` ? <Check size={12} color="var(--green)" /> : <Copy size={12} />}
                           </button>
                         )}
                       </div>

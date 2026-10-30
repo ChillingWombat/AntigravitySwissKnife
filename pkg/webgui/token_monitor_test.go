@@ -1,7 +1,10 @@
 package webgui
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -376,5 +379,125 @@ func TestTokenMonitor_TPS_RealisticBounding(t *testing.T) {
 	}
 	if stats.steps[0].durationMs <= 0 {
 		t.Errorf("expected bounded durationMs, got %d", stats.steps[0].durationMs)
+	}
+}
+
+func TestMapModelNameToMetadata_CustomModelEffortSuffix(t *testing.T) {
+	customModels := []custommodels.CustomModel{
+		{
+			ID:           "openai-deepseek-v4-flash-1",
+			Name:         "deepseek-v4.1-flash",
+			DisplayName:  "DeepSeek V4.1 Flash (OpenCode)",
+			ProviderType: custommodels.ProviderOpenAI,
+		},
+		{
+			ID:           "gcp-claude-opus-1",
+			Name:         "claude-opus-4-6",
+			DisplayName:  "Claude Opus 4.6 (GCP)",
+			ProviderType: custommodels.ProviderGCP,
+		},
+	}
+
+	testCases := []struct {
+		raw          string
+		wantModelID  string
+		wantDisplay  string
+		wantProvider string
+	}{
+		{
+			raw:          "DeepSeek V4.1 Flash (OpenCode) (High)",
+			wantModelID:  "deepseek-v4.1-flash",
+			wantDisplay:  "DeepSeek V4.1 Flash (OpenCode)",
+			wantProvider: "openai",
+		},
+		{
+			raw:          "DeepSeek V4.1 Flash (OpenCode) High",
+			wantModelID:  "deepseek-v4.1-flash",
+			wantDisplay:  "DeepSeek V4.1 Flash (OpenCode)",
+			wantProvider: "openai",
+		},
+		{
+			raw:          "DeepSeek V4.1 Flash (OpenCode)",
+			wantModelID:  "deepseek-v4.1-flash",
+			wantDisplay:  "DeepSeek V4.1 Flash (OpenCode)",
+			wantProvider: "openai",
+		},
+		{
+			raw:          "Claude Opus 4.6 (GCP) (High)",
+			wantModelID:  "claude-opus-4-6",
+			wantDisplay:  "Claude Opus 4.6 (GCP)",
+			wantProvider: "anthropic",
+		},
+		{
+			raw:          "Gemini 3.8 Flash (High)",
+			wantModelID:  "gemini-3.8-flash",
+			wantDisplay:  "Gemini 3.8 Flash",
+			wantProvider: "gemini",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.raw, func(t *testing.T) {
+			gotID, gotDisp, gotProv := mapModelNameToMetadata(tc.raw, customModels, nil)
+			if gotID != tc.wantModelID {
+				t.Errorf("modelID for %q = %q, want %q", tc.raw, gotID, tc.wantModelID)
+			}
+			if gotDisp != tc.wantDisplay {
+				t.Errorf("display for %q = %q, want %q", tc.raw, gotDisp, tc.wantDisplay)
+			}
+			if gotProv != tc.wantProvider {
+				t.Errorf("provider for %q = %q, want %q", tc.raw, gotProv, tc.wantProvider)
+			}
+		})
+	}
+}
+
+func TestGetMagpieSpeedData_IntegrationAndFallback(t *testing.T) {
+	// 1. Success case with mock server
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"decode_ms":  10000,
+			"decode_out": 2000,
+			"models": []map[string]interface{}{
+				{
+					"id":         "opencode-go/deepseek-v4.1-flash",
+					"model":      "deepseek-v4.1-flash",
+					"decode_ms":  5000,
+					"decode_out": 1250, // 250 TPS
+				},
+				{
+					"id":         "antigravity/gemini-3.8-flash @ test@example.com",
+					"model":      "gemini-3.8-flash",
+					"decode_ms":  4000,
+					"decode_out": 600, // 150 TPS
+				},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	SetMagpieEndpointForTest(ts.URL)
+	defer SetMagpieEndpointForTest("")
+
+	overall, modelSpeeds := getMagpieSpeedData(context.Background())
+	if overall != 200.0 {
+		t.Errorf("expected overall speed 200.0, got %f", overall)
+	}
+	if spd := lookupModelSpeed("deepseek-v4.1-flash", "DeepSeek V4.1 Flash (OpenCode)", modelSpeeds); spd != 250.0 {
+		t.Errorf("expected 250.0 TPS for deepseek-v4.1-flash, got %f", spd)
+	}
+	if spd := lookupModelSpeed("gemini-3.8-flash", "Gemini 3.8 Flash", modelSpeeds); spd != 150.0 {
+		t.Errorf("expected 150.0 TPS for gemini-3.8-flash, got %f", spd)
+	}
+
+	// 2. Offline fallback
+	SetMagpieEndpointForTest("http://127.0.0.1:54321/offline")
+	magpieSpeedMu.Lock()
+	cachedMagpieSpeed = magpieSpeedSnapshot{}
+	magpieSpeedMu.Unlock()
+
+	fallbackOverall, fallbackSpeeds := getMagpieSpeedData(context.Background())
+	if fallbackOverall != 0.0 || fallbackSpeeds != nil {
+		t.Errorf("expected 0 and nil for offline magpie, got %f, %v", fallbackOverall, fallbackSpeeds)
 	}
 }

@@ -74,7 +74,7 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(remoteContent.includes('Tailscale Funnel'))
     assert.ok(remoteContent.includes('Tailscale Private Tailnet'))
     assert.ok(remoteContent.includes("setTunnelType('tailnet')"))
-    assert.strictEqual(remoteContent.includes("copyToClipboard(config.security_pin"), false, 'Copy PIN button must be removed from Security PIN gadget')
+    assert.ok(remoteContent.includes("copyToClipboard(config.security_pin"), 'Copy PIN button must be present in Security PIN gadget')
     assert.ok(remoteContent.includes('DevTools Port'))
     assert.ok(remoteContent.includes('google-card'))
     assert.ok(remoteContent.includes('Enable Remote Access'))
@@ -104,6 +104,8 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(waContent.includes('Allowed Phone Numbers'))
     assert.ok(waContent.includes('google-card'))
     assert.ok(waContent.includes('ToggleSwitch'))
+    assert.match(waContent, /<h2[^>]*>\s*Setup\s*<\/h2>/, 'WhatsAppBridgePage must have Setup gadget header')
+    assert.ok(waContent.includes('Save Settings'), 'WhatsAppBridgePage must contain Save Settings button')
     // Issue #119: the header status chip is removed — state lives in the toggle and status cards.
     assert.strictEqual(waContent.includes('badge-chip'), false, 'WhatsAppBridgePage header chip must be removed')
   })
@@ -118,6 +120,8 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(tgContent.includes('Allowed Chat IDs'))
     assert.ok(tgContent.includes('google-card'))
     assert.ok(tgContent.includes('ToggleSwitch'))
+    assert.match(tgContent, /<h2[^>]*>\s*Setup\s*<\/h2>/, 'TelegramBridgePage must have Setup gadget header')
+    assert.ok(tgContent.includes('Save Settings'), 'TelegramBridgePage must contain Save Settings button')
     // Issue #119: the header status chip is removed — state lives in the toggle and status cards.
     assert.strictEqual(tgContent.includes('badge-chip'), false, 'TelegramBridgePage header chip must be removed')
   })
@@ -132,6 +136,8 @@ describe('Bridge Section & Multi-Channel Remote Chat Invariants', () => {
     assert.ok(dsContent.includes('Allowed Channel IDs'))
     assert.ok(dsContent.includes('google-card'))
     assert.ok(dsContent.includes('ToggleSwitch'))
+    assert.match(dsContent, /<h2[^>]*>\s*Setup\s*<\/h2>/, 'DiscordBridgePage must have Setup gadget header')
+    assert.ok(dsContent.includes('Save Settings'), 'DiscordBridgePage must contain Save Settings button')
     // Issue #119: the header status chip is removed — state lives in the toggle and status cards.
     assert.strictEqual(dsContent.includes('badge-chip'), false, 'DiscordBridgePage header chip must be removed')
   })

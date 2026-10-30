@@ -120,6 +120,30 @@ async function teardownDaemonForAppExit() {
     isStoppingDaemon = true;
     const mode = getRuntimeModeSetting();
     console.log(`[App] Teardown daemon for app exit. Runtime mode: ${mode}`);
+    // Gracefully restore native mode for any running Antigravity apps if proxy was active
+    try {
+      await new Promise((resolve) => {
+        const req = http.request(
+          {
+            hostname: DAEMON_HOST,
+            port: DAEMON_PORT,
+            path: '/api/custom_models/restore_native',
+            method: 'POST',
+            timeout: 2000,
+          },
+          (res) => {
+            res.resume();
+            resolve();
+          }
+        );
+        req.on('error', () => resolve());
+        req.on('timeout', () => {
+          req.destroy();
+          resolve();
+        });
+        req.end();
+      });
+    } catch (_) {}
     if (mode === 'daemon') {
       daemonManager.detach();
     } else {
@@ -367,7 +391,7 @@ function buildConnectingFallbackHtml() {
   <meta charset="utf-8">
   <title>Antigravity Swiss Knife - Connecting</title>
   <style>
-    body { background: #131314; color: #e3e3e3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    body { background: #131314; color: #e3e3e3; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
     h2 { margin-bottom: 8px; font-weight: 500; }
     p { color: #8e918f; font-size: 14px; margin-bottom: 24px; }
     .actions { display: flex; gap: 12px; align-items: center; }
@@ -1745,13 +1769,13 @@ if (app && typeof app.on === 'function') {
     setTimeout(() => {
       console.warn('[App] Hard quit fallback triggered');
       app.exit(0);
-    }, 3500).unref();
+    }, 5500).unref();
 
     try {
       await Promise.race([
         teardownDaemonForAppExit(),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Teardown timed out after 2500ms')), 2500)
+          setTimeout(() => reject(new Error('Teardown timed out after 4500ms')), 4500)
         ),
       ]);
     } catch (err) {

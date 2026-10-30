@@ -262,7 +262,7 @@ func TestGenerateScript(t *testing.T) {
 		t.Errorf("Script missing MutationObserver")
 	}
 
-	// Verify Context Menu Polish: Round swatches, Set Color title, and vibrant rainbow conic-gradient button
+	// Verify Context Menu Polish: Round swatches, Set Color title, and flat Lucide palette button
 	if !strings.Contains(script, "border-radius: 50%") {
 		t.Errorf("Script missing 50%% round border-radius for swatches")
 	}
@@ -272,8 +272,8 @@ func TestGenerateScript(t *testing.T) {
 	if !strings.Contains(script, "swiss-custom-trigger") {
 		t.Errorf("Script missing swiss-custom-trigger button ID")
 	}
-	if !strings.Contains(script, "conic-gradient(red, yellow, lime, aqua, blue, magenta, red)") {
-		t.Errorf("Script missing vibrant rainbow conic-gradient on custom palette trigger")
+	if !strings.Contains(script, "lucide-palette") && !strings.Contains(script, "M12 22a1 1 0 0 1 0-20") {
+		t.Errorf("Script missing flat Lucide palette icon on custom palette trigger")
 	}
 	if !strings.Contains(script, "swiss-custom-grid-container") {
 		t.Errorf("Script missing swiss-custom-grid-container ID")
@@ -702,9 +702,9 @@ func TestLiveInjection(t *testing.T) {
 				const presets = mockMenu.querySelectorAll(".swiss-preset-swatch");
 				const gridCells = mockMenu.querySelectorAll(".swiss-grid-cell");
 				const trigger = mockMenu.querySelector("#swiss-custom-trigger");
+				const tSvg = trigger ? trigger.querySelector("svg.lucide-palette") : null;
 				const pStyle = presets[0] ? window.getComputedStyle(presets[0]) : null;
 				const gStyle = gridCells[0] ? window.getComputedStyle(gridCells[0]) : null;
-				const tStyle = trigger ? window.getComputedStyle(trigger) : null;
 				return {
 					presetCount: presets.length,
 					gridCount: gridCells.length,
@@ -712,7 +712,7 @@ func TestLiveInjection(t *testing.T) {
 					presetShadow: pStyle ? pStyle.boxShadow : "",
 					gridRadius: gStyle ? gStyle.borderRadius : "",
 					gridShadow: gStyle ? gStyle.boxShadow : "",
-					triggerBg: tStyle ? tStyle.backgroundImage : ""
+					hasPaletteIcon: !!tSvg
 				};
 			} finally {
 				mockMenu.remove();
@@ -735,8 +735,8 @@ func TestLiveInjection(t *testing.T) {
 			if gs, _ := domRes["gridShadow"].(string); !strings.Contains(gs, "rgba(128, 128, 128, 0.25)") || !strings.Contains(gs, "inset") {
 				t.Errorf("Expected live .swiss-grid-cell inset boxShadow rgba(128, 128, 128, 0.25), got %q", gs)
 			}
-			if tb, _ := domRes["triggerBg"].(string); !strings.Contains(tb, "conic-gradient") {
-				t.Errorf("Expected live #swiss-custom-trigger conic-gradient backgroundImage, got %q", tb)
+			if hasIcon, _ := domRes["hasPaletteIcon"].(bool); !hasIcon {
+				t.Errorf("Expected live #swiss-custom-trigger to contain Lucide palette SVG icon")
 			}
 		}
 	}

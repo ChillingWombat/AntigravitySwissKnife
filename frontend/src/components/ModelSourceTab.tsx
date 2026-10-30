@@ -118,6 +118,8 @@ export const ModelSourceTab: React.FC = () => {
   const [feedback, setFeedback] = useState<{ text: string; isError: boolean } | null>(null)
   const [copied, setCopied] = useState(false)
   const [copiedGemini, setCopiedGemini] = useState(false)
+  const [cliStatus, setCliStatus] = useState<{ installed: boolean; configured: boolean; cli_path: string } | null>(null)
+  const [configuringCli, setConfiguringCli] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -126,6 +128,10 @@ export const ModelSourceTab: React.FC = () => {
       if (res?.integration) setIntegration({ ...DEFAULT_INTEGRATION, ...res.integration })
       setEndpoint(res?.endpoint || '')
       setGeminiBase(res?.gemini_base || '')
+      try {
+        const cliRes = await api.getCLIGatewayStatus()
+        if (cliRes?.status) setCliStatus(cliRes.status)
+      } catch {}
     } catch (err) {
       setFeedback({ text: `Could not load settings: ${(err as Error).message}`, isError: true })
     } finally {
@@ -172,6 +178,21 @@ export const ModelSourceTab: React.FC = () => {
       setFeedback({ text: `Launch failed: ${(err as Error).message}`, isError: true })
     } finally {
       setLaunching(null)
+    }
+  }
+
+  const handleSetupCli = async () => {
+    setConfiguringCli(true)
+    try {
+      const res = await api.setupCLIGateway()
+      if (res?.status) {
+        setCliStatus(res.status)
+        setFeedback({ text: 'AGY CLI integration successfully configured.', isError: false })
+      }
+    } catch (err) {
+      setFeedback({ text: `CLI configuration failed: ${(err as Error).message}`, isError: true })
+    } finally {
+      setConfiguringCli(false)
     }
   }
 
@@ -349,12 +370,22 @@ export const ModelSourceTab: React.FC = () => {
                     {endpoint || 'http://127.0.0.1:8765/v1'}
                   </code>
                   <button
-                    style={actionStyle}
+                    type="button"
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      padding: '2px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                    }}
                     onClick={copyEndpoint}
                     title={copied ? 'Copied' : 'Copy'}
                     aria-label="Copy"
                   >
-                    {copied ? <Check size={13} /> : <Copy size={13} />}
+                    {copied ? <Check size={13} color="var(--green)" /> : <Copy size={13} />}
                   </button>
                 </div>
               </div>
@@ -366,12 +397,22 @@ export const ModelSourceTab: React.FC = () => {
                     {geminiBase || 'http://127.0.0.1:8765/v1beta'}
                   </code>
                   <button
-                    style={actionStyle}
+                    type="button"
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      padding: '2px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                    }}
                     onClick={copyGemini}
                     title={copiedGemini ? 'Copied' : 'Copy'}
                     aria-label="Copy"
                   >
-                    {copiedGemini ? <Check size={13} /> : <Copy size={13} />}
+                    {copiedGemini ? <Check size={13} color="var(--green)" /> : <Copy size={13} />}
                   </button>
                 </div>
               </div>
@@ -394,9 +435,41 @@ export const ModelSourceTab: React.FC = () => {
 
       <div
         role="note"
-        style={{ ...cardStyle, padding: '14px 16px', gap: '4px' }}
+        style={{ ...cardStyle, padding: '14px 16px', gap: '8px' }}
       >
-        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>AGY CLI</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>AGY CLI</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                padding: '2px 8px',
+                borderRadius: '4px',
+                backgroundColor: cliStatus?.configured ? 'var(--green-bg)' : 'var(--tonal)',
+                color: cliStatus?.configured ? 'var(--green)' : 'var(--text-muted)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {cliStatus?.configured ? 'Configured' : (cliStatus?.installed ? 'Not Configured' : 'Not Detected')}
+            </span>
+            {!cliStatus?.configured && (
+              <button
+                type="button"
+                onClick={handleSetupCli}
+                disabled={configuringCli}
+                style={{
+                  ...actionStyle,
+                  fontSize: '11px',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                }}
+              >
+                {configuringCli ? 'Configuring…' : 'Auto-configure CLI'}
+              </button>
+            )}
+          </div>
+        </div>
         <span style={{ ...wrappingTextStyle, fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
           Runs independently and can use Native and Custom models at the same time in one session, without API Proxy mode or window profile isolation.
         </span>

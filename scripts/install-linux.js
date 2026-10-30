@@ -508,6 +508,85 @@ function installAcpCliSymlink(targetPaths) {
   return symlinkPath;
 }
 
+function ensureAgyCliGateway(targetPaths) {
+  const { binDir } = targetPaths;
+  const agyPath = path.join(binDir, "agy");
+  const agyBinPath = path.join(binDir, "agy.bin");
+  if (!fs.existsSync(agyPath) && !fs.existsSync(agyBinPath)) {
+    return;
+  }
+  try {
+    if (fs.existsSync(agyPath)) {
+      const content = fs.readFileSync(agyPath, "utf8");
+      if (!content.includes("Swiss Knife Integration Wrapper") && !content.includes("Swiss Knife Gateway Integration Wrapper")) {
+        fs.copyFileSync(agyPath, agyBinPath);
+        fs.chmodSync(agyBinPath, 0o755);
+      }
+    }
+  } catch {
+    try {
+      fs.copyFileSync(agyPath, agyBinPath);
+      fs.chmodSync(agyBinPath, 0o755);
+    } catch {}
+  }
+
+  const wrapperScript = `#!/usr/bin/env bash
+# Antigravity CLI (agy) - Swiss Knife Integration Wrapper
+set -e
+
+DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+REAL_BIN="\${DIR}/agy.bin"
+if [ ! -f "$REAL_BIN" ]; then
+    REAL_BIN="\${DIR}/agy.real"
+fi
+if [ ! -f "$REAL_BIN" ]; then
+    REAL_BIN="${path.join(os.homedir(), '.gemini', 'bin', 'agy')}"
+fi
+
+# Route agy through Swiss Knife Cloud Code proxy if active; fallback to native if closed
+PROXY_PORT=8765
+if (exec 3<>/dev/tcp/127.0.0.1/\${PROXY_PORT}) 2>/dev/null; then
+    exec 3>&-
+    export CLOUD_CODE_URL="http://127.0.0.1:\${PROXY_PORT}"
+    unset AGY_LLM_GATEWAY_URL AGY_LLM_GATEWAY_API_KEY AGY_LLM_GATEWAY_MODELS 2>/dev/null || true
+else
+    unset CLOUD_CODE_URL AGY_LLM_GATEWAY_URL AGY_LLM_GATEWAY_API_KEY AGY_LLM_GATEWAY_MODELS 2>/dev/null || true
+fi
+
+exec "$REAL_BIN" "$@"
+`;
+
+  try {
+    fs.writeFileSync(agyPath, wrapperScript, { mode: 0o755 });
+    log(`✓ AGY CLI wrapper configured at: ${agyPath}`);
+  } catch (err) {
+    log(`Notice: Could not write AGY CLI wrapper: ${err.message}`);
+  }
+
+  cleanShellRCHooks();
+}
+
+function cleanShellRCHooks() {
+  const home = os.homedir();
+  for (const rc of ['.zshrc', '.bashrc']) {
+    const rcPath = path.join(home, rc);
+    try {
+      if (fs.existsSync(rcPath)) {
+        const content = fs.readFileSync(rcPath, 'utf8');
+        if (content.includes('CLOUD_CODE_URL') || content.includes('AGY_LLM_GATEWAY_URL')) {
+          const lines = content.split('\n').filter((l) => {
+            const trimmed = l.trim();
+            return !trimmed.includes('Antigravity Swiss Knife - CLI') &&
+              !trimmed.startsWith('export CLOUD_CODE_URL=') &&
+              !trimmed.startsWith('export AGY_LLM_GATEWAY_URL=');
+          });
+          fs.writeFileSync(rcPath, lines.join('\n'), 'utf8');
+        }
+      }
+    } catch (_) {}
+  }
+}
+
 function verifyInstallation(targetPaths) {
   log('====================================================');
   log('Verifying out-of-tree installation integrity...');
@@ -704,6 +783,7 @@ async function main() {
   installDesktopEntry(targetPaths);
   installCliSymlink(targetPaths);
   installAcpCliSymlink(targetPaths);
+  ensureAgyCliGateway(targetPaths);
   verifyInstallation(targetPaths);
 
   if (options.launch && targetPaths.type === 'user') {

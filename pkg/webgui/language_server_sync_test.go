@@ -1,6 +1,11 @@
 package webgui
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 func TestLanguageServerURLSyncDisabledDuringTests(t *testing.T) {
 	originalSyncer := languageServerURLSyncer
@@ -25,5 +30,19 @@ func TestLanguageServerURLSyncDisabledDuringTests(t *testing.T) {
 	}
 	if srv.syncLSURLStop != nil {
 		t.Fatal("test server must not start the language server URL sync goroutine")
+	}
+}
+
+func TestHandleCustomModelRestoreNative(t *testing.T) {
+	srv := NewServer("127.0.0.1:0", "")
+	req := httptest.NewRequest("POST", "/api/custom_models/restore_native", nil)
+	rr := httptest.NewRecorder()
+	srv.handleCustomModelRestoreNative(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"restored_native":true`) {
+		t.Errorf("expected restored_native true, got: %s", rr.Body.String())
 	}
 }

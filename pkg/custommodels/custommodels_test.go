@@ -1336,7 +1336,7 @@ console.log("ALL_CATALOG_MODES_VERIFIED");
 	cmd := exec.Command(nodePath, "-e", testRunner)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("node verification failed: %v\nOutput: %s", err, string(out))
+		t.Fatalf("node verification failed: %v: %s", err, string(out))
 	}
 	if !strings.Contains(string(out), "ALL_CATALOG_MODES_VERIFIED") {
 		t.Fatalf("unexpected node output: %s", string(out))
@@ -1354,12 +1354,15 @@ func TestGenerateCustomModelsScript_CustomModelThinkingChevronBehavior(t *testin
 		t.Fatalf("expected script to contain swiss-custom-chevron-wrap")
 	}
 
-	// 2. syncHoverState must control display of both chk and chv across active and inactive models
-	if !strings.Contains(script, `if (supportsThinking) {`) {
-		t.Errorf("expected syncHoverState to check supportsThinking regardless of isCurrentlyActive")
+	// 2. canChangeThinking must control display of both chk and chv (only when levels.length > 1)
+	if !strings.Contains(script, `canChangeThinking = levels.length > 1`) {
+		t.Errorf("expected script to define canChangeThinking based on levels.length > 1")
+	}
+	if !strings.Contains(script, `if (canChangeThinking) {`) {
+		t.Errorf("expected script to guard thinking chevron and submenu with canChangeThinking")
 	}
 
-	// 3. Chevron wrap must be wired to open thinking submenu on hover and click
+	// 3. Chevron wrap must be wired to open thinking submenu on hover and click when present
 	if !strings.Contains(script, `chevronWrap.onmouseenter =`) {
 		t.Errorf("expected chevronWrap.onmouseenter to be wired")
 	}
@@ -1367,19 +1370,74 @@ func TestGenerateCustomModelsScript_CustomModelThinkingChevronBehavior(t *testin
 		t.Errorf("expected chevronWrap.onclick to be wired")
 	}
 
-	// 4. itemEl.onmouseenter must NOT open thinking submenu directly
-	// itemEl.onmouseenter should sync hover state, not call openThinkingSubmenu()
+	// 4. itemEl.onmouseenter opens thinking submenu directly when canChangeThinking is true (matching Antigravity 2.0 app logic)
 	itemEnterIdx := strings.Index(script, "itemEl.onmouseenter = () => {")
 	if itemEnterIdx == -1 {
 		t.Fatalf("expected script to define itemEl.onmouseenter")
 	}
-	itemEnterBody := script[itemEnterIdx : itemEnterIdx+250]
-	if strings.Contains(itemEnterBody, "openThinkingSubmenu()") {
-		t.Errorf("expected itemEl.onmouseenter NOT to call openThinkingSubmenu() directly")
+	itemEnterBody := script[itemEnterIdx : itemEnterIdx+500]
+	if !strings.Contains(itemEnterBody, "openThinkingSubmenu()") {
+		t.Errorf("expected itemEl.onmouseenter to call openThinkingSubmenu() when canChangeThinking is true")
 	}
 
 	// 5. itemEl.onclick must ignore clicks originating from chevronWrap
 	if !strings.Contains(script, `.closest(".swiss-custom-chevron-wrap")`) {
 		t.Errorf("expected itemEl.onclick to guard against clicks inside .swiss-custom-chevron-wrap")
+	}
+}
+
+func TestGenerateCustomModelsScript_SingleVsMultiThinkingLevels(t *testing.T) {
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available; skipping node runtime verification")
+	}
+
+	script := GenerateCustomModelsScript(nil)
+	fnStart := strings.Index(script, "function getModelThinkingLevels(m)")
+	if fnStart == -1 {
+		t.Fatalf("getModelThinkingLevels not found in script")
+	}
+	fnEnd := strings.Index(script[fnStart:], "function getActiveThinkingLevel")
+	if fnEnd == -1 {
+		t.Fatalf("could not isolate getModelThinkingLevels")
+	}
+	helperCode := script[fnStart : fnStart+fnEnd]
+
+	testRunner := fmt.Sprintf(`
+%s
+const assert = require("assert");
+
+// Model with only 1 thinking level (cannot be changed)
+const mSingle = { name: "custom-fixed", supports_thinking: true, thinking_levels: ["high"] };
+const lvlsSingle = getModelThinkingLevels(mSingle);
+assert.strictEqual(lvlsSingle.length, 1);
+assert.strictEqual(lvlsSingle[0], "high");
+assert.strictEqual(lvlsSingle.length > 0, true, "supportsThinking must be true");
+assert.strictEqual(lvlsSingle.length > 1, false, "canChangeThinking must be false");
+
+// Model with multiple thinking levels
+const mMulti = { name: "custom-flexible", supports_thinking: true, thinking_levels: ["low", "medium", "high"] };
+const lvlsMulti = getModelThinkingLevels(mMulti);
+assert.strictEqual(lvlsMulti.length, 3);
+assert.strictEqual(lvlsMulti.length > 0, true, "supportsThinking must be true");
+assert.strictEqual(lvlsMulti.length > 1, true, "canChangeThinking must be true");
+
+// Model without thinking
+const mNone = { name: "custom-basic", supports_thinking: false, thinking_levels: [] };
+const lvlsNone = getModelThinkingLevels(mNone);
+assert.strictEqual(lvlsNone.length, 0);
+assert.strictEqual(lvlsNone.length > 0, false, "supportsThinking must be false");
+assert.strictEqual(lvlsNone.length > 1, false, "canChangeThinking must be false");
+
+console.log("ALL_THINKING_LEVEL_VARIANTS_VERIFIED");
+`, helperCode)
+
+	cmd := exec.Command(nodePath, "-e", testRunner)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node verification failed: %v: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "ALL_THINKING_LEVEL_VARIANTS_VERIFIED") {
+		t.Fatalf("unexpected node output: %s", string(out))
 	}
 }

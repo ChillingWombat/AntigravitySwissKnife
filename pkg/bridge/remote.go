@@ -874,7 +874,7 @@ func (rm *RemoteManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	// Favicon (official Google Antigravity 2.0 multi-color delta icon)
-	if path == "/favicon.ico" || path == "/favicon.svg" || path == "/remote/favicon.ico" || path == "/remote/favicon.svg" {
+	if path == "/favicon.ico" || path == "/favicon.svg" || path == "/remote/favicon.ico" || path == "/remote/favicon.svg" || path == "/logo.png" || path == "/remote/logo.png" {
 		w.Header().Set("Content-Type", "image/svg+xml")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		w.WriteHeader(http.StatusOK)

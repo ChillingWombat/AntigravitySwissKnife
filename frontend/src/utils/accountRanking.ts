@@ -2,6 +2,21 @@ import type { AccountState, SwitchMode } from '../types.ts'
 import { normalizePlanTier } from '../types.ts'
 
 export type SortMode = 'auto' | 'identity' | 'priority' | 'quota_5h' | 'quota_weekly' | 'credits'
+export type SortDirection = 'asc' | 'desc'
+
+export function getNextSortState(
+  currentMode: SortMode,
+  currentDirection: SortDirection,
+  clickedColumn: SortMode
+): { mode: SortMode; direction: SortDirection } {
+  if (currentMode !== clickedColumn) {
+    return { mode: clickedColumn, direction: 'asc' }
+  }
+  if (currentDirection === 'asc') {
+    return { mode: clickedColumn, direction: 'desc' }
+  }
+  return { mode: 'auto', direction: 'asc' }
+}
 
 export const FIVE_HOUR_WINDOW_SECONDS = 18000.0
 export const WEEKLY_WINDOW_SECONDS = 604800.0
@@ -638,27 +653,30 @@ export function sortAccounts(
   mode: SortMode,
   switchMode?: SwitchMode,
   thresholdWeekly: number = 0.05,
-  allowNonGemini: boolean = false
+  allowNonGemini: boolean = false,
+  direction?: SortDirection
 ): AccountState[] {
   const copy = [...accounts]
   const swMode = normalizeSwitchMode(switchMode)
 
   if (mode === 'identity') {
+    const isDesc = direction === 'desc'
     return copy.sort((a, b) => {
       const nameA = (a.label || a.email).toLowerCase()
       const nameB = (b.label || b.email).toLowerCase()
       if (nameA !== nameB) {
-        return nameA.localeCompare(nameB)
+        return isDesc ? nameB.localeCompare(nameA) : nameA.localeCompare(nameB)
       }
-      return a.email.localeCompare(b.email)
+      return isDesc ? b.email.localeCompare(a.email) : a.email.localeCompare(b.email)
     })
   }
 
   if (mode === 'priority') {
+    const isAsc = direction === 'asc'
     return copy.sort((a, b) => {
       const pa = priorityRank(a.priority)
       const pb = priorityRank(b.priority)
-      if (pa !== pb) return pa - pb
+      if (pa !== pb) return isAsc ? pb - pa : pa - pb
       const diff = (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
       if (Math.abs(diff) > 0.0001) return diff
       return (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
@@ -666,14 +684,18 @@ export function sortAccounts(
   }
 
   if (mode === 'credits') {
+    const isAsc = direction === 'asc'
     return copy.sort((a, b) => {
       const credA = a.credits !== undefined && a.credits !== null ? Number(a.credits) : 0
       const credB = b.credits !== undefined && b.credits !== null ? Number(b.credits) : 0
-      return credB - credA
+      const diff = isAsc ? credA - credB : credB - credA
+      if (Math.abs(diff) > 0.0001) return diff
+      return (a.email || '').localeCompare(b.email || '')
     })
   }
 
   if (mode === 'quota_5h') {
+    const isAsc = direction === 'asc'
     return copy.sort((a, b) => {
       let aVal = a.quota_5h_available ?? 0
       let bVal = b.quota_5h_available ?? 0
@@ -681,13 +703,16 @@ export function sortAccounts(
         if (typeof a.quota_5h_claude_gpt === 'number') aVal = Math.max(aVal, a.quota_5h_claude_gpt)
         if (typeof b.quota_5h_claude_gpt === 'number') bVal = Math.max(bVal, b.quota_5h_claude_gpt)
       }
-      const diff = bVal - aVal
+      const diff = isAsc ? aVal - bVal : bVal - aVal
       if (Math.abs(diff) > 0.0001) return diff
-      return (b.quota_weekly ?? 0) - (a.quota_weekly ?? 0)
+      const aWeekly = a.quota_weekly ?? 0
+      const bWeekly = b.quota_weekly ?? 0
+      return isAsc ? aWeekly - bWeekly : bWeekly - aWeekly
     })
   }
 
   if (mode === 'quota_weekly') {
+    const isAsc = direction === 'asc'
     return copy.sort((a, b) => {
       let aVal = a.quota_weekly ?? 0
       let bVal = b.quota_weekly ?? 0
@@ -695,9 +720,11 @@ export function sortAccounts(
         if (typeof a.quota_weekly_claude_gpt === 'number') aVal = Math.max(aVal, a.quota_weekly_claude_gpt)
         if (typeof b.quota_weekly_claude_gpt === 'number') bVal = Math.max(bVal, b.quota_weekly_claude_gpt)
       }
-      const diff = bVal - aVal
+      const diff = isAsc ? aVal - bVal : bVal - aVal
       if (Math.abs(diff) > 0.0001) return diff
-      return (b.quota_5h_available ?? 0) - (a.quota_5h_available ?? 0)
+      const a5h = a.quota_5h_available ?? 0
+      const b5h = b.quota_5h_available ?? 0
+      return isAsc ? a5h - b5h : b5h - a5h
     })
   }
 

@@ -66,6 +66,26 @@ describe('QuotaDashboardPage model progress bar layout — 2x1 vertical stack', 
       '7D Quota column width must be balanced at 180px',
     )
   })
+
+  it('aligns 5H and 7D cells to top with verticalAlign: "top" for horizontal progress bar alignment', () => {
+    assert.ok(
+      pageSrc.includes("<td style={{ padding: '12px', verticalAlign: 'top' }}>"),
+      '5H and 7D table cells must use verticalAlign: "top" to align quota bars horizontally across columns',
+    )
+  })
+
+  it('omits Argon 5H progress bar when account has no 5H Argon quota but has 7D Argon quota', () => {
+    const section5hWeekly = pageSrc.indexOf('if (hasArgonWeeklyQuota) {')
+    assert.ok(section5hWeekly > 0, 'if (hasArgonWeeklyQuota) block not found in 5H cell')
+    const nextBlock = pageSrc.indexOf('if (showGeminiLabel)', section5hWeekly)
+    const block = pageSrc.slice(section5hWeekly, nextBlock)
+
+    assert.ok(
+      !block.includes('<span>Argon</span>'),
+      '5H cell must not show an Argon progress bar or label when Argon 5H quota is null',
+    )
+    assert.ok(block.includes('<span>Gemini</span>'), '5H cell must retain Gemini label to align with 7D cell')
+  })
 })
 
 describe('QuotaDashboardPage Argon quota ring conditional rendering', () => {

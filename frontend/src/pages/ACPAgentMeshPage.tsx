@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Activity,
@@ -23,6 +23,7 @@ import { api } from '../api'
 import {
   ACP_CARD_LAYOUT_TOKENS,
   getAcpStatusPresentation,
+  sortAcpAgents,
 } from '../utils/acpPresentation'
 import { getAcpBrandIcon } from '../components/AcpBrandIcons'
 import {
@@ -34,6 +35,8 @@ import {
 export interface ACPAgentMeshPageProps {
   className?: string
   style?: React.CSSProperties
+  activeTab?: number
+  onTabChange?: (tab: number) => void
 }
 
 type EditorState = {
@@ -155,7 +158,19 @@ async function probeAcpAgents(id?: string): Promise<{
  * The registry is user-owned: every endpoint/binary can be edited, auto-detected, or replaced with a custom agent.
  * Adheres strictly to David-Design (4px grid, tokenized borders, single-line action text nowrap, zero decorative emojis).
  */
-export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => {
+export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({
+  style,
+  activeTab: controlledActiveTab,
+  onTabChange,
+}) => {
+  const [internalActiveTab, setInternalActiveTab] = useState<number>(0)
+  const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab
+
+  const handleTabChange = (idx: number) => {
+    setInternalActiveTab(idx)
+    onTabChange?.(idx)
+  }
+
   const [isPingingAll, setIsPingingAll] = useState(false)
   const [agentInstances, setAgentInstances] = useState<AcpAgentInstance[]>([])
   const [handshakeLogs, setHandshakeLogs] = useState<AcpHandshakeLog[]>([])
@@ -173,7 +188,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
   const [promptInput, setPromptInput] = useState('')
   const [isPrompting, setIsPrompting] = useState(false)
   const [isSyncingRegistry, setIsSyncingRegistry] = useState(false)
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+  const [tabPortalTarget, setTabPortalTarget] = useState<HTMLElement | null>(null)
 
   const applyMesh = (res: AcpMeshResponse | null) => {
     if (res && res.agents) {
@@ -198,7 +213,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
   }, [])
 
   useEffect(() => {
-    setPortalTarget(document.getElementById('acp-mesh-top-bar-portal'))
+    setTabPortalTarget(document.getElementById('acp-adapter-top-bar-portal'))
   }, [])
 
   const handlePingAllAcp = async () => {
@@ -288,7 +303,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
     const isAntigravity = agent.id === 'agent-antigravity-acp' || agent.id === 'agent-antigravity'
     const agentToEdit =
       isAntigravity && agent.name === 'Google Antigravity (ACP)'
-        ? { ...agent, name: 'Antigravity ACP Adapter' }
+        ? { ...agent, name: 'Antigravity ACP Host Adapter' }
         : agent
     setEditor({ open: true, mode: 'edit', agent: agentToEdit })
   }
@@ -370,107 +385,95 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
     )
   }
 
-  const topActions = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <button
-        id="btnAcpSyncRegistry"
-        type="button"
-        className="btn-pill-tonal"
-        onClick={handleSyncRegistry}
-        disabled={isSyncingRegistry}
-        style={{
-          padding: '6px 14px',
-          fontSize: '12px',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          whiteSpace: 'nowrap',
-          backgroundColor: 'var(--tonal)',
-          border: '1px solid var(--border)',
-          borderRadius: '20px',
-          color: 'var(--text)',
-          cursor: isSyncingRegistry ? 'not-allowed' : 'pointer',
-          opacity: isSyncingRegistry ? 0.7 : 1,
-        }}
-      >
-        <RefreshCw size={13} className={isSyncingRegistry ? 'animate-spin' : ''} />
-        <span>Sync Registry</span>
-      </button>
-      <button
-        id="btnAcpAddAgent"
-        type="button"
-        className="btn-pill-primary"
-        onClick={openCreateEditor}
-        style={{ padding: '6px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
-      >
-        <Plus size={13} />
-        <span>Add Agent</span>
-      </button>
+  const tabSwitcher = (
+    <div
+      style={{
+        display: 'flex',
+        backgroundColor: 'var(--tonal)',
+        borderRadius: '8px',
+        padding: '3px',
+        gap: '2px',
+      }}
+    >
+      {['Agents', 'Logs'].map((tab, idx) => {
+        const isActive = activeTab === idx
+        return (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => handleTabChange(idx)}
+            style={{
+              borderRadius: '6px',
+              padding: '6px 16px',
+              fontSize: '12px',
+              fontWeight: isActive ? 600 : 500,
+              color: isActive ? 'var(--primary)' : 'var(--text-muted)',
+              backgroundColor: isActive ? 'var(--surface)' : 'transparent',
+              boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              border: 'none',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {tab}
+          </button>
+        )
+      })}
     </div>
   )
 
   const antigravityAgent = agentInstances.find(
     (a) => a.id === 'agent-antigravity-acp' || a.id === 'agent-antigravity'
   )
-  const otherAgents = agentInstances.filter(
-    (a) => a.id !== 'agent-antigravity-acp' && a.id !== 'agent-antigravity'
-  )
+  const otherAgents = useMemo(() => {
+    const raw = agentInstances.filter(
+      (a) => a.id !== 'agent-antigravity-acp' && a.id !== 'agent-antigravity'
+    )
+    return sortAcpAgents(raw)
+  }, [agentInstances])
 
   const isAntigravityOnline = acpAgentIsOnline(antigravityAgent)
+  const commonSubStatus = isAntigravityOnline
+    ? 'ACTIVE'
+    : antigravityAgent?.status === 'installed_idle'
+      ? 'READY'
+      : 'STANDBY'
+  const commonSubStatusBg = isAntigravityOnline
+    ? '#e6f4ea'
+    : antigravityAgent?.status === 'installed_idle'
+      ? '#fef7e0'
+      : '#f1f3f4'
+  const commonSubStatusColor = isAntigravityOnline
+    ? '#137333'
+    : antigravityAgent?.status === 'installed_idle'
+      ? '#b06000'
+      : '#5f6368'
+
   const adapterSubSections = antigravityAgent
     ? [
         {
           id: 'sub-antigravity-core',
           name: 'Antigravity 2.0',
-          status: isAntigravityOnline ? 'ACTIVE' : null,
-          statusBg: isAntigravityOnline ? '#e6f4ea' : undefined,
-          statusColor: isAntigravityOnline ? '#137333' : undefined,
-          socket: isAntigravityOnline ? 'Pipe connected' : 'stdio (process pipe)',
-          integration: isAntigravityOnline ? 'Host Core Active' : 'Native Runtime Host',
+          status: commonSubStatus,
+          statusBg: commonSubStatusBg,
+          statusColor: commonSubStatusColor,
           handshake: antigravityAgent.last_handshake || (isAntigravityOnline ? 'Synchronized' : 'Offline'),
         },
         {
           id: 'sub-antigravity-cli',
           name: 'Antigravity CLI',
-          status: isAntigravityOnline
-            ? 'LINKED'
-            : antigravityAgent.status === 'installed_idle'
-              ? 'READY'
-              : 'STANDBY',
-          statusBg: isAntigravityOnline
-            ? '#e8f0fe'
-            : antigravityAgent.status === 'installed_idle'
-              ? '#fef7e0'
-              : '#f1f3f4',
-          statusColor: isAntigravityOnline
-            ? '#1a73e8'
-            : antigravityAgent.status === 'installed_idle'
-              ? '#b06000'
-              : '#5f6368',
-          socket: 'Subprocess stdio',
-          integration: 'CLI protocol bridge',
+          status: commonSubStatus,
+          statusBg: commonSubStatusBg,
+          statusColor: commonSubStatusColor,
           handshake: isAntigravityOnline ? 'Ready' : 'Offline',
         },
         {
           id: 'sub-antigravity-vscode',
           name: 'Antigravity IDE Extension',
-          status: isAntigravityOnline
-            ? 'REGISTERED'
-            : antigravityAgent.status === 'installed_idle'
-              ? 'READY'
-              : 'STANDBY',
-          statusBg: isAntigravityOnline
-            ? '#e8f0fe'
-            : antigravityAgent.status === 'installed_idle'
-              ? '#fef7e0'
-              : '#f1f3f4',
-          statusColor: isAntigravityOnline
-            ? '#1a73e8'
-            : antigravityAgent.status === 'installed_idle'
-              ? '#b06000'
-              : '#5f6368',
-          socket: 'Extension IPC pipe',
-          integration: 'Sidecar bridge',
+          status: commonSubStatus,
+          statusBg: commonSubStatusBg,
+          statusColor: commonSubStatusColor,
           handshake: isAntigravityOnline ? 'Protocol v1.2' : 'Offline',
         },
       ]
@@ -478,36 +481,20 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', ...style }}>
-      {portalTarget && createPortal(topActions, portalTarget)}
-      {/* Section 1: Antigravity ACP Host Adapter */}
-      {antigravityAgent && (
-        <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div
-              style={{
-                fontSize: '11px',
-                fontWeight: 700,
-                color: 'var(--text-muted)',
-                letterSpacing: '0.8px',
-                textTransform: 'uppercase',
-              }}
-            >
-              Antigravity ACP Host Adapter
-            </div>
-          </div>
+      {tabPortalTarget ? createPortal(tabSwitcher, tabPortalTarget) : tabSwitcher}
 
-          {(() => {
+      {/* Tab 0: Agents */}
+      {activeTab === 0 && (
+        <>
+          {/* Section 1: Antigravity ACP Host Adapter */}
+          {antigravityAgent && (() => {
             const statusPres = getAcpStatusPresentation(antigravityAgent.status)
             return (
               <div
                 key={antigravityAgent.id}
                 data-acp-agent-id={antigravityAgent.id}
+                className="google-card"
                 style={{
-                  backgroundColor: '#ffffff',
-                  border: `${ACP_CARD_LAYOUT_TOKENS.cardBorderWidth} solid var(--border)`,
-                  borderRadius: ACP_CARD_LAYOUT_TOKENS.cardBorderRadius,
-                  padding: ACP_CARD_LAYOUT_TOKENS.cardPadding,
-                  boxShadow: ACP_CARD_LAYOUT_TOKENS.cardShadow,
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '12px',
@@ -535,7 +522,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                             whiteSpace: ACP_CARD_LAYOUT_TOKENS.whiteSpace,
                           }}
                         >
-                          Antigravity ACP Adapter
+                          Antigravity ACP Host Adapter
                         </h4>
                         {antigravityAgent.custom && (
                           <span
@@ -599,13 +586,13 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                         >
                           {antigravityAgent.port_socket || (antigravityAgent.transport === 'stdio' ? 'stdio (process pipe)' : 'stdio (process pipe)')}
                         </span>
-                        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                          {antigravityAgent.custom
-                            ? 'Custom agent'
-                            : antigravityAgent.os_default
-                              ? 'OS default'
+                        {!antigravityAgent.os_default && (
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                            {antigravityAgent.custom
+                              ? 'Custom agent'
                               : 'Custom endpoint'}
-                        </span>
+                          </span>
+                        )}
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -708,6 +695,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                     {adapterSubSections.map((sub) => (
                       <div
                         key={sub.id}
+                        data-sub-agent-id={sub.id}
                         style={{
                           backgroundColor: 'var(--canvas, #f8f9fa)',
                           border: '1px solid var(--border)',
@@ -760,18 +748,6 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px' }}>
-                            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Socket / Pipe:</span>
-                            <span style={{ fontFamily: 'monospace', color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                              {sub.socket}
-                            </span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px' }}>
-                            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Integration:</span>
-                            <span style={{ color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                              {sub.integration}
-                            </span>
-                          </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px' }}>
                             <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Handshake:</span>
                             <span style={{ color: 'var(--text)', whiteSpace: 'nowrap' }}>
@@ -845,34 +821,71 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
               </div>
             )
           })()}
-        </div>
-      )}
 
-      {/* Section 2: Connected Agent Nodes */}
-      <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-          <div
-            style={{
-              fontSize: '11px',
-              fontWeight: 700,
-              color: 'var(--text-muted)',
-              letterSpacing: '0.8px',
-              textTransform: 'uppercase',
-            }}
-          >
-            Connected Agent Nodes
-          </div>
-          {!portalTarget && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              {topActions}
+          {/* Section 2: Other Agents */}
+          <div className="google-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+              <div
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: 'var(--text-muted)',
+                  letterSpacing: '0.8px',
+                  textTransform: 'uppercase',
+                }}
+              >
+                OTHER AGENTS
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  id="btnAcpSyncRegistry"
+                  type="button"
+                  className="btn-pill-tonal"
+                  onClick={handleSyncRegistry}
+                  disabled={isSyncingRegistry}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                    backgroundColor: 'var(--tonal)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '20px',
+                    color: 'var(--text)',
+                    cursor: isSyncingRegistry ? 'not-allowed' : 'pointer',
+                    opacity: isSyncingRegistry ? 0.7 : 1,
+                  }}
+                  title="Sync official agent presets from GitHub registry"
+                >
+                  <RefreshCw size={13} className={isSyncingRegistry ? 'animate-spin' : ''} />
+                  <span>Sync Registry</span>
+                </button>
+                <button
+                  id="btnAcpAddAgent"
+                  type="button"
+                  className="btn-pill-primary"
+                  onClick={openCreateEditor}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Plus size={13} />
+                  <span>Add Agent</span>
+                </button>
+              </div>
             </div>
-          )}
-        </div>
 
         {isLoadingMesh ? (
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface)',
               border: '1px solid var(--border)',
               borderRadius: '8px',
               padding: '32px',
@@ -891,7 +904,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
         ) : otherAgents.length === 0 ? (
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--surface)',
               border: '1px solid var(--border)',
               borderRadius: '8px',
               padding: '32px',
@@ -902,7 +915,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
           >
             {!antigravityAgent && otherAgents.length === 0
               ? 'No active agent daemons or ACP nodes discovered on this system.'
-              : 'No connected agent nodes discovered on this system.'}
+              : 'No other agents discovered on this system.'}
           </div>
         ) : (
           <div
@@ -919,7 +932,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                     key={agent.id}
                     data-acp-agent-id={agent.id}
                     style={{
-                      backgroundColor: '#ffffff',
+                      backgroundColor: 'var(--surface)',
                       border: `${ACP_CARD_LAYOUT_TOKENS.cardBorderWidth} solid var(--border)`,
                       borderRadius: ACP_CARD_LAYOUT_TOKENS.cardBorderRadius,
                       padding: ACP_CARD_LAYOUT_TOKENS.cardPadding,
@@ -1014,13 +1027,13 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
                             >
                               {agent.port_socket || (agent.transport === 'stdio' ? 'stdio (process pipe)' : 'stdio')}
                             </span>
-                            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                              {agent.custom
-                                ? 'Custom agent'
-                                : agent.os_default
-                                  ? 'OS default'
+                            {!agent.os_default && (
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                                {agent.custom
+                                  ? 'Custom agent'
                                   : 'Custom endpoint'}
-                            </span>
+                              </span>
+                            )}
                           </span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1175,17 +1188,20 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
               })}
             </div>
           )}
-      </div>
+          </div>
+        </>
+      )}
 
-      {/* Live Handshake Logs */}
-      <div
-        style={{
-          backgroundColor: 'var(--surface, #ffffff)',
-          border: '1px solid var(--border)',
-          borderRadius: '8px',
-          padding: '20px',
-        }}
-      >
+      {/* Tab 1: Logs */}
+      {activeTab === 1 && (
+        <div
+          className="google-card"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+          }}
+        >
         <div
           style={{
             display: 'flex',
@@ -1239,8 +1255,8 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
             {agentInstances.map((a) => {
               const isAntigravity = a.id === 'agent-antigravity-acp' || a.id === 'agent-antigravity'
               const displayName =
-                isAntigravity && (a.name === 'Google Antigravity (ACP)' || a.name === 'Google Antigravity 2.0')
-                  ? 'Antigravity ACP Adapter'
+                isAntigravity && (a.name === 'Google Antigravity (ACP)' || a.name === 'Google Antigravity 2.0' || a.name === 'Antigravity ACP Adapter')
+                  ? 'Antigravity ACP Host Adapter'
                   : a.name
               return (
                 <option key={a.id} value={a.id}>
@@ -1332,6 +1348,7 @@ export const ACPAgentMeshPage: React.FC<ACPAgentMeshPageProps> = ({ style }) => 
           )}
         </div>
       </div>
+      )}
 
       <AcpAgentEditorModal
         key={editor.open ? `${editor.mode}:${editor.agent?.id || 'new'}` : 'closed'}

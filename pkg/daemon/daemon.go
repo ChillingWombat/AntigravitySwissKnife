@@ -15,6 +15,7 @@ import (
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/boardpanel"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/cache"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/fingerprint"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/gui"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/ipc"
@@ -108,6 +109,7 @@ func NewDaemon(cfg *core.Config, socketPath string) (*Daemon, error) {
 	}
 
 	_ = core.EnsureVSCodeWindowCloseGuard()
+	custommodels.AutoEnsureCLIGatewayIntegration(custommodels.GetGlobalStore())
 
 	if socketPath == "" {
 		socketPath = core.GetSocketPath()
@@ -1607,6 +1609,12 @@ func (d *Daemon) Start() error {
 // Stop gracefully shuts down all services.
 func (d *Daemon) Stop() error {
 	d.cancel()
+	cmStore := custommodels.GetGlobalStore()
+	if cmStore != nil && cmStore.IsProxyModeActive() {
+		custommodels.CleanShellRCHooks()
+		_ = quota.SetLanguageServerCloudCodeURL("")
+		_ = process.RestartAntigravityAppsToNative(d.Shield)
+	}
 	if d.GUIStore != nil {
 		d.mu.RLock()
 		keepVisual := d.Config.PersistentVisualEffects

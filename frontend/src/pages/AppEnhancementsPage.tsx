@@ -872,7 +872,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
                 <div
                   style={{
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--surface)',
                     borderRadius: '8px',
                     border: '1px solid var(--border)',
                     padding: '20px',
@@ -2169,7 +2169,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderRadius: '4px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface)',
                   border: '1px solid var(--border)',
                   color: 'var(--text)',
                 }}
@@ -2185,7 +2185,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderRadius: '4px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface)',
                   border: '1px solid var(--border)',
                   color: 'var(--text)',
                 }}
@@ -2201,7 +2201,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderRadius: '4px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface)',
                   border: '1px solid var(--border)',
                   color: 'var(--text)',
                 }}
@@ -2262,7 +2262,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   alignItems: 'center',
                   gap: '5px',
                   borderRadius: '4px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface)',
                   border: '1px solid var(--border)',
                   color: 'var(--text)',
                   fontSize: '11px',
@@ -2280,7 +2280,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   alignItems: 'center',
                   gap: '5px',
                   borderRadius: '4px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface)',
                   border: '1px solid var(--border)',
                   color: 'var(--text)',
                   fontSize: '11px',
@@ -2298,7 +2298,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   alignItems: 'center',
                   gap: '5px',
                   borderRadius: '4px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--surface)',
                   border: '1px solid var(--border)',
                   color: 'var(--text)',
                   fontSize: '11px',

@@ -99,6 +99,7 @@ func NewServer(addr string, socketPath string) *Server {
 	guiStore, _ := gui.NewStore("")
 	cmStore, _ := custommodels.NewStore("")
 	cmTester := custommodels.NewTester()
+	custommodels.AutoEnsureCLIGatewayIntegration(cmStore)
 	sysDetector := system.NewDetector()
 	appRelMgr := system.NewAppReleaseManager()
 	enhStore, _ := enhancements.NewStore("")
@@ -487,6 +488,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	// ServeMux patterns cannot express "/v1internal:fetchAvailableModels".
 	mux.HandleFunc("/api/custom_models/active", s.handleCustomModelActive)
 	mux.HandleFunc("/api/custom_models/app_proxy", s.handleCustomModelAppProxy)
+	mux.HandleFunc("/api/custom_models/restore_native", s.handleCustomModelRestoreNative)
 	mux.HandleFunc("/api/custom_models/integration", s.handleCustomModelIntegration)
 	mux.HandleFunc("/api/custom_models/launch", s.handleCustomModelLaunch)
 	mux.HandleFunc("/api/custom_models/presets", s.handleCustomModelPresets)
@@ -496,6 +498,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/custom_models/fetch_quota", s.handleCustomModelFetchQuota)
 	mux.HandleFunc("/api/custom_models/refresh_quotas", s.handleCustomModelRefreshQuotas)
 	mux.HandleFunc("/api/custom_models/key", s.handleCustomModelKey)
+	mux.HandleFunc("/api/custom_models/cli_status", s.handleCustomModelCLIStatus)
+	mux.HandleFunc("/api/custom_models/cli_setup", s.handleCustomModelCLISetup)
 	mux.HandleFunc("/api/custom_models/security-audit", s.handleCustomModelSecurityAudit)
 	mux.HandleFunc("/api/custom-models/security-audit", s.handleCustomModelSecurityAudit)
 
@@ -552,10 +556,17 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/bridge/mcp", s.handleBridgeMCP)
 	mux.HandleFunc("/mcp", s.handleBridgeMCP)
 	// A2A (Agent-to-Agent Protocol) Discovery & High-Level Task Delegation
+	mux.HandleFunc("/.well-known/agent-card.json", s.handleA2AAgentCardSpec)
 	mux.HandleFunc("/.well-known/agent.json", s.handleA2AAgentCard)
 	mux.HandleFunc("/agent.json", s.handleA2AAgentCard)
 	mux.HandleFunc("/a2a/agent.json", s.handleA2AAgentCard)
 	mux.HandleFunc("/api/bridge/a2a/agent.json", s.handleA2AAgentCard)
+	// A2A JSON-RPC 2.0 transport (message/send, message/stream, tasks/get,
+	// tasks/cancel, tasks/resubscribe).
+	mux.HandleFunc("/a2a", s.handleA2AJSONRPC)
+	mux.HandleFunc("/a2a/", s.handleA2AJSONRPC)
+	mux.HandleFunc("/api/bridge/a2a", s.handleA2AJSONRPC)
+	mux.HandleFunc("/api/bridge/a2a/rpc", s.handleA2AJSONRPC)
 	mux.HandleFunc("/a2a/tasks", s.handleA2ATasks)
 	mux.HandleFunc("/a2a/tasks/", s.handleA2ATasks)
 	mux.HandleFunc("/api/bridge/a2a/tasks", s.handleA2ATasks)
@@ -701,6 +712,15 @@ func (s *Server) Stop() error {
 			}
 		}
 	}
+	if s.syncLSURLStop != nil {
+		close(s.syncLSURLStop)
+		s.syncLSURLStop = nil
+	}
+	if s.isProxyModeActive() {
+		custommodels.CleanShellRCHooks()
+		_ = languageServerURLSyncer("")
+		_ = process.RestartAntigravityAppsToNative(process.NewShield(0))
+	}
 	if s.bridgeService != nil {
 		s.bridgeService.Stop()
 	}
@@ -718,6 +738,16 @@ func (s *Server) syncLanguageServerCloudCodeURL() {
 	}
 	endpoint := "http://" + loopbackAddr(s.addr)
 	_ = languageServerURLSyncer(endpoint)
+}
+
+func (s *Server) isProxyModeActive() bool {
+	if s.customModelsStore != nil && s.customModelsStore.IsProxyModeActive() {
+		return true
+	}
+	if s.syncLSURLStop != nil {
+		return true
+	}
+	return false
 }
 
 func (s *Server) startLanguageServerURLSync() {
@@ -807,6 +837,12 @@ func isExternalOriginAllowedPath(p string) bool {
 		return true
 	}
 	if clean == "/agent.json" || clean == "/a2a/agent.json" || clean == "/api/bridge/a2a/agent.json" {
+		return true
+	}
+	if clean == "/a2a" || strings.HasPrefix(clean, "/a2a/") {
+		return true
+	}
+	if clean == "/api/bridge/a2a" || clean == "/api/bridge/a2a/rpc" || strings.HasPrefix(clean, "/api/bridge/a2a/tasks") {
 		return true
 	}
 	if clean == "/a2a/tasks" || strings.HasPrefix(clean, "/a2a/tasks/") || clean == "/api/bridge/a2a/tasks" || strings.HasPrefix(clean, "/api/bridge/a2a/tasks/") {
@@ -3533,6 +3569,22 @@ func (s *Server) handleCustomModelAppProxy(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// handleCustomModelRestoreNative terminates proxy usage and restarts running
+// Antigravity instances so they connect directly to native Google Cloud Code.
+func (s *Server) handleCustomModelRestoreNative(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	custommodels.CleanShellRCHooks()
+	_ = languageServerURLSyncer("")
+	_ = process.RestartAntigravityAppsToNative(process.NewShield(0))
+	writeJSON(w, map[string]interface{}{
+		"success":         true,
+		"restored_native": true,
+	})
+}
+
 // handleCustomModelActive records which custom model the app should use. Empty
 // model_id hands the session back to the native model.
 func (s *Server) handleCustomModelActive(w http.ResponseWriter, r *http.Request) {
@@ -3625,6 +3677,32 @@ func (s *Server) handleCustomModelKey(w http.ResponseWriter, r *http.Request) {
 		"gcp_service_account_key": model.GCPServiceAccountKey,
 		"api_key":                 model.APIKey,
 	})
+}
+
+// handleCustomModelCLIStatus returns the installation and gateway status of agy CLI.
+func (s *Server) handleCustomModelCLIStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	store := s.getCustomModelsStore()
+	status := custommodels.CheckCLIGatewayStatus(store)
+	writeJSON(w, map[string]interface{}{"success": true, "status": status})
+}
+
+// handleCustomModelCLISetup installs or repairs the CLI gateway integration.
+func (s *Server) handleCustomModelCLISetup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	store := s.getCustomModelsStore()
+	if err := custommodels.SetupCLIGatewayIntegration(store); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	status := custommodels.CheckCLIGatewayStatus(store)
+	writeJSON(w, map[string]interface{}{"success": true, "status": status})
 }
 
 func (s *Server) handleCustomModelFetchQuota(w http.ResponseWriter, r *http.Request) {

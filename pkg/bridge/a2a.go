@@ -350,6 +350,33 @@ func (m *A2ATaskManager) executeTask(ctx context.Context, task *A2ATask) {
 	m.completeTask(task.ID, result)
 }
 
+// TaskForContext resolves a task by protocol task ID or context ID (the
+// Antigravity conversation ID). The most recent match wins, so a client that
+// echoes back a contextId continues the same task. Returns nil when unknown.
+func (m *A2ATaskManager) TaskForContext(taskID, contextID string) *A2ATask {
+	taskID = strings.TrimSpace(taskID)
+	contextID = strings.TrimSpace(contextID)
+	if taskID == "" && contextID == "" {
+		return nil
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, id := range m.order {
+		task := m.tasks[id]
+		if task == nil {
+			continue
+		}
+		if taskID != "" && task.ID == taskID {
+			return m.cloneTask(task)
+		}
+		if contextID != "" && (task.ConversationID == contextID || task.ID == contextID) {
+			return m.cloneTask(task)
+		}
+	}
+	return nil
+}
+
 // GetTask returns a copy of the task by ID.
 func (m *A2ATaskManager) GetTask(taskID string) (*A2ATask, error) {
 	m.mu.RLock()

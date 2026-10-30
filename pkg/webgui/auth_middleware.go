@@ -208,6 +208,13 @@ func isPublicPath(p string) bool {
 	if clean == "/agent.json" || clean == "/a2a/agent.json" || clean == "/api/bridge/a2a/agent.json" {
 		return true
 	}
+	// A2A JSON-RPC transport enforces bridge bearer/PIN auth in its handler.
+	if clean == "/a2a" || strings.HasPrefix(clean, "/a2a/") {
+		return true
+	}
+	if clean == "/api/bridge/a2a" || clean == "/api/bridge/a2a/rpc" || strings.HasPrefix(clean, "/api/bridge/a2a/tasks") {
+		return true
+	}
 	if clean == "/a2a/tasks" || strings.HasPrefix(clean, "/a2a/tasks/") || clean == "/api/bridge/a2a/tasks" || strings.HasPrefix(clean, "/api/bridge/a2a/tasks/") {
 		return true
 	}

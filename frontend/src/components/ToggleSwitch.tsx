@@ -88,7 +88,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
             width: `${knobSize}px`,
             height: `${knobSize}px`,
             borderRadius: '50%',
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--surface-elevated, #ffffff)',
             boxShadow: '0 1px 3px rgba(0, 0, 0, 0.25)',
             transform: `translateX(${checked ? translate : 0}px)`,
             transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',

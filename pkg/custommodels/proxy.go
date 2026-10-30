@@ -7,8 +7,123 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
+
+var (
+	uuidRegex                 = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	userSettingsSentenceRegex = regexp.MustCompile(`(?i)(The user changed setting\s+[` + "`" + `']Model Selection[` + "`" + `'].*?to\s+)(.+?)(\.(?:\s+No need to comment|\s*$|\s*[\r\n]|</USER_SETTINGS_CHANGE>))`)
+)
+
+func formatEffortLabel(lvl string) string {
+	switch strings.ToLower(strings.TrimSpace(lvl)) {
+	case "low":
+		return "Low"
+	case "medium":
+		return "Medium"
+	case "high":
+		return "High"
+	case "extra", "xhigh":
+		return "Extra"
+	case "max":
+		return "Max"
+	case "", "off":
+		return ""
+	default:
+		s := strings.TrimSpace(lvl)
+		if len(s) > 0 {
+			return strings.ToUpper(s[:1]) + strings.ToLower(s[1:])
+		}
+		return s
+	}
+}
+
+func extractConversationID(requestID string, requestRaw json.RawMessage) string {
+	if m := uuidRegex.FindString(requestID); m != "" {
+		return m
+	}
+	if len(requestRaw) > 0 {
+		var req struct {
+			CascadeID     string `json:"cascade_id"`
+			RootCascadeID string `json:"root_cascade_id"`
+		}
+		if err := json.Unmarshal(requestRaw, &req); err == nil {
+			if m := uuidRegex.FindString(req.CascadeID); m != "" {
+				return m
+			}
+			if m := uuidRegex.FindString(req.RootCascadeID); m != "" {
+				return m
+			}
+		}
+	}
+	return ""
+}
+
+func syncModelIdentityInRequest(req *geminiRequest, model *CustomModel) {
+	if req == nil || model == nil {
+		return
+	}
+	targetModelText := model.DisplayName
+	if targetModelText == "" {
+		targetModelText = model.Name
+	}
+	if model.ThinkingLevel != "" && strings.ToLower(model.ThinkingLevel) != "off" {
+		targetModelText += fmt.Sprintf(" (%s)", formatEffortLabel(model.ThinkingLevel))
+	}
+
+	for i := range req.Contents {
+		for j := range req.Contents[i].Parts {
+			text := req.Contents[i].Parts[j].Text
+			if strings.Contains(text, "<USER_SETTINGS_CHANGE>") {
+				req.Contents[i].Parts[j].Text = userSettingsSentenceRegex.ReplaceAllString(text, "${1}"+targetModelText+"${3}")
+			}
+		}
+	}
+
+	instruction := fmt.Sprintf("\n[Active Model Environment]: Underlying model is configured as %s (%s). If the user asks what model you are, truthfully identify yourself as %s.",
+		model.DisplayName, model.Name, targetModelText)
+	if req.SystemInstruction == nil {
+		req.SystemInstruction = &geminiContent{
+			Role:  "system",
+			Parts: []geminiPart{{Text: instruction}},
+		}
+	} else {
+		req.SystemInstruction.Parts = append(req.SystemInstruction.Parts, geminiPart{Text: instruction})
+	}
+}
+
+func syncTranscriptModelOnDisk(convID string, targetModelText string) {
+	if convID == "" || targetModelText == "" {
+		return
+	}
+	brainDir := filepath.Join(core.GetAntigravityDir(), "brain")
+	tPath := filepath.Join(brainDir, convID, ".system_generated", "logs", "transcript.jsonl")
+	data, err := os.ReadFile(tPath)
+	if err != nil || len(data) == 0 {
+		return
+	}
+
+	lines := bytes.Split(data, []byte("\n"))
+	changed := false
+	for i, line := range lines {
+		if bytes.Contains(line, []byte("<USER_SETTINGS_CHANGE>")) {
+			newLine := userSettingsSentenceRegex.ReplaceAll(line, []byte("${1}"+targetModelText+"${3}"))
+			if !bytes.Equal(newLine, line) {
+				lines[i] = newLine
+				changed = true
+			}
+			break
+		}
+	}
+	if changed {
+		_ = os.WriteFile(tPath, bytes.Join(lines, []byte("\n")), 0644)
+	}
+}
 
 // The Antigravity language server talks to Google's Cloud Code backend, and that
 // endpoint can be redirected with CLOUD_CODE_URL. This proxy sits there:
@@ -107,13 +222,16 @@ func (p *Proxy) tryCustomModel(w http.ResponseWriter, r *http.Request, body []by
 	}
 	model := p.findCustomModel(envelope.Model)
 	if model == nil {
-		model = p.activeCustomModel()
-		if model != nil && model.ThinkingLevel == "" && model.SupportsThinking {
-			lowerModel := strings.ToLower(envelope.Model)
-			for _, lvl := range []string{"high", "medium", "low", "xhigh", "max"} {
-				if strings.HasSuffix(lowerModel, "-"+lvl) {
-					model.ThinkingLevel = lvl
-					break
+		isCLI := strings.Contains(r.Header.Get("User-Agent"), "antigravity/cli")
+		if !isCLI || strings.TrimSpace(envelope.Model) == "" {
+			model = p.activeCustomModel()
+			if model != nil && model.ThinkingLevel == "" && model.SupportsThinking {
+				lowerModel := strings.ToLower(envelope.Model)
+				for _, lvl := range []string{"high", "medium", "low", "xhigh", "max"} {
+					if strings.HasSuffix(lowerModel, "-"+lvl) {
+						model.ThinkingLevel = lvl
+						break
+					}
 				}
 			}
 		}
@@ -130,6 +248,22 @@ func (p *Proxy) tryCustomModel(w http.ResponseWriter, r *http.Request, body []by
 		}
 	}
 	log.Printf("[cloudcode-proxy] %s model=%q -> custom %q (%s)", r.URL.Path, envelope.Model, model.ID, model.ProviderType)
+
+		convID := extractConversationID(envelope.RequestID, envelope.Request)
+		if convID != "" && p.store != nil {
+			p.store.RecordConversationModel(convID, model.ID)
+		}
+		syncModelIdentityInRequest(&request, model)
+		if convID != "" {
+			targetModelText := model.DisplayName
+			if targetModelText == "" {
+				targetModelText = model.Name
+			}
+			if model.ThinkingLevel != "" && strings.ToLower(model.ThinkingLevel) != "off" {
+				targetModelText += fmt.Sprintf(" (%s)", formatEffortLabel(model.ThinkingLevel))
+			}
+			go syncTranscriptModelOnDisk(convID, targetModelText)
+		}
 
 	requestID := envelope.RequestID
 	emit := func(frame geminiResponse) error {
@@ -213,6 +347,20 @@ func (p *Proxy) findCustomModel(modelID string) *CustomModel {
 		if m.ID == wanted || m.Name == wanted || strings.EqualFold(m.DisplayName, modelID) {
 			copy := m
 			return &copy
+		}
+	}
+	// Match with thinking effort suffix stripped, e.g. "deepseek-v4.1-flash-high" -> "deepseek-v4.1-flash"
+	lower := strings.ToLower(wanted)
+	for _, lvl := range []string{"high", "medium", "low", "xhigh", "max"} {
+		if strings.HasSuffix(lower, "-"+lvl) {
+			base := wanted[:len(wanted)-len(lvl)-1]
+			for _, m := range p.gw.enabledModels() {
+				if m.ID == base || m.Name == base || strings.EqualFold(m.DisplayName, base) {
+					copy := m
+					copy.ThinkingLevel = lvl
+					return &copy
+				}
+			}
 		}
 	}
 	return nil
@@ -331,7 +479,8 @@ func passthrough(w http.ResponseWriter, r *http.Request, body []byte, upstream s
 func isHopByHopHeader(key string) bool {
 	switch http.CanonicalHeaderKey(key) {
 	case "Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization",
-		"Te", "Trailer", "Transfer-Encoding", "Upgrade", "Content-Length":
+		"Te", "Trailer", "Transfer-Encoding", "Upgrade", "Content-Length",
+		"Accept-Encoding", "Content-Encoding":
 		return true
 	}
 	return false

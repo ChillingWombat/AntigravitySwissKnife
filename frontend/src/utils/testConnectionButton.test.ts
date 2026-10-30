@@ -4,6 +4,8 @@ import {
   getTestConnectionButtonPresentation,
   TEST_BUTTON_WIDTH_PX,
   TEST_BUTTON_HEIGHT_PX,
+  formatPing,
+  getErrorCode,
 } from './testConnectionButton.ts'
 import type { TestResult } from '../types.ts'
 
@@ -154,5 +156,36 @@ describe('testConnectionButton utility', () => {
     assert.equal(presNet.label, 'Test Failed')
     assert.equal(presNet.disabled, false)
     assert.ok(presNet.tooltip.includes('Connection refused'))
+  })
+
+  it('formats ping in ms under 1000ms and in seconds with 2 decimal places above 1000ms', () => {
+    assert.equal(formatPing(0), '0ms')
+    assert.equal(formatPing(85), '85ms')
+    assert.equal(formatPing(999), '999ms')
+    assert.equal(formatPing(1000), '1000ms')
+    assert.equal(formatPing(1001), '1.00s')
+    assert.equal(formatPing(2266), '2.27s')
+    assert.equal(formatPing(3500), '3.50s')
+    assert.equal(formatPing(null), '0ms')
+    assert.equal(formatPing(undefined), '0ms')
+  })
+
+  it('extracts error code from status_code or message', () => {
+    assert.equal(
+      getErrorCode({ success: false, status_code: 404, latency_ms: 50, message: 'Not Found', endpoint: '' }),
+      404
+    )
+    assert.equal(
+      getErrorCode({ success: false, status_code: 500, latency_ms: 50, message: 'Internal Server Error', endpoint: '' }),
+      500
+    )
+    assert.equal(
+      getErrorCode({ success: false, status_code: 0, latency_ms: 0, message: 'Request failed with status code 403', endpoint: '' }),
+      403
+    )
+    assert.equal(
+      getErrorCode({ success: false, status_code: 0, latency_ms: 0, message: 'Connection refused', endpoint: '' }),
+      null
+    )
   })
 })

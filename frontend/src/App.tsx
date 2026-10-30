@@ -258,9 +258,10 @@ export const App: React.FC = () => {
                 />
               )}
               {currentTool === 11 && (
-                <span style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                  ACP Adapter
-                </span>
+                <div
+                  id="acp-adapter-top-bar-portal"
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
+                />
               )}
               {currentTool === 4 && (
                 /* UI Enhancement Segmented Tabs */

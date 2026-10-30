@@ -18,6 +18,22 @@ import (
 // variable"). Launching the app ourselves lets us point it at the local proxy so
 // custom models can be served without patching any app file.
 
+// CleanNativeEnvironment filters out CLOUD_CODE_URL and AGY_LLM_GATEWAY_* variables
+// from an environment slice to ensure a clean, native Cloud Code execution path.
+func CleanNativeEnvironment(baseEnv []string) []string {
+	var env []string
+	for _, kv := range baseEnv {
+		if strings.HasPrefix(kv, "CLOUD_CODE_URL=") ||
+			strings.HasPrefix(kv, "AGY_LLM_GATEWAY_URL=") ||
+			strings.HasPrefix(kv, "AGY_LLM_GATEWAY_API_KEY=") ||
+			strings.HasPrefix(kv, "AGY_LLM_GATEWAY_MODELS=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
+}
+
 // antigravityLaunchSpec builds the command for the installed desktop app.
 func antigravityLaunchSpec(endpoint string) (*exec.Cmd, error) {
 	bin := core.GetAntigravityBinaryPath()
@@ -28,7 +44,7 @@ func antigravityLaunchSpec(endpoint string) (*exec.Cmd, error) {
 		return nil, fmt.Errorf("Antigravity desktop app not executable at %s", filepath.Clean(bin))
 	}
 	cmd := exec.Command(bin)
-	env := os.Environ()
+	env := CleanNativeEnvironment(os.Environ())
 	if endpoint != "" {
 		env = append(env, "CLOUD_CODE_URL="+strings.TrimRight(endpoint, "/"))
 	}
@@ -73,4 +89,53 @@ func LaunchAntigravityWithCloudCodeProxy(endpoint string, restart bool, shield *
 		return 0, fmt.Errorf("launch Antigravity: %w", err)
 	}
 	return cmd.Process.Pid, nil
+}
+
+// RestartAntigravityAppsToNative detects any running Antigravity IDE instances
+// and agy language servers, terminates them, and if the desktop app was running,
+// relaunches it cleanly with native Google Cloud Code configuration (no proxy variables).
+func RestartAntigravityAppsToNative(shield *Shield) error {
+	if shield == nil {
+		shield = NewShield(0)
+	}
+
+	// Never restart during tests unless explicitly permitted
+	if (core.IsRunningTests() || os.Getenv("ANTIGRAVITY_TEST_DRY_RUN") == "1") && os.Getenv("ANTIGRAVITY_ALLOW_TEST_RELAUNCH") != "1" {
+		return nil
+	}
+
+	// 1. Check if Antigravity Desktop IDE is currently running
+	procs, err := shield.FindAntigravityProcesses()
+	wasDesktopRunning := (err == nil && len(procs) > 0)
+
+	// 2. If desktop app was running, cleanly restart it with empty endpoint (native Cloud Code)
+	if wasDesktopRunning {
+		_, _ = LaunchAntigravityWithCloudCodeProxy("", true, shield)
+	}
+
+	// 3. Terminate any active agy language servers (e.g. agy --hub spawned by VS Code extension)
+	// so the editor/supervisor respawns them with clean native configuration.
+	terminateAgyLanguageServers(shield)
+
+	return nil
+}
+
+func terminateAgyLanguageServers(shield *Shield) {
+	entries, err := ListProcesses()
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.PID <= 0 || shield.IsProtected(entry.PID) || isZombieProcess(entry.PID) {
+			continue
+		}
+		cmdline := strings.ToLower(entry.Cmdline)
+		comm := strings.ToLower(entry.Comm)
+		// Match agy --hub or language_server instances
+		isAgyHub := (strings.Contains(cmdline, "agy") || strings.Contains(comm, "agy")) && strings.Contains(cmdline, "--hub")
+		isLS := strings.Contains(cmdline, "language_server") && (strings.Contains(cmdline, "antigravity") || strings.Contains(cmdline, "subclient_type hub"))
+		if isAgyHub || isLS {
+			_ = shield.SafeKill(entry.PID, syscall.SIGTERM)
+		}
+	}
 }

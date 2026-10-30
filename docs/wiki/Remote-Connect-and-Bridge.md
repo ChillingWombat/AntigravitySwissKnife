@@ -294,7 +294,48 @@ For clients or extensions requiring manual configuration rather than automatic d
 
 ---
 
-## 6. External Chat Agent Bridges
+## 6. A2A (Agent-to-Agent) Protocol Endpoint
+
+The daemon speaks the A2A protocol directly, so external agent frameworks can discover it and delegate long-running work without custom glue.
+
+| Surface | Path | Purpose |
+| --- | --- | --- |
+| Spec card | `/.well-known/agent-card.json` | A2A 0.3.0 discovery document |
+| Legacy card | `/.well-known/agent.json` | Earlier descriptor retained for existing clients |
+| JSON-RPC transport | `/a2a`, `/api/bridge/a2a/rpc` | A2A JSON-RPC 2.0 methods |
+| REST task surface | `/a2a/tasks` | Pre-existing simple REST wrapper |
+
+**Methods** (`Content-Type: application/json`, JSON-RPC 2.0 envelope):
+
+| Method | Behaviour |
+| --- | --- |
+| `message/send` | Creates a task, or continues one when `message.taskId` / `message.contextId` matches. With `configuration.blocking: true` it waits for a terminal state. |
+| `message/stream` | Same intake, answered as Server-Sent Events of `status-update` and `artifact-update`. |
+| `tasks/get` | Returns the task projection, including history and artifacts. |
+| `tasks/cancel` | Cancels a running task and stops the underlying conversation. |
+| `tasks/resubscribe` | Re-attaches an event stream to an existing task. |
+
+Push-notification methods (`tasks/pushNotificationConfig/*`) return `-32003`; the daemon has no push transport.
+
+**Authentication** is the same bridge credential as MCP: `Authorization: Bearer <daemon token>` or the pairing PIN. Unauthenticated calls get HTTP `401` with a challenge pointing at `/.well-known/agent-card.json`.
+
+```bash
+curl -s http://127.0.0.1:8765/.well-known/agent-card.json | jq .
+
+curl -s -X POST http://127.0.0.1:8765/a2a \
+  -H "Authorization: Bearer $SWISS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{
+        "message":{"kind":"message","messageId":"m1","role":"user",
+                   "parts":[{"kind":"text","text":"Add retry to the quota poller"}]},
+        "configuration":{"blocking":true}}}' | jq .
+```
+
+Skill selection goes through message metadata (`metadata.skillId`): `software_engineering` (default), `code_review`, or `general_automation`. Unknown skills are rejected with `-32602`.
+
+---
+
+## 7. External Chat Agent Bridges
 
 Antigravity Swiss Knife includes three chat channel bridges for communicating with Antigravity from messaging apps:
 

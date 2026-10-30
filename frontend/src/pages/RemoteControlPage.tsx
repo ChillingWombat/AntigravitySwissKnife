@@ -371,21 +371,42 @@ export const RemoteControlPage: React.FC = () => {
               >
                 {useAppPassword ? 'App Password' : (config.security_pin || '--------')}
               </span>
-              <button
-                onClick={handleRotatePIN}
-                disabled={loading || useAppPassword}
-                className="btn-pill-tonal"
-                style={{
-                  marginLeft: 'auto',
-                  padding: '4px 10px',
-                  fontSize: '11px',
-                  opacity: useAppPassword ? 0.5 : 1,
-                  cursor: loading || useAppPassword ? 'not-allowed' : 'pointer',
-                }}
-              >
-                <RotateCw size={12} className={loading ? 'animate-spin' : ''} />
-                <span>Rotate PIN</span>
-              </button>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(config.security_pin || '', 'pin')}
+                  disabled={useAppPassword || !config.security_pin}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    padding: '2px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: useAppPassword || !config.security_pin ? 0.4 : 1,
+                    cursor: useAppPassword || !config.security_pin ? 'not-allowed' : 'pointer',
+                    color: 'var(--text-muted)',
+                  }}
+                  title={copied === 'pin' ? 'Copied' : 'Copy'}
+                  aria-label={copied === 'pin' ? 'Copied' : 'Copy'}
+                >
+                  {copied === 'pin' ? <Check size={14} color="var(--green)" /> : <Copy size={14} />}
+                </button>
+                <button
+                  onClick={handleRotatePIN}
+                  disabled={loading || useAppPassword}
+                  className="btn-pill-tonal"
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '11px',
+                    opacity: useAppPassword ? 0.5 : 1,
+                    cursor: loading || useAppPassword ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <RotateCw size={12} className={loading ? 'animate-spin' : ''} />
+                  <span>Rotate PIN</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -493,7 +514,8 @@ export const RemoteControlPage: React.FC = () => {
                 fontSize: '12px',
                 borderRadius: '6px',
                 border: '1px solid var(--border)',
-                backgroundColor: '#ffffff',
+                backgroundColor: 'var(--surface)',
+                color: 'var(--text)',
               }}
             />
           </div>
