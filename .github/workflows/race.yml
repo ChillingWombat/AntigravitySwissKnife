@@ -143,6 +143,18 @@ jobs:
       - name: Run frontend tests
         run: npm test --prefix frontend
 
+      - name: Build canonical web GUI
+        run: npm run build:frontend
+
+      - name: Test web GUI dist checks
+        run: node --test scripts/check-webgui-dist.test.js
+
+      - name: Check web GUI dist assets
+        run: node scripts/check-webgui-dist.js
+
+      - name: Check web GUI dist drift
+        run: git diff --exit-code -- pkg/webgui/dist
+
   injected-runtime:
     name: Injected Runtime Build & Tests
     runs-on: ubuntu-latest
