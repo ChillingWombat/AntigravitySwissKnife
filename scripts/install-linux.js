@@ -26,6 +26,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 
 const rootDir = path.resolve(__dirname, '..');
 const releaseLinuxDir = path.join(rootDir, 'release', 'linux');
@@ -592,11 +593,10 @@ function cleanShellRCHooks(homeDir = os.homedir(), options = {}) {
   const lineText = (line) => line.replace(/\r?\n$/, '').trim();
 
   const failures = [];
+  const entries = [];
+  const seenTargets = new Set();
   for (const rc of ['.zshrc', '.bashrc']) {
     const rcPath = path.join(homeDir, rc);
-    let lockPath;
-    let lockFd;
-    let operationError;
     try {
       let target;
       try {
@@ -605,10 +605,12 @@ function cleanShellRCHooks(homeDir = os.homedir(), options = {}) {
         if (err.code === 'ENOENT') continue;
         throw err;
       }
+      if (seenTargets.has(target)) continue;
+      seenTargets.add(target);
 
-      // The Go cleanup keeps its advisory .swiss.lock inode; O_EXCL needs its own path.
-      lockPath = `${target}.swiss-install.lock`;
-      lockFd = acquireShellRCLock(lockPath, options);
+      const lock = acquireShellRCLock(`${target}.swiss-install.lock`, options);
+      const entry = { rc, rcPath, target, lock, plan: null };
+      entries.push(entry);
       const data = fs.readFileSync(target, 'utf8');
       const lines = data.match(/[^\n]*\n|[^\n]+$/g) || [];
       const kept = [];
@@ -663,30 +665,36 @@ function cleanShellRCHooks(homeDir = os.homedir(), options = {}) {
 
       if (owned && changed) {
         const stat = fs.statSync(target);
-        if (legacy) {
-          const stamp = new Date().toISOString().replace(/[-:.]/g, '');
-          const backupPath = `${target}.swiss-backup-${stamp}`;
-          writeShellRCBackup(backupPath, data, stat);
-          log(`Shell RC legacy block backed up: ${backupPath}`);
-        }
-        replaceShellRCAtomically(target, kept.join(''), stat);
-        log(`Shell RC managed hooks removed: ${rcPath}`);
+        entry.plan = { data, kept, legacy, stat };
       }
     } catch (err) {
-      operationError = err;
-    } finally {
-      if (lockFd !== undefined) {
-        try {
-          releaseShellRCLock(lockFd, lockPath);
-        } catch (err) {
-          operationError = operationError
-            ? new Error(`${operationError.message}; ${err.message}`)
-            : err;
+      failures.push(`${rc}: ${err.message}`);
+    }
+  }
+
+  if (failures.length === 0) {
+    for (const entry of entries) {
+      if (!entry.plan) continue;
+      try {
+        if (entry.plan.legacy) {
+          const stamp = new Date().toISOString().replace(/[-:.]/g, '');
+          const backupPath = `${entry.target}.swiss-backup-${stamp}`;
+          writeShellRCBackup(backupPath, entry.plan.data, entry.plan.stat);
+          log(`Shell RC legacy block backed up: ${backupPath}`);
         }
+        replaceShellRCAtomically(entry.target, entry.plan.kept.join(''), entry.plan.stat);
+        log(`Shell RC managed hooks removed: ${entry.rcPath}`);
+      } catch (err) {
+        failures.push(`${entry.rc}: ${err.message}`);
       }
     }
-    if (operationError) {
-      failures.push(`${rc}: ${operationError.message}`);
+  }
+
+  for (const entry of entries) {
+    try {
+      releaseShellRCLock(entry.lock);
+    } catch (err) {
+      failures.push(`${entry.rc}: ${err.message}`);
     }
   }
   if (failures.length > 0) {
@@ -702,69 +710,81 @@ function acquireShellRCLock(lockPath, options = {}) {
   let delay = 10;
   let reclaimedStaleLock = false;
   for (;;) {
+    let lock;
     try {
-      return createShellRCLock(lockPath, new Date(now()).toISOString());
+      lock = createShellRCLock(lockPath, now());
     } catch (err) {
-      if (err.code !== 'EEXIST') {
-        throw err;
-      }
-      const owner = inspectShellRCLock(lockPath);
-      if (!owner) continue;
-      if (!reclaimedStaleLock && isShellRCLockStale(owner, now(), staleAfterMs)) {
-        reclaimedStaleLock = true;
-        try {
-          fs.unlinkSync(lockPath);
-        } catch (unlinkErr) {
-          if (unlinkErr.code !== 'ENOENT') {
-            throw new Error(`remove stale shell RC lock ${lockPath}: ${unlinkErr.message}`);
-          }
-        }
-        continue;
-      }
-      if (now() >= deadline) {
-        const ownerText = owner.pid === undefined ? 'unknown owner' : `owner pid ${owner.pid}`;
-        throw new Error(`timed out waiting for ${lockPath} (${ownerText})`);
-      }
-      sleepSync(delay);
-      delay = Math.min(delay * 2, 100);
+      if (err.code !== 'EEXIST') throw err;
     }
+    if (lock) return lock;
+
+    const owner = inspectShellRCLock(lockPath);
+    if (!owner) continue;
+    if (!reclaimedStaleLock && isShellRCLockStale(owner, now(), staleAfterMs)) {
+      reclaimedStaleLock = true;
+      reclaimShellRCLock(lockPath, owner);
+      continue;
+    }
+    if (now() >= deadline) {
+      const ownerText = owner.pid === undefined ? 'owner metadata unreadable' : `owner pid ${owner.pid}`;
+      throw new Error(`timed out waiting for shell RC lock ${lockPath} (${ownerText}); lock remains intact`);
+    }
+    sleepSync(delay);
+    delay = Math.min(delay * 2, 100);
   }
 }
 
-function createShellRCLock(lockPath, createdAt) {
-  const tempPath = path.join(
-    path.dirname(lockPath),
-    `.${path.basename(lockPath)}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`
-  );
-  let fd = fs.openSync(tempPath, 'wx', 0o600);
+function createShellRCLock(lockPath, startedAtMs) {
+  fs.mkdirSync(lockPath, { mode: 0o700 });
+  const token = crypto.randomBytes(16).toString('hex');
+  const ownerPath = path.join(lockPath, 'owner.json');
+  const tempPath = path.join(lockPath, `.owner-${process.pid}-${token}.tmp`);
+  let fd;
   try {
-    fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt }), 'utf8');
+    fd = fs.openSync(tempPath, 'wx', 0o600);
+    fs.writeFileSync(
+      fd,
+      JSON.stringify({ pid: process.pid, started_at: new Date(startedAtMs).toISOString(), token }),
+      'utf8'
+    );
     fs.fsyncSync(fd);
-    fs.linkSync(tempPath, lockPath);
-    const ownedFd = fd;
+    fs.closeSync(fd);
     fd = undefined;
-    return ownedFd;
-  } finally {
+    fs.renameSync(tempPath, ownerPath);
+    const dirFd = fs.openSync(lockPath, 'r');
+    try {
+      fs.fsyncSync(dirFd);
+    } finally {
+      fs.closeSync(dirFd);
+    }
+    return { path: lockPath, token };
+  } catch (err) {
     if (fd !== undefined) {
       try {
         fs.closeSync(fd);
       } catch {}
     }
     try {
-      fs.unlinkSync(tempPath);
+      fs.rmSync(lockPath, { recursive: true, force: true });
     } catch {}
+    throw new Error(`create shell RC lock ${lockPath}: ${err.message}`);
   }
 }
 
 function inspectShellRCLock(lockPath) {
-  let raw;
   let stat;
   try {
-    raw = fs.readFileSync(lockPath, 'utf8');
     stat = fs.statSync(lockPath);
   } catch (err) {
     if (err.code === 'ENOENT') return null;
     throw err;
+  }
+
+  let raw;
+  try {
+    raw = fs.readFileSync(path.join(lockPath, 'owner.json'), 'utf8');
+  } catch {
+    return { mtimeMs: stat.mtimeMs };
   }
 
   let metadata = {};
@@ -772,34 +792,76 @@ function inspectShellRCLock(lockPath) {
     metadata = JSON.parse(raw);
   } catch {}
   const pid = Number.isInteger(metadata.pid) && metadata.pid > 0 ? metadata.pid : undefined;
-  return { pid, mtimeMs: stat.mtimeMs };
+  const token = typeof metadata.token === 'string' && metadata.token.length > 0
+    ? metadata.token
+    : undefined;
+  return { pid, token, mtimeMs: stat.mtimeMs };
 }
 
 function isShellRCLockStale(owner, nowMs, staleAfterMs) {
-  if (owner.pid !== undefined && !isProcessAlive(owner.pid)) {
-    return true;
+  if (owner.pid !== undefined) {
+    return !isProcessAlive(owner.pid);
   }
   return nowMs - owner.mtimeMs > staleAfterMs;
 }
 
-function releaseShellRCLock(fd, lockPath) {
-  let failure;
+function sameShellRCLockOwner(left, right) {
+  return right !== null && left.pid === right.pid && left.token === right.token;
+}
+
+function uniqueShellRCLockPath(lockPath, kind) {
+  return `${lockPath}.${kind}-${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+}
+
+function reclaimShellRCLock(lockPath, observedOwner) {
+  const reclaimPath = uniqueShellRCLockPath(lockPath, 'reclaim');
   try {
-    fs.closeSync(fd);
+    fs.renameSync(lockPath, reclaimPath);
   } catch (err) {
-    failure = new Error(`close shell RC lock ${lockPath}: ${err.message}`);
+    if (err.code === 'ENOENT') return;
+    throw new Error(`reclaim stale shell RC lock ${lockPath}: ${err.message}`);
   }
-  try {
-    fs.unlinkSync(lockPath);
-  } catch (err) {
-    if (err.code !== 'ENOENT') {
-      const unlinkFailure = new Error(`unlink shell RC lock ${lockPath}: ${err.message}`);
-      failure = failure
-        ? new Error(`${failure.message}; ${unlinkFailure.message}`)
-        : unlinkFailure;
+
+  const reclaimedOwner = inspectShellRCLock(reclaimPath);
+  if (!sameShellRCLockOwner(observedOwner, reclaimedOwner)) {
+    let restoreFailure;
+    try {
+      if (fs.existsSync(lockPath)) {
+        throw new Error('replacement lock already exists');
+      }
+      fs.renameSync(reclaimPath, lockPath);
+    } catch (err) {
+      restoreFailure = err;
     }
+    const suffix = restoreFailure ? `; restore failed: ${restoreFailure.message}` : '';
+    throw new Error(`shell RC lock ${lockPath} owner changed during stale reclaim; refusing removal${suffix}`);
   }
-  if (failure) throw failure;
+
+  try {
+    fs.rmSync(reclaimPath, { recursive: true, force: true });
+  } catch (err) {
+    throw new Error(`remove reclaimed shell RC lock ${reclaimPath}: ${err.message}`);
+  }
+}
+
+function releaseShellRCLock(lock, lockPath = lock.path) {
+  const owner = inspectShellRCLock(lockPath);
+  if (!owner) return;
+  if (owner.token !== lock.token) {
+    throw new Error(`refusing to release shell RC lock ${lockPath}: owner token changed`);
+  }
+
+  const trashPath = uniqueShellRCLockPath(lockPath, 'trash');
+  try {
+    fs.renameSync(lockPath, trashPath);
+  } catch (err) {
+    throw new Error(`release shell RC lock ${lockPath}: ${err.message}`);
+  }
+  try {
+    fs.rmSync(trashPath, { recursive: true, force: true });
+  } catch (err) {
+    throw new Error(`remove released shell RC lock ${trashPath}: ${err.message}`);
+  }
 }
 
 function writeShellRCBackup(backupPath, data, stat) {
@@ -1100,5 +1162,6 @@ module.exports = {
   findInstalledAcpBinary,
   cleanShellRCHooks,
   acquireShellRCLock,
+  releaseShellRCLock,
   verifyInstallation
 };

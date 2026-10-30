@@ -56,7 +56,10 @@ type shellRCPlan struct {
 type shellRCFilePlan struct {
 	TargetPath string
 	Plan       shellRCPlan
+	Original   []byte
 }
+
+var commitShellRC = commitShellRCFile
 
 // CleanShellRCHooks removes only complete Swiss Knife managed blocks from user shell RC files.
 func CleanShellRCHooks() error {
@@ -91,13 +94,20 @@ func CleanShellRCHooks() error {
 	}
 
 	now := time.Now()
-	var commitErrors []error
+	var committed []shellRCFilePlan
 	for _, filePlan := range plans {
 		if err := commitShellRC(filePlan.TargetPath, filePlan.Plan, now); err != nil {
-			commitErrors = append(commitErrors, err)
+			rollbackErrors := []error{err}
+			for i := len(committed) - 1; i >= 0; i-- {
+				if restoreErr := restoreShellRC(committed[i].TargetPath, committed[i].Original); restoreErr != nil {
+					rollbackErrors = append(rollbackErrors, restoreErr)
+				}
+			}
+			return errors.Join(rollbackErrors...)
 		}
+		committed = append(committed, filePlan)
 	}
-	return errors.Join(commitErrors...)
+	return nil
 }
 
 func planShellRCFile(rcPath string) (shellRCFilePlan, bool, error) {
@@ -119,7 +129,7 @@ func planShellRCFile(rcPath string) (shellRCFilePlan, bool, error) {
 	if err != nil {
 		return shellRCFilePlan{}, false, fmt.Errorf("scan shell RC %s: %w", target, err)
 	}
-	return shellRCFilePlan{TargetPath: target, Plan: plan}, true, nil
+	return shellRCFilePlan{TargetPath: target, Plan: plan, Original: data}, true, nil
 }
 
 func cleanSingleShellRC(rcPath string) error {
@@ -252,7 +262,7 @@ func isLegacyShellRCExport(line string) bool {
 	return false
 }
 
-func commitShellRC(path string, plan shellRCPlan, now time.Time) error {
+func commitShellRCFile(path string, plan shellRCPlan, now time.Time) error {
 	target, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -299,6 +309,17 @@ func commitShellRC(path string, plan shellRCPlan, now time.Time) error {
 		}
 	}
 	return replaceShellRC(target, fresh.Rewritten, info)
+}
+
+func restoreShellRC(path string, data []byte) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat shell RC for rollback %s: %w", path, err)
+	}
+	if err := replaceShellRC(path, data, info); err != nil {
+		return fmt.Errorf("restore shell RC %s: %w", path, err)
+	}
+	return nil
 }
 
 func writeShellRCBackup(path string, data []byte, info os.FileInfo, now time.Time) error {

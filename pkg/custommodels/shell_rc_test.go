@@ -1,6 +1,7 @@
 package custommodels
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -333,6 +334,51 @@ func TestCleanShellRCHooksCommitsBothValidRCs(t *testing.T) {
 	}
 	if info.Mode()&os.ModeSymlink == 0 {
 		t.Fatal("shell RC symlink was replaced")
+	}
+}
+
+func TestCleanShellRCHooksRollsBackCommittedRCs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	zshrc := filepath.Join(home, ".zshrc")
+	bashrc := filepath.Join(home, ".bashrc")
+	zshOriginal := "before\n" + shellRCBeginMarker + "\nexport CLOUD_CODE_URL=\"http://127.0.0.1:8765\"\n" + shellRCEndMarker + "\nafter\n"
+	bashOriginal := "alias keep=1\n" + shellRCBeginMarker + "\nexport AGY_LLM_GATEWAY_URL=\"http://127.0.0.1:8765\"\n" + shellRCEndMarker + "\n"
+	if err := os.WriteFile(zshrc, []byte(zshOriginal), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bashrc, []byte(bashOriginal), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	originalCommit := commitShellRC
+	t.Cleanup(func() {
+		commitShellRC = originalCommit
+	})
+	calls := 0
+	commitShellRC = func(path string, plan shellRCPlan, now time.Time) error {
+		calls++
+		if calls == 2 {
+			return os.ErrInvalid
+		}
+		return originalCommit(path, plan, now)
+	}
+
+	err := CleanShellRCHooks()
+	if err == nil || !strings.Contains(err.Error(), os.ErrInvalid.Error()) {
+		t.Fatalf("CleanShellRCHooks error = %v, want injected commit failure", err)
+	}
+	if calls != 2 {
+		t.Fatalf("commit calls = %d, want 2", calls)
+	}
+	for path, want := range map[string]string{zshrc: zshOriginal, bashrc: bashOriginal} {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if !bytes.Equal(data, []byte(want)) {
+			t.Fatalf("%s = %q after rollback, want %q", path, string(data), want)
+		}
 	}
 }
 
