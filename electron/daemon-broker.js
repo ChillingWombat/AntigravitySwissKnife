@@ -19,45 +19,89 @@ const DAEMON_SESSION_RESOURCE_TYPES = new Set([
 const GET_PATHS = Object.freeze([
   '/health',
   '/api/status',
+  '/api/auth/status',
   '/api/accounts',
+  '/api/accounts/scan',
+  '/api/quota',
   '/api/quota/fleet',
   '/api/rules',
-  '/api/gui/config',
-  '/api/gui/projects',
-  '/api/gui/conversations/pruned',
-  '/api/enhancements',
-  '/api/utilities/acp',
+  '/api/models/available',
+  '/api/surfaces',
+  '/api/oauth/google/url',
+  '/api/settings/password',
+  '/api/settings/storage',
+  '/api/settings/privacy',
+  '/api/settings/runtime-mode',
+  '/api/settings/theme',
+  '/api/fingerprint',
+  '/api/cache/scan',
+  '/api/cache/config',
+  '/api/vault/status',
+  '/api/system/installations',
+  '/api/system/app_release',
   '/api/custom_models',
   '/api/custom_models/active',
+  '/api/custom_models/presets',
+  '/api/gui/config',
+  '/api/gui/projects',
+  '/api/gui/projects/archived',
+  '/api/gui/conversations/pruned',
+  '/api/gui/desktop/status',
+  '/api/enhancements',
+  '/api/extensions/community',
   '/api/files/ide/config',
   '/api/memos',
   '/api/memos/config',
   '/api/memos/export',
+  '/api/utilities/acp',
+  '/api/tokens/summary',
   '/api/tokens/chat-metrics',
+  '/api/tokens/pricing',
   '/api/github/repo',
   '/api/github/issues',
-  '/api/github/prs',
-  '/api/github/agent-tasks',
-  '/api/github/kanban',
   '/api/github/issues/detail',
+  '/api/github/prs',
+  '/api/github/prs/detail',
+  '/api/github/agent-tasks',
+  '/api/github/context',
+  '/api/github/kanban',
+  '/api/bridge/status',
+  '/api/bridge/http-allowlist',
+  '/api/bridge/remote/status',
+  '/api/bridge/channels/status',
+  '/api/bridge/channels/config',
 ]);
 
 const POST_PATHS = Object.freeze([
+  '/api/quota/refresh',
+  '/api/rules',
+  '/api/rules/auto_switch',
+  '/api/cache/config',
+  '/api/settings/runtime-mode',
+  '/api/settings/theme',
+  '/api/system/check_updates',
+  '/api/system/check_app_release',
+  '/api/custom_models/active',
+  '/api/custom_models/test',
+  '/api/custom_models/fetch_quota',
+  '/api/custom_models/refresh_quotas',
+  '/api/custom_models/fetch_models',
+  '/api/custom_models/thinking_level',
+  '/api/custom_models/security-audit',
   '/api/enhancements',
   '/api/gui/config',
   '/api/gui/color',
   '/api/gui/color/reset',
   '/api/gui/color/delete',
   '/api/gui/projects/archive',
+  '/api/gui/projects/restore',
+  '/api/gui/conversations/auto-archive',
   '/api/conversations/ack',
   '/api/memos/save',
   '/api/memos/delete',
   '/api/memos/extract',
   '/api/memos/export',
   '/api/memos/config',
-  '/api/custom_models',
-  '/api/custom_models/active',
-  '/api/custom_models/thinking_level',
   '/api/github/agent-tasks/label',
   '/api/github/agent-tasks/bind',
   '/api/github/issues/update',
@@ -66,6 +110,38 @@ const POST_PATHS = Object.freeze([
 ]);
 
 const PRIVILEGED_POST_PATHS = Object.freeze([
+  '/api/accounts/import',
+  '/api/accounts/batch-import',
+  '/api/accounts/update',
+  '/api/accounts/delete',
+  '/api/switch',
+  '/api/desktop/relaunch',
+  '/api/desktop/launch',
+  '/api/oauth/google/start',
+  '/api/oauth/google/cancel',
+  '/api/oauth/google/exchange',
+  '/api/auth/unlock',
+  '/api/settings/password',
+  '/api/settings/storage',
+  '/api/settings/app_path',
+  '/api/settings/account_override',
+  '/api/settings/cache_clear',
+  '/api/settings/privacy',
+  '/api/settings/diagnose-issue',
+  '/api/system/factory_reset',
+  '/api/system/app_release/settings',
+  '/api/system/app_release/upgrade',
+  '/api/totp',
+  '/api/fingerprint',
+  '/api/cache/prune',
+  '/api/vault/sync',
+  '/api/vault/toggle',
+  '/api/custom_models',
+  '/api/custom_models/integration',
+  '/api/custom_models/launch',
+  '/api/custom_models/cli_setup',
+  '/api/enhancements/apply',
+  '/api/extensions/community',
   '/api/files/write',
   '/api/files/create',
   '/api/files/delete',
@@ -76,6 +152,11 @@ const PRIVILEGED_POST_PATHS = Object.freeze([
   '/api/files/terminal',
   '/api/files/open_ide',
   '/api/files/ide/config',
+  '/api/gui/projects/delete',
+  '/api/gui/projects/open_settings',
+  '/api/gui/apply',
+  '/api/gui/desktop/persistence',
+  '/api/daemon/start',
   '/api/utilities/import',
   '/api/utilities/acp/sync-registry',
   '/api/utilities/acp/agents',
@@ -99,23 +180,43 @@ const PRIVILEGED_POST_PATHS = Object.freeze([
   '/api/bridge/remote/tunnel/stop',
   '/api/bridge/channels/config',
   '/api/bridge/channels/test',
-  '/api/settings/factory-reset',
 ]);
 
 const PRIVILEGED_GET_PATHS = Object.freeze([
+  '/api/accounts/export',
+  '/api/totp',
+  '/api/custom_models/key',
+  '/api/custom_models/integration',
+  '/api/custom_models/cli_status',
   '/api/files/list',
   '/api/files/read',
+  '/api/utilities/import/scan',
+  '/api/bridge/remote/config',
+]);
+
+const DELETE_PATHS = Object.freeze([]);
+
+const PRIVILEGED_DELETE_PATHS = Object.freeze([
+  '/api/custom_models',
+  '/api/extensions/community',
+  '/api/utilities/acp/agents',
+  '/api/tokens/pricing',
 ]);
 
 const ALLOWED_ROUTES = Object.freeze({
   GET: new Set(GET_PATHS),
   POST: new Set(POST_PATHS),
+  DELETE: new Set(DELETE_PATHS),
 });
 const PRIVILEGED_ROUTES = Object.freeze({
   GET: new Set(PRIVILEGED_GET_PATHS),
   POST: new Set(PRIVILEGED_POST_PATHS),
+  DELETE: new Set(PRIVILEGED_DELETE_PATHS),
 });
-const FILE_ACCESS_PATHS = new Set(PRIVILEGED_GET_PATHS);
+const PRIVILEGED_QUERY_ROUTES = new Map([
+  ['GET /api/bridge/channels/config', (params) => params.get('unredacted') === 'true'],
+]);
+const FILE_ACCESS_PATHS = new Set(['/api/files/list', '/api/files/read']);
 const SENSITIVE_FILE_NAME = /^(?:session\.token|session\.pid|credentials(?:\..+)?)$/i;
 
 const APPROVAL_BODY_PREVIEW_LIMIT = 400;
@@ -125,8 +226,13 @@ const SENSITIVE_BODY_KEY = /(token|secret|password|passwd|authorization|api[_-]?
 const OPAQUE_BODY_KEY = /^(content|body|data|text|value)$/i;
 const SECRET_IN_TEXT = /(bearer\s+|token|secret|password|api[_-]?key)/i;
 
-function isApprovalRoute(method, pathname) {
-  return Boolean(PRIVILEGED_ROUTES[method] && PRIVILEGED_ROUTES[method].has(pathname));
+function isApprovalRoute(method, pathOrUrl) {
+  const url = typeof pathOrUrl === 'string' ? new URL(pathOrUrl, DAEMON_ORIGIN) : pathOrUrl;
+  if (PRIVILEGED_ROUTES[method] && PRIVILEGED_ROUTES[method].has(url.pathname)) {
+    return true;
+  }
+  const queryRule = PRIVILEGED_QUERY_ROUTES.get(`${method} ${url.pathname}`);
+  return Boolean(queryRule && queryRule(url.searchParams));
 }
 
 function getSwissConfigDir(platform = process.platform, env = process.env, home = os.homedir()) {
@@ -377,8 +483,8 @@ function validateRequest(request, defaultTimeoutMs, configDir) {
   }
 
   const method = typeof request.method === 'string' ? request.method.toUpperCase() : '';
-  if (method !== 'GET' && method !== 'POST') {
-    throw new DaemonBrokerError('METHOD_NOT_ALLOWED', 'Only GET and POST daemon requests are allowed', 405);
+  if (method !== 'GET' && method !== 'POST' && method !== 'DELETE') {
+    throw new DaemonBrokerError('METHOD_NOT_ALLOWED', 'Only GET, POST, and DELETE daemon requests are allowed', 405);
   }
 
   const rawPath = request.path;
@@ -395,7 +501,7 @@ function validateRequest(request, defaultTimeoutMs, configDir) {
   if (url.origin !== DAEMON_ORIGIN) {
     invalid('Daemon request must stay on the fixed loopback origin');
   }
-  const requiresApproval = isApprovalRoute(method, url.pathname);
+  const requiresApproval = isApprovalRoute(method, url);
   const routeIsAllowed = ALLOWED_ROUTES[method].has(url.pathname) ||
     (PRIVILEGED_ROUTES[method] && PRIVILEGED_ROUTES[method].has(url.pathname));
   if (!routeIsAllowed) {
@@ -410,8 +516,8 @@ function validateRequest(request, defaultTimeoutMs, configDir) {
     }
     body = request.body;
   }
-  if (method === 'GET' && body !== undefined) {
-    invalid('GET daemon requests cannot include a body');
+  if (method !== 'POST' && body !== undefined) {
+    invalid(`${method} daemon requests cannot include a body`);
   }
 
   let timeoutMs = request.timeoutMs === undefined ? defaultTimeoutMs : request.timeoutMs;
