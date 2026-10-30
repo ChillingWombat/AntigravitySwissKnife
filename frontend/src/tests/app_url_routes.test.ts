@@ -202,4 +202,21 @@ describe('App URL routing', () => {
     assert.equal(window.location.hash, '#/system-settings')
     assert.equal(activeTabId(view), 'general')
   })
+
+  it('renders the Utilities tabs as text-only headers', async () => {
+    view = await renderAt({ tool: 'utilities', tab: 'cache' })
+
+    const tabs = view.querySelectorAll<HTMLElement>('[data-route-tab]')
+    assert.deepEqual(
+      tabs.map((tab) => tab.dataset.routeTab),
+      ['cache', 'archives', 'import'],
+    )
+    assert.deepEqual(
+      tabs.map((tab) => tab.textContent?.trim()),
+      ['Storage Manager', 'Archived Projects', 'Chat & Project Importer'],
+    )
+    for (const tab of tabs) {
+      assert.equal(tab.querySelector('svg'), null, `${tab.dataset.routeTab} tab must not render an icon`)
+    }
+  })
 })
