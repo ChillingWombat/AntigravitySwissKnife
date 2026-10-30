@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react'
-import { createPortal } from 'react-dom'
+import React, { useState } from 'react'
 import {
   ShieldCheck,
   ShieldAlert,
@@ -13,6 +12,7 @@ import {
   Info,
 } from 'lucide-react'
 import type { SecurityAuditReport } from '../types'
+import { ModalDialog } from './dialogs/ModalDialog'
 
 interface SecurityReportModalProps {
   report: SecurityAuditReport
@@ -32,16 +32,6 @@ import {
 
 export const SecurityReportModal: React.FC<SecurityReportModalProps> = ({ report, onClose }) => {
   const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
 
   const { isLow, isHighOrCrit, statusColor, riskBadgeClass } = getRiskPresentation(report.risk_level)
   const grade = resolveSecurityGrade(report.risk_score, report.security_grade)
@@ -74,22 +64,14 @@ export const SecurityReportModal: React.FC<SecurityReportModalProps> = ({ report
   }
 
   const modalContent = (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.45)',
-        backdropFilter: 'blur(3px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1100,
-      }}
+    <ModalDialog
+      open
+      title="Security Audit Report"
+      description="Endpoint transport encryption, origin lineage, and response integrity checks."
+      onClose={onClose}
+      size="lg"
     >
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="security-report-modal-title"
         className="google-card"
         style={{
           width: '640px',
@@ -128,6 +110,7 @@ export const SecurityReportModal: React.FC<SecurityReportModalProps> = ({ report
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close security report"
             className="btn-pill-tonal"
             style={{
               padding: '6px',
@@ -499,11 +482,8 @@ export const SecurityReportModal: React.FC<SecurityReportModalProps> = ({ report
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   )
 
-  if (typeof document !== 'undefined') {
-    return createPortal(modalContent, document.body)
-  }
   return modalContent
 }

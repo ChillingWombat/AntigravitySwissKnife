@@ -50,7 +50,8 @@ const findEditButton = (view: RenderResult, modelName: string) => {
 }
 
 const apiKeyInput = (view: RenderResult) =>
-  view.querySelector<HTMLInputElement>('input[placeholder="sk-..."]')
+  view.querySelector<HTMLInputElement>('input[placeholder="sk-..."]') ??
+  document.querySelector<HTMLInputElement>('input[placeholder="sk-..."]')
 
 describe('Custom model edit API key hydration', () => {
   const originalFetch = globalThis.fetch

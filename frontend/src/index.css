@@ -299,6 +299,24 @@ table,
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.modal-dialog::backdrop {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-dialog,
+  .modal-dialog * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .modal-dialog-backdrop {
+    backdrop-filter: none !important;
+  }
+}
+
 /* Chip Badges */
 .badge-chip {
   display: inline-flex;
