@@ -226,8 +226,7 @@ func splitShellRCLines(data []byte) [][]byte {
 
 func shellRCLineText(raw []byte) string {
 	line := strings.TrimSuffix(string(raw), "\n")
-	line = strings.TrimSuffix(line, "\r")
-	return strings.TrimSpace(line)
+	return strings.TrimSuffix(line, "\r")
 }
 
 func shellRCFindBegin(line string) (shellRCMarkerPair, bool) {

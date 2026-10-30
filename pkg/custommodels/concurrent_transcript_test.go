@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -136,8 +137,10 @@ func TestConversationSidecarConcurrentRecordsPersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat conversation sidecar: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0600 {
-		t.Errorf("conversation sidecar mode = %04o, want 0600", got)
+	if runtime.GOOS != "windows" {
+		if got := info.Mode().Perm(); got != 0600 {
+			t.Errorf("conversation sidecar mode = %04o, want 0600", got)
+		}
 	}
 }
 
