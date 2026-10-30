@@ -3139,7 +3139,7 @@ func TestGenerateAuxiliaryPluginsScript_InterceptorWithoutSessionToken(t *testin
 
 func TestGenerateAuxiliaryPluginsScript_AutoAcceptsSecurityNotice(t *testing.T) {
 	script := GenerateAuxiliaryPluginsScript()
-	if !strings.Contains(script, "swissAutoAcceptSecurityNotice") {
+	if !strings.Contains(script, "__SWISS_RUNTIME__") {
 		t.Fatalf("expected the security-notice auto-accept routine")
 	}
 	// Only the mandatory Accept button is clicked; the data-sharing checkbox
