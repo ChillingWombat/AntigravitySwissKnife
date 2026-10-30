@@ -95,6 +95,21 @@ function finishLoad<T>(
   }
 }
 
+function fulfillFleetAccounts(
+  endpoint: EndpointState<AccountInput[]>,
+  data: AccountInput[],
+): EndpointState<AccountInput[]> {
+  if (endpoint.status === 'degraded' || endpoint.status === 'error') {
+    return {
+      ...endpoint,
+      data,
+      updatedAt: Date.now(),
+      source: 'fleet',
+    }
+  }
+  return finishLoad(endpoint, data, 'fleet')
+}
+
 function rejectLoad<T>(endpoint: EndpointState<T>, error: DashboardFailure): EndpointState<T> {
   return {
     ...endpoint,
@@ -145,7 +160,7 @@ export function dashboardReducer(
     return replaceEndpoint(
       next,
       'accounts',
-      finishLoad(next.accounts, action.data.accounts, 'fleet'),
+      fulfillFleetAccounts(next.accounts, action.data.accounts),
     )
   }
 

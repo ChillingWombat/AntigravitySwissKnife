@@ -26,6 +26,22 @@ const fleet: FleetQuotaSummary = {
   }],
 }
 
+const laterFleet: FleetQuotaSummary = {
+  ...fleet,
+  active_account: 'fleet@example.com',
+  accounts: [{ ...fleet.accounts[0], email: 'fleet@example.com' }],
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 const makeLoaders = (overrides: Partial<DashboardLoaders> = {}): DashboardLoaders => ({
   status: async () => status,
   quota: async () => fleet,
@@ -49,6 +65,14 @@ const flush = async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
   }
+}
+
+const assertDegradedFleetAccounts = (view: RenderResult) => {
+  const text = view.container.textContent ?? ''
+  assert.match(text, /fleet@example\.com/)
+  assert.match(text, /1 source unavailable/)
+  assert.ok(view.querySelector('[data-dashboard-health][role="status"][aria-live="polite"]'))
+  assert.ok(view.querySelector('[data-dashboard-retry]'))
 }
 
 describe('App resilient dashboard loading', () => {
@@ -86,6 +110,54 @@ describe('App resilient dashboard loading', () => {
     assert.equal(text.includes('secret backend body'), false)
     assert.ok(view.querySelector('[data-dashboard-health][role="status"][aria-live="polite"]'))
     assert.ok(view.querySelector('main[aria-busy="false"]'))
+  })
+
+  it('keeps accounts failed when fleet quota fulfills after the accounts request fails', async () => {
+    const accounts = deferred<Awaited<ReturnType<DashboardLoaders['accounts']>>>()
+    const quota = deferred<FleetQuotaSummary>()
+    const loaders = makeLoaders({
+      accounts: () => accounts.promise,
+      quota: () => quota.promise,
+    })
+    view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
+    await flush()
+
+    await act(async () => {
+      accounts.reject(new Error('accounts offline'))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+    await act(async () => {
+      quota.resolve(laterFleet)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+
+    assertDegradedFleetAccounts(view)
+  })
+
+  it('keeps accounts degraded when the accounts request fails after fleet quota succeeds', async () => {
+    const accounts = deferred<Awaited<ReturnType<DashboardLoaders['accounts']>>>()
+    const quota = deferred<FleetQuotaSummary>()
+    const loaders = makeLoaders({
+      accounts: () => accounts.promise,
+      quota: () => quota.promise,
+    })
+    view = await mount(React.createElement(App, { dashboardLoaders: loaders }))
+    await flush()
+
+    await act(async () => {
+      quota.resolve(laterFleet)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+    await act(async () => {
+      accounts.reject(new Error('accounts offline'))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await flush()
+
+    assertDegradedFleetAccounts(view)
   })
 
   it('clears degraded health after retrying only the failed endpoints', async () => {

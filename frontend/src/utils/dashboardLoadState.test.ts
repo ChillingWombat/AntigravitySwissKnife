@@ -80,7 +80,33 @@ describe('dashboardLoadState', () => {
     assert.deepEqual(failedDashboardEndpoints(state), ['rules'])
   })
 
-  it('lets a fleet response satisfy accounts while retaining an accounts failure', () => {
+  it('keeps an accounts failure when fleet quota fulfills after the accounts request fails', () => {
+    let state = dashboardReducer(createInitialDashboardLoadState(), {
+      type: 'load/start',
+      endpoints: ['accounts', 'quota'],
+    })
+    state = dashboardReducer(state, {
+      type: 'load/rejected',
+      endpoints: ['accounts'],
+      error: 'request_failed',
+    })
+    assert.equal(state.accounts.status, 'error')
+    assert.equal(state.accounts.error, 'request_failed')
+
+    state = dashboardReducer(state, {
+      type: 'load/fulfilled',
+      endpoint: 'quota',
+      data: fleet,
+    })
+    assert.equal(state.quota.status, 'ready')
+    assert.equal(state.accounts.status, 'error')
+    assert.equal(state.accounts.source, 'fleet')
+    assert.equal(state.accounts.error, 'request_failed')
+    assert.deepEqual(state.accounts.data, fleet.accounts)
+    assert.deepEqual(failedDashboardEndpoints(state), ['accounts'])
+  })
+
+  it('keeps accounts degraded when a direct failure follows a fleet response', () => {
     let state = dashboardReducer(createInitialDashboardLoadState(), {
       type: 'load/fulfilled',
       endpoint: 'quota',
@@ -96,7 +122,9 @@ describe('dashboardLoadState', () => {
       error: 'request_failed',
     })
     assert.equal(state.accounts.status, 'degraded')
+    assert.equal(state.accounts.source, 'fleet')
     assert.equal(state.accounts.error, 'request_failed')
     assert.deepEqual(state.accounts.data, fleet.accounts)
+    assert.deepEqual(failedDashboardEndpoints(state), ['accounts'])
   })
 })
