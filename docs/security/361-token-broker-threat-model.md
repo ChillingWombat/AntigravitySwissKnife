@@ -44,7 +44,7 @@ The renderer can ask the privileged main process to act. The broker limits the o
 
 ### File read and list
 
-`/api/files/read` and `/api/files/list` are privileged GET routes. Each request requires a fresh native approval that shows the canonical filesystem path. The broker rejects missing, relative, NUL-containing, and traversal-containing path values, including repeated percent encoding. It resolves symlinks when the target exists and compares both lexical and resolved paths against the Swiss daemon configuration directory. Paths inside that directory and files named `session.token`, `session.pid`, or `credentials*` are denied before the broker reads the daemon token or calls the daemon; the native dialog states the denial reason.
+`/api/files/read` and `/api/files/list` are privileged GET routes. Each request requires a fresh native approval that shows the canonical filesystem path. The broker decodes path values repeatedly until stable, allowing at most ten passes; malformed encoding or a value still changing after ten passes is denied. It rejects missing, relative, NUL-containing, and traversal-containing fully decoded path values. It resolves symlinks when the target exists and compares both lexical and resolved paths against the Swiss daemon configuration directory. Paths inside that directory and files named `session.token`, `session.pid`, or `credentials*` are denied before the broker reads the daemon token or calls the daemon; the native dialog states the denial reason.
 
 ## Residual Risks
 

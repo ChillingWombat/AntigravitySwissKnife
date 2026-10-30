@@ -136,19 +136,25 @@ function getSwissConfigDir(platform = process.platform, env = process.env, home 
   return nodePath.join(env.XDG_CONFIG_HOME || nodePath.join(home, '.config'), 'antigravity-swiss');
 }
 
+const MAX_PATH_DECODE_PASSES = 10;
+
 function decodePathValue(value) {
   let decoded = value;
-  for (let pass = 0; pass < 3 && decoded.includes('%'); pass += 1) {
+  for (let pass = 0; pass < MAX_PATH_DECODE_PASSES; pass += 1) {
     let next;
     try {
       next = decodeURIComponent(decoded);
     } catch {
       throw new DaemonBrokerError('PATH_DENIED', 'File path contains malformed percent encoding', 403);
     }
-    if (next === decoded) break;
+    if (next === decoded) return decoded;
     decoded = next;
   }
-  return decoded;
+  throw new DaemonBrokerError(
+    'PATH_DENIED',
+    `File path remains encoded after ${MAX_PATH_DECODE_PASSES} decoding passes`,
+    403,
+  );
 }
 
 function containsPathTraversal(value) {
@@ -163,6 +169,7 @@ function assertSafeFileQueryValue(value) {
   if (containsPathTraversal(value) || containsPathTraversal(decoded)) {
     throw new DaemonBrokerError('PATH_DENIED', 'File paths containing traversal are blocked', 403);
   }
+  return decoded;
 }
 
 function expandHomePath(value, home = os.homedir()) {
@@ -208,16 +215,19 @@ function getSensitivePathReason(candidates, configDir) {
 function validateFileAccessPath(url, configDir) {
   if (!FILE_ACCESS_PATHS.has(url.pathname)) return null;
 
-  for (const value of url.searchParams.values()) assertSafeFileQueryValue(value);
-  const rawPaths = url.searchParams.getAll('path');
-  if (rawPaths.length !== 1 || !rawPaths[0]) {
+  const decodedPaths = [];
+  for (const [name, value] of url.searchParams.entries()) {
+    const decoded = assertSafeFileQueryValue(value);
+    if (name === 'path') decodedPaths.push(decoded);
+  }
+  if (decodedPaths.length !== 1 || !decodedPaths[0]) {
     throw new DaemonBrokerError('PATH_DENIED', 'Exactly one non-empty path query parameter is required', 403);
   }
-  if (!nodePath.isAbsolute(expandHomePath(rawPaths[0]))) {
+  if (!nodePath.isAbsolute(expandHomePath(decodedPaths[0]))) {
     throw new DaemonBrokerError('PATH_DENIED', 'File paths must be absolute', 403);
   }
 
-  const pathInfo = resolveFileSystemPath(rawPaths[0]);
+  const pathInfo = resolveFileSystemPath(decodedPaths[0]);
   const denialReason = getSensitivePathReason(
     [pathInfo.lexical, pathInfo.resolved],
     configDir || getSwissConfigDir(),

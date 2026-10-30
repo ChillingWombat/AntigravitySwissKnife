@@ -198,6 +198,48 @@ test('direct and encoded traversal paths return PATH_DENIED before token read', 
   assert.equal(fetches, 0);
 });
 
+test('five-, six-, and ten-layer encoded traversal paths return PATH_DENIED before approval or I/O', async () => {
+  let tokenReads = 0;
+  let daemonCalls = 0;
+  let approvals = 0;
+  const broker = createDaemonBroker({
+    getToken: () => {
+      tokenReads += 1;
+      return 'token';
+    },
+    requestApproval: async () => {
+      approvals += 1;
+      return true;
+    },
+    fetchImpl: async () => {
+      daemonCalls += 1;
+      return fakeResponse(200, '{}');
+    },
+  });
+
+  const encodeTraversal = (layers) => {
+    let segment = '%2E%2E';
+    for (let pass = 1; pass < layers; pass += 1) {
+      segment = encodeURIComponent(segment);
+    }
+    return `/tmp/${segment}/etc/passwd`;
+  };
+
+  for (const layers of [5, 6, 10]) {
+    await assert.rejects(
+      () => broker.request({ method: 'GET', path: `/api/files/read?path=${encodeTraversal(layers)}` }),
+      (error) => {
+        assert.equal(error.code, 'PATH_DENIED', `${layers}-layer traversal`);
+        assert.equal(error.status, 403, `${layers}-layer traversal status`);
+        return true;
+      },
+    );
+  }
+  assert.equal(approvals, 0);
+  assert.equal(tokenReads, 0);
+  assert.equal(daemonCalls, 0);
+});
+
 test('session auth headers are limited to top-level daemon document and static loads', () => {
   assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'mainFrame', url: `${DAEMON_ORIGIN}/` }), true);
   assert.equal(shouldAttachDaemonSessionHeader({ resourceType: 'script', url: `${DAEMON_ORIGIN}/assets/app.js` }), true);
