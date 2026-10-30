@@ -50,3 +50,33 @@ func TestTokenMonitorSidecarOverrideInvalidatesWarmTranscriptCache(t *testing.T)
 		t.Fatalf("sidecar override = %q (%q, %q), want custom-routed-model (Custom Routed Model, openai)", got, displayName, provider)
 	}
 }
+
+func TestResolveConversationModelUsesSidecarWithoutCustomModels(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", configDir)
+	store, err := custommodels.NewStore(configDir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	model := custommodels.CustomModel{
+		ID:           "custom-routed-id",
+		Name:         "custom-routed-model",
+		DisplayName:  "Custom Routed Model",
+		ProviderType: custommodels.ProviderOpenAI,
+		BaseURL:      "https://api.example.test/v1",
+		QuotaType:    custommodels.QuotaTypeNA,
+		Enabled:      true,
+	}
+	if err := store.SaveModel(model); err != nil {
+		t.Fatalf("SaveModel: %v", err)
+	}
+	convID := "e05a681a-1e3c-47f0-b217-aaadc7625295"
+	if err := store.RecordConversationModel(convID, model.ID); err != nil {
+		t.Fatalf("RecordConversationModel: %v", err)
+	}
+
+	got, displayName, provider := resolveConversationModel(convID)
+	if got != model.Name || displayName != model.DisplayName || provider != "openai" {
+		t.Fatalf("resolved model = %q (%q, %q), want %q (%q, openai)", got, displayName, provider, model.Name, model.DisplayName)
+	}
+}

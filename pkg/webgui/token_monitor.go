@@ -1069,9 +1069,14 @@ func detectConversationModel(convDBPath string, customModels []custommodels.Cust
 	return mID, mName, mProv
 }
 
-// resolveConversationModel resolves the active model for a conversation ID or path by reading transcript.jsonl step 0.
+// resolveConversationModel resolves the active model for a conversation ID,
+// giving the proxy sidecar priority over transcript and native attribution.
 func resolveConversationModel(convID string) (modelID, displayName, provider string) {
-	mID, mName, mProv := detectConversationModelWithTranscript("", convID, nil, nil)
+	var customModels []custommodels.CustomModel
+	if store, err := custommodels.NewStore(""); err == nil {
+		customModels = store.ListModels()
+	}
+	mID, mName, mProv := detectConversationModelWithTranscript("", convID, customModels, nil)
 	if mID == "" {
 		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"
 	}

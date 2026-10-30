@@ -60,9 +60,10 @@ func extractConversationID(requestID string, requestRaw json.RawMessage) string 
 	return ""
 }
 
-// Source of truth: transcript.jsonl is host-owned and never written by Swiss
-// Knife. conversation_models.json is authoritative only for custom-model
-// attribution.
+// Source of truth: transcript.jsonl is the Antigravity host's conversation
+// log. Proxy/model attribution never writes it; explicit chat import
+// (pkg/importer and scripts/agent_importer.py) is the sole Swiss Knife writer.
+// conversation_models.json is authoritative only for custom-model attribution.
 func syncModelIdentityInRequest(req *geminiRequest, model *CustomModel) {
 	if req == nil || model == nil {
 		return
