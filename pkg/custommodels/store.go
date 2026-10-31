@@ -735,17 +735,21 @@ func (s *Store) SetThinkingLevel(modelID string, level string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	found := false
 	for i := range s.config.Models {
-		if s.config.Models[i].ID == modelID {
-			s.config.Models[i].ThinkingLevel = level
-			s.config.Models[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			found = true
-			break
+		if s.config.Models[i].ID != modelID {
+			continue
 		}
+		candidate := s.config.Models[i]
+		if !candidate.SupportsThinking {
+			return fmt.Errorf("model %q does not support thinking", modelID)
+		}
+		candidate.ThinkingLevel = level
+		if err := candidate.normalizeThinkingCapability(); err != nil {
+			return err
+		}
+		candidate.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		s.config.Models[i] = candidate
+		return s.saveLocked()
 	}
-	if !found {
-		return fmt.Errorf("model %q not found", modelID)
-	}
-	return s.saveLocked()
+	return fmt.Errorf("model %q not found", modelID)
 }
