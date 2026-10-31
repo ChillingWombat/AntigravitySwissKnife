@@ -430,3 +430,127 @@ func TestConversationIdentity_GeneratedNavigationIntentCallChain(t *testing.T) {
 })().catch((error) => { console.error(error.stack || error); process.exit(1); });
 `)
 }
+
+func TestConversationIdentity_GeneratedRouteSynchronizationCallChain(t *testing.T) {
+	runIdentityCallChain(t, `
+(async () => {
+  const staleRouteId = "29d106f9-d43c-4cc5-9f9f-971c885d4743";
+  const routedViewId = "281241ba-17ff-4904-8305-031db425f416";
+  const blankRouteId = "0f3f3b39-9fda-4b2c-a25f-033e47d491cb";
+  const explicitRouteId = "aaaaaaaa-1111-2222-3333-444444444444";
+  const explicitViewId = "bbbbbbbb-5555-6666-7777-888888888888";
+  const fallbackRouteId = "cccccccc-9999-aaaa-bbbb-dddddddddddd";
+  const fallbackViewId = "eeeeeeee-0000-1111-2222-ffffffffffff";
+  const metricRequests = [];
+  const routerCalls = [];
+  const popstateEvents = [];
+
+  window.fetch = async (url) => {
+    if (String(url).includes("/api/tokens/chat-metrics")) {
+      const parsed = new URL(url);
+      metricRequests.push(parsed.searchParams.get("conversation_id"));
+      return { ok: true, json: async () => ({ success: true, user_prompt_count: 0, prompts: [], turns: [] }) };
+    }
+    return { ok: true, json: async () => ({ pending_intents: [] }) };
+  };
+  window.__TSR_ROUTER__ = { navigate: ({ to }) => routerCalls.push(to) };
+  window.dispatchEvent = (event) => { popstateEvents.push(event.type); return true; };
+
+  const view = new NodeEl("div", "conversation-view");
+  const inputBox = new NodeEl("div", "agent-input-box");
+  inputBox.className = "no-focus-agent-input";
+  inputBox.classList.add("no-focus-agent-input");
+  const trigger = new NodeEl("button", "model-selector-trigger");
+  inputBox.appendChild(trigger);
+  view.appendChild(inputBox);
+  document.body.appendChild(view);
+
+  function setVisible(id) {
+    view.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
+    inputBox.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
+  }
+
+  location.pathname = "/c/" + blankRouteId;
+  location.search = "";
+  setVisible(null);
+  cachedTokensByConv[blankRouteId] = 149000;
+  cachedContextWindowByConv[blankRouteId] = { used_tokens: 149000, max_tokens: 256000 };
+  renderContextWindowProgressRing();
+  let ring = document.getElementById("swiss-context-window-ring");
+  assert(ring, "the blank New Conversation must still mount an unavailable ring");
+  assert.strictEqual(conversationMetricIdentity.conversationId, null, "a blank rendered view must not inherit the old route identity");
+  assert.strictEqual(metricRequests.length, 0, "a blank rendered view must not query metrics for the old route");
+  assert(/unavailable/i.test(ring.getAttribute("title")), "the blank rendered view must show unavailable metrics");
+  assert(!/149K|58%/.test(ring.getAttribute("title")), "stale route metrics must never paint on a blank rendered view");
+
+  location.pathname = "/c/" + staleRouteId;
+  setVisible(routedViewId);
+  renderContextWindowProgressRing();
+  assert.deepStrictEqual(routerCalls, ["/c/" + routedViewId], "the rendered conversation must synchronize the stale route once");
+  const stableRing = document.getElementById("swiss-context-window-ring");
+  renderContextWindowProgressRing();
+  renderContextWindowProgressRing();
+  renderContextWindowProgressRing();
+  assert.strictEqual(routerCalls.length, 1, "observer/render ticks must not loop the router synchronization");
+  assert.strictEqual(document.getElementById("swiss-context-window-ring"), stableRing, "route synchronization must not remount the ring");
+
+  location.pathname = "/c/" + explicitRouteId;
+  setVisible(explicitViewId);
+  const newChat = {
+    closest: (selector) => String(selector).includes("new-conversation-button") ? { setAttribute: () => {} } : null
+  };
+  window.__swissExplicitConversationNavigation = createExplicitConversationNavigationIntent(newChat, location, 1);
+  renderContextWindowProgressRing();
+  assert.strictEqual(routerCalls.length, 1, "route synchronization must not steal an explicit user navigation");
+  window.__swissExplicitConversationNavigation = null;
+
+  const loadingIdentity = { conversationId: null, phase: "loading", lastRenderedId: null, routeFallbackBlocked: false };
+  const loadingGenerations = {};
+  assert.strictEqual(
+    transitionConversationMetricIdentity(loadingIdentity, loadingGenerations, routedViewId, "/c/" + staleRouteId, true, true),
+    routedViewId,
+    "the rendered conversation must become the metric identity"
+  );
+  assert.strictEqual(
+    transitionConversationMetricIdentity(loadingIdentity, loadingGenerations, null, "/c/" + staleRouteId, false, true),
+    routedViewId,
+    "a transient loading gap must retain the real rendered metric identity"
+  );
+  assert.strictEqual(
+    transitionConversationMetricIdentity(loadingIdentity, loadingGenerations, null, "/c/" + staleRouteId, true, true),
+    null,
+    "a blank rendered view must invalidate the metric identity"
+  );
+  assert.strictEqual(
+    transitionConversationMetricIdentity(loadingIdentity, loadingGenerations, null, "/c/" + staleRouteId, false, true),
+    null,
+    "the blank-view route fence must survive a subsequent no-view tick"
+  );
+
+  location.pathname = "/c/" + fallbackRouteId;
+  location.search = "";
+  location.hash = "";
+  setVisible(fallbackViewId);
+  window.__TSR_ROUTER__ = null;
+  const replacements = [];
+  window.history = {
+    state: { hostState: "keep" },
+    replaceState: (state, title, url) => {
+      replacements.push({ state, title, url });
+      location.pathname = String(url).split("?")[0].split("#")[0];
+      location.search = "";
+      location.hash = "";
+    }
+  };
+  renderContextWindowProgressRing();
+  assert.strictEqual(replacements.length, 1, "history fallback must synchronize once when the host router is unavailable");
+  assert.strictEqual(replacements[0].url, "/c/" + fallbackViewId, "history fallback must address the rendered conversation");
+  assert.deepStrictEqual(replacements[0].state, { hostState: "keep" }, "history fallback must preserve host state");
+  renderContextWindowProgressRing();
+  assert.strictEqual(replacements.length, 1, "history fallback must not repeat on observer/render ticks");
+  assert(!popstateEvents.includes("popstate"), "route synchronization must not fabricate a popstate acknowledgement");
+
+  console.log("INTEGRATED_IDENTITY_OK");
+})().catch((error) => { console.error(error.stack || error); process.exit(1); });
+`)
+}

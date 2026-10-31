@@ -2571,6 +2571,93 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return isConversationId(visibleId) ? visibleId : parseConversationId(pathname);
     }
 
+    function createConversationMetricIdentityState() {
+      return {
+        conversationId: null,
+        phase: "loading",
+        lastRenderedId: null,
+        routeFallbackBlocked: false
+      };
+    }
+
+    function transitionConversationMetricIdentity(identity, requestGenerations, visibleId, pathname, renderedViewPresent, routeFallbackAllowed) {
+      const renderedId = isConversationId(visibleId) ? visibleId : null;
+      if (renderedId) {
+        identity.phase = "rendered";
+        identity.lastRenderedId = renderedId;
+        identity.routeFallbackBlocked = false;
+        return activateConversationIdentity(identity, requestGenerations, renderedId);
+      }
+      if (renderedViewPresent) {
+        identity.phase = "blank";
+        identity.routeFallbackBlocked = true;
+        return activateConversationIdentity(identity, requestGenerations, null);
+      }
+      if (identity.phase === "rendered" && isConversationId(identity.lastRenderedId)) {
+        return activateConversationIdentity(identity, requestGenerations, identity.lastRenderedId);
+      }
+      if (routeFallbackAllowed === false) {
+        identity.routeFallbackBlocked = true;
+      }
+      if (identity.routeFallbackBlocked) {
+        return activateConversationIdentity(identity, requestGenerations, null);
+      }
+      identity.phase = "loading";
+      return activateConversationIdentity(identity, requestGenerations, parseConversationId(pathname));
+    }
+
+    function replaceConversationRouteInHistory(conversationId, location, history) {
+      if (!isConversationId(conversationId) || !history || typeof history.replaceState !== "function") {
+        return false;
+      }
+      try {
+        const targetPath = "/c/" + conversationId +
+          ((location && location.search) || "") +
+          ((location && location.hash) || "");
+        history.replaceState(history.state, "", targetPath);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function synchronizeRenderedConversationRoute(state, visibleId, location, explicitIntent) {
+      if (!state) return "none";
+      if (isExplicitConversationNavigationActive(explicitIntent, location)) {
+        state.attemptedKey = "";
+        return "none";
+      }
+      if (!isConversationId(visibleId)) return "none";
+
+      const currentRoute = routeKeyForLocation(location);
+      if (parseConversationId(currentRoute) === visibleId) {
+        state.attemptedKey = "";
+        return "none";
+      }
+
+      const attemptedKey = visibleId + "\u0000" + currentRoute;
+      if (state.attemptedKey === attemptedKey) return "none";
+      state.attemptedKey = attemptedKey;
+
+      const targetPath = "/c/" + visibleId +
+        ((location && location.search) || "") +
+        ((location && location.hash) || "");
+      const router = window.__TSR_ROUTER__;
+      if (router && typeof router.navigate === "function") {
+        try {
+          router.navigate({ to: targetPath });
+          return "navigate";
+        } catch (_) {}
+      }
+
+      // The rendered conversation is authoritative, so mirroring its route in
+      // host history is safe as a fallback. Never reload or emit a fake popstate.
+      if (replaceConversationRouteInHistory(visibleId, location, window.history)) {
+        return "replaceState";
+      }
+      return "none";
+    }
+
     function beginConversationMetricRequest(requestGenerations, cacheKey) {
       const generation = (requestGenerations[cacheKey] || 0) + 1;
       requestGenerations[cacheKey] = generation;
@@ -3432,10 +3519,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     function resolveCurrentConversationId(el) {
-      return resolveConversationIdentity(getVisibleConversationId(el), window.location.pathname);
+      const visibleId = getVisibleConversationId(el);
+      return isConversationId(visibleId) ? visibleId : conversationMetricIdentity.conversationId;
     }
 
-    let conversationMetricIdentity = { conversationId: null };
+    let conversationMetricIdentity = createConversationMetricIdentityState();
+    let conversationRouteSyncState = { attemptedKey: "" };
     let conversationMetricRequestGenerations = {};
     let lastTokensFetchTimeByConv = {};
     let cachedTokensByConv = {};
@@ -3541,13 +3630,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         cachedTokensByConv = {};
         cachedContextWindowByConv = {};
         lastTokensFetchTimeByConv = {};
-        conversationMetricIdentity = { conversationId: null };
+        conversationMetricIdentity = createConversationMetricIdentityState();
         conversationMetricRequestGenerations = {};
       } else {
         cachedTokensByConv = {};
         cachedContextWindowByConv = {};
         lastTokensFetchTimeByConv = {};
-        conversationMetricIdentity = { conversationId: null };
+        conversationMetricIdentity = createConversationMetricIdentityState();
         conversationMetricRequestGenerations = {};
         syncConfigFromServer();
         renderContextWindowProgressRing();
@@ -3937,9 +4026,18 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         return;
       }
 
-      const visibleConversationId = getVisibleConversationId(document.querySelector('[data-testid="conversation-view"]'));
-      const parentConvId = resolveConversationIdentity(visibleConversationId, window.location.pathname);
-      activateConversationIdentity(conversationMetricIdentity, conversationMetricRequestGenerations, parentConvId);
+      const conversationView = document.querySelector('[data-testid="conversation-view"]');
+      const visibleConversationId = getVisibleConversationId(conversationView);
+      const explicitIntent = window.__swissExplicitConversationNavigation;
+      synchronizeRenderedConversationRoute(conversationRouteSyncState, visibleConversationId, window.location, explicitIntent);
+      const parentConvId = transitionConversationMetricIdentity(
+        conversationMetricIdentity,
+        conversationMetricRequestGenerations,
+        visibleConversationId,
+        window.location.pathname,
+        Boolean(conversationView),
+        !isExplicitConversationNavigationActive(explicitIntent, window.location)
+      );
 
       // Part 1: Main Conversation Chat Input (Model Selector Trigger)
       const trigger = document.querySelector('[data-testid="model-selector-trigger"]') ||
