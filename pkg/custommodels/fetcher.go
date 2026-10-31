@@ -220,15 +220,9 @@ func fetchGeminiModels(ctx context.Context, client *http.Client, baseURL string,
 	if err != nil {
 		return FetchModelsResponse{Success: false, Message: fmt.Sprintf("invalid endpoint url: %v", err)}
 	}
-	if apiKey != "" && u.Query().Get("key") == "" {
-		q := u.Query()
-		q.Set("key", apiKey)
-		u.RawQuery = q.Encode()
-	}
-
 	httpReq, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
 	if err != nil {
-		return FetchModelsResponse{Success: false, Message: err.Error()}
+		return FetchModelsResponse{Success: false, Message: fmt.Sprintf("invalid endpoint %s", SanitizeURL(endpoint))}
 	}
 	if apiKey != "" {
 		httpReq.Header.Set("x-goog-api-key", apiKey)
@@ -236,7 +230,7 @@ func fetchGeminiModels(ctx context.Context, client *http.Client, baseURL string,
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return FetchModelsResponse{Success: false, Message: fmt.Sprintf("network error: %v", err)}
+		return FetchModelsResponse{Success: false, Message: fmt.Sprintf("network error contacting %s", SanitizeURL(endpoint))}
 	}
 	defer resp.Body.Close()
 
@@ -429,7 +423,7 @@ func fetchOpenAIModels(ctx context.Context, client *http.Client, baseURL string,
 
 		httpReq, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 		if err != nil {
-			lastErrResp = FetchModelsResponse{Success: false, Message: err.Error()}
+			lastErrResp = FetchModelsResponse{Success: false, Message: fmt.Sprintf("invalid endpoint %s", SanitizeURL(endpoint))}
 			continue
 		}
 		if apiKey != "" {
@@ -442,7 +436,7 @@ func fetchOpenAIModels(ctx context.Context, client *http.Client, baseURL string,
 		if err != nil {
 			lastErrResp = FetchModelsResponse{
 				Success: false,
-				Message: fmt.Sprintf("Could not connect to %s: %v", endpoint, err),
+				Message: fmt.Sprintf("Could not connect to %s", SanitizeURL(endpoint)),
 			}
 			continue
 		}

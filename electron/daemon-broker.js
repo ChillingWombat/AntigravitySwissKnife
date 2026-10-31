@@ -22,6 +22,7 @@ const ALLOWED_ROUTES = Object.freeze({
   POST: new Set(PROJECT_ROUTE_PATHS.POST),
   DELETE: new Set(PROJECT_ROUTE_PATHS.DELETE),
 });
+const ALLOWED_PATH_PREFIXES = PROJECT_ROUTE_PATHS.PREFIXES;
 // Native approval is disabled for the exact project route set above.
 const PRIVILEGED_ROUTES = Object.freeze({
   GET: new Set(),
@@ -42,6 +43,14 @@ const SECRET_IN_TEXT = /(bearer\s+|token|secret|password|api[_-]?key)/i;
 // every registered project route is intentionally direct now.
 function isApprovalRoute() {
   return false;
+}
+
+function isAllowedRoute(method, pathname) {
+  if (ALLOWED_ROUTES[method].has(pathname)) {
+    return true;
+  }
+  const prefixes = ALLOWED_PATH_PREFIXES[method] || [];
+  return prefixes.some((prefix) => pathname.startsWith(prefix) && pathname.length > prefix.length);
 }
 
 function getSwissConfigDir(platform = process.platform, env = process.env, home = os.homedir()) {
@@ -311,7 +320,7 @@ function validateRequest(request, defaultTimeoutMs, configDir) {
     invalid('Daemon request must stay on the fixed loopback origin');
   }
   const requiresApproval = isApprovalRoute(method, url);
-  const routeIsAllowed = ALLOWED_ROUTES[method].has(url.pathname) ||
+  const routeIsAllowed = isAllowedRoute(method, url.pathname) ||
     (PRIVILEGED_ROUTES[method] && PRIVILEGED_ROUTES[method].has(url.pathname));
   if (!routeIsAllowed) {
     throw new DaemonBrokerError('ROUTE_NOT_ALLOWED', 'Daemon route is not allowlisted', 403);

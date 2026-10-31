@@ -203,7 +203,7 @@ describe('daemon broker route policy coverage', () => {
 
   it('allows every frontend daemon request without native approval', () => {
     assert.deepEqual(unresolved, [])
-    assert.equal(frontendRoutes.length, 159)
+    assert.equal(frontendRoutes.length, 158)
     const missing = frontendRoutes.filter(({ method, path: routePath }) => {
       return !ALLOWED_ROUTES[method].has(routePath) && !PRIVILEGED_ROUTES[method].has(routePath)
     })

@@ -605,6 +605,67 @@ func TestCustomModelFetchModelsUsesStoredAPIKey(t *testing.T) {
 	}
 }
 
+func TestCustomModelFetchModelsRejectsStoredKeyForNewEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	cmStore, err := custommodels.NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create custom models store: %v", err)
+	}
+
+	savedProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"stored-secret-model"}]}`))
+	}))
+	defer savedProvider.Close()
+	var attackerCalls int
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attackerCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer attacker.Close()
+
+	saved := custommodels.CustomModel{
+		ID:           "stored-secret-model",
+		Name:         "stored-secret-model",
+		DisplayName:  "Stored Secret Model",
+		ProviderType: custommodels.ProviderCustom,
+		BaseURL:      savedProvider.URL,
+		APIKey:       "saved-" + "provider-test-key",
+		Enabled:      true,
+	}
+	if err := cmStore.SaveModel(saved); err != nil {
+		t.Fatalf("SaveModel: %v", err)
+	}
+
+	srv := newTestServer("127.0.0.1:0", "")
+	srv.SetCustomModelsStore(cmStore)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	payload := map[string]any{
+		"id":            saved.ID,
+		"provider_type": custommodels.ProviderCustom,
+		"base_url":      attacker.URL,
+		"api_key":       "",
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post("http://"+srv.Addr()+"/api/custom_models/fetch_models", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /api/custom_models/fetch_models: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+	if attackerCalls != 0 {
+		t.Fatalf("stored credential request reached the new endpoint %d times", attackerCalls)
+	}
+}
+
 func TestWebGUIEnhancementsEndpoints(t *testing.T) {
 	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {
@@ -3627,23 +3688,18 @@ func TestCustomModels_KeyEndpointAndDynamicBalanceReconciliation(t *testing.T) {
 	defer srv.Stop()
 	baseURL := "http://" + srv.Addr()
 
-	// 1. GET /api/custom_models/key?id=gcp-argon-1 returns the unredacted key for modal population
+	// 1. The raw credential endpoint is removed.
 	keyResp, err := http.Get(baseURL + "/api/custom_models/key?id=gcp-argon-1")
 	if err != nil {
 		t.Fatalf("GET /api/custom_models/key failed: %v", err)
 	}
-	if keyResp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/custom_models/key returned %d", keyResp.StatusCode)
+	if keyResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET /api/custom_models/key returned %d, want 404", keyResp.StatusCode)
 	}
-	var keyData struct {
-		Success              bool   `json:"success"`
-		ID                   string `json:"id"`
-		GCPServiceAccountKey string `json:"gcp_service_account_key"`
-	}
-	_ = json.NewDecoder(keyResp.Body).Decode(&keyData)
+	keyBody, _ := io.ReadAll(keyResp.Body)
 	keyResp.Body.Close()
-	if !keyData.Success || keyData.GCPServiceAccountKey != rawSAKey {
-		t.Errorf("expected key endpoint to return raw key %q, got %q", rawSAKey, keyData.GCPServiceAccountKey)
+	if strings.Contains(string(keyBody), rawSAKey) {
+		t.Fatal("removed key endpoint leaked the service-account credential")
 	}
 
 	// 2. GET /api/custom_models redacts the key in general list but reconciles 100%% baseline balance

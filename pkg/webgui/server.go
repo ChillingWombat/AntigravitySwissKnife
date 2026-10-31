@@ -632,7 +632,6 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/custom_models/thinking_level", s.handleCustomModelThinkingLevel)
 	mux.HandleFunc("/api/custom_models/fetch_quota", s.handleCustomModelFetchQuota)
 	mux.HandleFunc("/api/custom_models/refresh_quotas", s.handleCustomModelRefreshQuotas)
-	mux.HandleFunc("/api/custom_models/key", s.handleCustomModelKey)
 	mux.HandleFunc("/api/custom_models/cli_status", s.handleCustomModelCLIStatus)
 	mux.HandleFunc("/api/custom_models/cli_setup", s.handleCustomModelCLISetup)
 	mux.HandleFunc("/api/custom_models/security-audit", s.handleCustomModelSecurityAudit)
@@ -3125,17 +3124,36 @@ func (s *Server) isGeminiQuotaExhausted() bool {
 	return len(accounts) > 0 && summary.Fleet5hGeminiAvailable <= 0 && summary.FleetWeeklyGeminiAvailable <= 0
 }
 
-func (s *Server) hydrateCustomModelSecrets(m *custommodels.CustomModel) {
+func customModelEndpointMatches(m custommodels.CustomModel, saved *custommodels.CustomModel) bool {
+	if saved == nil || m.ProviderType != saved.ProviderType {
+		return false
+	}
+	normalize := func(value string) string {
+		return strings.TrimRight(strings.TrimSpace(value), "/")
+	}
+	baseURL := normalize(m.BaseURL)
+	return baseURL != "" && strings.EqualFold(baseURL, normalize(saved.BaseURL))
+}
+
+func (s *Server) hydrateCustomModelSecrets(m *custommodels.CustomModel) error {
 	if m == nil || strings.TrimSpace(m.ID) == "" {
-		return
+		return nil
 	}
 	store := s.getCustomModelsStore()
 	if store == nil {
-		return
+		return nil
 	}
 	saved, err := store.GetModel(m.ID)
 	if err != nil || saved == nil {
-		return
+		return nil
+	}
+	needsAPIKey := (m.APIKey == "" || m.APIKey == "[REDACTED]") && saved.APIKey != ""
+	needsGCPKey := (m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]") && saved.GCPServiceAccountKey != ""
+	if !customModelEndpointMatches(*m, saved) {
+		if needsAPIKey || needsGCPKey {
+			return fmt.Errorf("re-enter credentials when changing the provider or endpoint")
+		}
+		return nil
 	}
 	if m.APIKey == "" || m.APIKey == "[REDACTED]" {
 		m.APIKey = saved.APIKey
@@ -3155,15 +3173,24 @@ func (s *Server) hydrateCustomModelSecrets(m *custommodels.CustomModel) {
 	if len(m.QuotaBuckets) == 0 && len(saved.QuotaBuckets) > 0 {
 		m.QuotaBuckets = saved.QuotaBuckets
 	}
+	return nil
 }
 
-func (s *Server) hydrateFetchModelsRequest(req *custommodels.FetchModelsRequest) {
+func (s *Server) hydrateFetchModelsRequest(req *custommodels.FetchModelsRequest) error {
 	if req == nil {
-		return
+		return nil
 	}
-	model := custommodels.CustomModel{ID: req.ID, APIKey: req.APIKey}
-	s.hydrateCustomModelSecrets(&model)
+	model := custommodels.CustomModel{
+		ID:           req.ID,
+		ProviderType: req.ProviderType,
+		BaseURL:      req.BaseURL,
+		APIKey:       req.APIKey,
+	}
+	if err := s.hydrateCustomModelSecrets(&model); err != nil {
+		return err
+	}
 	req.APIKey = model.APIKey
+	return nil
 }
 
 func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
@@ -3208,7 +3235,10 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 			}
 			m.ID = fmt.Sprintf("%s-%s-%d", prefix, slug, time.Now().Unix())
 		}
-		s.hydrateCustomModelSecrets(&m)
+		if err := s.hydrateCustomModelSecrets(&m); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		// Auto-derive balance or quota unless manually overridden by user
 		if !m.QuotaManualOverride {
 			quotaRes := custommodels.DetectAndFetchQuota(m)
@@ -3341,7 +3371,10 @@ func (s *Server) handleCustomModelTest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	s.hydrateCustomModelSecrets(&m)
+	if err := s.hydrateCustomModelSecrets(&m); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	tester := s.getCustomModelsTester()
 	res, err := tester.TestEndpoint(m)
 	if err != nil {
@@ -3698,7 +3731,10 @@ func (s *Server) handleCustomModelFetchModels(w http.ResponseWriter, r *http.Req
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	s.hydrateFetchModelsRequest(&req)
+	if err := s.hydrateFetchModelsRequest(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	res := custommodels.FetchModels(req)
 	writeJSON(w, res)
 }
@@ -3726,34 +3762,6 @@ func (s *Server) handleCustomModelThinkingLevel(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeJSON(w, map[string]interface{}{"success": true, "model_id": p.ModelID, "level": p.Level})
-}
-
-func (s *Server) handleCustomModelKey(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	id := strings.TrimSpace(r.URL.Query().Get("id"))
-	if id == "" {
-		http.Error(w, "missing model id parameter", http.StatusBadRequest)
-		return
-	}
-	store := s.getCustomModelsStore()
-	if store == nil {
-		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
-		return
-	}
-	model, err := store.GetModel(id)
-	if err != nil || model == nil {
-		http.Error(w, "model not found", http.StatusNotFound)
-		return
-	}
-	writeJSON(w, map[string]interface{}{
-		"success":                 true,
-		"id":                      model.ID,
-		"gcp_service_account_key": model.GCPServiceAccountKey,
-		"api_key":                 model.APIKey,
-	})
 }
 
 // handleCustomModelCLIStatus returns the installation and gateway status of agy CLI.
@@ -3794,7 +3802,10 @@ func (s *Server) handleCustomModelFetchQuota(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	s.hydrateCustomModelSecrets(&m)
+	if err := s.hydrateCustomModelSecrets(&m); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	res := custommodels.DetectAndFetchQuota(m)
 	inP, cacheP, outP, src := custommodels.FetchModelPricing(r.Context(), m.Name, string(m.ProviderType), m.BaseURL, m.APIKey)
 	res.InputPricePerM = inP
@@ -4742,7 +4753,10 @@ func (s *Server) handleCustomModelSecurityAudit(w http.ResponseWriter, r *http.R
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	s.hydrateCustomModelSecrets(&m)
+	if err := s.hydrateCustomModelSecrets(&m); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	auditor := custommodels.NewAuditor()
 	report := auditor.RunAudit(m)
 	if strings.TrimSpace(m.ID) != "" {

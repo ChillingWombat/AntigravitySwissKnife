@@ -72,6 +72,17 @@ test('every registered project method-and-path pair is exact-path allowlisted', 
   assert.equal(ALLOWED_ROUTES.GET.has('/api/not-a-real-route'), false);
 });
 
+test('method matrix follows handler capabilities', () => {
+  assert.equal(ALLOWED_ROUTES.GET.has('/api/custom_models/active'), false);
+  assert.equal(ALLOWED_ROUTES.POST.has('/api/custom_models/active'), true);
+  assert.equal(ALLOWED_ROUTES.GET.has('/api/memos/export'), false);
+  assert.equal(ALLOWED_ROUTES.POST.has('/api/memos/export'), true);
+  assert.equal(ALLOWED_ROUTES.GET.has('/api/rules/auto_switch'), true);
+  assert.equal(ALLOWED_ROUTES.GET.has('/api/gui/desktop/persistence'), true);
+  assert.equal(ALLOWED_ROUTES.GET.has('/api/files/open_ide'), true);
+  assert.equal(ALLOWED_ROUTES.POST.has('/api/accounts'), true);
+});
+
 test('all registered project routes execute without invoking native approval', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swiss-broker-routes-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -106,6 +117,40 @@ test('all registered project routes execute without invoking native approval', a
   assert.equal(
     fetches,
     PROJECT_ROUTE_PATHS.GET.length + PROJECT_ROUTE_PATHS.POST.length + PROJECT_ROUTE_PATHS.DELETE.length,
+  );
+});
+
+test('A2A task subtree routes are allowed without widening unrelated prefixes', async () => {
+  const calls = [];
+  const broker = createDaemonBroker({
+    getToken: () => 'main-process-secret',
+    requestApproval: async () => {
+      throw new Error('A2A subtasks must not request native approval');
+    },
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return fakeResponse(200, '{}');
+    },
+  });
+
+  const routes = [
+    ['GET', '/api/bridge/a2a/tasks/task-1'],
+    ['GET', '/api/bridge/a2a/tasks/task-1/events'],
+    ['POST', '/api/bridge/a2a/tasks/task-1/send'],
+    ['POST', '/api/bridge/a2a/tasks/task-1/cancel'],
+  ];
+  for (const [method, requestPath] of routes) {
+    const result = await broker.request({
+      method,
+      path: requestPath,
+      body: method === 'POST' ? '{}' : undefined,
+    });
+    assert.equal(result.status, 200, `${method} ${requestPath}`);
+  }
+  assert.equal(calls.length, routes.length);
+  await assert.rejects(
+    () => broker.request({ method: 'GET', path: '/api/bridge/a2a/tasksX/task-1' }),
+    { code: 'ROUTE_NOT_ALLOWED' },
   );
 });
 
@@ -254,7 +299,6 @@ test('sensitive reads and formerly privileged mutations are direct exact routes'
   const paths = [
     ['GET', '/api/accounts/export?email=person@example.com'],
     ['GET', '/api/totp?email=person@example.com'],
-    ['GET', '/api/custom_models/key?id=model-1'],
     ['GET', '/api/bridge/remote/config'],
     ['GET', '/api/bridge/channels/config?unredacted=true'],
     ['POST', '/api/custom_models'],
@@ -290,6 +334,10 @@ test('sensitive reads and formerly privileged mutations are direct exact routes'
     assert.equal(isApprovalRoute(method, requestPath), false, `${method} ${requestPath}`);
   }
   assert.equal(calls.length, paths.length);
+  await assert.rejects(
+    () => broker.request({ method: 'GET', path: '/api/custom_models/key?id=model-1' }),
+    { code: 'ROUTE_NOT_ALLOWED' },
+  );
 });
 
 test('approval body preview still redacts sensitive values for future reuse', () => {
