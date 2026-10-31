@@ -2,12 +2,14 @@ package custommodels
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type crap457FailingWriter struct{}
@@ -88,6 +90,19 @@ func TestCRAP457ProxyEnvelopeAndEmitter(t *testing.T) {
 	if model := proxy.resolveCustomModel(req, "deepseek-test"); model == nil || model.ID != "deepseek-test" {
 		t.Fatalf("resolveCustomModel(selected) = %+v", model)
 	}
+	cliReq := httptest.NewRequest(http.MethodPost, "/", nil)
+	cliReq.Header.Set("User-Agent", "antigravity/cli")
+	if model := proxy.resolveCustomModel(cliReq, "missing"); model != nil {
+		t.Fatalf("resolveCustomModel(cli) = %+v", model)
+	}
+	thinking := &CustomModel{SupportsThinking: true}
+	if !shouldApplyThinkingLevel(thinking) {
+		t.Fatal("shouldApplyThinkingLevel rejected eligible model")
+	}
+	applyThinkingLevelSuffix(thinking, "model-HIGH")
+	if thinking.ThinkingLevel != "high" {
+		t.Fatalf("applyThinkingLevelSuffix = %q", thinking.ThinkingLevel)
+	}
 
 	rr := httptest.NewRecorder()
 	if request, handled := decodeCustomModelRequest(rr, &customModelEnvelope{Request: []byte(`{`)}); handled != true || request != nil || rr.Code != http.StatusBadRequest {
@@ -134,6 +149,14 @@ func TestCRAP457VertexHelpersAndSSE(t *testing.T) {
 	}
 	if _, err := vertexBaseURL(&CustomModel{BaseURL: "aiplatform.googleapis.com"}, "global"); err == nil {
 		t.Fatal("vertexBaseURL accepted a URL without scheme")
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := vertexCallError(canceled, context.Background(), time.Second, errors.New("dial")); err == nil || !strings.Contains(err.Error(), "made no progress") {
+		t.Fatalf("vertexCallError timeout = %v", err)
+	}
+	if err := vertexCallError(context.Background(), context.Background(), time.Second, errors.New("dial")); err == nil || !strings.Contains(err.Error(), "call Vertex") {
+		t.Fatalf("vertexCallError transport = %v", err)
 	}
 
 	for _, tc := range []struct {

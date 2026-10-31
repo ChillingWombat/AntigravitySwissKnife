@@ -226,14 +226,22 @@ func (p *Proxy) resolveCustomModel(r *http.Request, requested string) *CustomMod
 	if model != nil {
 		return model
 	}
-	if strings.Contains(r.Header.Get("User-Agent"), "antigravity/cli") && strings.TrimSpace(requested) != "" {
+	if isAntigravityCLIRequest(r, requested) {
 		return nil
 	}
 	model = p.activeCustomModel()
-	if model != nil && model.ThinkingLevel == "" && model.SupportsThinking {
+	if shouldApplyThinkingLevel(model) {
 		applyThinkingLevelSuffix(model, requested)
 	}
 	return model
+}
+
+func isAntigravityCLIRequest(r *http.Request, requested string) bool {
+	return strings.Contains(r.Header.Get("User-Agent"), "antigravity/cli") && strings.TrimSpace(requested) != ""
+}
+
+func shouldApplyThinkingLevel(model *CustomModel) bool {
+	return model != nil && model.ThinkingLevel == "" && model.SupportsThinking
 }
 
 func applyThinkingLevelSuffix(model *CustomModel, requested string) {

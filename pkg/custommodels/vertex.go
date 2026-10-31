@@ -187,11 +187,7 @@ func vertexTarget(model *CustomModel) (string, string, error) {
 func vertexBaseURL(model *CustomModel, location string) (string, error) {
 	rawBase := strings.TrimRight(strings.TrimSpace(model.BaseURL), "/")
 	if rawBase == "" {
-		if location == "global" {
-			rawBase = "https://aiplatform.googleapis.com"
-		} else {
-			rawBase = fmt.Sprintf("https://%s-aiplatform.googleapis.com", location)
-		}
+		rawBase = defaultVertexBaseURL(location)
 	}
 	endpoint, err := url.Parse(rawBase)
 	if err != nil {
@@ -201,6 +197,13 @@ func vertexBaseURL(model *CustomModel, location string) (string, error) {
 		return "", errors.New("Vertex base URL must include scheme and host")
 	}
 	return rawBase, nil
+}
+
+func defaultVertexBaseURL(location string) string {
+	if location == "global" {
+		return "https://aiplatform.googleapis.com"
+	}
+	return fmt.Sprintf("https://%s-aiplatform.googleapis.com", location)
 }
 
 func consumeVertexSSE(body io.Reader, emit func(geminiResponse) error) error {
