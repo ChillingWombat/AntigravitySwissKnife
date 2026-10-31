@@ -1443,10 +1443,13 @@ console.log("BOOKMARK_MIGRATION_OK");
 func TestBrowserViewBookmarkDialogRecovery(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	normalizeAddress := extractJSHandlerBlock(t, js, "function normalizeBookmarkAddress")
+	closeDialog := extractJSHandlerBlock(t, js, "function closeBookmarkDialog")
 	openDialog := extractJSHandlerBlock(t, js, "function openBookmarkDialog")
 
 	if nodePath, err := exec.LookPath("node"); err == nil {
-		nodeScript := normalizeAddress + `
+		nodeScript := `let bookmarkDialogState = null;
+` + closeDialog + `
+` + normalizeAddress + `
 ` + openDialog + `
 const assert = require("assert");
 
@@ -3467,5 +3470,381 @@ func TestBuiltinBrowserBookmarkContract(t *testing.T) {
 		if !strings.Contains(js, token) {
 			t.Errorf("expected idempotent mount/cleanup token %q", token)
 		}
+	}
+}
+
+func TestBuiltinBrowserBookmarkDOMLifecycle(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	start := strings.Index(js, "const BOOKMARKS_KEY")
+	end := strings.Index(js, "function setupBuiltinBrowserEnhancements")
+	if start < 0 || end <= start {
+		t.Fatalf("generated bookmark lifecycle block not found: start=%d end=%d", start, end)
+	}
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required for bookmark DOM lifecycle coverage")
+	}
+
+	nodeScript := `
+const fs = require("fs");
+const bookmarkBlock = fs.readFileSync(0, "utf8");
+const assert = require("assert");
+const vm = require("vm");
+
+class MiniNode {
+  constructor(tagName, ownerDocument) {
+    this.tagName = tagName.toUpperCase();
+    this.ownerDocument = ownerDocument;
+    this.parentNode = null;
+    this.children = [];
+    this.attributes = new Map();
+    this.listeners = new Map();
+    this.style = {};
+    this.id = "";
+    this.className = "";
+    this.title = "";
+    this.type = "";
+    this.value = "";
+    this.textContent = "";
+    this.onclick = null;
+    this.onsubmit = null;
+    this._innerHTML = "";
+  }
+
+  get classList() {
+    const classes = this.className.split(/\s+/).filter(Boolean);
+    return {
+      contains: name => classes.includes(name)
+    };
+  }
+
+  get parentElement() {
+    return this.parentNode instanceof MiniNode ? this.parentNode : null;
+  }
+
+  get isConnected() {
+    let node = this;
+    while (node.parentNode) node = node.parentNode;
+    return node === this.ownerDocument;
+  }
+
+  get offsetWidth() {
+    return this.classList.contains("swiss-bookmark-menu") || this.classList.contains("swiss-bookmark-context") ? 320 : 0;
+  }
+
+  get offsetHeight() {
+    return this.classList.contains("swiss-bookmark-menu") || this.classList.contains("swiss-bookmark-context") ? 300 : 0;
+  }
+
+  set innerHTML(value) {
+    this._innerHTML = String(value);
+    if (this.classList.contains("swiss-bookmark-dialog-backdrop")) {
+      const form = new MiniNode("form", this.ownerDocument);
+      form.className = "swiss-bookmark-dialog";
+      const name = new MiniNode("input", this.ownerDocument);
+      name.setAttribute("data-swiss-bookmark-name", "");
+      const address = new MiniNode("input", this.ownerDocument);
+      address.setAttribute("data-swiss-bookmark-address", "");
+      const cancel = new MiniNode("button", this.ownerDocument);
+      cancel.setAttribute("data-swiss-bookmark-cancel", "");
+      form.appendChild(name);
+      form.appendChild(address);
+      form.appendChild(cancel);
+      this.appendChild(form);
+    }
+  }
+
+  get innerHTML() {
+    return this._innerHTML;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this.attributes.has(name) ? this.attributes.get(name) : null;
+  }
+
+  hasAttribute(name) {
+    return this.attributes.has(name);
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
+  appendChild(node) {
+    if (node.parentNode) node.remove();
+    node.parentNode = this;
+    this.children.push(node);
+    return node;
+  }
+
+  insertBefore(node, reference) {
+    if (!reference) return this.appendChild(node);
+    if (node.parentNode) node.remove();
+    const index = this.children.indexOf(reference);
+    node.parentNode = this;
+    this.children.splice(index, 0, node);
+    return node;
+  }
+
+  remove() {
+    if (!this.parentNode) return;
+    const index = this.parentNode.children.indexOf(this);
+    if (index >= 0) this.parentNode.children.splice(index, 1);
+    this.parentNode = null;
+    const active = this.ownerDocument.activeElement;
+    if (active && (active === this || this.contains(active))) {
+      this.ownerDocument.activeElement = this.ownerDocument.body;
+    }
+  }
+
+  replaceWith(node) {
+    const parent = this.parentNode;
+    if (!parent) return;
+    const index = parent.children.indexOf(this);
+    this.remove();
+    node.parentNode = parent;
+    parent.children.splice(index, 0, node);
+  }
+
+  contains(node) {
+    if (!node) return false;
+    if (node === this) return true;
+    return this.children.some(child => child.contains(node));
+  }
+
+  matches(selector) {
+    if (selector.startsWith("#")) return this.id === selector.slice(1);
+    if (selector.startsWith(".")) return this.classList.contains(selector.slice(1));
+    if (selector.startsWith("[")) {
+      const match = selector.match(/^\[([^=\]]+)(?:="([^"]*)")?\]$/);
+      if (!match) return false;
+      return this.attributes.get(match[1]) === (match[2] === undefined ? "" : match[2]);
+    }
+    return this.tagName === selector.toUpperCase();
+  }
+
+  closest(selector) {
+    let node = this;
+    while (node) {
+      if (node instanceof MiniNode && node.matches(selector)) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  querySelectorAll(selector) {
+    const found = [];
+    const visit = node => {
+      node.children.forEach(child => {
+        if (child.matches(selector)) found.push(child);
+        visit(child);
+      });
+    };
+    visit(this);
+    return found;
+  }
+
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
+
+  addEventListener(type, handler) {
+    const handlers = this.listeners.get(type) || [];
+    handlers.push(handler);
+    this.listeners.set(type, handlers);
+  }
+
+  removeEventListener(type, handler) {
+    const handlers = this.listeners.get(type) || [];
+    this.listeners.set(type, handlers.filter(candidate => candidate !== handler));
+  }
+
+  dispatchEvent(event) {
+    event.target = this;
+    if (!event.preventDefault) event.preventDefault = () => {};
+    const propertyHandler = this["on" + event.type];
+    if (typeof propertyHandler === "function") propertyHandler.call(this, event);
+    (this.listeners.get(event.type) || []).slice().forEach(handler => handler.call(this, event));
+    return true;
+  }
+
+  focus() {
+    this.ownerDocument.activeElement = this;
+  }
+
+  select() {}
+
+  setCustomValidity(message) {
+    this.validationMessage = message;
+  }
+
+  getBoundingClientRect() {
+    return { top: 0, right: this.offsetWidth, bottom: 24, left: 0, width: this.offsetWidth, height: 24 };
+  }
+}
+
+class MiniDocument {
+  constructor(window) {
+    this.defaultView = window;
+    this.listeners = new Map();
+    this.body = new MiniNode("body", this);
+    this.activeElement = this.body;
+  }
+
+  createElement(tagName) {
+    return new MiniNode(tagName, this);
+  }
+
+  querySelectorAll(selector) {
+    return this.body.querySelectorAll(selector);
+  }
+
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
+
+  addEventListener(type, handler) {
+    const handlers = this.listeners.get(type) || [];
+    handlers.push(handler);
+    this.listeners.set(type, handlers);
+  }
+
+  removeEventListener(type, handler) {
+    const handlers = this.listeners.get(type) || [];
+    this.listeners.set(type, handlers.filter(candidate => candidate !== handler));
+  }
+
+  dispatchEvent(event) {
+    if (!event.preventDefault) event.preventDefault = () => {};
+    (this.listeners.get(event.type) || []).slice().forEach(handler => handler.call(this, event));
+    return true;
+  }
+
+  listenerCount(type) {
+    return (this.listeners.get(type) || []).length;
+  }
+}
+
+function makeEnv() {
+  const windowListeners = new Map();
+  const windowObject = {
+    innerWidth: 1024,
+    innerHeight: 768,
+    confirm: () => true,
+    addEventListener(type, handler) {
+      const handlers = windowListeners.get(type) || [];
+      handlers.push(handler);
+      windowListeners.set(type, handlers);
+    },
+    removeEventListener(type, handler) {
+      const handlers = windowListeners.get(type) || [];
+      windowListeners.set(type, handlers.filter(candidate => candidate !== handler));
+    }
+  };
+  const document = new MiniDocument(windowObject);
+  const stored = new Map();
+  const localStorage = {
+    getItem: key => stored.has(key) ? stored.get(key) : null,
+    setItem: (key, value) => stored.set(key, String(value))
+  };
+  windowObject.document = document;
+  windowObject.localStorage = localStorage;
+
+  const context = vm.createContext({ console, document, window: windowObject, localStorage });
+  vm.runInContext(bookmarkBlock, context, { filename: "generated-bookmark-lifecycle.js" });
+
+  const pane = document.createElement("div");
+  pane.setAttribute("data-testid", "builtin-browser-pane");
+  const row = document.createElement("div");
+  row.appendChild(document.createElement("input"));
+  const camera = document.createElement("button");
+  camera.setAttribute("data-testid", "webview-url-bar-screenshot");
+  row.appendChild(camera);
+  pane.appendChild(row);
+  const oldWebview = document.createElement("webview");
+  pane.appendChild(oldWebview);
+  document.body.appendChild(pane);
+
+  const oldCalls = [];
+  const newCalls = [];
+  oldWebview.loadURL = url => oldCalls.push(url);
+  return { context, document, pane, camera, oldWebview, oldCalls, newCalls };
+}
+
+function click(node) {
+  node.dispatchEvent({ type: "click", bubbles: true, cancelable: true });
+}
+
+function openMainMenu(env) {
+  click(env.document.querySelector("#swiss-bookmark-star"));
+  return env.document.querySelector(".swiss-bookmark-menu");
+}
+
+const failures = [];
+function scenario(name, fn) {
+  try {
+    fn();
+    console.log("PASS " + name);
+  } catch (error) {
+    failures.push({ name, error: String(error && error.stack || error) });
+    console.log("FAIL " + name);
+  }
+}
+
+scenario("teardown removes open dialog and global listener without retaining overlay focus", () => {
+  const env = makeEnv();
+  env.context.setupNativeBookmarkButton(env.oldWebview);
+  const baselineKeydown = env.document.listenerCount("keydown");
+  const menu = openMainMenu(env);
+  click(menu.querySelector(".swiss-bookmark-menu-add"));
+  const backdrop = env.document.querySelector(".swiss-bookmark-dialog-backdrop");
+  assert(backdrop, "dialog backdrop was not created");
+  assert.strictEqual(env.document.listenerCount("keydown"), baselineKeydown + 1, "dialog key listener was not installed");
+
+  env.context.removeNativeBookmarkButtons();
+  assert(!env.document.querySelector(".swiss-bookmark-dialog-backdrop"), "dialog backdrop survived teardown");
+  assert(!env.document.querySelector(".swiss-bookmark-dialog"), "dialog form survived teardown");
+  assert(!env.document.querySelector("#swiss-bookmark-star"), "bookmark Star survived teardown");
+  assert.strictEqual(env.document.listenerCount("keydown"), baselineKeydown, "global dialog key listener survived teardown");
+  assert(!backdrop.contains(env.document.activeElement), "teardown retained focus inside the removed dialog");
+
+  env.context.removeNativeBookmarkButtons();
+  assert.strictEqual(env.document.listenerCount("keydown"), baselineKeydown, "repeated teardown changed listener state");
+});
+
+scenario("replaced webview routes bookmark selection to the live webview only", () => {
+  const env = makeEnv();
+  env.context.setupNativeBookmarkButton(env.oldWebview);
+  const newWebview = env.document.createElement("webview");
+  newWebview.loadURL = url => env.newCalls.push(url);
+  env.oldWebview.replaceWith(newWebview);
+
+  const address = env.context.getBookmarks()[0].address;
+  click(openMainMenu(env).querySelector(".swiss-bookmark-menu-row"));
+  assert.deepStrictEqual(env.newCalls, [address], "live webview did not receive the bookmark URL");
+  assert.deepStrictEqual(env.oldCalls, [], "detached webview received the bookmark URL");
+});
+
+if (failures.length) {
+  failures.forEach(failure => console.error("\n" + failure.name + "\n" + failure.error));
+  process.exitCode = 1;
+} else {
+  console.log("BOOKMARK_DOM_LIFECYCLE_OK");
+}
+`
+
+	cmd := exec.Command(nodePath, "-e", nodeScript)
+	cmd.Stdin = strings.NewReader(js[start:end])
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bookmark DOM lifecycle test failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "BOOKMARK_DOM_LIFECYCLE_OK") {
+		t.Fatalf("expected BOOKMARK_DOM_LIFECYCLE_OK, got:\n%s", string(out))
 	}
 }

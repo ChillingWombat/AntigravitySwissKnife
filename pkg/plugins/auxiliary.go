@@ -4348,6 +4348,7 @@ func GenerateAuxiliaryPluginsScript() string {
     ];
     const bookmarkAdapters = new Map();
     let bookmarkMenuState = null;
+    let bookmarkDialogState = null;
 
     function bookmarkId() {
       return "bm_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
@@ -4445,6 +4446,15 @@ func GenerateAuxiliaryPluginsScript() string {
       if (restoreFocus === true && state.trigger.isConnected) state.trigger.focus();
     }
 
+    function closeBookmarkDialog(restoreFocus) {
+      const state = bookmarkDialogState;
+      if (!state) return;
+      bookmarkDialogState = null;
+      document.removeEventListener("keydown", state.onKeyDown, true);
+      state.backdrop.remove();
+      if (restoreFocus === true && state.priorFocus && state.priorFocus.isConnected) state.priorFocus.focus();
+    }
+
     function positionBookmarkMenu(menu, trigger) {
       const rect = trigger.getBoundingClientRect();
       menu.style.left = Math.max(8, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8)) + "px";
@@ -4498,8 +4508,22 @@ func GenerateAuxiliaryPluginsScript() string {
       focusBookmarkItem(menu, "first");
     }
 
-    function selectBookmark(webview, bookmark) {
+    function currentBookmarkWebview(webview, trigger) {
+      let pane = null;
+      if (trigger && typeof trigger.closest === "function") {
+        pane = trigger.closest('[data-testid="builtin-browser-pane"]');
+      } else if (webview && typeof webview.closest === "function") {
+        pane = webview.closest('[data-testid="builtin-browser-pane"]');
+      }
+      const current = pane && pane.querySelector("webview");
+      if (current) return current;
+      const adapter = pane && bookmarkAdapters.get(pane);
+      return adapter ? adapter.webview : webview;
+    }
+
+    function selectBookmark(webview, bookmark, trigger) {
       closeBookmarkMenu(false);
+      webview = currentBookmarkWebview(webview, trigger);
       if (typeof webview.loadURL === "function") webview.loadURL(bookmark.address);
       else webview.src = bookmark.address;
     }
@@ -4510,7 +4534,7 @@ func GenerateAuxiliaryPluginsScript() string {
         const bookmarks = getBookmarks();
         bookmarks.push({ id: bookmarkId(), name: values.name, address: values.address });
         saveBookmarks(bookmarks);
-        openBookmarkMenu(webview, trigger, true);
+        openBookmarkMenu(currentBookmarkWebview(webview, trigger), trigger, true);
       });
     }
 
@@ -4521,7 +4545,7 @@ func GenerateAuxiliaryPluginsScript() string {
           ? { id: item.id, name: values.name, address: values.address }
           : item);
         saveBookmarks(bookmarks);
-        openBookmarkMenu(webview, trigger, true);
+        openBookmarkMenu(currentBookmarkWebview(webview, trigger), trigger, true);
       });
     }
 
@@ -4529,10 +4553,11 @@ func GenerateAuxiliaryPluginsScript() string {
       if (!window.confirm("Delete bookmark?")) return;
       saveBookmarks(getBookmarks().filter(item => item.id !== bookmark.id));
       closeBookmarkMenu(false);
-      openBookmarkMenu(webview, trigger, true);
+      openBookmarkMenu(currentBookmarkWebview(webview, trigger), trigger, true);
     }
 
     function openBookmarkDialog(bookmark, trigger, onSave) {
+      closeBookmarkDialog(false);
       const backdrop = document.createElement("div");
       backdrop.className = "swiss-bookmark-dialog-backdrop";
       backdrop.innerHTML = '<form class="swiss-bookmark-dialog">' +
@@ -4553,11 +4578,7 @@ func GenerateAuxiliaryPluginsScript() string {
       nameInput.addEventListener("input", () => nameInput.setCustomValidity(""));
       addressInput.addEventListener("input", () => addressInput.setCustomValidity(""));
       const priorFocus = trigger && trigger.isConnected ? trigger : document.activeElement;
-      const close = restoreFocus => {
-        document.removeEventListener("keydown", onKeyDown, true);
-        backdrop.remove();
-        if (restoreFocus && priorFocus && priorFocus.isConnected) priorFocus.focus();
-      };
+      const close = restoreFocus => closeBookmarkDialog(restoreFocus);
       const onKeyDown = e => {
         if (e.key !== "Escape") return;
         e.preventDefault();
@@ -4574,6 +4595,7 @@ func GenerateAuxiliaryPluginsScript() string {
         onSave({ name, address });
       };
       cancel.onclick = () => close(true);
+      bookmarkDialogState = { backdrop, onKeyDown, priorFocus };
       document.addEventListener("keydown", onKeyDown, true);
       nameInput.focus();
       nameInput.select();
@@ -4636,7 +4658,7 @@ func GenerateAuxiliaryPluginsScript() string {
         address.textContent = bookmark.address;
         row.appendChild(name);
         row.appendChild(address);
-        row.onclick = () => selectBookmark(webview, bookmark);
+        row.onclick = () => selectBookmark(webview, bookmark, trigger);
         row.addEventListener("contextmenu", e => {
           e.preventDefault();
           showBookmarkContextMenu(webview, trigger, bookmark, row);
@@ -4677,10 +4699,22 @@ func GenerateAuxiliaryPluginsScript() string {
     }
 
     function removeNativeBookmarkButtons() {
+      const restoreDialogFocus = bookmarkDialogState !== null;
+      let fallbackFocus = null;
+      if (restoreDialogFocus) {
+        bookmarkAdapters.forEach(entry => {
+          if (fallbackFocus) return;
+          const pane = entry.starButton.closest('[data-testid="builtin-browser-pane"]');
+          const camera = pane && pane.querySelector('[data-testid="webview-url-bar-screenshot"]');
+          if (camera && camera.isConnected && typeof camera.focus === "function") fallbackFocus = camera;
+        });
+      }
       closeBookmarkMenu(false);
+      closeBookmarkDialog(false);
       bookmarkAdapters.forEach(entry => entry.starButton.remove());
       bookmarkAdapters.clear();
       document.querySelectorAll("#swiss-bookmark-star").forEach(button => button.remove());
+      if (fallbackFocus) fallbackFocus.focus();
     }
 
     function setupNativeBookmarkButton(webview) {
@@ -4694,10 +4728,18 @@ func GenerateAuxiliaryPluginsScript() string {
         starButton = createBookmarkStar();
         camera.parentElement.insertBefore(starButton, camera);
       }
-      if (bookmarkAdapters.has(pane)) return;
-      const onClick = () => openBookmarkMenu(webview, starButton);
-      starButton.addEventListener("click", onClick);
-      bookmarkAdapters.set(pane, { starButton, onClick });
+      const existing = bookmarkAdapters.get(pane);
+      if (existing) {
+        existing.webview = webview;
+        return;
+      }
+      const adapter = {
+        starButton,
+        webview,
+        onClick: () => openBookmarkMenu(currentBookmarkWebview(webview, starButton), starButton)
+      };
+      starButton.addEventListener("click", adapter.onClick);
+      bookmarkAdapters.set(pane, adapter);
     }
 
     function setupBuiltinBrowserEnhancements() {
