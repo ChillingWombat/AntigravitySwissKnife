@@ -616,11 +616,12 @@ func TestConversationIdentity_ExplicitIntentRouteAgreementAndBlankReset(t *testi
   assert(ring && /149K/.test(ring.getAttribute("title")), "fixture must paint the old numeric ring before New Conversation");
   metricRequests.length = 0;
 
-  const newIntent = createExplicitConversationNavigationIntent(navigationElement("new"), location, 1);
+  const newChat = new NodeEl("button", "new-conversation-button");
+  document.body.appendChild(newChat);
+  emitDocument("click", newChat, true);
+  const newIntent = window.__swissExplicitConversationNavigation;
+  assert(newIntent, "the real document click listener must install a New Conversation intent");
   assert.strictEqual(newIntent.kind, "new_conversation", "fixture must create a New Conversation intent");
-  window.__swissExplicitConversationNavigation = newIntent;
-  invalidateConversationMetricIdentityForExplicitIntent(newIntent, conversationMetricIdentity, conversationMetricRequestGenerations);
-  renderContextWindowProgressRing();
   ring = document.getElementById("swiss-context-window-ring");
   assert.strictEqual(conversationMetricIdentity.conversationId, null, "New Conversation must invalidate identity immediately");
   assert.strictEqual(conversationMetricIdentity.phase, "blank", "New Conversation must enter blank identity immediately");
