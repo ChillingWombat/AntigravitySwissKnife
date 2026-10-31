@@ -34,9 +34,10 @@ const gatewayMaxBody = 32 * 1024 * 1024
 
 // Gateway serves custom models to Antigravity surfaces that support a gateway URL.
 type Gateway struct {
-	store         *Store
-	token         string
-	AllowLoopback bool
+	store                   *Store
+	token                   string
+	AllowLoopback           bool
+	vertexStreamIdleTimeout time.Duration
 	// client is overridable in tests.
 	client *http.Client
 }
@@ -44,9 +45,10 @@ type Gateway struct {
 // NewGateway builds a gateway over the custom model store.
 func NewGateway(store *Store) *Gateway {
 	return &Gateway{
-		store:         store,
-		token:         store.GatewayToken(),
-		AllowLoopback: core.IsRunningTests(),
+		store:                   store,
+		token:                   store.GatewayToken(),
+		AllowLoopback:           core.IsRunningTests(),
+		vertexStreamIdleTimeout: defaultVertexStreamIdleTimeout,
 		client: &http.Client{
 			Timeout: 300 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -226,7 +228,7 @@ func (g *Gateway) handleModelAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := g.runTurn(r, target, &request, emit); err != nil {
 			logProviderFailure("[llm-gateway]", target)
-			_ = emit(geminiResponse{Error: &geminiError{Code: 500, Message: err.Error(), Status: "INTERNAL"}})
+			_ = emit(providerFailureFrame(err))
 			return
 		}
 		_ = emit(geminiResponse{Candidates: []geminiCandidate{{
@@ -274,7 +276,35 @@ func (g *Gateway) runTurn(r *http.Request, model *CustomModel, request *geminiRe
 }
 
 func logProviderFailure(surface string, model *CustomModel) {
-	log.Printf("%s provider failure model=%q provider=%s", surface, model.ID, model.ProviderType)
+	log.Printf("%s provider failure stage=stream model=%q provider=%s", surface, model.ID, model.ProviderType)
+}
+
+const providerFailureTextLimit = 320
+
+// providerFailureFrame ends the stream without discarding the provider failure.
+// STOP is the terminal marker Antigravity recognizes; Error remains the result.
+func providerFailureFrame(err error) geminiResponse {
+	message := strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, strings.TrimSpace(err.Error()))), " ")
+	if message == "" {
+		message = "unknown provider error"
+	}
+	runes := []rune(message)
+	if len(runes) > providerFailureTextLimit {
+		message = string(runes[:providerFailureTextLimit]) + "..."
+	}
+	message = "Provider request failed: " + message
+	return geminiResponse{
+		Error: &geminiError{Code: 500, Message: message, Status: "INTERNAL"},
+		Candidates: []geminiCandidate{{
+			Content:      geminiContent{Role: "model", Parts: []geminiPart{{Text: message}}},
+			FinishReason: "STOP",
+		}},
+	}
 }
 
 // thinkingHeadroomTokens is the smallest max_tokens a reasoning model is given.
