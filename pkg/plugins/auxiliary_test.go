@@ -3912,7 +3912,11 @@ function makeEnv() {
     isTouchEmulationActive: false,
     setTimeout: () => 1,
     clearTimeout: () => {},
-    getComputedStyle: node => ({ position: node.style.position || "static" })
+    getComputedStyle: node => ({
+      position: node.style.position || "static",
+      positionAnchor: node.computedPositionAnchor || "",
+      anchorName: node.computedAnchorName || ""
+    })
   });
   vm.runInContext(bookmarkBlock, context, { filename: "generated-bookmark-lifecycle.js" });
 
@@ -4069,6 +4073,38 @@ scenario("portal anchor mounts one Star and preserves the body-level webview", (
   assert.strictEqual(env.pool.isConnected, true, "teardown removed the webview pool");
   assert.strictEqual(env.wrapper.isConnected, true, "teardown removed the portal wrapper");
   assert.strictEqual(env.oldWebview.parentElement, env.wrapper, "teardown moved the portaled webview");
+});
+
+scenario("computed auto does not shadow the portal wrapper anchor", () => {
+  const env = makePortalEnv();
+  env.oldWebview.remove();
+  const inner = env.document.createElement("div");
+  inner.computedPositionAnchor = "auto";
+  inner.appendChild(env.oldWebview);
+  env.wrapper.appendChild(inner);
+
+  const secondPane = env.document.createElement("div");
+  secondPane.setAttribute("data-testid", "builtin-browser-pane");
+  const secondRow = env.document.createElement("div");
+  secondRow.appendChild(env.document.createElement("input"));
+  const secondCamera = env.document.createElement("button");
+  secondCamera.setAttribute("data-testid", "webview-url-bar-screenshot");
+  secondRow.appendChild(secondCamera);
+  secondPane.appendChild(secondRow);
+  env.document.body.appendChild(secondPane);
+
+  env.context.setupNativeBookmarkButton(env.oldWebview);
+
+  const star = env.pane.querySelector("#swiss-bookmark-star");
+  assert(star, "computed position-anchor:auto hid the portal wrapper anchor");
+  assert.strictEqual(env.pane.querySelectorAll("#swiss-bookmark-star").length, 1, "computed-anchor setup duplicated the bookmark Star");
+  assert(!secondPane.querySelector("#swiss-bookmark-star"), "bookmark Star mounted in the wrong native pane");
+  assert.strictEqual(star.parentElement, env.camera.parentElement, "bookmark Star did not mount in the matched native URL form");
+  assert.strictEqual(
+    env.camera.parentElement.children.indexOf(star),
+    env.camera.parentElement.children.indexOf(env.camera) - 1,
+    "bookmark Star is not immediately before the matched camera"
+  );
 });
 
 scenario("single native pane is the safe fallback without anchor metadata", () => {

@@ -4885,7 +4885,10 @@ func GenerateAuxiliaryPluginsScript() string {
     }
 
     function browserAnchorNames(value) {
-      return String(value || "").split(",").map(name => name.trim()).filter(Boolean);
+      const absent = new Set(["auto", "none"]);
+      return String(value || "").split(",")
+        .map(name => name.trim())
+        .filter(name => name && !absent.has(name.toLowerCase()));
     }
 
     function webviewAnchorName(webview) {
