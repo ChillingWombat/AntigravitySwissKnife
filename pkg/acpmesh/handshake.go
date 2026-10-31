@@ -171,34 +171,51 @@ func probePiHandshake(ctx context.Context, agent Resolved, expandedBin string) H
 	ctx, cancel := boundPiHandshakeContext(ctx)
 	defer cancel()
 
-	var acpErr, piErr error
-	acpBin := resolvePiACPExecutable(expandedBin)
-	if acpBin != "" {
-		result := probeACPBin(ctx, agent, acpBin, nil, TransportStdioACP)
-		if result.Verified {
-			return result
-		}
-		acpErr = errors.New(firstNonEmpty(result.Error, result.Summary, "pi-acp handshake failed"))
+	acpResult, acpErr := probePiACPAttempt(ctx, agent, expandedBin)
+	if acpResult.Verified {
+		return acpResult
 	}
-
-	piBin := resolvePiExecutable(expandedBin, agent.BinaryPath)
-	if piBin != "" {
-		result := probePiRPC(ctx, agent, piBin)
-		if result.Verified {
-			if acpErr != nil {
-				result.Summary = fmt.Sprintf("%s (pi-acp fallback: %v)", result.Summary, acpErr)
-			}
-			return result
+	piResult, piErr := probePiRPCAttempt(ctx, agent, expandedBin)
+	if piResult.Verified {
+		if acpErr != nil {
+			piResult.Summary = fmt.Sprintf("%s (pi-acp fallback: %v)", piResult.Summary, acpErr)
 		}
-		piErr = errors.New(firstNonEmpty(result.Error, result.Summary, "pi-rpc handshake failed"))
+		return piResult
 	}
-
 	if strings.TrimSpace(agent.Endpoint) != "" {
 		result := probeSocketHandshake(agent)
 		if result.Reachable {
 			return result
 		}
 	}
+	return synthesizePiHandshakeFailure(agent, acpErr, piErr)
+}
+
+func probePiACPAttempt(ctx context.Context, agent Resolved, expandedBin string) (HandshakeResult, error) {
+	acpBin := resolvePiACPExecutable(expandedBin)
+	if acpBin == "" {
+		return HandshakeResult{}, nil
+	}
+	result := probeACPBin(ctx, agent, acpBin, nil, TransportStdioACP)
+	if result.Verified {
+		return result, nil
+	}
+	return HandshakeResult{}, errors.New(firstNonEmpty(result.Error, result.Summary, "pi-acp handshake failed"))
+}
+
+func probePiRPCAttempt(ctx context.Context, agent Resolved, expandedBin string) (HandshakeResult, error) {
+	piBin := resolvePiExecutable(expandedBin, agent.BinaryPath)
+	if piBin == "" {
+		return HandshakeResult{}, nil
+	}
+	result := probePiRPC(ctx, agent, piBin)
+	if result.Verified {
+		return result, nil
+	}
+	return HandshakeResult{}, errors.New(firstNonEmpty(result.Error, result.Summary, "pi-rpc handshake failed"))
+}
+
+func synthesizePiHandshakeFailure(agent Resolved, acpErr, piErr error) HandshakeResult {
 	result := newHandshakeResult(agent, TransportPiRPC)
 	switch {
 	case acpErr != nil && piErr != nil:
