@@ -1975,6 +1975,200 @@ code .swiss-inchat-metrics {
   font-family: monospace;
   font-size: 11px;
 }
+
+/* Bookmarks: native address-bar Star and body-attached menus. */
+.swiss-bookmark-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+}
+.swiss-bookmark-star:hover,
+.swiss-bookmark-star[aria-expanded="true"] {
+  border-color: var(--border, #cbd5e1);
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text, #1e293b);
+}
+.swiss-bookmark-star:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 1px;
+}
+.swiss-bookmark-star-icon {
+  display: block;
+}
+.swiss-bookmark-menu,
+.swiss-bookmark-context {
+  position: fixed;
+  z-index: 100000;
+  box-sizing: border-box;
+  min-width: 228px;
+  max-width: min(360px, calc(100vw - 16px));
+  max-height: min(420px, calc(100vh - 16px));
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 8px;
+  background: var(--canvas, #ffffff);
+  color: var(--text, #1e293b);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.swiss-bookmark-menu-add,
+.swiss-bookmark-menu-row,
+.swiss-bookmark-context .swiss-context-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.swiss-bookmark-menu-add {
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  border-radius: 5px 5px 0 0;
+  margin-bottom: 3px;
+  font-weight: 600;
+}
+.swiss-bookmark-menu-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+.swiss-bookmark-menu-add:hover,
+.swiss-bookmark-menu-add:focus-visible,
+.swiss-bookmark-menu-row:hover,
+.swiss-bookmark-menu-row:focus-visible,
+.swiss-bookmark-context .swiss-context-item:hover,
+.swiss-bookmark-context .swiss-context-item:focus-visible {
+  background: rgba(148, 163, 184, 0.16);
+  outline: none;
+}
+.swiss-bookmark-menu-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.swiss-bookmark-menu-address {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted, #64748b);
+  font-size: 10px;
+}
+.swiss-bookmark-context .swiss-context-item.is-danger {
+  color: #b91c1c;
+}
+.swiss-bookmark-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.36);
+}
+.swiss-bookmark-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 360px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 8px;
+  background: var(--canvas, #ffffff);
+  color: var(--text, #1e293b);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.24);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.swiss-bookmark-dialog-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.swiss-bookmark-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted, #64748b);
+  font-size: 10px;
+  font-weight: 600;
+}
+.swiss-bookmark-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text, #1e293b);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.swiss-bookmark-field input:focus {
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.14);
+}
+.swiss-bookmark-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.swiss-bookmark-dialog-actions button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.swiss-bookmark-dialog-actions button[type="submit"] {
+  border-color: #1a73e8;
+  background: #1a73e8;
+  color: #ffffff;
+}
+:is(.dark, [data-theme="dark"]) .swiss-bookmark-menu,
+:is(.dark, [data-theme="dark"]) .swiss-bookmark-context,
+:is(.dark, [data-theme="dark"]) .swiss-bookmark-dialog {
+  background: var(--card, #1e293b);
+  border-color: var(--border, #334155);
+  color: var(--foreground, #f8fafc);
+}
+:is(.dark, [data-theme="dark"]) .swiss-bookmark-menu-add {
+  border-bottom-color: var(--border, #334155);
+}
+:is(.dark, [data-theme="dark"]) .swiss-bookmark-field input {
+  color: var(--foreground, #f8fafc);
+  border-color: #475569;
+}
+:is(.dark, [data-theme="dark"]) .swiss-bookmark-star:hover,
+:is(.dark, [data-theme="dark"]) .swiss-bookmark-star[aria-expanded="true"] {
+  color: var(--foreground, #f8fafc);
+  border-color: #475569;
+}
 ` + "\n" + GenerateGitHubExtensionCSS()
 }
 
@@ -2831,41 +3025,10 @@ func GenerateAuxiliaryPluginsScript() string {
       const wrap = document.createElement("div");
       wrap.className = "swiss-browser-view";
 
-      // Two-tier Toolbar
+      // Annotation toolbar
       const toolbar = document.createElement("div");
       toolbar.className = "swiss-browser-toolbar";
       toolbar.innerHTML = ` + "`" + `
-        <div class="swiss-browser-nav-row">
-          <button class="swiss-browser-btn" id="swiss-b-back" title="Back"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
-          <button class="swiss-browser-btn" id="swiss-b-fwd" title="Forward"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
-          <button class="swiss-browser-btn" id="swiss-b-refresh" title="Reload"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
-          <input type="text" class="swiss-browser-url-input" id="swiss-b-url" value="${currentBrowserUrl}" placeholder="http://localhost:8765" />
-          <div class="swiss-browser-port-bar">
-            <span class="swiss-port-label">Quick Ports:</span>
-            <div class="swiss-port-list" id="swiss-port-list">
-              <button class="swiss-port-chip" data-port="8765" title="Antigravity Swiss Knife (Right-click to delete)">:8765</button>
-              <button class="swiss-port-chip" data-port="5173" title="Vite Development Server (Right-click to delete)">:5173</button>
-              <button class="swiss-port-chip" data-port="3000" title="React / Next.js Server (Right-click to delete)">:3000</button>
-              <button class="swiss-port-chip" data-port="8080" title="Standard Web Server (Right-click to delete)">:8080</button>
-              <button class="swiss-port-chip" data-port="4173" title="Vite Production Preview (Right-click to delete)">:4173</button>
-            </div>
-            <div class="swiss-port-dropdown-wrap" id="swiss-port-dropdown-wrap">
-              <select class="swiss-port-select" id="swiss-port-select" title="Quick Ports (Right-click to delete)">
-                <option value="" disabled selected>Quick Ports</option>
-                <option value="8765">:8765 (Swiss Knife)</option>
-                <option value="5173">:5173 (Vite)</option>
-                <option value="3000">:3000 (React)</option>
-                <option value="8080">:8080 (Web)</option>
-                <option value="4173">:4173 (Preview)</option>
-                <option value="__add__">+ Add Port...</option>
-              </select>
-            </div>
-            <div class="swiss-port-add-box" id="swiss-port-add-box">
-              <button class="swiss-port-add-btn" id="swiss-port-add-btn" title="Add Port" type="button"><svg class="swiss-port-add-icon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-              <input type="text" class="swiss-port-add-input" id="swiss-port-add-input" placeholder="Port..." maxlength="8" />
-            </div>
-          </div>
-        </div>
         <div class="swiss-browser-tools-row">
           <div class="swiss-browser-device-group">
             <select class="swiss-browser-btn" id="swiss-b-device" title="Device Frame" style="outline:none;">
@@ -3040,329 +3203,6 @@ func GenerateAuxiliaryPluginsScript() string {
         window.__swissBrowserCanvasRO = canvasRO;
       }
 
-      // URL Navigation & Port Chips
-      function navigateBrowser(url) {
-        let finalUrl = url.trim();
-        if (/^:\d+$/.test(finalUrl)) {
-          finalUrl = "http://localhost" + finalUrl;
-        } else if (!/^https?:\/\//i.test(finalUrl)) {
-          if (/^(localhost|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?/i.test(finalUrl)) {
-            finalUrl = "http://" + finalUrl;
-          } else {
-            finalUrl = "https://" + finalUrl;
-          }
-        }
-        currentBrowserUrl = finalUrl;
-        const urlInput = toolbar.querySelector("#swiss-b-url");
-        if (urlInput) urlInput.value = finalUrl;
-        if (isWebview && typeof webview.loadURL === "function") {
-          webview.loadURL(finalUrl);
-        } else {
-          webview.src = finalUrl;
-        }
-        updateActivePortChip(finalUrl);
-      }
-
-      function updateActivePortChip(url) {
-        const match = url.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
-        const activePort = match ? match[1] : null;
-        toolbar.querySelectorAll(".swiss-port-chip").forEach(chip => {
-          chip.classList.toggle("active", chip.dataset.port === activePort);
-        });
-        const portSelect = toolbar.querySelector("#swiss-port-select");
-        if (portSelect) {
-          if (activePort && Array.from(portSelect.options).some(o => o.value === activePort)) {
-            portSelect.value = activePort;
-            portSelect.classList.add("active");
-          } else {
-            portSelect.value = "";
-            portSelect.classList.remove("active");
-          }
-        }
-      }
-
-      // Toolbar event handlers
-      const urlInput = toolbar.querySelector("#swiss-b-url");
-      urlInput.onkeydown = (e) => {
-        if (e.key === "Enter") {
-          navigateBrowser(urlInput.value);
-        }
-      };
-      toolbar.querySelector("#swiss-b-refresh").onclick = () => {
-        if (webview.reload) webview.reload();
-        else webview.src = currentBrowserUrl;
-      };
-      toolbar.querySelector("#swiss-b-back").onclick = () => {
-        if (webview.goBack) webview.goBack();
-      };
-      toolbar.querySelector("#swiss-b-fwd").onclick = () => {
-        if (webview.goForward) webview.goForward();
-      };
-
-      const updateUrlFromWebview = (u) => {
-        if (!u || u === "about:blank") return;
-        currentBrowserUrl = u;
-        const inp = toolbar.querySelector("#swiss-b-url");
-        if (inp && document.activeElement !== inp) inp.value = u;
-        updateActivePortChip(u);
-      };
-      try {
-        webview.addEventListener("did-navigate", (e) => updateUrlFromWebview(e.url));
-        webview.addEventListener("did-navigate-in-page", (e) => updateUrlFromWebview(e.url));
-      } catch (_) {}
-
-      // Quick Ports Management & localStorage persistence
-      const QUICK_PORTS_KEY = "antigravity_swiss_quick_ports";
-      const DEFAULT_PORTS = ["8765", "5173", "3000", "8080", "4173"];
-      const PORT_TITLES = {
-        "5173": "Vite Development Server",
-        "3000": "React / Next.js Server",
-        "8080": "Standard Web Server",
-        "8765": "Antigravity Swiss Knife",
-        "4173": "Vite Production Preview"
-      };
-
-      function getSavedPorts() {
-        try {
-          const raw = localStorage.getItem(QUICK_PORTS_KEY);
-          if (raw !== null) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-              return parsed
-                .map(p => String(p).replace(/^:/, "").trim())
-                .filter(p => /^\d+$/.test(p) && parseInt(p, 10) >= 1 && parseInt(p, 10) <= 65535);
-            }
-          }
-        } catch (_) {}
-        return [...DEFAULT_PORTS];
-      }
-
-      function savePorts(ports) {
-        try {
-          localStorage.setItem(QUICK_PORTS_KEY, JSON.stringify(ports));
-        } catch (_) {}
-      }
-
-      function renderQuickPorts() {
-        const portList = toolbar.querySelector("#swiss-port-list");
-        const portSelect = toolbar.querySelector("#swiss-port-select");
-        const ports = getSavedPorts();
-
-        if (portList) {
-          portList.innerHTML = "";
-          ports.forEach(port => {
-            const chip = document.createElement("button");
-            chip.type = "button";
-            chip.className = "swiss-port-chip";
-            chip.setAttribute("data-port", port);
-            chip.dataset.port = port;
-            const desc = PORT_TITLES[port]
-              ? (PORT_TITLES[port] + " (Right-click to delete)")
-              : ("Port :" + port + " (Right-click to delete)");
-            chip.title = desc;
-            chip.textContent = ":" + port;
-
-            chip.onclick = () => {
-              navigateBrowser("http://localhost:" + port);
-            };
-
-            chip.oncontextmenu = (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              showPortContextMenu(port, e.clientX, e.clientY);
-            };
-
-            portList.appendChild(chip);
-          });
-        }
-
-        if (portSelect) {
-          portSelect.innerHTML = "";
-          const placeholder = document.createElement("option");
-          placeholder.value = "";
-          placeholder.disabled = true;
-          placeholder.selected = true;
-          placeholder.textContent = "Quick Ports";
-          portSelect.appendChild(placeholder);
-
-          ports.forEach(port => {
-            const opt = document.createElement("option");
-            opt.value = port;
-            const shortDesc = {
-              "5173": ":5173 (Vite)",
-              "3000": ":3000 (React)",
-              "8080": ":8080 (Web)",
-              "8765": ":8765 (Swiss Knife)",
-              "4173": ":4173 (Preview)"
-            }[port] || (":" + port);
-            opt.textContent = shortDesc;
-            portSelect.appendChild(opt);
-          });
-
-          const addOpt = document.createElement("option");
-          addOpt.value = "__add__";
-          addOpt.textContent = "+ Add Port...";
-          portSelect.appendChild(addOpt);
-        }
-
-        updateActivePortChip(currentBrowserUrl);
-      }
-
-      function showPortContextMenu(port, x, y) {
-        const menu = document.createElement("div");
-        menu.className = "swiss-context-menu";
-        menu.setAttribute("class", "swiss-context-menu");
-        menu.innerHTML = '<div class="swiss-context-item" id="ctx-port-open"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg><span>Open http://localhost:' + port + '</span></div>' +
-          '<div class="swiss-context-item" id="ctx-port-copy"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><span>Copy URL</span></div>' +
-          '<div class="swiss-context-divider"></div>' +
-          '<div class="swiss-context-item" id="ctx-port-delete" style="color:#ef4444;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg><span>Delete :' + port + '</span></div>';
-
-        menu.querySelector("#ctx-port-open").onclick = (e) => {
-          e.stopPropagation();
-          removeContextMenu();
-          navigateBrowser("http://localhost:" + port);
-        };
-
-        menu.querySelector("#ctx-port-copy").onclick = (e) => {
-          e.stopPropagation();
-          removeContextMenu();
-          navigator.clipboard.writeText("http://localhost:" + port);
-          showToast("URL copied to clipboard!");
-        };
-
-        menu.querySelector("#ctx-port-delete").onclick = (e) => {
-          e.stopPropagation();
-          removeContextMenu();
-          deletePort(port);
-        };
-
-        positionContextMenu(menu, x, y);
-      }
-
-      function deletePort(portToDelete) {
-        const ports = getSavedPorts().filter(p => String(p) !== String(portToDelete));
-        savePorts(ports);
-        renderQuickPorts();
-        showToast("Port :" + portToDelete + " removed");
-      }
-
-      // Add Port Box Interactions
-      const addBox = toolbar.querySelector("#swiss-port-add-box");
-      const addBtn = toolbar.querySelector("#swiss-port-add-btn");
-      const addInput = toolbar.querySelector("#swiss-port-add-input");
-
-      function openAddPort() {
-        if (!addBox) return;
-        addBox.classList.add("expanded");
-        if (addBtn) addBtn.title = "Cancel";
-        setTimeout(() => {
-          if (addInput) {
-            addInput.focus();
-            addInput.select();
-          }
-          addBox.scrollIntoView({ block: "nearest", inline: "nearest" });
-        }, 50);
-      }
-
-      function closeAddPort() {
-        if (!addBox) return;
-        addBox.classList.remove("expanded");
-        if (addBtn) addBtn.title = "Add Port";
-        if (addInput) addInput.value = "";
-      }
-
-      function submitNewPort() {
-        if (!addInput) return;
-        const rawVal = addInput.value.trim();
-        if (!rawVal) {
-          closeAddPort();
-          return;
-        }
-        const cleanVal = rawVal.replace(/^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)?:?/, "").trim();
-        const portNum = parseInt(cleanVal, 10);
-        if (!/^\d+$/.test(cleanVal) || isNaN(portNum) || portNum < 1 || portNum > 65535) {
-          showToast("Invalid port number (1-65535)", "warning");
-          addInput.focus();
-          addInput.select();
-          return;
-        }
-        const portStr = String(portNum);
-        const ports = getSavedPorts();
-        if (!ports.includes(portStr)) {
-          ports.push(portStr);
-          savePorts(ports);
-          renderQuickPorts();
-          showToast("Port :" + portStr + " saved");
-        } else {
-          showToast("Port :" + portStr + " already exists", "warning");
-        }
-        closeAddPort();
-        navigateBrowser("http://localhost:" + portStr);
-      }
-
-      if (addBtn) {
-        addBtn.onclick = (e) => {
-          e.stopPropagation();
-          if (addBox.classList.contains("expanded")) {
-            closeAddPort();
-          } else {
-            openAddPort();
-          }
-        };
-      }
-
-      if (addInput) {
-        addInput.onkeydown = (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            submitNewPort();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            closeAddPort();
-          }
-        };
-      }
-
-      const onOutsideAddPortMousedown = (e) => {
-        if (addBox && addBox.classList.contains("expanded") && !addBox.contains(e.target)) {
-          closeAddPort();
-        }
-      };
-      if (window.__swissAddPortMousedown) {
-        document.removeEventListener("mousedown", window.__swissAddPortMousedown);
-      }
-      window.__swissAddPortMousedown = onOutsideAddPortMousedown;
-      document.addEventListener("mousedown", onOutsideAddPortMousedown);
-      // Dropdown Select Interactions
-      const portSelect = toolbar.querySelector("#swiss-port-select");
-      if (portSelect) {
-        portSelect.onchange = async () => {
-          const val = portSelect.value;
-          const match = currentBrowserUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
-          const activePort = match ? match[1] : null;
-          const ports = getSavedPorts();
-
-          if (val === "__add__") {
-            portSelect.value = (activePort && ports.includes(activePort)) ? activePort : "";
-            openAddPort();
-            return;
-          }
-          if (val) {
-            navigateBrowser("http://localhost:" + val);
-          }
-        };
-
-        portSelect.oncontextmenu = (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const match = currentBrowserUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
-          const port = (match && match[1]) || (portSelect.value && portSelect.value !== "__add__" ? portSelect.value : null);
-          if (port) {
-            showPortContextMenu(port, e.clientX, e.clientY);
-          }
-        };
-      }
-
       // Responsive Toolbar Check (Container Query fallback & width-based class toggling)
       function updateToolbarResponsiveness() {
         if (!toolbar) return;
@@ -3382,11 +3222,10 @@ func GenerateAuxiliaryPluginsScript() string {
       updateToolbarResponsiveness();
 
       // Mousewheel Horizontal Scrolling for single-row preservation on narrow panels
-      const navRow = toolbar.querySelector(".swiss-browser-nav-row");
       const toolsRow = toolbar.querySelector(".swiss-browser-tools-row");
       const devGroup = toolbar.querySelector(".swiss-browser-device-group");
       const annGroup = toolbar.querySelector(".swiss-browser-annotation-group");
-      [navRow, toolsRow, devGroup, annGroup].forEach(row => {
+      [toolsRow, devGroup, annGroup].forEach(row => {
         if (!row) return;
         row.addEventListener("wheel", (e) => {
           if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && row.scrollWidth > row.clientWidth) {
@@ -3395,7 +3234,6 @@ func GenerateAuxiliaryPluginsScript() string {
         }, { passive: true });
       });
 
-      renderQuickPorts();
 
       // Scaling & Fit
       function applyDeviceScale() {
@@ -4499,8 +4337,370 @@ func GenerateAuxiliaryPluginsScript() string {
       return true;
     }
 
+    const BOOKMARKS_KEY = "antigravity_swiss_browser_bookmarks_v1";
+    const LEGACY_QUICK_PORTS_KEY = "antigravity_swiss_quick_ports";
+    const DEFAULT_BOOKMARKS = [
+      { name: "Antigravity Swiss Knife", address: "http://localhost:8765" },
+      { name: "Vite Development Server", address: "http://localhost:5173" },
+      { name: "React / Next.js Server", address: "http://localhost:3000" },
+      { name: "Standard Web Server", address: "http://localhost:8080" },
+      { name: "Vite Production Preview", address: "http://localhost:4173" }
+    ];
+    const bookmarkAdapters = new Map();
+    let bookmarkMenuState = null;
+
+    function bookmarkId() {
+      return "bm_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+    }
+
+    function normalizeBookmarkAddress(value) {
+      const address = String(value || "").trim();
+      if (!address) return "";
+      return /^[a-z][a-z0-9+.-]*:\/\//i.test(address) ? address : "http://" + address;
+    }
+
+    function bookmarkFrom(entry, preserveId = false) {
+      if (!entry || typeof entry.name !== "string" || typeof entry.address !== "string") return null;
+      const name = entry.name.trim();
+      const address = normalizeBookmarkAddress(entry.address);
+      if (!name || !address) return null;
+      const id = preserveId && typeof entry.id === "string" && entry.id ? entry.id : bookmarkId();
+      return { id, name, address };
+    }
+
+    function dedupeBookmarks(entries, preserveId = false) {
+      const seen = new Set();
+      const bookmarks = [];
+      entries.forEach(entry => {
+        const bookmark = bookmarkFrom(entry, preserveId);
+        if (!bookmark || seen.has(bookmark.address)) return;
+        seen.add(bookmark.address);
+        bookmarks.push(bookmark);
+      });
+      return bookmarks;
+    }
+
+    function legacyBookmark(entry) {
+      if (entry && typeof entry === "object") {
+        const port = String(entry.port || "").trim();
+        const address = entry.address || entry.url || (port ? "http://localhost:" + port : "");
+        const name = entry.name || entry.label || (port ? "Localhost :" + port : address);
+        return { name, address };
+      }
+      const text = String(entry || "").trim();
+      const match = text.match(/(?:^|:)(\d+)\/?$/);
+      const port = match ? match[1] : (/^\d+$/.test(text) ? text : "");
+      const preset = DEFAULT_BOOKMARKS.find(item => port && item.address.endsWith(":" + port));
+      return {
+        name: preset ? preset.name : (port ? "Localhost :" + port : text),
+        address: preset ? preset.address : text
+      };
+    }
+
+    function migrateQuickPorts(legacy) {
+      const values = Array.isArray(legacy) && legacy.length ? legacy : DEFAULT_BOOKMARKS;
+      const seen = new Set();
+      const bookmarks = [];
+      values.forEach(value => {
+        const entry = legacyBookmark(value);
+        if (!entry.name || !entry.address) return;
+        const bookmark = { id: bookmarkId(), name: entry.name, address: entry.address };
+        if (seen.has(bookmark.address)) return;
+        seen.add(bookmark.address);
+        bookmarks.push(bookmark);
+      });
+      return bookmarks;
+    }
+
+    function saveBookmarks(bookmarks) {
+      localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks));
+    }
+
+    function getBookmarks() {
+      try {
+        const stored = localStorage.getItem(BOOKMARKS_KEY);
+        if (stored !== null) {
+          const parsed = JSON.parse(stored);
+          return Array.isArray(parsed) ? dedupeBookmarks(parsed, true) : [];
+        }
+        const legacyRaw = localStorage.getItem(LEGACY_QUICK_PORTS_KEY);
+        const legacy = legacyRaw ? JSON.parse(legacyRaw) : DEFAULT_BOOKMARKS;
+        const migrated = migrateQuickPorts(legacy);
+        saveBookmarks(migrated);
+        return migrated;
+      } catch (_) {
+        return migrateQuickPorts(DEFAULT_BOOKMARKS);
+      }
+    }
+
+    function closeBookmarkMenu(restoreFocus) {
+      const state = bookmarkMenuState;
+      if (!state) return;
+      bookmarkMenuState = null;
+      document.removeEventListener("mousedown", state.onOutside, true);
+      document.removeEventListener("keydown", state.onKeyDown, true);
+      window.removeEventListener("resize", closeBookmarkMenu);
+      state.menu.remove();
+      state.trigger.setAttribute("aria-expanded", "false");
+      if (restoreFocus === true && state.trigger.isConnected) state.trigger.focus();
+    }
+
+    function positionBookmarkMenu(menu, trigger) {
+      const rect = trigger.getBoundingClientRect();
+      menu.style.left = Math.max(8, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8)) + "px";
+      const top = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - menu.offsetHeight - 8));
+      menu.style.top = top + "px";
+      menu.style.visibility = "visible";
+    }
+
+    function focusBookmarkItem(menu, direction) {
+      const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+      if (!items.length) return;
+      let index = items.indexOf(document.activeElement);
+      if (direction === "first") index = 0;
+      else if (direction === "last") index = items.length - 1;
+      else index = index === -1 ? (direction > 0 ? 0 : items.length - 1) : (index + direction + items.length) % items.length;
+      items[index].focus();
+    }
+
+    function handleBookmarkMenuKey(e) {
+      if (!bookmarkMenuState) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeBookmarkMenu(true);
+        return;
+      }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        focusBookmarkItem(bookmarkMenuState.menu, e.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
+      if (e.key === "Home" || e.key === "End") {
+        e.preventDefault();
+        focusBookmarkItem(bookmarkMenuState.menu, e.key === "Home" ? "first" : "last");
+        return;
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        focusBookmarkItem(bookmarkMenuState.menu, e.shiftKey ? -1 : 1);
+      }
+    }
+
+    function bindBookmarkMenu(menu, trigger) {
+      const onOutside = e => {
+        if (!menu.contains(e.target) && !trigger.contains(e.target)) closeBookmarkMenu(false);
+      };
+      bookmarkMenuState = { menu, trigger, onOutside, onKeyDown: handleBookmarkMenuKey };
+      document.addEventListener("mousedown", onOutside, true);
+      document.addEventListener("keydown", handleBookmarkMenuKey, true);
+      window.addEventListener("resize", closeBookmarkMenu);
+      trigger.setAttribute("aria-expanded", "true");
+      focusBookmarkItem(menu, "first");
+    }
+
+    function selectBookmark(webview, bookmark) {
+      closeBookmarkMenu(false);
+      if (typeof webview.loadURL === "function") webview.loadURL(bookmark.address);
+      else webview.src = bookmark.address;
+    }
+
+    function addBookmark(webview, trigger) {
+      closeBookmarkMenu(false);
+      openBookmarkDialog(null, trigger, values => {
+        const bookmarks = getBookmarks();
+        bookmarks.push({ id: bookmarkId(), name: values.name, address: values.address });
+        saveBookmarks(bookmarks);
+        openBookmarkMenu(webview, trigger, true);
+      });
+    }
+
+    function updateBookmark(webview, trigger, bookmark) {
+      closeBookmarkMenu(false);
+      openBookmarkDialog(bookmark, trigger, values => {
+        const bookmarks = getBookmarks().map(item => item.id === bookmark.id
+          ? { id: item.id, name: values.name, address: values.address }
+          : item);
+        saveBookmarks(bookmarks);
+        openBookmarkMenu(webview, trigger, true);
+      });
+    }
+
+    function deleteBookmark(webview, trigger, bookmark) {
+      if (!window.confirm("Delete bookmark?")) return;
+      saveBookmarks(getBookmarks().filter(item => item.id !== bookmark.id));
+      closeBookmarkMenu(false);
+      openBookmarkMenu(webview, trigger, true);
+    }
+
+    function openBookmarkDialog(bookmark, trigger, onSave) {
+      const backdrop = document.createElement("div");
+      backdrop.className = "swiss-bookmark-dialog-backdrop";
+      backdrop.innerHTML = '<form class="swiss-bookmark-dialog">' +
+        '<div class="swiss-bookmark-dialog-title">' + (bookmark ? "Edit bookmark" : "Add bookmark") + '</div>' +
+        '<label class="swiss-bookmark-field"><span>Name</span><input data-swiss-bookmark-name type="text" autocomplete="off"></label>' +
+        '<label class="swiss-bookmark-field"><span>Address</span><input data-swiss-bookmark-address type="text" autocomplete="off" spellcheck="false"></label>' +
+        '<div class="swiss-bookmark-dialog-actions"><button type="button" data-swiss-bookmark-cancel>Cancel</button><button type="submit">Save</button></div>' +
+        '</form>';
+      document.body.appendChild(backdrop);
+      const form = backdrop.querySelector("form");
+      const nameInput = backdrop.querySelector("[data-swiss-bookmark-name]");
+      const addressInput = backdrop.querySelector("[data-swiss-bookmark-address]");
+      const cancel = backdrop.querySelector("[data-swiss-bookmark-cancel]");
+      if (bookmark) {
+        nameInput.value = bookmark.name;
+        addressInput.value = bookmark.address;
+      }
+      const priorFocus = trigger && trigger.isConnected ? trigger : document.activeElement;
+      const close = restoreFocus => {
+        document.removeEventListener("keydown", onKeyDown, true);
+        backdrop.remove();
+        if (restoreFocus && priorFocus && priorFocus.isConnected) priorFocus.focus();
+      };
+      const onKeyDown = e => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        close(true);
+      };
+      form.onsubmit = e => {
+        e.preventDefault();
+        const name = nameInput.value.trim();
+        const address = normalizeBookmarkAddress(addressInput.value);
+        nameInput.setCustomValidity(name ? "" : "Required");
+        addressInput.setCustomValidity(address ? "" : "Required");
+        if (!name || !address) return;
+        close(false);
+        onSave({ name, address });
+      };
+      cancel.onclick = () => close(true);
+      document.addEventListener("keydown", onKeyDown, true);
+      nameInput.focus();
+      nameInput.select();
+    }
+
+    function showBookmarkContextMenu(webview, trigger, bookmark, row) {
+      const rect = row.getBoundingClientRect();
+      closeBookmarkMenu(false);
+      const menu = document.createElement("div");
+      menu.className = "swiss-context-menu swiss-bookmark-context";
+      menu.setAttribute("role", "menu");
+      menu.setAttribute("aria-label", bookmark.name);
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "swiss-context-item";
+      edit.setAttribute("role", "menuitem");
+      edit.textContent = "Edit";
+      edit.onclick = () => updateBookmark(webview, trigger, bookmark);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "swiss-context-item is-danger";
+      remove.setAttribute("role", "menuitem");
+      remove.textContent = "Delete";
+      remove.onclick = () => deleteBookmark(webview, trigger, bookmark);
+      menu.appendChild(edit);
+      menu.appendChild(remove);
+      document.body.appendChild(menu);
+      positionBookmarkMenu(menu, { getBoundingClientRect: () => rect });
+      bindBookmarkMenu(menu, trigger);
+    }
+
+    function openBookmarkMenu(webview, trigger, forceOpen = false) {
+      if (bookmarkMenuState && bookmarkMenuState.trigger === trigger && !forceOpen) {
+        closeBookmarkMenu(true);
+        return;
+      }
+      closeBookmarkMenu(false);
+      const menu = document.createElement("div");
+      menu.className = "swiss-bookmark-menu";
+      menu.setAttribute("role", "menu");
+      menu.setAttribute("aria-label", "Bookmarks");
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "swiss-bookmark-menu-add";
+      add.setAttribute("role", "menuitem");
+      add.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span>Add</span>';
+      add.onclick = () => addBookmark(webview, trigger);
+      menu.appendChild(add);
+      getBookmarks().forEach(bookmark => {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "swiss-bookmark-menu-row";
+        row.setAttribute("role", "menuitem");
+        row.title = bookmark.address;
+        const name = document.createElement("span");
+        name.className = "swiss-bookmark-menu-name";
+        name.textContent = bookmark.name;
+        const address = document.createElement("span");
+        address.className = "swiss-bookmark-menu-address";
+        address.textContent = bookmark.address;
+        row.appendChild(name);
+        row.appendChild(address);
+        row.onclick = () => selectBookmark(webview, bookmark);
+        row.addEventListener("contextmenu", e => {
+          e.preventDefault();
+          showBookmarkContextMenu(webview, trigger, bookmark, row);
+        });
+        row.addEventListener("keydown", e => {
+          if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+            e.preventDefault();
+            showBookmarkContextMenu(webview, trigger, bookmark, row);
+          }
+        });
+        menu.appendChild(row);
+      });
+      menu.style.visibility = "hidden";
+      document.body.appendChild(menu);
+      positionBookmarkMenu(menu, trigger);
+      bindBookmarkMenu(menu, trigger);
+    }
+
+    function createBookmarkStar() {
+      const starButton = document.createElement("button");
+      starButton.type = "button";
+      starButton.id = "swiss-bookmark-star";
+      starButton.className = "swiss-bookmark-star";
+      starButton.title = "Bookmarks";
+      starButton.setAttribute("aria-label", "Bookmarks");
+      starButton.setAttribute("aria-expanded", "false");
+      starButton.innerHTML = '<svg class="swiss-bookmark-star-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+      return starButton;
+    }
+
+    function cleanupBookmarkAdapters() {
+      bookmarkAdapters.forEach((entry, pane) => {
+        if (pane.isConnected && entry.starButton.isConnected) return;
+        entry.starButton.removeEventListener("click", entry.onClick);
+        if (bookmarkMenuState && bookmarkMenuState.trigger === entry.starButton) closeBookmarkMenu(false);
+        bookmarkAdapters.delete(pane);
+      });
+    }
+
+    function removeNativeBookmarkButtons() {
+      closeBookmarkMenu(false);
+      bookmarkAdapters.forEach(entry => entry.starButton.remove());
+      bookmarkAdapters.clear();
+      document.querySelectorAll("#swiss-bookmark-star").forEach(button => button.remove());
+    }
+
+    function setupNativeBookmarkButton(webview) {
+      const pane = webview.closest('[data-testid="builtin-browser-pane"]');
+      if (!pane) return;
+      cleanupBookmarkAdapters();
+      let starButton = pane.querySelector("#swiss-bookmark-star");
+      if (!starButton) {
+        const camera = pane.querySelector('[data-testid="webview-url-bar-screenshot"]');
+        if (!camera || !camera.parentElement) return;
+        starButton = createBookmarkStar();
+        camera.parentElement.insertBefore(starButton, camera);
+      }
+      if (bookmarkAdapters.has(pane)) return;
+      const onClick = () => openBookmarkMenu(webview, starButton);
+      starButton.addEventListener("click", onClick);
+      bookmarkAdapters.set(pane, { starButton, onClick });
+    }
+
     function setupBuiltinBrowserEnhancements() {
       if (!isBrowserEnhancementEnabled()) {
+        removeNativeBookmarkButtons();
         document.querySelectorAll(".swiss-browser-view.swiss-builtin-browser-view").forEach(v => {
           if (typeof v.__swissTeardown === "function") {
             try { v.__swissTeardown(); } catch (_) {}
@@ -4509,6 +4709,7 @@ func GenerateAuxiliaryPluginsScript() string {
         });
         return;
       }
+      cleanupBookmarkAdapters();
 
       const webviews = Array.from(document.querySelectorAll("webview"));
       webviews.forEach(wv => {
@@ -4517,6 +4718,7 @@ func GenerateAuxiliaryPluginsScript() string {
             wv.closest?.(".script-jail, .auth-modal, .modal-popup")) {
           return;
         }
+        setupNativeBookmarkButton(wv);
         if (wv.__swissEnhanced) {
           const wrap = wv.closest(".swiss-browser-view");
           if (wrap && wrap.isConnected) return;
@@ -8103,6 +8305,7 @@ func GenerateAuxiliaryPluginsScript() string {
           if (t.classList?.contains("swiss-browser-toolbar") || t.closest?.(".swiss-browser-toolbar")) return false;
           if (t.classList?.contains("swiss-browser-canvas-overlay") || t.closest?.(".swiss-browser-canvas-overlay")) return false;
           if (t.classList?.contains("swiss-builtin-browser-view") || t.closest?.(".swiss-builtin-browser-view")) return false;
+          if (t.id === "swiss-bookmark-star" || t.closest?.(".swiss-bookmark-menu, .swiss-bookmark-context, .swiss-bookmark-dialog-backdrop")) return false;
         }
         return true;
       });
