@@ -984,10 +984,24 @@ func (s *Store) RestoreProject(nameOrID string) error {
 	return nil
 }
 
+// ValidateProjectName rejects identifiers that could escape the project config directory.
+func ValidateProjectName(name string) error {
+	if name == "" || name == "." || name == ".." || filepath.IsAbs(name) || filepath.Base(name) != name {
+		return fmt.Errorf("invalid project name")
+	}
+	if strings.ContainsAny(name, `/\:`) || strings.ContainsRune(name, 0) {
+		return fmt.Errorf("invalid project name")
+	}
+	return nil
+}
+
 // DeleteProject deletes a project from configuration and archived tracking.
 func (s *Store) DeleteProject(nameOrID string) error {
-	s.mu.Lock()
 	nameOrID = strings.TrimSpace(nameOrID)
+	if err := ValidateProjectName(nameOrID); err != nil {
+		return err
+	}
+	s.mu.Lock()
 
 	// Remove from archived projects
 	newArchived := make([]string, 0, len(s.config.ArchivedProjects))
