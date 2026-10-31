@@ -2649,70 +2649,65 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       };
     }
 
+    function clearConversationRouteSyncTimer(state) {
+      const timer = state.timer;
+      state.timer = null;
+      if (timer === null || timer === undefined) return;
+      try {
+        if (typeof clearTimeout === "function") clearTimeout(timer);
+      } catch (_) {}
+    }
+
     function cancelConversationRouteSync(state) {
       if (!state) return;
-      if (state.timer !== null && state.timer !== undefined && typeof clearTimeout === "function") {
-        try { clearTimeout(state.timer); } catch (_) {}
-      }
+      clearConversationRouteSyncTimer(state);
       state.key = "";
       state.visibleId = "";
       state.sourceRoute = "";
       state.targetPath = "";
       state.routerAttempts = 0;
       state.pending = false;
-      state.timer = null;
       state.explicitIntent = null;
     }
 
-    function scheduleConversationRouteSyncAck(state) {
-      if (!state) return;
-      state.pending = true;
-      if (typeof setTimeout !== "function") {
-        state.pending = false;
-        return;
-      }
-      state.timer = setTimeout(() => {
-        state.timer = null;
-        state.pending = false;
-        acknowledgeRenderedConversationRoute(state);
-      }, SWISS_ROUTE_SYNC_ACK_DELAY_MS);
+    function conversationRouteSyncIntentSignature(intent) {
+      if (!intent) return "";
+      return [
+        intent.kind || "",
+        intent.targetRoute || "",
+        intent.targetConversationId || "",
+        Boolean(intent.pending)
+      ].join("\u0000");
     }
 
-    function acknowledgeRenderedConversationRoute(state) {
-      if (!state || !isConversationId(state.visibleId)) {
-        cancelConversationRouteSync(state);
-        return "none";
-      }
-      const location = window.location;
+    function conversationRouteSyncKey(visibleId, sourceRoute, targetPath, explicitIntent) {
+      return [
+        visibleId,
+        sourceRoute,
+        targetPath,
+        conversationRouteSyncIntentSignature(explicitIntent)
+      ].join("\u0000");
+    }
+
+    function conversationRouteSyncIsSettled(state, visibleId, currentRoute, location, explicitIntent) {
+      if (!state) return true;
+      if (!isConversationId(visibleId)) return true;
+      if (explicitConversationNavigationFencesRenderedRoute(explicitIntent, location, visibleId)) return true;
+      return parseConversationId(currentRoute) === visibleId;
+    }
+
+    function conversationRouteSyncIsObsolete(state, location) {
+      if (!state) return true;
       const visibleId = state.visibleId;
-      if (parseConversationId(location.pathname) === visibleId) {
-        cancelConversationRouteSync(state);
-        return "none";
-      }
-      if (explicitConversationNavigationFencesRenderedRoute(state.explicitIntent, location, visibleId)) {
-        cancelConversationRouteSync(state);
-        return "none";
-      }
+      if (!isConversationId(visibleId)) return true;
+      if (parseConversationId(location.pathname) === visibleId) return true;
+      if (explicitConversationNavigationFencesRenderedRoute(state.explicitIntent, location, visibleId)) return true;
       // A route changed by some other actor supersedes this acknowledgement.
-      if (routeKeyForLocation(location) !== state.sourceRoute) {
-        cancelConversationRouteSync(state);
-        return "none";
-      }
+      return routeKeyForLocation(location) !== state.sourceRoute;
+    }
 
-      const router = window.__TSR_ROUTER__;
-      if (router && typeof router.navigate === "function" &&
-          state.routerAttempts < SWISS_ROUTE_SYNC_MAX_NAVIGATE_ATTEMPTS) {
-        try {
-          router.navigate({ to: state.targetPath });
-          state.routerAttempts += 1;
-          scheduleConversationRouteSyncAck(state);
-          return "navigate";
-        } catch (_) {}
-      }
-
-      // The rendered conversation is authoritative, so mirroring its route in
-      // host history is safe as a fallback. Never reload or emit a fake popstate.
-      if (replaceConversationRouteInHistory(visibleId, location, window.history)) {
+    function fallbackConversationRouteSync(state) {
+      if (replaceConversationRouteInHistory(state.visibleId, window.location, window.history)) {
         cancelConversationRouteSync(state);
         return "replaceState";
       }
@@ -2720,19 +2715,47 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return "none";
     }
 
-    function synchronizeRenderedConversationRoute(state, visibleId, location, explicitIntent) {
-      if (!state) return "none";
-      if (!isConversationId(visibleId)) {
-        cancelConversationRouteSync(state);
-        return "none";
-      }
-      if (explicitConversationNavigationFencesRenderedRoute(explicitIntent, location, visibleId)) {
-        cancelConversationRouteSync(state);
-        return "none";
-      }
+    function scheduleConversationRouteSyncAck(state) {
+      state.pending = true;
+      const scheduledKey = state.key;
+      state.timer = setTimeout(() => {
+        // clearTimeout may be unavailable or raced by a host shim; a stale
+        // callback must never act on the replacement key.
+        if (state.key !== scheduledKey) return;
+        state.timer = null;
+        state.pending = false;
+        acknowledgeRenderedConversationRoute(state);
+      }, SWISS_ROUTE_SYNC_ACK_DELAY_MS);
+    }
 
+    function navigateRenderedConversationRoute(state) {
+      const router = window.__TSR_ROUTER__;
+      if (!router || typeof router.navigate !== "function") {
+        return fallbackConversationRouteSync(state);
+      }
+      try {
+        router.navigate({ to: state.targetPath });
+        state.routerAttempts += 1;
+        scheduleConversationRouteSyncAck(state);
+        return "navigate";
+      } catch (_) {}
+      return fallbackConversationRouteSync(state);
+    }
+
+    function acknowledgeRenderedConversationRoute(state) {
+      if (conversationRouteSyncIsObsolete(state, window.location)) {
+        cancelConversationRouteSync(state);
+        return "none";
+      }
+      if (state.routerAttempts >= SWISS_ROUTE_SYNC_MAX_NAVIGATE_ATTEMPTS) {
+        return fallbackConversationRouteSync(state);
+      }
+      return navigateRenderedConversationRoute(state);
+    }
+
+    function synchronizeRenderedConversationRoute(state, visibleId, location, explicitIntent) {
       const currentRoute = routeKeyForLocation(location);
-      if (parseConversationId(currentRoute) === visibleId) {
+      if (conversationRouteSyncIsSettled(state, visibleId, currentRoute, location, explicitIntent)) {
         cancelConversationRouteSync(state);
         return "none";
       }
@@ -2740,7 +2763,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const targetPath = "/c/" + visibleId +
         ((location && location.search) || "") +
         ((location && location.hash) || "");
-      const targetKey = visibleId + "\u0000" + currentRoute + "\u0000" + targetPath;
+      const targetKey = conversationRouteSyncKey(visibleId, currentRoute, targetPath, explicitIntent);
       if (state.key !== targetKey) {
         cancelConversationRouteSync(state);
         state.key = targetKey;
@@ -2751,23 +2774,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       state.explicitIntent = explicitIntent;
       if (state.pending) return "pending";
       if (state.routerAttempts > 0) return acknowledgeRenderedConversationRoute(state);
-
-      const router = window.__TSR_ROUTER__;
-      if (router && typeof router.navigate === "function") {
-        try {
-          router.navigate({ to: targetPath });
-          state.routerAttempts = 1;
-          scheduleConversationRouteSyncAck(state);
-          return "navigate";
-        } catch (_) {}
-      }
-
-      if (replaceConversationRouteInHistory(visibleId, location, window.history)) {
-        cancelConversationRouteSync(state);
-        return "replaceState";
-      }
-      cancelConversationRouteSync(state);
-      return "none";
+      return navigateRenderedConversationRoute(state);
     }
 
     function beginConversationMetricRequest(requestGenerations, cacheKey) {

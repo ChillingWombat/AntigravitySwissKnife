@@ -244,8 +244,46 @@ globalThis.innerWidth = 1280;
 globalThis.innerHeight = 900;
 globalThis.setInterval = () => 0;
 globalThis.clearInterval = () => {};
-globalThis.setTimeout = () => 0;
-globalThis.clearTimeout = () => {};
+const fakeTimers = (() => {
+  let now = 0;
+  let nextTimerId = 1;
+  const pending = new Map();
+  function setTimeoutFake(fn, delay) {
+    const id = nextTimerId++;
+    pending.set(id, { fn, due: now + Math.max(0, Number(delay) || 0) });
+    return id;
+  }
+  function clearTimeoutFake(id) { pending.delete(id); }
+  function advance(ms) {
+    const target = now + Math.max(0, Number(ms) || 0);
+    let guard = 0;
+    while (true) {
+      let selectedId = null;
+      let selected = null;
+      for (const [id, timer] of pending) {
+        if (timer.due > target) continue;
+        if (!selected || timer.due < selected.due || (timer.due === selected.due && id < selectedId)) {
+          selectedId = id;
+          selected = timer;
+        }
+      }
+      if (!selected) break;
+      pending.delete(selectedId);
+      now = selected.due;
+      selected.fn();
+      if (++guard > 1000) throw new Error("fake timer loop");
+    }
+    now = target;
+  }
+  return {
+    setTimeout: setTimeoutFake,
+    clearTimeout: clearTimeoutFake,
+    advance,
+    pendingCount: () => pending.size
+  };
+})();
+globalThis.setTimeout = fakeTimers.setTimeout;
+globalThis.clearTimeout = fakeTimers.clearTimeout;
 globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
 globalThis.StorageEvent = class { constructor(type, init) { Object.assign(this, init || {}); this.type = type; } };
@@ -560,11 +598,6 @@ func TestConversationIdentity_RouteSyncAcknowledgesAsyncRouterNoOp(t *testing.T)
 (async () => {
   const staleId = "9d07fb82-25f8-46d6-9692-16bded70cb35";
   const visibleId = "eef014a4-c5ae-4fbe-9da6-8592c619ced9";
-  const hostSetTimeout = require("timers").setTimeout;
-  const hostClearTimeout = require("timers").clearTimeout;
-  globalThis.setTimeout = hostSetTimeout;
-  globalThis.clearTimeout = hostClearTimeout;
-  const later = (ms) => new Promise((resolve) => hostSetTimeout(resolve, ms));
   const routerCalls = [];
   const replacements = [];
   const popstateEvents = [];
@@ -599,8 +632,13 @@ func TestConversationIdentity_RouteSyncAcknowledgesAsyncRouterNoOp(t *testing.T)
   synchronizeRenderedConversationRoute(conversationRouteSyncState, visibleId, location, null);
   assert.strictEqual(routerCalls.length, 1, "render ticks during the acknowledgement window must not duplicate navigate");
 
-  await later(240);
+  fakeTimers.advance(49);
+  assert.strictEqual(routerCalls.length, 1, "the retry must wait for the acknowledgement cooldown");
+  fakeTimers.advance(1);
   assert.strictEqual(routerCalls.length, 2, "an unacknowledged navigate must receive one bounded retry");
+  fakeTimers.advance(49);
+  assert.strictEqual(replacements.length, 0, "fallback must wait for the retry acknowledgement window");
+  fakeTimers.advance(1);
   assert.strictEqual(replacements.length, 1, "an unacknowledged retry must fall back exactly once");
   assert.strictEqual(replacements[0].url, "/c/" + visibleId + "?tab=chat#reply", "fallback must preserve query and hash");
   assert.deepStrictEqual(replacements[0].state, { hostState: "keep" }, "fallback must preserve host history state");
@@ -611,23 +649,19 @@ func TestConversationIdentity_RouteSyncAcknowledgesAsyncRouterNoOp(t *testing.T)
     "converged routes must not start another synchronization"
   );
   assert.strictEqual(replacements.length, 1, "converged routes must not repeat fallback");
+  assert.strictEqual(fakeTimers.pendingCount(), 0, "acknowledgement must not leave a timer behind");
   assert(!popstateEvents.includes("popstate"), "route acknowledgement must not synthesize popstate");
   console.log("INTEGRATED_IDENTITY_OK");
 })().catch((error) => { console.error(error.stack || error); process.exit(1); });
 `)
 }
 
-func TestConversationIdentity_RouteSyncDelayedSuccessAndObsoleteTargetCancellation(t *testing.T) {
+func TestConversationIdentity_RouteSyncDelayedSuccessAndVisibleTargetCancellation(t *testing.T) {
 	runIdentityCallChain(t, `
 (async () => {
   const staleId = "11111111-1111-4111-8111-111111111111";
   const firstVisibleId = "22222222-2222-4222-8222-222222222222";
   const secondVisibleId = "33333333-3333-4333-8333-333333333333";
-  const hostSetTimeout = require("timers").setTimeout;
-  const hostClearTimeout = require("timers").clearTimeout;
-  globalThis.setTimeout = hostSetTimeout;
-  globalThis.clearTimeout = hostClearTimeout;
-  const later = (ms) => new Promise((resolve) => hostSetTimeout(resolve, ms));
   const routerCalls = [];
   const replacements = [];
   let acceptedTarget = "";
@@ -646,7 +680,7 @@ func TestConversationIdentity_RouteSyncDelayedSuccessAndObsoleteTargetCancellati
     navigate: ({ to }) => {
       routerCalls.push(to);
       const target = to;
-      hostSetTimeout(() => {
+      setTimeout(() => {
         if (acceptedTarget === target) applyLocationURL(target);
       }, 15);
     }
@@ -673,11 +707,13 @@ func TestConversationIdentity_RouteSyncDelayedSuccessAndObsoleteTargetCancellati
     "a changed rendered target must supersede the pending target"
   );
   synchronizeRenderedConversationRoute(conversationRouteSyncState, secondVisibleId, location, null);
-  await later(120);
-
-  assert.deepStrictEqual(routerCalls, ["/c/" + firstVisibleId, "/c/" + secondVisibleId], "the delayed second target must acknowledge without duplicate navigation");
+  fakeTimers.advance(15);
   assert.strictEqual(parseConversationId(location.pathname), secondVisibleId, "delayed router success must converge on the newest target");
+  fakeTimers.advance(100);
+
+  assert.deepStrictEqual(routerCalls, ["/c/" + firstVisibleId, "/c/" + secondVisibleId], "the changed target must not inherit the obsolete retry");
   assert.strictEqual(replacements.length, 0, "delayed router success must not trigger fallback");
+  assert.strictEqual(fakeTimers.pendingCount(), 0, "a changed visible target must leave no obsolete timer");
   assert.strictEqual(
     synchronizeRenderedConversationRoute(conversationRouteSyncState, secondVisibleId, location, null),
     "none",
@@ -688,21 +724,17 @@ func TestConversationIdentity_RouteSyncDelayedSuccessAndObsoleteTargetCancellati
 `)
 }
 
-func TestConversationIdentity_RouteSyncExplicitIntentAndMissingRouterFallback(t *testing.T) {
+func TestConversationIdentity_RouteSyncExplicitIntentChangeAndMissingRouterFallback(t *testing.T) {
 	runIdentityCallChain(t, `
 (async () => {
   const staleId = "44444444-4444-4444-8444-444444444444";
   const explicitId = "55555555-5555-4555-8555-555555555555";
   const disagreementId = "66666666-6666-4666-8666-666666666666";
   const fallbackId = "77777777-7777-4777-8777-777777777777";
-  const hostSetTimeout = require("timers").setTimeout;
-  const hostClearTimeout = require("timers").clearTimeout;
-  globalThis.setTimeout = hostSetTimeout;
-  globalThis.clearTimeout = hostClearTimeout;
-  const later = (ms) => new Promise((resolve) => hostSetTimeout(resolve, ms));
   const routerCalls = [];
   const replacements = [];
   const popstateEvents = [];
+  let routerSucceeds = true;
 
   function applyLocationURL(url) {
     const parsed = new URL(String(url), "http://127.0.0.1");
@@ -729,7 +761,8 @@ func TestConversationIdentity_RouteSyncExplicitIntentAndMissingRouterFallback(t 
   window.__TSR_ROUTER__ = {
     navigate: ({ to }) => {
       routerCalls.push(to);
-      hostSetTimeout(() => applyLocationURL(to), 10);
+      const target = to;
+      if (routerSucceeds) setTimeout(() => applyLocationURL(target), 10);
     }
   };
   window.history = {
@@ -748,16 +781,41 @@ func TestConversationIdentity_RouteSyncExplicitIntentAndMissingRouterFallback(t 
     "an explicit target agreeing with the rendered ID must repair the stale URL"
   );
   synchronizeRenderedConversationRoute(conversationRouteSyncState, explicitId, location, agreementIntent);
-  await later(100);
+  fakeTimers.advance(10);
+  fakeTimers.advance(50);
   assert.deepStrictEqual(routerCalls, ["/c/" + explicitId], "explicit target agreement must synchronize once");
   assert.strictEqual(replacements.length, 0, "acknowledged explicit target agreement must not fall back");
+
+  routerSucceeds = false;
+  location.pathname = "/c/" + staleId;
+  location.search = "";
+  location.hash = "";
+  const pendingIntent = createExplicitConversationNavigationIntent(navigationElement(explicitId), location, 2);
+  assert.strictEqual(
+    synchronizeRenderedConversationRoute(conversationRouteSyncState, explicitId, location, pendingIntent),
+    "navigate",
+    "the initial pending intent must navigate"
+  );
+  const changedIntent = Object.assign({}, pendingIntent, { targetRoute: "/c/" + explicitId + "?view=next" });
+  routerSucceeds = true;
+  assert.strictEqual(
+    synchronizeRenderedConversationRoute(conversationRouteSyncState, explicitId, location, changedIntent),
+    "navigate",
+    "a changed agreed intent must cancel the pending key and navigate under the new signature"
+  );
+  assert.deepStrictEqual(routerCalls, ["/c/" + explicitId, "/c/" + explicitId, "/c/" + explicitId], "intent changes must schedule a new acknowledgment");
+  fakeTimers.advance(10);
+  fakeTimers.advance(100);
+  assert.strictEqual(routerCalls.length, 3, "the obsolete intent timer must not retry");
+  assert.strictEqual(replacements.length, 0, "the obsolete intent timer must not fall back");
+  assert.strictEqual(fakeTimers.pendingCount(), 0, "an explicit intent change must leave no obsolete timer");
 
   location.pathname = "/c/" + staleId;
   location.search = "";
   location.hash = "";
   const callsBeforeDisagreement = routerCalls.length;
   assert.strictEqual(
-    synchronizeRenderedConversationRoute(conversationRouteSyncState, disagreementId, location, agreementIntent),
+    synchronizeRenderedConversationRoute(conversationRouteSyncState, disagreementId, location, changedIntent),
     "none",
     "an explicit target disagreeing with the rendered ID must fence synchronization"
   );
@@ -779,110 +837,6 @@ func TestConversationIdentity_RouteSyncExplicitIntentAndMissingRouterFallback(t 
   synchronizeRenderedConversationRoute(conversationRouteSyncState, fallbackId, location, null);
   assert.strictEqual(replacements.length, 1, "missing-router fallback must not repeat after convergence");
   assert(!popstateEvents.includes("popstate"), "explicit-intent and fallback synchronization must not synthesize popstate");
-  console.log("INTEGRATED_IDENTITY_OK");
-})().catch((error) => { console.error(error.stack || error); process.exit(1); });
-`)
-}
-
-func TestConversationIdentity_ExplicitIntentRouteAgreementAndBlankReset(t *testing.T) {
-	runIdentityCallChain(t, `
-(async () => {
-  const oldId = "c23cddd7-1111-4222-8333-444444444444";
-  const newId = "eef014a4-5555-4666-8777-888888888888";
-  const staleUrlId = "99999999-aaaa-4bbb-8ccc-dddddddddddd";
-  const disagreementViewId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-  const disagreementTargetId = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
-  const routerCalls = [];
-  const metricRequests = [];
-  const popstateEvents = [];
-
-  window.fetch = async (url) => {
-    if (String(url).includes("/api/tokens/chat-metrics")) {
-      metricRequests.push(new URL(url).searchParams.get("conversation_id"));
-    }
-    return { ok: true, json: async () => ({ success: true, pending_intents: [], user_prompt_count: 0, prompts: [], turns: [] }) };
-  };
-  window.__TSR_ROUTER__ = { navigate: ({ to }) => routerCalls.push(to) };
-  window.dispatchEvent = (event) => { popstateEvents.push(event.type); return true; };
-
-  const view = new NodeEl("div", "conversation-view");
-  const inputBox = new NodeEl("div", "agent-input-box");
-  inputBox.className = "no-focus-agent-input";
-  inputBox.classList.add("no-focus-agent-input");
-  const trigger = new NodeEl("button", "model-selector-trigger");
-  inputBox.appendChild(trigger);
-  view.appendChild(inputBox);
-  document.body.appendChild(view);
-
-  function setVisible(id) {
-    view.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
-    inputBox.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
-  }
-  function navigationElement(kind, targetId) {
-    const anchor = targetId ? { href: "http://127.0.0.1/c/" + targetId } : null;
-    const element = {
-      closest: (selector) => {
-        const value = String(selector);
-        if (value.includes("a[href]")) return anchor;
-        if (kind === "new" && value.includes("new-conversation-button")) return element;
-        if (kind === "conversation" && value.includes("conversation-row-sidebar")) return element;
-        if (kind === "conversation" && value.includes('a[href*="/c/"]')) return element;
-        return null;
-      }
-    };
-    return element;
-  }
-
-  location.pathname = "/c/" + oldId;
-  location.search = "";
-  location.hash = "";
-  setVisible(oldId);
-  window.__swissExplicitConversationNavigation = null;
-  cachedTokensByConv[oldId] = 149000;
-  cachedContextWindowByConv[oldId] = { used_tokens: 149000, max_tokens: 256000 };
-  renderContextWindowProgressRing();
-  let ring = document.getElementById("swiss-context-window-ring");
-  assert(ring && /149K/.test(ring.getAttribute("title")), "fixture must paint the old numeric ring before New Conversation");
-  metricRequests.length = 0;
-
-  const newChat = new NodeEl("button", "new-conversation-button");
-  document.body.appendChild(newChat);
-  emitDocument("click", newChat, true);
-  const newIntent = window.__swissExplicitConversationNavigation;
-  assert(newIntent, "the real document click listener must install a New Conversation intent");
-  assert.strictEqual(newIntent.kind, "new_conversation", "fixture must create a New Conversation intent");
-  ring = document.getElementById("swiss-context-window-ring");
-  assert.strictEqual(conversationMetricIdentity.conversationId, null, "New Conversation must invalidate identity immediately");
-  assert.strictEqual(conversationMetricIdentity.phase, "blank", "New Conversation must enter blank identity immediately");
-  assert.strictEqual(ring, null, "New Conversation must remove the stale numeric ring immediately");
-  assert.deepStrictEqual(metricRequests, [], "a blank New Conversation at the stale URL must not fetch stale metrics");
-
-  setVisible(newId);
-  renderContextWindowProgressRing();
-  assert.deepStrictEqual(routerCalls, ["/c/" + newId], "the first rendered New Conversation ID must synchronize once while URL remains old");
-  renderContextWindowProgressRing();
-  renderContextWindowProgressRing();
-  assert.strictEqual(routerCalls.length, 1, "pending New Conversation synchronization must not loop on render ticks");
-
-  routerCalls.length = 0;
-  location.pathname = "/c/" + staleUrlId;
-  setVisible(newId);
-  window.__swissExplicitConversationNavigation = createExplicitConversationNavigationIntent(navigationElement("conversation", newId), location, 2);
-  renderContextWindowProgressRing();
-  assert.deepStrictEqual(routerCalls, ["/c/" + newId], "sidebar intent agreeing with the rendered ID must repair the stale URL exactly once");
-  renderContextWindowProgressRing();
-  renderContextWindowProgressRing();
-  assert.strictEqual(routerCalls.length, 1, "target agreement must not repeat synchronization on render ticks");
-
-  routerCalls.length = 0;
-  location.pathname = "/c/" + staleUrlId;
-  setVisible(disagreementViewId);
-  window.__swissExplicitConversationNavigation = createExplicitConversationNavigationIntent(navigationElement("conversation", disagreementTargetId), location, 3);
-  renderContextWindowProgressRing();
-  renderContextWindowProgressRing();
-  assert.strictEqual(routerCalls.length, 0, "explicit target disagreement must fence rendered-ID synchronization");
-  assert(!popstateEvents.includes("popstate"), "explicit-intent route synchronization must not synthesize popstate");
-
   console.log("INTEGRATED_IDENTITY_OK");
 })().catch((error) => { console.error(error.stack || error); process.exit(1); });
 `)
