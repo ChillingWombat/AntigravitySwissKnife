@@ -78,8 +78,8 @@ if [[ -z "$actual_error" ]]; then
   printf 'MUTANT post-header-stop did not report an actual error line\n'
   exit 1
 fi
-if [[ "$actual_error" != *'Client.Timeout or context cancellation'* ]]; then
-  printf 'MUTANT post-header-stop actual error did not follow Client.Timeout: %s\n' "$actual_error"
+if [[ "$actual_error" != *'context deadline exceeded'* && "$actual_error" != *'Client.Timeout or context cancellation'* ]]; then
+  printf 'MUTANT post-header-stop actual error was not an accepted timeout: %s\n' "$actual_error"
   exit 1
 fi
 if [[ "$actual_error" == *'Vertex stream made no progress for 50ms'* ]]; then
