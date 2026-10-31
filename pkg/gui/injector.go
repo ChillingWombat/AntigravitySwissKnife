@@ -1078,9 +1078,10 @@ func restoreConversationPathScript(targetPath string) string {
 			const isConvoTarget = targetPathOnly.startsWith("/c/");
 			const now = Date.now();
 			const explicitNavigation = window.__swissExplicitConversationNavigation;
-			const explicitNavigationAt = explicitNavigation ? Number(explicitNavigation.at) : NaN;
-			const explicitUserNavigation = Number.isFinite(explicitNavigationAt) &&
-				now >= explicitNavigationAt && (now - explicitNavigationAt) < 30000;
+			const currentRoute = curPath + (window.location.search || "");
+			const explicitUserNavigation = Boolean(explicitNavigation &&
+				(explicitNavigation.pending === true ||
+					(typeof explicitNavigation.route === "string" && explicitNavigation.route === currentRoute)));
 
 			// Router acknowledgement: the app's own view of the current route.
 			let routerPath = "";

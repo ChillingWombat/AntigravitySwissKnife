@@ -86,31 +86,44 @@ console.log("metric generation behavior OK");
 	}
 }
 
-func TestConversationIdentity_ExplicitNavigationSurvivesErrorDelay(t *testing.T) {
+func TestConversationIdentity_ExplicitNavigationIsRouteOwned(t *testing.T) {
 	nodePath, err := exec.LookPath("node")
 	if err != nil {
 		t.Skipf("node not available: %v", err)
 	}
 	driver := conversationIdentityHelpers(t) + `
-function target(selectorMatch) {
+const source = { pathname: "/c/29d106f9-d43c-4cc5-9f9f-971c885d4743", search: "?tab=browser", href: "/c/29d106f9-d43c-4cc5-9f9f-971c885d4743?tab=browser" };
+const target = { pathname: "/c/281241ba-17ff-4904-8305-031db425f416", search: "?section=new", href: "/c/281241ba-17ff-4904-8305-031db425f416?section=new" };
+function mockTarget(selectorMatch) {
   return { closest: (selector) => selectorMatch(selector) ? { setAttribute: () => {} } : null };
 }
-const newChat = target(selector => selector.includes("new-conversation-button"));
-const sidebar = target(selector => selector.includes("conversation-row-sidebar"));
-const ring = target(() => false);
+const anchor = { href: target.href, getAttribute: () => target.href };
+const newChat = mockTarget(selector => selector.includes("new-conversation-button"));
+const sidebar = { closest: (selector) => selector === "a[href]" ? anchor : (selector.includes("conversation-row-sidebar") ? { setAttribute: () => {} } : null) };
+const ring = mockTarget(() => false);
 if (!isExplicitConversationNavigationElement(newChat) || !isExplicitConversationNavigationElement(sidebar)) {
   throw new Error("new-chat and sidebar clicks are explicit navigation");
 }
 if (isExplicitConversationNavigationElement(ring)) {
   throw new Error("unrelated clicks must not fence host navigation");
 }
-const markedAt = 5000;
-const intent = createExplicitConversationNavigationIntent(sidebar, "/c/old", markedAt);
-if (!hasRecentExplicitConversationNavigation(intent, markedAt + 8000)) {
-  throw new Error("explicit navigation must survive an error/cancel delay");
+const intent = createExplicitConversationNavigationIntent(sidebar, source, 5000);
+if (intent.kind !== "conversation" || intent.targetConversationId !== "281241ba-17ff-4904-8305-031db425f416") {
+  throw new Error("sidebar intent must retain the explicit target conversation: " + JSON.stringify(intent));
 }
-if (hasRecentExplicitConversationNavigation(intent, markedAt + 30001)) {
-  throw new Error("stale navigation intent must not suppress revival forever");
+if (!bindExplicitConversationNavigationIntent(intent, target) || intent.pending || intent.route !== target.href) {
+  throw new Error("sidebar intent must bind to the acknowledged target route: " + JSON.stringify(intent));
+}
+if (!isExplicitConversationNavigationActive(intent, target)) {
+  throw new Error("route-owned intent must survive an error/cancel delay without expiring");
+}
+const unrelated = { pathname: "/c/aaaaaaaa-1111-2222-3333-444444444444", search: "", href: "/c/aaaaaaaa-1111-2222-3333-444444444444" };
+if (isExplicitConversationNavigationActive(intent, unrelated)) {
+  throw new Error("route-owned intent must not fence an unrelated later route");
+}
+const history = createExplicitHistoryNavigationIntent(target, 40000);
+if (history.kind !== "history" || history.pending || !isExplicitConversationNavigationActive(history, target)) {
+  throw new Error("trusted history traversal must bind immediately to the current route: " + JSON.stringify(history));
 }
 console.log("explicit navigation behavior OK");
 `

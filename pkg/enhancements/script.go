@@ -2555,7 +2555,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     /* __SWISS_CONVERSATION_IDENTITY_START__ */
     const SWISS_CONVERSATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const SWISS_EXPLICIT_NAVIGATION_SELECTOR = '[data-testid="new-conversation-button"], [data-testid="app-icon-new-conversation-button"], [data-testid="conversation-row-sidebar"], a[href*="/c/"]';
-    const SWISS_EXPLICIT_NAVIGATION_GRACE_MS = 30000;
+    const SWISS_NEW_CONVERSATION_SELECTOR = '[data-testid="new-conversation-button"], [data-testid="app-icon-new-conversation-button"]';
+    const SWISS_EXPLICIT_NAVIGATION_STORAGE_KEY = "antigravity_swiss_explicit_navigation";
 
     function isConversationId(value) {
       return typeof value === "string" && SWISS_CONVERSATION_ID_RE.test(value);
@@ -2599,19 +2600,92 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return Boolean(element && typeof element.closest === "function" && element.closest(SWISS_EXPLICIT_NAVIGATION_SELECTOR));
     }
 
-    function createExplicitConversationNavigationIntent(element, fromHref, now) {
+    function routeKeyFromHref(href) {
+      try {
+        const parsed = new URL(String(href || ""), "http://127.0.0.1");
+        return parsed.pathname + parsed.search;
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function routeKeyForLocation(location) {
+      const fromHref = location && typeof location.href === "string" ? routeKeyFromHref(location.href) : "";
+      return fromHref || ((location && location.pathname) || "/") + ((location && location.search) || "");
+    }
+
+    function createExplicitConversationNavigationIntent(element, location, now) {
       if (!isExplicitConversationNavigationElement(element)) return null;
       const anchor = typeof element.closest === "function" ? element.closest("a[href]") : null;
+      const targetHref = anchor ? (anchor.href || anchor.getAttribute("href") || "") : "";
+      const targetRoute = targetHref ? routeKeyFromHref(targetHref) : "";
+      const newConversation = Boolean(typeof element.closest === "function" && element.closest(SWISS_NEW_CONVERSATION_SELECTOR));
       return {
+        version: 2,
+        kind: newConversation ? "new_conversation" : "conversation",
         at: now,
-        fromHref: fromHref || "",
-        targetHref: anchor ? (anchor.href || anchor.getAttribute("href") || "") : ""
+        sourceRoute: routeKeyForLocation(location),
+        targetRoute: targetRoute,
+        targetConversationId: parseConversationId(targetRoute),
+        route: "",
+        conversationId: null,
+        pending: true
       };
     }
 
-    function hasRecentExplicitConversationNavigation(intent, now) {
-      const markedAt = intent ? Number(intent.at) : NaN;
-      return Number.isFinite(markedAt) && now >= markedAt && (now - markedAt) < SWISS_EXPLICIT_NAVIGATION_GRACE_MS;
+    function createExplicitHistoryNavigationIntent(location, now) {
+      const route = routeKeyForLocation(location);
+      return {
+        version: 2,
+        kind: "history",
+        at: now,
+        sourceRoute: route,
+        targetRoute: route,
+        targetConversationId: parseConversationId(route),
+        route: route,
+        conversationId: parseConversationId(route),
+        pending: false
+      };
+    }
+
+    function bindExplicitConversationNavigationIntent(intent, location) {
+      if (!intent || !intent.pending) return false;
+      const currentRoute = routeKeyForLocation(location);
+      const currentConversationId = parseConversationId(currentRoute);
+      const targetReached = intent.targetConversationId
+        ? currentConversationId === intent.targetConversationId
+        : intent.targetRoute
+          ? currentRoute === intent.targetRoute
+          : intent.kind === "new_conversation" && currentRoute !== intent.sourceRoute;
+      if (!targetReached) return false;
+      intent.route = currentRoute;
+      intent.conversationId = currentConversationId;
+      intent.pending = false;
+      return true;
+    }
+
+    function isExplicitConversationNavigationActive(intent, location) {
+      if (!intent) return false;
+      if (intent.pending) return true;
+      return Boolean(intent.route) && intent.route === routeKeyForLocation(location);
+    }
+
+    function persistExplicitConversationNavigationIntent(intent) {
+      if (!intent) return;
+      try {
+        sessionStorage.setItem(SWISS_EXPLICIT_NAVIGATION_STORAGE_KEY, JSON.stringify(intent));
+      } catch (_) {}
+    }
+
+    function loadExplicitConversationNavigationIntent() {
+      try {
+        const raw = sessionStorage.getItem(SWISS_EXPLICIT_NAVIGATION_STORAGE_KEY);
+        if (!raw) return null;
+        const intent = JSON.parse(raw);
+        return intent && intent.version === 2 ? intent : null;
+      } catch (_) {
+        return null;
+      }
     }
     /* __SWISS_CONVERSATION_IDENTITY_END__ */
 
@@ -2745,7 +2819,11 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     async function checkAndExecuteConversationRevival() {
-      if (hasRecentExplicitConversationNavigation(window.__swissExplicitConversationNavigation, Date.now())) {
+      const explicitIntent = window.__swissExplicitConversationNavigation;
+      if (bindExplicitConversationNavigationIntent(explicitIntent, window.location)) {
+        persistExplicitConversationNavigationIntent(explicitIntent);
+      }
+      if (isExplicitConversationNavigationActive(explicitIntent, window.location)) {
         return;
       }
       checkAndRecoverFromNonexistentConversation();
@@ -3479,21 +3557,29 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     if (!window.__swissExplicitConversationNavigationBound) {
       window.__swissExplicitConversationNavigationBound = true;
       if (!window.__swissExplicitConversationNavigation) {
-        try {
-          const storedNavigation = sessionStorage.getItem("antigravity_swiss_explicit_navigation");
-          if (storedNavigation) window.__swissExplicitConversationNavigation = JSON.parse(storedNavigation);
-        } catch (_) {}
+        window.__swissExplicitConversationNavigation = loadExplicitConversationNavigationIntent();
       }
       if (typeof document.addEventListener === "function") {
         document.addEventListener("click", (e) => {
           if (!e.isTrusted) return;
-          const intent = createExplicitConversationNavigationIntent(e.target, window.location.href, Date.now());
+          const intent = createExplicitConversationNavigationIntent(e.target, window.location, Date.now());
           if (!intent) return;
           window.__swissExplicitConversationNavigation = intent;
-          try {
-            sessionStorage.setItem("antigravity_swiss_explicit_navigation", JSON.stringify(intent));
-          } catch (_) {}
+          persistExplicitConversationNavigationIntent(intent);
+          setTimeout(() => {
+            if (bindExplicitConversationNavigationIntent(intent, window.location)) {
+              persistExplicitConversationNavigationIntent(intent);
+            }
+          }, 0);
         }, true);
+      }
+      if (typeof window.addEventListener === "function") {
+        window.addEventListener("popstate", (e) => {
+          if (!e || e.isTrusted !== true) return;
+          const intent = createExplicitHistoryNavigationIntent(window.location, Date.now());
+          window.__swissExplicitConversationNavigation = intent;
+          persistExplicitConversationNavigationIntent(intent);
+        }, { passive: true });
       }
     }
 
