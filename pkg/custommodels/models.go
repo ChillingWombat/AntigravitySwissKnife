@@ -159,6 +159,19 @@ func DefaultIntegrationSettings() IntegrationSettings {
 
 // Validate checks model fields for completeness and validity.
 func (m *CustomModel) Validate() error {
+	if err := m.validateIdentity(); err != nil {
+		return err
+	}
+	m.normalizeGCP()
+	if strings.TrimSpace(m.BaseURL) == "" {
+		return errors.New("base_url is required")
+	}
+	m.normalizeQuota()
+	m.normalizeBudgetCap()
+	return m.normalizeThinkingCapability()
+}
+
+func (m *CustomModel) validateIdentity() error {
 	if strings.TrimSpace(m.ID) == "" {
 		return errors.New("model id is required")
 	}
@@ -171,53 +184,106 @@ func (m *CustomModel) Validate() error {
 	if m.ProviderType == "" {
 		m.ProviderType = ProviderOpenAI
 	}
-	if m.ProviderType == ProviderGCP {
-		if strings.TrimSpace(m.GCPProjectID) == "" && strings.TrimSpace(m.GCPServiceAccountKey) != "" && m.GCPServiceAccountKey != "[REDACTED]" {
-			if key, err := ParseServiceAccountKey([]byte(m.GCPServiceAccountKey)); err == nil && key.ProjectID != "" {
-				m.GCPProjectID = key.ProjectID
-			}
-		}
-		if strings.TrimSpace(m.GCPProjectID) == "" && strings.Contains(m.BaseURL, "/projects/") {
-			rem := m.BaseURL[strings.Index(m.BaseURL, "/projects/")+len("/projects/"):]
-			if slash := strings.Index(rem, "/"); slash != -1 {
-				m.GCPProjectID = rem[:slash]
-			}
-		}
-		region := strings.TrimSpace(m.GCPRegion)
-		if region == "" || (strings.Contains(strings.ToLower(m.Name), "claude") && region == "us-central1") {
-			if strings.Contains(strings.ToLower(m.Name), "claude") {
-				region = "us-east5"
-			} else {
-				region = "us-central1"
-			}
-		}
+	return nil
+}
+
+func (m *CustomModel) normalizeGCP() {
+	if m.ProviderType != ProviderGCP {
+		return
+	}
+	m.resolveGCPProjectID()
+	m.resolveGCPRegion()
+	if strings.TrimSpace(m.BaseURL) == "" || strings.Contains(m.BaseURL, "aiplatform.googleapis.com") {
+		m.BaseURL = BuildVertexAIEndpoint(m.GCPRegion, m.GCPProjectID, m.Name)
+	}
+	m.normalizeGCPQuota()
+}
+
+func (m *CustomModel) resolveGCPProjectID() {
+	if strings.TrimSpace(m.GCPProjectID) != "" {
+		return
+	}
+	m.resolveGCPProjectIDFromServiceAccount()
+	if strings.TrimSpace(m.GCPProjectID) != "" {
+		return
+	}
+	m.resolveGCPProjectIDFromBaseURL()
+}
+
+func (m *CustomModel) resolveGCPProjectIDFromServiceAccount() {
+	key := strings.TrimSpace(m.GCPServiceAccountKey)
+	if key == "" || key == "[REDACTED]" {
+		return
+	}
+	parsed, err := ParseServiceAccountKey([]byte(key))
+	if err != nil || parsed.ProjectID == "" {
+		return
+	}
+	m.GCPProjectID = parsed.ProjectID
+}
+
+func (m *CustomModel) resolveGCPProjectIDFromBaseURL() {
+	const marker = "/projects/"
+	idx := strings.Index(m.BaseURL, marker)
+	if idx == -1 {
+		return
+	}
+	remainder := m.BaseURL[idx+len(marker):]
+	slash := strings.Index(remainder, "/")
+	if slash == -1 {
+		return
+	}
+	m.GCPProjectID = remainder[:slash]
+}
+
+func (m *CustomModel) resolveGCPRegion() {
+	region := strings.TrimSpace(m.GCPRegion)
+	isClaude := strings.Contains(strings.ToLower(m.Name), "claude")
+	if region != "" && !(isClaude && region == "us-central1") {
 		m.GCPRegion = region
-		if strings.TrimSpace(m.BaseURL) == "" || strings.Contains(m.BaseURL, "aiplatform.googleapis.com") {
-			m.BaseURL = BuildVertexAIEndpoint(region, m.GCPProjectID, m.Name)
-		}
-		if !m.QuotaManualOverride && (m.QuotaType == "" || m.QuotaType == QuotaTypeNA || m.QuotaType == QuotaNone || m.QuotaType == QuotaTypeQuota) {
-			m.QuotaType = QuotaTypeBalance
-			if m.BalanceValue == "" {
-				m.BalanceValue = "Active (GCP Billing)"
-			}
-			if m.QuotaValue == "" || m.QuotaValue == "GCP Managed" {
-				m.QuotaValue = m.BalanceValue
-			}
-		}
+		return
 	}
-	if strings.TrimSpace(m.BaseURL) == "" {
-		return errors.New("base_url is required")
+	if isClaude {
+		m.GCPRegion = "us-east5"
+		return
 	}
-	if m.ContextWindow <= 0 {
-		m.ContextWindow = 1048576
+	m.GCPRegion = "us-central1"
+}
+
+func (m *CustomModel) normalizeGCPQuota() {
+	if m.QuotaManualOverride || !isLegacyGCPQuotaType(m.QuotaType) {
+		return
 	}
-	if m.QuotaType == "" || m.QuotaType == QuotaNone {
+	m.QuotaType = QuotaTypeBalance
+	if m.BalanceValue == "" {
+		m.BalanceValue = "Active (GCP Billing)"
+	}
+	if m.QuotaValue == "" || m.QuotaValue == "GCP Managed" {
+		m.QuotaValue = m.BalanceValue
+	}
+}
+
+func isLegacyGCPQuotaType(quotaType QuotaType) bool {
+	switch quotaType {
+	case "", QuotaTypeNA, QuotaNone, QuotaTypeQuota:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *CustomModel) normalizeQuota() {
+	switch m.QuotaType {
+	case "", QuotaNone:
 		m.QuotaType = QuotaTypeNA
-	} else if m.QuotaType == QuotaCostBased {
+	case QuotaCostBased:
 		m.QuotaType = QuotaTypeBalance
-	} else if m.QuotaType == QuotaQuotaBased {
+	case QuotaQuotaBased:
 		m.QuotaType = QuotaTypeQuota
 	}
+}
+
+func (m *CustomModel) normalizeBudgetCap() {
 	switch strings.ToLower(strings.TrimSpace(m.BudgetCapType)) {
 	case "dollar", "usd", "cost":
 		m.BudgetCapType = "dollar"
@@ -229,44 +295,69 @@ func (m *CustomModel) Validate() error {
 		m.BudgetCapType = "none"
 		m.BudgetCapValue = nil
 	}
-	var cleanLevels []string
-	for _, l := range m.ThinkingLevels {
-		trimmed := strings.ToLower(strings.TrimSpace(l))
-		if trimmed != "" && trimmed != "off" {
-			cleanLevels = append(cleanLevels, trimmed)
-		}
-	}
-	if m.ProviderType == ProviderGCP {
-		if _, detectedThinking, _ := detectModelMetadata(m.Name, m.DisplayName, m.ContextWindow); detectedThinking {
-			m.SupportsThinking = true
-		}
-	}
-	if m.SupportsThinking || len(cleanLevels) > 0 || (strings.TrimSpace(m.ThinkingLevel) != "" && !strings.EqualFold(m.ThinkingLevel, "off")) {
-		m.SupportsThinking = true
-		if strings.TrimSpace(m.ThinkingLevel) == "" || strings.EqualFold(m.ThinkingLevel, "off") {
-			m.ThinkingLevel = "high"
-		} else {
-			m.ThinkingLevel = strings.ToLower(strings.TrimSpace(m.ThinkingLevel))
-		}
-		if len(cleanLevels) < 2 {
-			cleanLevels = []string{"low", "medium", "high"}
-		}
-		hasActive := false
-		for _, l := range cleanLevels {
-			if l == m.ThinkingLevel {
-				hasActive = true
-				break
-			}
-		}
-		if !hasActive && m.ThinkingLevel != "" {
-			cleanLevels = append(cleanLevels, m.ThinkingLevel)
-		}
-		m.ThinkingLevels = cleanLevels
-	} else if strings.EqualFold(m.ThinkingLevel, "off") {
-		m.SupportsThinking = false
+}
+
+func (m *CustomModel) normalizeThinkingCapability() error {
+	if !m.SupportsThinking {
+		m.ThinkingLevels = nil
 		m.ThinkingLevel = "off"
+		return nil
 	}
+
+	rawLevels := m.ThinkingLevels
+	levels := supportedThinkingLevels(rawLevels)
+	if len(rawLevels) == 0 {
+		levels = []string{"low", "medium", "high"}
+	} else if len(levels) == 0 {
+		return errors.New("thinking_levels must include at least one supported level (low, medium, high)")
+	}
+
+	m.ThinkingLevels = levels
+	m.ThinkingLevel = normalizedActiveThinkingLevel(m.ThinkingLevel, levels)
 	return nil
+}
+
+func supportedThinkingLevels(rawLevels []string) []string {
+	levels := make([]string, 0, len(rawLevels))
+	seen := make(map[string]bool, len(rawLevels))
+	for _, raw := range rawLevels {
+		level := strings.ToLower(strings.TrimSpace(raw))
+		if !isSupportedThinkingLevel(level) || seen[level] {
+			continue
+		}
+		seen[level] = true
+		levels = append(levels, level)
+	}
+	return levels
+}
+
+func isSupportedThinkingLevel(level string) bool {
+	switch level {
+	case "low", "medium", "high":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizedActiveThinkingLevel(active string, levels []string) string {
+	active = strings.ToLower(strings.TrimSpace(active))
+	if containsThinkingLevel(levels, active) {
+		return active
+	}
+	if containsThinkingLevel(levels, "high") {
+		return "high"
+	}
+	return levels[len(levels)-1]
+}
+
+func containsThinkingLevel(levels []string, target string) bool {
+	for _, level := range levels {
+		if level == target {
+			return true
+		}
+	}
+	return false
 }
 
 // CalculatePercentage computes the percentage to display in the circular gauge.

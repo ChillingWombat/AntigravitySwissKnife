@@ -225,7 +225,9 @@ func (g *Gateway) handleModelAction(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		if err := g.runTurn(r, target, &request, emit); err != nil {
+			logProviderFailure("[llm-gateway]", target)
 			_ = emit(geminiResponse{Error: &geminiError{Code: 500, Message: err.Error(), Status: "INTERNAL"}})
+			return
 		}
 		_ = emit(geminiResponse{Candidates: []geminiCandidate{{
 			Content:      geminiContent{Role: "model", Parts: []geminiPart{}},
@@ -262,14 +264,17 @@ func (g *Gateway) runTurn(r *http.Request, model *CustomModel, request *geminiRe
 	switch model.ProviderType {
 	case ProviderAnthropic:
 		return g.runAnthropic(r, model, request, emit)
-	case ProviderGemini, ProviderGCP:
-		if model.ProviderType == ProviderGCP {
-			return fmt.Errorf("Vertex AI service-account models are not routed through the gateway yet; use an API-key provider or the Antigravity app")
-		}
+	case ProviderGemini:
 		return g.runGeminiAPI(r, model, request, emit)
+	case ProviderGCP:
+		return g.runVertex(r, model, request, emit)
 	default:
 		return g.runOpenAICompatible(r, model, request, emit)
 	}
+}
+
+func logProviderFailure(surface string, model *CustomModel) {
+	log.Printf("%s provider failure model=%q provider=%s", surface, model.ID, model.ProviderType)
 }
 
 // thinkingHeadroomTokens is the smallest max_tokens a reasoning model is given.
