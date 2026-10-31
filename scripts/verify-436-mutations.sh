@@ -6,12 +6,15 @@ TMP="${TMPDIR:-/tmp}/worker-436-mutation-$$"
 mkdir -p "$TMP"
 VERTEX="pkg/custommodels/vertex.go"
 INJECTOR="pkg/gui/injector.go"
+PROXY="pkg/custommodels/proxy.go"
 cp "$ROOT/$VERTEX" "$TMP/vertex.go"
 cp "$ROOT/$INJECTOR" "$TMP/injector.go"
+cp "$ROOT/$PROXY" "$TMP/proxy.go"
 
 restore_mutant() {
   cp "$TMP/vertex.go" "$ROOT/$VERTEX"
   cp "$TMP/injector.go" "$ROOT/$INJECTOR"
+  cp "$TMP/proxy.go" "$ROOT/$PROXY"
 }
 trap restore_mutant EXIT
 
@@ -118,7 +121,31 @@ expect_behavioral_failure wrong-cascade 'a stale mounted view must not be ready'
   go -C "$ROOT" test ./pkg/gui -run '^TestRestoreConversationPathScript_RejectsStaleMountedConversationView$' -count=1
 restore_mutant
 
-if ! cmp -s "$ROOT/$VERTEX" "$TMP/vertex.go" || ! cmp -s "$ROOT/$INJECTOR" "$TMP/injector.go"; then
+python3 - "$ROOT/$PROXY" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+start = source.index('func (p *Proxy) completeCustomModelStream')
+end = source.index('\nfunc ', start + 1)
+function_source = source[start:end]
+needle = '\t\tFinishReason: "STOP",'
+assert function_source.count(needle) == 1, 'completeCustomModelStream STOP sentinel missing'
+mutated = function_source.replace(needle, '\t\tFinishReason: "MUTANT-NOT-STOP",', 1)
+path.write_text(source[:start] + mutated + source[end:])
+PY
+if ! go -C "$ROOT" build -o "$TMP/swiss-terminal-finish" ./cmd/swiss > "$TMP/terminal-finish-build.log" 2>&1; then
+  printf 'MUTANT terminal-finish was not syntax-valid\n'
+  cat "$TMP/terminal-finish-build.log"
+  exit 1
+fi
+cat "$TMP/terminal-finish-build.log"
+printf 'MUTANT terminal-finish build is syntax-valid\n'
+expect_behavioral_failure terminal-finish 'finishReason = "MUTANT-NOT-STOP", want exact "STOP"' \
+  go -C "$ROOT" test ./pkg/custommodels -run '^TestProxyGCPActiveStreamResetsIdleGuard$' -count=1
+restore_mutant
+
+if ! cmp -s "$ROOT/$VERTEX" "$TMP/vertex.go" || ! cmp -s "$ROOT/$INJECTOR" "$TMP/injector.go" || ! cmp -s "$ROOT/$PROXY" "$TMP/proxy.go"; then
   printf 'mutant restoration did not match the pre-probe baseline\n'
   exit 1
 fi
