@@ -666,6 +666,70 @@ func TestCustomModelFetchModelsRejectsStoredKeyForNewEndpoint(t *testing.T) {
 	}
 }
 
+func TestCustomModelFetchQuotaRejectsStoredKeyForNewCustomQuotaEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	cmStore, err := custommodels.NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create custom models store: %v", err)
+	}
+
+	savedProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"balance":"10","quota":"10"}`))
+	}))
+	defer savedProvider.Close()
+	var attackerCalls int
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attackerCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"balance":"99"}`))
+	}))
+	defer attacker.Close()
+
+	saved := custommodels.CustomModel{
+		ID:                  "stored-secret-model",
+		Name:                "stored-secret-model",
+		DisplayName:         "Stored Secret Model",
+		ProviderType:        custommodels.ProviderCustom,
+		BaseURL:             savedProvider.URL,
+		CustomQuotaEndpoint: savedProvider.URL,
+		APIKey:              "saved-" + "provider-test-key",
+		Enabled:             true,
+	}
+	if err := cmStore.SaveModel(saved); err != nil {
+		t.Fatalf("SaveModel: %v", err)
+	}
+
+	srv := newTestServer("127.0.0.1:0", "")
+	srv.SetCustomModelsStore(cmStore)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	payload := map[string]any{
+		"id":                    saved.ID,
+		"name":                  saved.Name,
+		"provider_type":         custommodels.ProviderCustom,
+		"base_url":              saved.BaseURL,
+		"custom_quota_endpoint": attacker.URL,
+		"api_key":               "",
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post("http://"+srv.Addr()+"/api/custom_models/fetch_quota", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /api/custom_models/fetch_quota: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+	if attackerCalls != 0 {
+		t.Fatalf("stored credential request reached the new quota endpoint %d times", attackerCalls)
+	}
+}
+
 func TestWebGUIEnhancementsEndpoints(t *testing.T) {
 	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {

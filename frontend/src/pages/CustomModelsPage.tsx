@@ -79,6 +79,18 @@ const inferProviderType = (url: string): ProviderType => {
   return 'custom'
 }
 
+const normalizedEndpoint = (value: string) => value.trim().replace(/\/+$/, '')
+
+const resolveFormProviderType = (url: string, savedModel: CustomModel | null): ProviderType => {
+  if (
+    savedModel?.provider_type &&
+    normalizedEndpoint(url) === normalizedEndpoint(savedModel.base_url || '')
+  ) {
+    return savedModel.provider_type
+  }
+  return inferProviderType(url)
+}
+
 // The Vertex AI "global" location uses the region-less host aiplatform.googleapis.com;
 // every other location (including the us/eu multi-regions) is region-prefixed.
 const gcpBaseUrlForRegion = (region: string): string =>
@@ -691,10 +703,12 @@ export const CustomModelsPage: React.FC = () => {
     setFetchingModels(true)
     setFetchFeedback(null)
     setModalError(null)
-    const inferred = inferProviderType(baseUrl.trim())
-    setProviderType(inferred)
+    const effectiveProvider = resolveFormProviderType(baseUrl, editingModel)
+    if (!editingModel || normalizedEndpoint(baseUrl) !== normalizedEndpoint(editingModel.base_url || '')) {
+      setProviderType(effectiveProvider)
+    }
     try {
-      const res = await api.fetchModels(inferred, baseUrl.trim(), apiKey.trim(), editingModel?.id)
+      const res = await api.fetchModels(effectiveProvider, baseUrl.trim(), apiKey.trim(), editingModel?.id)
       if (res.success && res.models && res.models.length > 0) {
         setFetchedModels(res.models)
         setShowModelDropdown(true)
@@ -761,12 +775,15 @@ export const CustomModelsPage: React.FC = () => {
     const isThinking = thinkingLevel.trim() !== '' && thinkingLevel.toLowerCase() !== 'off'
     const activeThinkingLvl = isThinking ? thinkingLevel.trim() : ''
     const cleanThinkingLevels = thinkingLevels.filter((l) => l.toLowerCase() !== 'off' && l.trim() !== '')
-    const inferred = inferProviderType(baseUrl.trim())
+    const effectiveProvider = resolveFormProviderType(baseUrl, editingModel)
+    if (!editingModel || normalizedEndpoint(baseUrl) !== normalizedEndpoint(editingModel.base_url || '')) {
+      setProviderType(effectiveProvider)
+    }
     const draftModel: CustomModel = {
       id: editingModel?.id || 'draft-test',
       name: modelName.trim(),
       display_name: displayName.trim(),
-      provider_type: inferred,
+      provider_type: effectiveProvider,
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
       custom_quota_endpoint: customQuotaEndpoint.trim() || undefined,

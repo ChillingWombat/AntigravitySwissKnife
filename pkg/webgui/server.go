@@ -3132,7 +3132,10 @@ func customModelEndpointMatches(m custommodels.CustomModel, saved *custommodels.
 		return strings.TrimRight(strings.TrimSpace(value), "/")
 	}
 	baseURL := normalize(m.BaseURL)
-	return baseURL != "" && strings.EqualFold(baseURL, normalize(saved.BaseURL))
+	customQuotaEndpoint := normalize(m.CustomQuotaEndpoint)
+	return baseURL != "" &&
+		strings.EqualFold(baseURL, normalize(saved.BaseURL)) &&
+		strings.EqualFold(customQuotaEndpoint, normalize(saved.CustomQuotaEndpoint))
 }
 
 func (s *Server) hydrateCustomModelSecrets(m *custommodels.CustomModel) error {

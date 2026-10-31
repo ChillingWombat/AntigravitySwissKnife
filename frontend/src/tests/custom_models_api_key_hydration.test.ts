@@ -103,8 +103,16 @@ describe('Custom model edit key handling', () => {
       'utf8'
     )
     assert.ok(
-      pageSource.includes('api.fetchModels(inferred, baseUrl.trim(), apiKey.trim(), editingModel?.id)'),
+      pageSource.includes('api.fetchModels(effectiveProvider, baseUrl.trim(), apiKey.trim(), editingModel?.id)'),
       'model discovery must pass the saved model id for server-side key hydration'
+    )
+    assert.ok(
+      pageSource.includes('resolveFormProviderType(baseUrl, editingModel)'),
+      'edit mode must preserve the stored provider when the endpoint is unchanged'
+    )
+    assert.ok(
+      !pageSource.includes('const inferred = inferProviderType(baseUrl.trim())'),
+      'edit mode must not overwrite the stored provider from URL heuristics'
     )
     assert.ok(
       !pageSource.includes('api.getCustomModelKey('),
