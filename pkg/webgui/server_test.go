@@ -565,13 +565,14 @@ func TestCustomModelFetchModelsUsesStoredAPIKey(t *testing.T) {
 	defer provider.Close()
 
 	saved := custommodels.CustomModel{
-		ID:           "stored-secret-model",
-		Name:         "stored-secret-model",
-		DisplayName:  "Stored Secret Model",
-		ProviderType: custommodels.ProviderCustom,
-		BaseURL:      provider.URL,
-		APIKey:       savedKey,
-		Enabled:      true,
+		ID:                  "stored-secret-model",
+		Name:                "stored-secret-model",
+		DisplayName:         "Stored Secret Model",
+		ProviderType:        custommodels.ProviderCustom,
+		BaseURL:             provider.URL,
+		CustomQuotaEndpoint: provider.URL,
+		APIKey:              savedKey,
+		Enabled:             true,
 	}
 	if err := cmStore.SaveModel(saved); err != nil {
 		t.Fatalf("SaveModel: %v", err)

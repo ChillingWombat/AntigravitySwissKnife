@@ -3124,7 +3124,7 @@ func (s *Server) isGeminiQuotaExhausted() bool {
 	return len(accounts) > 0 && summary.Fleet5hGeminiAvailable <= 0 && summary.FleetWeeklyGeminiAvailable <= 0
 }
 
-func customModelEndpointMatches(m custommodels.CustomModel, saved *custommodels.CustomModel) bool {
+func customModelBaseMatches(m custommodels.CustomModel, saved *custommodels.CustomModel) bool {
 	if saved == nil || m.ProviderType != saved.ProviderType {
 		return false
 	}
@@ -3132,10 +3132,17 @@ func customModelEndpointMatches(m custommodels.CustomModel, saved *custommodels.
 		return strings.TrimRight(strings.TrimSpace(value), "/")
 	}
 	baseURL := normalize(m.BaseURL)
-	customQuotaEndpoint := normalize(m.CustomQuotaEndpoint)
-	return baseURL != "" &&
-		strings.EqualFold(baseURL, normalize(saved.BaseURL)) &&
-		strings.EqualFold(customQuotaEndpoint, normalize(saved.CustomQuotaEndpoint))
+	return baseURL != "" && strings.EqualFold(baseURL, normalize(saved.BaseURL))
+}
+
+func customModelEndpointMatches(m custommodels.CustomModel, saved *custommodels.CustomModel) bool {
+	if !customModelBaseMatches(m, saved) {
+		return false
+	}
+	normalize := func(value string) string {
+		return strings.TrimRight(strings.TrimSpace(value), "/")
+	}
+	return strings.EqualFold(normalize(m.CustomQuotaEndpoint), normalize(saved.CustomQuotaEndpoint))
 }
 
 func (s *Server) hydrateCustomModelSecrets(m *custommodels.CustomModel) error {
@@ -3180,19 +3187,27 @@ func (s *Server) hydrateCustomModelSecrets(m *custommodels.CustomModel) error {
 }
 
 func (s *Server) hydrateFetchModelsRequest(req *custommodels.FetchModelsRequest) error {
-	if req == nil {
+	if req == nil || strings.TrimSpace(req.ID) == "" || (req.APIKey != "" && req.APIKey != "[REDACTED]") {
+		return nil
+	}
+	store := s.getCustomModelsStore()
+	if store == nil {
+		return nil
+	}
+	saved, err := store.GetModel(req.ID)
+	if err != nil || saved == nil {
 		return nil
 	}
 	model := custommodels.CustomModel{
-		ID:           req.ID,
 		ProviderType: req.ProviderType,
 		BaseURL:      req.BaseURL,
-		APIKey:       req.APIKey,
 	}
-	if err := s.hydrateCustomModelSecrets(&model); err != nil {
-		return err
+	if saved.APIKey != "" && !customModelBaseMatches(model, saved) {
+		return fmt.Errorf("re-enter credentials when changing the provider or endpoint")
 	}
-	req.APIKey = model.APIKey
+	if req.APIKey == "" || req.APIKey == "[REDACTED]" {
+		req.APIKey = saved.APIKey
+	}
 	return nil
 }
 
