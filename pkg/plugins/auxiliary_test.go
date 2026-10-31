@@ -97,7 +97,7 @@ func TestGenerateAuxiliaryPluginsScript(t *testing.T) {
 		"getAuxTabFormat",
 		"icon-only",
 		"swiss-aux-tab-format-updated",
-		"swiss-port-chip",
+		"swiss-bookmark-star",
 		"iphone-16-pro",
 		"pixel-9",
 		"ipad",
@@ -233,7 +233,7 @@ func TestAuxiliaryWindowResizeBound(t *testing.T) {
 	}
 }
 
-func TestBrowserViewDeviceFramesAndPorts(t *testing.T) {
+func TestBrowserViewDeviceFramesAndBookmarks(t *testing.T) {
 	css := GenerateAuxiliaryPluginsCSS()
 	js := GenerateAuxiliaryPluginsScript()
 
@@ -250,11 +250,16 @@ func TestBrowserViewDeviceFramesAndPorts(t *testing.T) {
 		{"iPad height", js, "1180"},
 		{"Builtin browser setup", js, "setupBuiltinBrowserEnhancements"},
 		{"Builtin browser attach", js, "attachBuiltinBrowserEnhancements"},
-		{"Port 5173 chip", js, `data-port="5173"`},
-		{"Port 3000 chip", js, `data-port="3000"`},
-		{"Port 8080 chip", js, `data-port="8080"`},
-		{"Port 8765 chip", js, `data-port="8765"`},
-		{"Port 4173 chip", js, `data-port="4173"`},
+		{"Default 5173 bookmark", js, `"http://localhost:5173"`},
+		{"Default 3000 bookmark", js, `"http://localhost:3000"`},
+		{"Default 8080 bookmark", js, `"http://localhost:8080"`},
+		{"Default 8765 bookmark", js, `"http://localhost:8765"`},
+		{"Default 4173 bookmark", js, `"http://localhost:4173"`},
+		{"Versioned bookmark store", js, `BOOKMARKS_KEY`},
+		{"Native bookmark anchor", js, `webview-url-bar-screenshot`},
+		{"Webview bookmark navigation", js, `webview.loadURL(bookmark.address)`},
+		{"Bookmark context menu", js, `swiss-bookmark-context`},
+		{"Bookmark cleanup", js, `removeNativeBookmarkButtons`},
 		{"Touch emulation handler", js, "TouchEvent"},
 		{"Dynamic Island style", css, ".dynamic-island"},
 		{"Punch-hole camera style", css, ".punch-hole"},
@@ -1233,60 +1238,60 @@ func TestBrowserViewToolbarLayout(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	css := GenerateAuxiliaryPluginsCSS()
 
-	// 1. Verify CSS classes for two-tier layout exist
-	layoutClasses := []string{
-		".swiss-browser-nav-row",
-		".swiss-browser-tools-row",
-		".swiss-browser-device-group",
-		".swiss-browser-tools-divider",
-		".swiss-browser-annotation-group",
-		".swiss-browser-port-bar",
-		".swiss-port-list",
-		".swiss-port-add-box",
+	obsolete := []string{
+		`<div class="swiss-browser-nav-row">`,
+		`id="swiss-b-back"`,
+		`id="swiss-b-fwd"`,
+		`id="swiss-b-refresh"`,
+		`id="swiss-b-url"`,
+		`<div class="swiss-browser-port-bar">`,
+		`class="swiss-port-chip"`,
+		`class="swiss-port-select"`,
+		`class="swiss-port-add-box"`,
 	}
-	for _, cls := range layoutClasses {
-		if !strings.Contains(css, cls) {
-			t.Errorf("expected CSS to define %q", cls)
+	for _, token := range obsolete {
+		if strings.Contains(js, token) {
+			t.Errorf("obsolete injected browser control remains: %q", token)
 		}
 	}
 
-	// 2. Verify upper row contains nav buttons, URL input, and quick ports bar
-	idxNavRow := strings.Index(js, `<div class="swiss-browser-nav-row">`)
-	idxBack := strings.Index(js, `id="swiss-b-back"`)
-	idxFwd := strings.Index(js, `id="swiss-b-fwd"`)
-	idxRefresh := strings.Index(js, `id="swiss-b-refresh"`)
-	idxUrl := strings.Index(js, `id="swiss-b-url"`)
-	idxPortBar := strings.Index(js, `<div class="swiss-browser-port-bar">`)
-	idxToolsRow := strings.Index(js, `<div class="swiss-browser-tools-row">`)
-
-	if idxNavRow == -1 || idxBack == -1 || idxFwd == -1 || idxRefresh == -1 || idxUrl == -1 || idxPortBar == -1 || idxToolsRow == -1 {
-		t.Fatalf("one or more upper row elements missing in JS")
+	requiredJS := []string{
+		`[data-testid="builtin-browser-pane"]`,
+		`[data-testid="webview-url-bar-screenshot"]`,
+		`const camera = pane.querySelector('[data-testid="webview-url-bar-screenshot"]')`,
+		`camera.parentElement.insertBefore(starButton, camera)`,
+		`starButton.id = "swiss-bookmark-star"`,
+		`starButton.setAttribute("aria-label", "Bookmarks")`,
+		`aria-expanded`,
+		`<svg class="swiss-bookmark-star-icon" viewBox="0 0 24 24"`,
+		`swiss-browser-tools-row`,
+		`id="swiss-b-device"`,
+		`id="swiss-b-send-chat"`,
+	}
+	for _, token := range requiredJS {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected native-anchored bookmark token %q", token)
+		}
 	}
 
-	if !(idxNavRow < idxBack && idxBack < idxFwd && idxFwd < idxRefresh && idxRefresh < idxUrl && idxUrl < idxPortBar && idxPortBar < idxToolsRow) {
-		t.Errorf("expected upper row order: nav-row < back < fwd < refresh < url < port-bar < tools-row, got indices: nav=%d, back=%d, fwd=%d, ref=%d, url=%d, ports=%d, tools=%d",
-			idxNavRow, idxBack, idxFwd, idxRefresh, idxUrl, idxPortBar, idxToolsRow)
+	anchor := strings.Index(js, `const camera = pane.querySelector('[data-testid="webview-url-bar-screenshot"]')`)
+	insert := strings.Index(js, `camera.parentElement.insertBefore(starButton, camera)`)
+	if anchor == -1 || insert == -1 || anchor >= insert {
+		t.Errorf("Star must be inserted relative to the native camera control; anchor=%d insert=%d", anchor, insert)
 	}
 
-	// 3. Verify lower row contains device controls and annotation buttons
-	idxDeviceGroup := strings.Index(js, `<div class="swiss-browser-device-group">`)
-	idxDevice := strings.Index(js, `id="swiss-b-device"`)
-	idxScale := strings.Index(js, `id="swiss-b-scale"`)
-	idxTouch := strings.Index(js, `id="swiss-b-touch"`)
-	idxDivider := strings.Index(js, `<div class="swiss-browser-tools-divider">`)
-	idxAnnotateGroup := strings.Index(js, `<div class="swiss-browser-annotation-group">`)
-	idxPen := strings.Index(js, `id="swiss-b-pen"`)
-	idxRect := strings.Index(js, `id="swiss-b-rect"`)
-	idxInspect := strings.Index(js, `id="swiss-b-inspect"`)
-	idxClear := strings.Index(js, `id="swiss-b-clear"`)
-	idxSendChat := strings.Index(js, `id="swiss-b-send-chat"`)
-
-	if idxDeviceGroup == -1 || idxDevice == -1 || idxScale == -1 || idxTouch == -1 || idxDivider == -1 || idxAnnotateGroup == -1 || idxPen == -1 || idxRect == -1 || idxInspect == -1 || idxClear == -1 || idxSendChat == -1 {
-		t.Fatalf("one or more lower row elements missing in JS")
+	requiredCSS := []string{
+		".swiss-bookmark-star",
+		".swiss-bookmark-menu",
+		".swiss-bookmark-menu-add",
+		".swiss-bookmark-menu-row",
+		".swiss-bookmark-context",
+		".swiss-bookmark-dialog",
 	}
-
-	if !(idxToolsRow < idxDeviceGroup && idxDeviceGroup < idxDevice && idxDevice < idxScale && idxScale < idxTouch && idxTouch < idxDivider && idxDivider < idxAnnotateGroup && idxAnnotateGroup < idxPen && idxPen < idxRect && idxRect < idxInspect && idxInspect < idxClear && idxClear < idxSendChat) {
-		t.Errorf("expected lower row order: tools-row < device-group < device < scale < touch < divider < annotate-group < pen < rect < inspect < clear < send-chat")
+	for _, token := range requiredCSS {
+		if !strings.Contains(css, token) {
+			t.Errorf("expected bookmark CSS token %q", token)
+		}
 	}
 }
 
@@ -1331,309 +1336,232 @@ func TestAuxiliaryPerExtensionVisibilityAndOrientation(t *testing.T) {
 	}
 }
 
-func TestBrowserViewQuickPortsManagement(t *testing.T) {
+func TestBrowserViewBookmarkManagement(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
-	css := GenerateAuxiliaryPluginsCSS()
 
-	// 1. Verify CSS styles for port chips, context menu, and add-port box
-	portCssClasses := []string{
-		".swiss-port-chip",
-		".swiss-port-chip:hover",
-		".swiss-port-chip.active",
-		".swiss-port-add-box",
-		".swiss-port-add-box.expanded",
-		".swiss-port-add-btn",
-		".swiss-port-add-icon",
-		".swiss-port-add-input",
-		".swiss-context-menu",
-		".swiss-context-item",
+	persistence := []string{
+		`BOOKMARKS_KEY = "antigravity_swiss_browser_bookmarks_v1"`,
+		`LEGACY_QUICK_PORTS_KEY = "antigravity_swiss_quick_ports"`,
+		`DEFAULT_BOOKMARKS`,
+		`getBookmarks`,
+		`saveBookmarks`,
+		`migrateQuickPorts`,
+		`localStorage.getItem(LEGACY_QUICK_PORTS_KEY)`,
+		`localStorage.setItem(BOOKMARKS_KEY`,
+		`{ id: bookmarkId(), name: entry.name, address: entry.address }`,
+		`address:`,
 	}
-	for _, cls := range portCssClasses {
-		if !strings.Contains(css, cls) {
-			t.Errorf("expected CSS to define %q", cls)
+	for _, token := range persistence {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected bookmark persistence token %q", token)
 		}
 	}
 
-	// 2. Verify localStorage persistence logic
-	persistenceTokens := []string{
-		`QUICK_PORTS_KEY = "antigravity_swiss_quick_ports"`,
-		"DEFAULT_PORTS",
-		"getSavedPorts",
-		"savePorts",
-		"renderQuickPorts",
-		`localStorage.getItem(QUICK_PORTS_KEY)`,
-		`localStorage.setItem(QUICK_PORTS_KEY`,
+	crud := []string{
+		`function openBookmarkDialog`,
+		`function addBookmark`,
+		`function updateBookmark`,
+		`function deleteBookmark`,
+		`function selectBookmark`,
+		`const name = nameInput.value.trim()`,
+		`const address = normalizeBookmarkAddress(addressInput.value)`,
+		`if (!name || !address) return`,
+		`webview.loadURL(bookmark.address)`,
+		`window.confirm("Delete bookmark?")`,
 	}
-	for _, tok := range persistenceTokens {
-		if !strings.Contains(js, tok) {
-			t.Errorf("expected JS to contain persistence token %q", tok)
+	for _, token := range crud {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected bookmark CRUD/navigation token %q", token)
 		}
 	}
 
-	// 3. Verify right-click context menu deletion
-	contextMenuTokens := []string{
-		"chip.oncontextmenu",
-		"showPortContextMenu",
-		`className = "swiss-context-menu"`,
-		`id="ctx-port-delete"`,
-		"deletePort",
-		"removeContextMenu",
-		"positionContextMenu",
-	}
-	for _, tok := range contextMenuTokens {
-		if !strings.Contains(js, tok) {
-			t.Errorf("expected JS to contain context menu token %q", tok)
-		}
-	}
-
-	// 4. Verify expandable add button and inline input
-	addBoxTokens := []string{
-		`id="swiss-port-add-box"`,
-		`id="swiss-port-add-btn"`,
-		`class="swiss-port-add-icon"`,
-		`id="swiss-port-add-input"`,
-		"openAddPort",
-		"closeAddPort",
-		"submitNewPort",
-		`addBox.classList.add("expanded")`,
-		`addBox.classList.remove("expanded")`,
-		`e.key === "Enter"`,
+	keyboard := []string{
+		`addEventListener("contextmenu"`,
+		`e.key === "ContextMenu"`,
+		`e.shiftKey && e.key === "F10"`,
+		`e.key === "ArrowDown"`,
+		`e.key === "ArrowUp"`,
 		`e.key === "Escape"`,
-		"onOutsideAddPortMousedown",
+		`e.key === "Tab"`,
+		`focusBookmarkItem`,
+		`trigger.focus()`,
 	}
-	for _, tok := range addBoxTokens {
-		if !strings.Contains(js, tok) {
-			t.Errorf("expected JS to contain add-port token %q", tok)
+	for _, token := range keyboard {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected bookmark keyboard/context affordance %q", token)
+		}
+	}
+
+	if strings.Contains(js, "QUICK PORTS") {
+		t.Error("obsolete QUICK PORTS label must not be rendered")
+	}
+}
+
+func TestBrowserViewBookmarkLegacyEmptyMigration(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	defaultsStart := strings.Index(js, "const DEFAULT_BOOKMARKS = [")
+	if defaultsStart < 0 {
+		t.Fatal("expected DEFAULT_BOOKMARKS declaration")
+	}
+	defaultsEnd := strings.Index(js[defaultsStart:], "];")
+	if defaultsEnd < 0 {
+		t.Fatal("expected DEFAULT_BOOKMARKS terminator")
+	}
+	defaults := js[defaultsStart : defaultsStart+defaultsEnd+2]
+	legacyBookmark := extractJSHandlerBlock(t, js, "function legacyBookmark")
+	migrateQuickPorts := extractJSHandlerBlock(t, js, "function migrateQuickPorts")
+
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeScript := defaults + `
+function bookmarkId() { return "bm_test"; }
+` + legacyBookmark + `
+` + migrateQuickPorts + `
+const assert = require("assert");
+const shapes = values => values.map(({ name, address }) => ({ name, address }));
+
+assert.deepStrictEqual(
+  shapes(migrateQuickPorts([])),
+  [],
+  "an explicitly emptied Quick Ports array must migrate to no bookmarks"
+);
+assert.strictEqual(migrateQuickPorts(null).length, 5, "missing Quick Ports may use defaults");
+assert.strictEqual(migrateQuickPorts(undefined).length, 5, "undefined Quick Ports may use defaults");
+assert.strictEqual(migrateQuickPorts("invalid").length, 5, "invalid Quick Ports may use defaults");
+console.log("BOOKMARK_MIGRATION_OK");
+`
+		cmd := exec.Command(nodePath, "-e", nodeScript)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("node Quick Port migration test failed: %v\n%s", err, string(out))
+		}
+		if !strings.Contains(string(out), "BOOKMARK_MIGRATION_OK") {
+			t.Fatalf("expected BOOKMARK_MIGRATION_OK, got %q", string(out))
 		}
 	}
 }
 
-func TestBrowserViewNarrowToolbarResponsiveness(t *testing.T) {
+func TestBrowserViewBookmarkDialogRecovery(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	normalizeAddress := extractJSHandlerBlock(t, js, "function normalizeBookmarkAddress")
+	closeDialog := extractJSHandlerBlock(t, js, "function closeBookmarkDialog")
+	openDialog := extractJSHandlerBlock(t, js, "function openBookmarkDialog")
+
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeScript := `let bookmarkDialogState = null;
+` + closeDialog + `
+` + normalizeAddress + `
+` + openDialog + `
+const assert = require("assert");
+
+class MockInput {
+  constructor() {
+    this.value = "";
+    this.validationMessage = "";
+    this.listeners = {};
+  }
+  setCustomValidity(message) { this.validationMessage = message; }
+  addEventListener(type, handler) {
+    if (!this.listeners[type]) this.listeners[type] = [];
+    this.listeners[type].push(handler);
+  }
+  focus() { document.activeElement = this; }
+  select() {}
+  input() {
+    (this.listeners.input || []).forEach(handler => handler({ target: this }));
+  }
+}
+
+const nameInput = new MockInput();
+const addressInput = new MockInput();
+const form = { onsubmit: null };
+const cancel = { onclick: null };
+const backdrop = {
+  removed: false,
+  querySelector(selector) {
+    return {
+      form,
+      "[data-swiss-bookmark-name]": nameInput,
+      "[data-swiss-bookmark-address]": addressInput,
+      "[data-swiss-bookmark-cancel]": cancel
+    }[selector];
+  },
+  remove() { this.removed = true; }
+};
+
+global.document = {
+  createElement() { return backdrop; },
+  body: { appendChild(element) { assert.strictEqual(element, backdrop); } },
+  addEventListener() {},
+  removeEventListener() {},
+  activeElement: null
+};
+
+const trigger = { isConnected: true, focus() {} };
+const saved = [];
+openBookmarkDialog(null, trigger, values => saved.push(values));
+
+const submit = () => form.onsubmit({ preventDefault() {} });
+submit();
+assert.strictEqual(saved.length, 0, "blank Save must not close or save the bookmark");
+assert.strictEqual(nameInput.validationMessage, "Required");
+assert.strictEqual(addressInput.validationMessage, "Required");
+assert.strictEqual(backdrop.removed, false);
+
+nameInput.value = "Local API";
+addressInput.value = "localhost:4321";
+nameInput.input();
+addressInput.input();
+assert.strictEqual(nameInput.validationMessage, "", "typing a name must clear its custom validity");
+assert.strictEqual(addressInput.validationMessage, "", "typing an address must clear its custom validity");
+
+if (!nameInput.validationMessage && !addressInput.validationMessage) submit();
+assert.deepStrictEqual(saved, [{ name: "Local API", address: "http://localhost:4321" }]);
+assert.strictEqual(backdrop.removed, true, "the same dialog must close after a valid retry");
+console.log("BOOKMARK_DIALOG_RECOVERY_OK");
+`
+		cmd := exec.Command(nodePath, "-e", nodeScript)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("node bookmark dialog recovery test failed: %v\n%s", err, string(out))
+		}
+		if !strings.Contains(string(out), "BOOKMARK_DIALOG_RECOVERY_OK") {
+			t.Fatalf("expected BOOKMARK_DIALOG_RECOVERY_OK, got %q", string(out))
+		}
+	}
+}
+
+func TestBrowserViewBookmarkMenuResponsiveness(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	css := GenerateAuxiliaryPluginsCSS()
 
-	// 1. Verify rows enforce flex-wrap: nowrap, overflow-x: auto, and 3px scrollbars
-	layoutChecks := []string{
-		".swiss-browser-nav-row",
+	cssTokens := []string{
 		".swiss-browser-tools-row",
 		"flex-wrap: nowrap",
 		"overflow-x: auto",
-		"overflow-y: hidden",
-		".swiss-browser-nav-row::-webkit-scrollbar",
-		".swiss-browser-tools-row::-webkit-scrollbar",
-		"height: 3px",
+		".swiss-bookmark-menu",
+		"position: fixed",
+		"max-height: min(420px, calc(100vh - 16px))",
+		"overflow-y: auto",
+		"z-index: 100000",
 	}
-	for _, check := range layoutChecks {
-		if !strings.Contains(css, check) {
-			t.Errorf("expected CSS to define %q for narrow panel responsiveness", check)
+	for _, token := range cssTokens {
+		if !strings.Contains(css, token) {
+			t.Errorf("expected responsive menu CSS token %q", token)
 		}
 	}
 
-	// 2. Ensure container queries and compact-ports fallback switch chips to dropdown and hide label
-	containerQuerySnippets := []string{
-		"container-type: inline-size",
-		"container-name: swisstoolbar",
-		"@container swisstoolbar (max-width: 580px)",
-		".swiss-browser-toolbar.compact-ports .swiss-port-label",
-		".swiss-browser-toolbar.compact-ports .swiss-port-list",
-		".swiss-browser-toolbar.compact-ports .swiss-port-dropdown-wrap",
-		".swiss-port-select",
-		".swiss-port-select:hover",
-		".swiss-port-select.active",
+	jsTokens := []string{
+		`document.body.appendChild(menu)`,
+		`function positionBookmarkMenu(menu, trigger)`,
+		`window.innerWidth`,
+		`window.innerHeight`,
+		`Math.max(8, Math.min(`,
+		`window.addEventListener("resize", closeBookmarkMenu)`,
+		`window.removeEventListener("resize", closeBookmarkMenu)`,
 	}
-	for _, snip := range containerQuerySnippets {
-		if !strings.Contains(css, snip) {
-			t.Errorf("expected CSS to contain responsive container query snippet %q", snip)
-		}
-	}
-
-	// 3. Verify dropdown selector template, placeholder, and options
-	selectTemplateTokens := []string{
-		`id="swiss-port-dropdown-wrap"`,
-		`class="swiss-port-select"`,
-		`id="swiss-port-select"`,
-		`title="Quick Ports (Right-click to delete)"`,
-		`<option value="" disabled selected>Quick Ports</option>`,
-		`<option value="__add__">+ Add Port...</option>`,
-	}
-	for _, tok := range selectTemplateTokens {
-		if !strings.Contains(js, tok) {
-			t.Errorf("expected JS template to contain select dropdown token %q", tok)
-		}
-	}
-
-	// 4. Verify dropdown interactions (onchange, oncontextmenu, selection sync, mousewheel)
-	dropdownLogicTokens := []string{
-		`toolbar.querySelector("#swiss-port-select")`,
-		`val === "__add__"`,
-		"portSelect.onchange",
-		"portSelect.oncontextmenu",
-		"updateActivePortChip",
-		"portSelect.value = activePort",
-		`portSelect.value = ""`,
-		"updateToolbarResponsiveness",
-		"ResizeObserver",
-		`toolbar.classList.toggle("compact-ports"`,
-		`toolbar.classList.toggle("compact-tools"`,
-		`row.scrollLeft += e.deltaY`,
-	}
-	for _, tok := range dropdownLogicTokens {
-		if !strings.Contains(js, tok) {
-			t.Errorf("expected JS to contain dropdown logic token %q", tok)
-		}
-	}
-
-	// Verify that Delete Port option is removed from select options
-	if strings.Contains(js, "Delete Port...") {
-		t.Errorf("found removed Delete Port... option in auxiliary plugins script")
-	}
-
-	// Verify that port-select.active does not highlight with solid blue background
-	if strings.Contains(css, ".swiss-port-select.active {\n  background: #1a73e8") {
-		t.Errorf("found blue background on .swiss-port-select.active, should not highlight to blue")
-	}
-
-	// Verify tools row can split into two rows when narrow with 620px container query and hidden divider
-	if !strings.Contains(css, "@container swisstoolbar (max-width: 620px)") {
-		t.Errorf("expected CSS to contain max-width: 620px container query for tools row")
-	}
-
-	// 5. David-Design Zero-Decorative-Emoji verification: Ensure no decorative emojis in dropdown options
-	if strings.Contains(js, "🗑") {
-		t.Errorf("found decorative emoji 🗑 in auxiliary plugins script, violating David-Design rules")
-	}
-	if strings.Contains(css, "🗑") {
-		t.Errorf("found decorative emoji 🗑 in auxiliary plugins CSS, violating David-Design rules")
-	}
-
-	// 6. Node.js DOM simulation for port select navigation, unselected state, and add/delete reset
-	if nodePath, err := exec.LookPath("node"); err == nil {
-		nodeSelectTest := `
-const assert = require("assert");
-
-class MockElement {
-  constructor(tagName = "div") {
-    this.tagName = tagName.toUpperCase();
-    this.children = [];
-    this.classList = {
-      _classes: new Set(),
-      add: (c) => this.classList._classes.add(c),
-      remove: (c) => this.classList._classes.delete(c),
-      contains: (c) => this.classList._classes.has(c),
-      toggle: (c, force) => {
-        if (force !== undefined) {
-          if (force) this.classList._classes.add(c); else this.classList._classes.delete(c);
-          return force;
-        }
-        if (this.classList._classes.has(c)) { this.classList._classes.delete(c); return false; }
-        this.classList._classes.add(c); return true;
-      }
-    };
-    this.value = "";
-    this.disabled = false;
-    this.selected = false;
-    this.textContent = "";
-    this.options = [];
-    this.onchange = null;
-    this.oncontextmenu = null;
-  }
-  appendChild(child) {
-    this.children.push(child);
-    if (this.tagName === "SELECT" && child.tagName === "OPTION") {
-      this.options.push(child);
-      if (child.selected || (!this.value && this.options.length === 1)) {
-        this.value = child.value;
-      }
-    }
-    return child;
-  }
-}
-
-// 1. Simulate renderQuickPorts with ports ["5173", "3000"]
-const portSelect = new MockElement("select");
-const ports = ["5173", "3000"];
-
-const placeholder = new MockElement("option");
-placeholder.value = "";
-placeholder.disabled = true;
-placeholder.selected = true;
-placeholder.textContent = "Quick Ports";
-portSelect.appendChild(placeholder);
-
-ports.forEach(p => {
-  const opt = new MockElement("option");
-  opt.value = p;
-  opt.textContent = ":" + p;
-  portSelect.appendChild(opt);
-});
-
-const addOpt = new MockElement("option");
-addOpt.value = "__add__";
-addOpt.textContent = "+ Add Port...";
-portSelect.appendChild(addOpt);
-
-assert.strictEqual(portSelect.options.length, 4);
-assert.strictEqual(portSelect.value, ""); // defaults to placeholder Quick Ports
-assert.strictEqual(portSelect.options[0].textContent, "Quick Ports");
-assert.strictEqual(portSelect.options[3].textContent, "+ Add Port...");
-
-// 2. Simulate updateActivePortChip
-let currentBrowserUrl = "https://github.com";
-const updateActivePortChip = (url) => {
-  const match = url.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
-  const activePort = match ? match[1] : null;
-  if (activePort && portSelect.options.some(o => o.value === activePort)) {
-    portSelect.value = activePort;
-    portSelect.classList.add("active");
-  } else {
-    portSelect.value = "";
-    portSelect.classList.remove("active");
-  }
-};
-
-updateActivePortChip(currentBrowserUrl);
-assert.strictEqual(portSelect.value, "");
-assert.strictEqual(portSelect.classList.contains("active"), false);
-
-// 3. User navigates to localhost:5173
-currentBrowserUrl = "http://localhost:5173";
-updateActivePortChip(currentBrowserUrl);
-assert.strictEqual(portSelect.value, "5173");
-assert.strictEqual(portSelect.classList.contains("active"), true);
-
-// 4. Test selecting __add__ resets select value and opens addBox
-let addBoxOpened = false;
-const openAddPort = () => { addBoxOpened = true; };
-let navigatedTo = null;
-const navigateBrowser = (u) => { navigatedTo = u; };
-
-portSelect.onchange = async () => {
-  const val = portSelect.value;
-  const match = currentBrowserUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i);
-  const activePort = match ? match[1] : null;
-  if (val === "__add__") {
-    portSelect.value = (activePort && ports.includes(activePort)) ? activePort : "";
-    openAddPort();
-    return;
-  }
-  if (val) navigateBrowser("http://localhost:" + val);
-};
-
-// Select __add__
-portSelect.value = "__add__";
-portSelect.onchange();
-assert.strictEqual(addBoxOpened, true);
-assert.strictEqual(portSelect.value, "5173"); // restored to activePort, NOT stuck on __add__
-
-// Select 3000
-portSelect.value = "3000";
-portSelect.onchange();
-assert.strictEqual(navigatedTo, "http://localhost:3000");
-`
-		cmd := exec.Command(nodePath, "-e", nodeSelectTest)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("Node.js port selector simulation failed: %v\n%s", err, string(out))
+	for _, token := range jsTokens {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected menu placement/lifecycle token %q", token)
 		}
 	}
 }
@@ -3509,316 +3437,429 @@ assert(flipped.top + flipped.maxHeight <= 350 - 4, "flipped menu must clear the 
 	}
 }
 
-func TestBuiltinBrowserEnhancements(t *testing.T) {
+func TestBuiltinBrowserBookmarkContract(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 
-	// 1. Verify custom browser tab was removed from allTabs
-	if strings.Contains(js, `data-tab-id="swiss-browser"`) {
-		t.Errorf("custom swiss-browser tab must be removed from auxiliary dock")
+	nativeAnchor := []string{
+		`const pane = webview.closest('[data-testid="builtin-browser-pane"]')`,
+		`const camera = pane.querySelector('[data-testid="webview-url-bar-screenshot"]')`,
+		`camera.parentElement.insertBefore(starButton, camera)`,
+		`starButton.setAttribute("aria-expanded", "false")`,
+		`starButton.addEventListener("click"`,
 	}
-
-	// 2. Verify built-in browser enhancer functions exist and are exposed on window
-	expectedFuncs := []string{
-		"setupBuiltinBrowserEnhancements",
-		"attachBuiltinBrowserEnhancements",
-		"window.setupBuiltinBrowserEnhancements = setupBuiltinBrowserEnhancements;",
-		"window.attachBuiltinBrowserEnhancements = attachBuiltinBrowserEnhancements;",
-		"window.renderSwissBrowserView = renderBrowserView;",
-	}
-	for _, fn := range expectedFuncs {
-		if !strings.Contains(js, fn) {
-			t.Errorf("expected script to contain %q", fn)
+	for _, token := range nativeAnchor {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected native Star attachment token %q", token)
 		}
 	}
 
-	// 3. Verify built-in browser enhancer is invoked on initialization and in mutation observer
-	if !strings.Contains(js, "setupBuiltinBrowserEnhancements();") {
-		t.Errorf("expected setupBuiltinBrowserEnhancements() call in initialization loop")
+	selection := strings.Index(js, `function selectBookmark`)
+	navigation := strings.Index(js, `webview.loadURL(bookmark.address)`)
+	if selection == -1 || navigation == -1 || selection >= navigation {
+		t.Errorf("bookmark click must route through selectBookmark to webview.loadURL; select=%d load=%d", selection, navigation)
 	}
 
-	// 4. Behavioral test in Node: drive the built-in browser enhancer end-to-end
-	if nodePath, err := exec.LookPath("node"); err == nil {
-		nodeTestScript := `
-const assert = require("assert");
+	idempotency := []string{
+		`pane.querySelector("#swiss-bookmark-star")`,
+		`if (!starButton) {`,
+		`bookmarkAdapters.forEach`,
+		`if (pane.isConnected && entry.starButton.isConnected) return`,
+		`starButton.removeEventListener("click", entry.onClick)`,
+	}
+	for _, token := range idempotency {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected idempotent mount/cleanup token %q", token)
+		}
+	}
+}
 
-class MockElement {
-  constructor(tag) {
-    this.tagName = tag.toUpperCase();
+func TestBuiltinBrowserBookmarkDOMLifecycle(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	start := strings.Index(js, "const BOOKMARKS_KEY")
+	end := strings.Index(js, "function setupBuiltinBrowserEnhancements")
+	if start < 0 || end <= start {
+		t.Fatalf("generated bookmark lifecycle block not found: start=%d end=%d", start, end)
+	}
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required for bookmark DOM lifecycle coverage")
+	}
+
+	nodeScript := `
+const fs = require("fs");
+const bookmarkBlock = fs.readFileSync(0, "utf8");
+const assert = require("assert");
+const vm = require("vm");
+
+class MiniNode {
+  constructor(tagName, ownerDocument) {
+    this.tagName = tagName.toUpperCase();
+    this.ownerDocument = ownerDocument;
+    this.parentNode = null;
+    this.children = [];
+    this.attributes = new Map();
+    this.listeners = new Map();
+    this.style = {};
     this.id = "";
     this.className = "";
-    this.classList = {
-      _set: new Set(),
-      add(c) { this._set.add(c); },
-      remove(c) { this._set.delete(c); },
-      toggle(c, force) {
-        if (force === true) this._set.add(c);
-        else if (force === false) this._set.delete(c);
-        else if (this._set.has(c)) this._set.delete(c);
-        else this._set.add(c);
-      },
-      contains(c) { return this._set.has(c); }
-    };
-    this.style = {};
-    this.dataset = {};
-    this.attributes = {};
-    this.children = [];
-    this.parentElement = null;
+    this.title = "";
+    this.type = "";
     this.value = "";
-    this.src = "";
-    this.isConnected = true;
-    this._listeners = {};
+    this.textContent = "";
     this.onclick = null;
-    this.onkeydown = null;
-    this.onchange = null;
+    this.onsubmit = null;
+    this._innerHTML = "";
   }
-  set innerHTML(html) {
-    this._innerHTML = html;
-    this.children = [];
-    const tagRegex = /<([a-zA-Z0-9]+)([^>]*)>/g;
-    let match;
-    while ((match = tagRegex.exec(html)) !== null) {
-      const tagName = match[1];
-      const attrStr = match[2];
-      const el = new MockElement(tagName);
-      const idMatch = attrStr.match(/id="([^"]+)"/);
-      if (idMatch) el.id = idMatch[1];
-      const classMatch = attrStr.match(/class="([^"]+)"/);
-      if (classMatch) {
-        el.className = classMatch[1];
-        classMatch[1].split(" ").filter(Boolean).forEach(c => el.classList.add(c));
-      }
-      const portMatch = attrStr.match(/data-port="([^"]+)"/);
-      if (portMatch) {
-        el.dataset.port = portMatch[1];
-        el.setAttribute("data-port", portMatch[1]);
-      }
-      const valueMatch = attrStr.match(/value="([^"]*)"/);
-      if (valueMatch) el.value = valueMatch[1];
-      this.appendChild(el);
-    }
-  }
-  get options() { return this.children.filter(c => c.tagName === "OPTION"); }
-  get innerHTML() { return this._innerHTML || ""; }
-  setAttribute(k, v) { this.attributes[k] = String(v); }
-  getAttribute(k) { return this.attributes[k] || null; }
-  hasAttribute(k) { return k in this.attributes; }
-  removeAttribute(k) { delete this.attributes[k]; }
-  appendChild(child) {
-    if (child.parentElement) {
-      child.parentElement.removeChild(child);
-    }
-    this.children.push(child);
-    child.parentElement = this;
-    child.isConnected = true;
-    return child;
-  }
-  removeChild(child) {
-    const idx = this.children.indexOf(child);
-    if (idx !== -1) {
-      this.children.splice(idx, 1);
-      child.parentElement = null;
-    }
-  }
-  insertBefore(newNode, refNode) {
-    if (newNode.parentElement) {
-      newNode.parentElement.removeChild(newNode);
-    }
-    const idx = this.children.indexOf(refNode);
-    if (idx !== -1) {
-      this.children.splice(idx, 0, newNode);
-    } else {
-      this.children.push(newNode);
-    }
-    newNode.parentElement = this;
-    newNode.isConnected = true;
-    return newNode;
-  }
-  addEventListener(event, fn) {
-    if (!this._listeners[event]) this._listeners[event] = [];
-    this._listeners[event].push(fn);
-  }
-  removeEventListener(event, fn) {
-    if (!this._listeners[event]) return;
-    this._listeners[event] = this._listeners[event].filter(f => f !== fn);
-  }
-  dispatchEvent(evt) {
-    const fns = this._listeners[evt.type] || [];
-    for (const fn of fns) fn(evt);
-  }
-  click() {
-    if (typeof this.onclick === "function") this.onclick({ stopPropagation() {} });
-    this.dispatchEvent({ type: "click", stopPropagation() {} });
-  }
-  querySelector(sel) {
-    return this.querySelectorAll(sel)[0] || null;
-  }
-  querySelectorAll(sel) {
-    const res = [];
-    const walk = (node) => {
-      for (const c of node.children) {
-        if (matches(c, sel)) res.push(c);
-        walk(c);
-      }
+
+  get classList() {
+    const classes = this.className.split(/\s+/).filter(Boolean);
+    return {
+      contains: name => classes.includes(name)
     };
-    walk(this);
-    return res;
   }
-  closest(sel) {
-    let cur = this;
-    while (cur) {
-      if (matches(cur, sel)) return cur;
-      cur = cur.parentElement;
+
+  get parentElement() {
+    return this.parentNode instanceof MiniNode ? this.parentNode : null;
+  }
+
+  get isConnected() {
+    let node = this;
+    while (node.parentNode) node = node.parentNode;
+    return node === this.ownerDocument;
+  }
+
+  get offsetWidth() {
+    return this.classList.contains("swiss-bookmark-menu") || this.classList.contains("swiss-bookmark-context") ? 320 : 0;
+  }
+
+  get offsetHeight() {
+    return this.classList.contains("swiss-bookmark-menu") || this.classList.contains("swiss-bookmark-context") ? 300 : 0;
+  }
+
+  set innerHTML(value) {
+    this._innerHTML = String(value);
+    if (this.classList.contains("swiss-bookmark-dialog-backdrop")) {
+      const form = new MiniNode("form", this.ownerDocument);
+      form.className = "swiss-bookmark-dialog";
+      const name = new MiniNode("input", this.ownerDocument);
+      name.setAttribute("data-swiss-bookmark-name", "");
+      const address = new MiniNode("input", this.ownerDocument);
+      address.setAttribute("data-swiss-bookmark-address", "");
+      const cancel = new MiniNode("button", this.ownerDocument);
+      cancel.setAttribute("data-swiss-bookmark-cancel", "");
+      form.appendChild(name);
+      form.appendChild(address);
+      form.appendChild(cancel);
+      this.appendChild(form);
+    }
+  }
+
+  get innerHTML() {
+    return this._innerHTML;
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this.attributes.has(name) ? this.attributes.get(name) : null;
+  }
+
+  hasAttribute(name) {
+    return this.attributes.has(name);
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
+  appendChild(node) {
+    if (node.parentNode) node.remove();
+    node.parentNode = this;
+    this.children.push(node);
+    return node;
+  }
+
+  insertBefore(node, reference) {
+    if (!reference) return this.appendChild(node);
+    if (node.parentNode) node.remove();
+    const index = this.children.indexOf(reference);
+    node.parentNode = this;
+    this.children.splice(index, 0, node);
+    return node;
+  }
+
+  remove() {
+    if (!this.parentNode) return;
+    const index = this.parentNode.children.indexOf(this);
+    if (index >= 0) this.parentNode.children.splice(index, 1);
+    this.parentNode = null;
+    const active = this.ownerDocument.activeElement;
+    if (active && (active === this || this.contains(active))) {
+      this.ownerDocument.activeElement = this.ownerDocument.body;
+    }
+  }
+
+  replaceWith(node) {
+    const parent = this.parentNode;
+    if (!parent) return;
+    const index = parent.children.indexOf(this);
+    this.remove();
+    node.parentNode = parent;
+    parent.children.splice(index, 0, node);
+  }
+
+  contains(node) {
+    if (!node) return false;
+    if (node === this) return true;
+    return this.children.some(child => child.contains(node));
+  }
+
+  matches(selector) {
+    if (selector.startsWith("#")) return this.id === selector.slice(1);
+    if (selector.startsWith(".")) return this.classList.contains(selector.slice(1));
+    if (selector.startsWith("[")) {
+      const match = selector.match(/^\[([^=\]]+)(?:="([^"]*)")?\]$/);
+      if (!match) return false;
+      return this.attributes.get(match[1]) === (match[2] === undefined ? "" : match[2]);
+    }
+    return this.tagName === selector.toUpperCase();
+  }
+
+  closest(selector) {
+    let node = this;
+    while (node) {
+      if (node instanceof MiniNode && node.matches(selector)) return node;
+      node = node.parentNode;
     }
     return null;
   }
-  remove() {
-    if (this.parentElement) this.parentElement.removeChild(this);
-    this.isConnected = false;
-  }
-  getBoundingClientRect() {
-    return { top: 0, left: 0, width: 800, height: 600, right: 800, bottom: 600 };
-  }
-  getContext() {
-    return {
-      clearRect() {},
-      beginPath() {},
-      moveTo() {},
-      lineTo() {},
-      stroke() {},
-      fillRect() {},
-      strokeRect() {},
-      setLineDash() {},
-      scale() {},
-      setTransform() {},
-      drawImage() {}
+
+  querySelectorAll(selector) {
+    const found = [];
+    const visit = node => {
+      node.children.forEach(child => {
+        if (child.matches(selector)) found.push(child);
+        visit(child);
+      });
     };
+    visit(this);
+    return found;
+  }
+
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
+
+  addEventListener(type, handler) {
+    const handlers = this.listeners.get(type) || [];
+    handlers.push(handler);
+    this.listeners.set(type, handlers);
+  }
+
+  removeEventListener(type, handler) {
+    const handlers = this.listeners.get(type) || [];
+    this.listeners.set(type, handlers.filter(candidate => candidate !== handler));
+  }
+
+  dispatchEvent(event) {
+    event.target = this;
+    if (!event.preventDefault) event.preventDefault = () => {};
+    const propertyHandler = this["on" + event.type];
+    if (typeof propertyHandler === "function") propertyHandler.call(this, event);
+    (this.listeners.get(event.type) || []).slice().forEach(handler => handler.call(this, event));
+    return true;
+  }
+
+  focus() {
+    this.ownerDocument.activeElement = this;
+  }
+
+  select() {}
+
+  setCustomValidity(message) {
+    this.validationMessage = message;
+  }
+
+  getBoundingClientRect() {
+    return { top: 0, right: this.offsetWidth, bottom: 24, left: 0, width: this.offsetWidth, height: 24 };
   }
 }
 
-function matches(el, sel) {
-  if (!el || !el.tagName) return false;
-  if (sel.startsWith("#")) return el.id === sel.slice(1);
-  if (sel.startsWith(".")) {
-    const cls = sel.slice(1);
-    return el.classList.contains(cls) || (el.className && el.className.split(" ").includes(cls));
+class MiniDocument {
+  constructor(window) {
+    this.defaultView = window;
+    this.listeners = new Map();
+    this.body = new MiniNode("body", this);
+    this.body.parentNode = this;
+    this.activeElement = this.body;
   }
-  if (sel.startsWith("[data-port=")) {
-    const p = sel.replace("[data-port=\"", "").replace("\"]", "");
-    return el.dataset.port === p || el.getAttribute("data-port") === p;
+
+  createElement(tagName) {
+    return new MiniNode(tagName, this);
   }
-  if (sel.toLowerCase() === "webview") return el.tagName === "WEBVIEW";
-  return false;
+
+  querySelectorAll(selector) {
+    return this.body.querySelectorAll(selector);
+  }
+
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
+
+  addEventListener(type, handler) {
+    const handlers = this.listeners.get(type) || [];
+    handlers.push(handler);
+    this.listeners.set(type, handlers);
+  }
+
+  removeEventListener(type, handler) {
+    const handlers = this.listeners.get(type) || [];
+    this.listeners.set(type, handlers.filter(candidate => candidate !== handler));
+  }
+
+  dispatchEvent(event) {
+    if (!event.preventDefault) event.preventDefault = () => {};
+    (this.listeners.get(event.type) || []).slice().forEach(handler => handler.call(this, event));
+    return true;
+  }
+
+  listenerCount(type) {
+    return (this.listeners.get(type) || []).length;
+  }
 }
 
-// Global environment mocks
-global.window = {
-  addEventListener() {},
-  removeEventListener() {},
-  location: { href: "http://localhost:8765" },
-  __SWISS_SESSION_TOKEN__: "test-token"
-};
-global.localStorage = {
-  _store: {},
-  getItem(k) { return this._store[k] || null; },
-  setItem(k, v) { this._store[k] = String(v); },
-  removeItem(k) { delete this._store[k]; }
-};
-global.sessionStorage = global.localStorage;
-global.document = {
-  body: new MockElement("body"),
-  createElement(tag) { return new MockElement(tag); },
-  querySelector(sel) { return this.body.querySelector(sel); },
-  querySelectorAll(sel) { return this.body.querySelectorAll(sel); },
-  getElementById(id) { return this.body.querySelector("#" + id); },
-  addEventListener() {},
-  removeEventListener() {},
-  activeElement: null
-};
-global.ResizeObserver = class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-};
-global.MutationObserver = class {
-  observe() {}
-  disconnect() {}
-};
-global.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+function makeEnv() {
+  const windowListeners = new Map();
+  const windowObject = {
+    innerWidth: 1024,
+    innerHeight: 768,
+    confirm: () => true,
+    addEventListener(type, handler) {
+      const handlers = windowListeners.get(type) || [];
+      handlers.push(handler);
+      windowListeners.set(type, handlers);
+    },
+    removeEventListener(type, handler) {
+      const handlers = windowListeners.get(type) || [];
+      windowListeners.set(type, handlers.filter(candidate => candidate !== handler));
+    }
+  };
+  const document = new MiniDocument(windowObject);
+  const stored = new Map();
+  const localStorage = {
+    getItem: key => stored.has(key) ? stored.get(key) : null,
+    setItem: (key, value) => stored.set(key, String(value))
+  };
+  windowObject.document = document;
+  windowObject.localStorage = localStorage;
 
-// Setup a mock Antigravity host container with a built-in webview
-const hostContainer = new MockElement("div");
-hostContainer.className = "antigravity-browser-panel";
-document.body.appendChild(hostContainer);
+  const context = vm.createContext({ console, document, window: windowObject, localStorage });
+  vm.runInContext(bookmarkBlock, context, { filename: "generated-bookmark-lifecycle.js" });
 
-const mockWebview = new MockElement("webview");
-mockWebview.src = "http://localhost:8765";
-let loadedUrls = [];
-let reloaded = 0;
-let backCalled = 0;
-let fwdCalled = 0;
+  const pane = document.createElement("div");
+  pane.setAttribute("data-testid", "builtin-browser-pane");
+  const row = document.createElement("div");
+  row.appendChild(document.createElement("input"));
+  const camera = document.createElement("button");
+  camera.setAttribute("data-testid", "webview-url-bar-screenshot");
+  row.appendChild(camera);
+  pane.appendChild(row);
+  const oldWebview = document.createElement("webview");
+  pane.appendChild(oldWebview);
+  document.body.appendChild(pane);
 
-mockWebview.loadURL = (u) => { loadedUrls.push(u); mockWebview.src = u; };
-mockWebview.reload = () => { reloaded++; };
-mockWebview.goBack = () => { backCalled++; };
-mockWebview.goForward = () => { fwdCalled++; };
-mockWebview.canGoBack = () => true;
-mockWebview.canGoForward = () => true;
-mockWebview.capturePage = (cb) => cb({ toPNG: () => Buffer.from("fake-png") });
-mockWebview.executeJavaScript = async (code) => "mock-result";
+  const oldCalls = [];
+  const newCalls = [];
+  oldWebview.loadURL = url => oldCalls.push(url);
+  assert.strictEqual(document.body.isConnected, true, "document body must be connected through document ancestry");
+  assert.strictEqual(camera.isConnected, true, "the native camera anchor must be connected before teardown");
 
-hostContainer.appendChild(mockWebview);
+  const cameraFocus = { count: 0 };
+  camera.focus = () => {
+    cameraFocus.count += 1;
+    MiniNode.prototype.focus.call(camera);
+  };
+  return { context, document, pane, camera, cameraFocus, oldWebview, oldCalls, newCalls };
+}
 
-const fs = require("fs");
-const jsCode = fs.readFileSync(0, "utf-8");
-eval(jsCode);
+function click(node) {
+  node.dispatchEvent({ type: "click", bubbles: true, cancelable: true });
+}
 
-// 1. Verify that setupBuiltinBrowserEnhancements attached to the built-in webview
-assert.strictEqual(mockWebview.__swissEnhanced, true, "built-in webview must be marked as swiss-enhanced");
-const wrap = hostContainer.querySelector(".swiss-browser-view");
-assert.ok(wrap, ".swiss-browser-view must wrap built-in webview");
-const toolbar = wrap.querySelector(".swiss-browser-toolbar");
-assert.ok(toolbar, ".swiss-browser-toolbar must be rendered in built-in browser view");
-const canvas = wrap.querySelector("#swiss-browser-canvas");
-assert.ok(canvas, "#swiss-browser-canvas overlay must be attached");
+function openMainMenu(env) {
+  click(env.document.querySelector("#swiss-bookmark-star"));
+  return env.document.querySelector(".swiss-bookmark-menu");
+}
 
-// 2. Behavioral verification: Quick Ports clicking drives webview.loadURL
-const port5173 = toolbar.querySelector("[data-port=\"5173\"]");
-assert.ok(port5173, "Quick Port 5173 chip must exist in toolbar");
-port5173.click();
-assert.ok(loadedUrls.includes("http://localhost:5173"), "clicking :5173 must call webview.loadURL with http://localhost:5173");
+const failures = [];
+function scenario(name, fn) {
+  try {
+    fn();
+    console.log("PASS " + name);
+  } catch (error) {
+    failures.push({ name, error: String(error && error.stack || error) });
+    console.log("FAIL " + name);
+  }
+}
 
-// 3. Behavioral verification: Navigation button handlers
-const reloadBtn = toolbar.querySelector("#swiss-b-refresh");
-assert.ok(reloadBtn, "#swiss-b-refresh reload button must exist");
-reloadBtn.click();
-assert.strictEqual(reloaded, 1, "clicking reload must invoke webview.reload");
+scenario("teardown removes open dialog and global listener without retaining overlay focus", () => {
+  const env = makeEnv();
+  env.context.setupNativeBookmarkButton(env.oldWebview);
+  const baselineKeydown = env.document.listenerCount("keydown");
+  const menu = openMainMenu(env);
+  click(menu.querySelector(".swiss-bookmark-menu-add"));
+  const backdrop = env.document.querySelector(".swiss-bookmark-dialog-backdrop");
+  assert(backdrop, "dialog backdrop was not created");
+  assert.strictEqual(env.document.listenerCount("keydown"), baselineKeydown + 1, "dialog key listener was not installed");
 
-const backBtn = toolbar.querySelector("#swiss-b-back");
-assert.ok(backBtn, "#swiss-b-back back button must exist");
-backBtn.click();
-assert.strictEqual(backCalled, 1, "clicking back must invoke webview.goBack");
+  env.context.removeNativeBookmarkButtons();
+  assert(!env.document.querySelector(".swiss-bookmark-dialog-backdrop"), "dialog backdrop survived teardown");
+  assert(!env.document.querySelector(".swiss-bookmark-dialog"), "dialog form survived teardown");
+  assert(!env.document.querySelector("#swiss-bookmark-star"), "bookmark Star survived teardown");
+  assert.strictEqual(env.document.listenerCount("keydown"), baselineKeydown, "global dialog key listener survived teardown");
+  assert.strictEqual(env.cameraFocus.count, 1, "teardown did not exercise the connected camera fallback");
+  assert.strictEqual(env.document.activeElement, env.camera, "teardown did not restore focus to the connected camera");
 
-// 4. Behavioral verification: Two-way URL synchronization from webview did-navigate
-mockWebview.dispatchEvent({ type: "did-navigate", url: "http://localhost:3000/app" });
-const urlInput = toolbar.querySelector("#swiss-b-url");
-assert.strictEqual(urlInput.value, "http://localhost:3000/app", "URL input must sync from webview did-navigate event");
+  const detached = env.document.createElement("button");
+  assert.strictEqual(detached.isConnected, false, "a node without document ancestry must remain disconnected");
 
-// 5. Behavioral verification: Idempotency (multiple calls don't duplicate wrappers)
-window.setupBuiltinBrowserEnhancements();
-const allToolbars = hostContainer.querySelectorAll(".swiss-browser-toolbar");
-assert.strictEqual(allToolbars.length, 1, "multiple setup runs must be idempotent and never duplicate toolbars");
+  env.context.removeNativeBookmarkButtons();
+  assert.strictEqual(env.document.listenerCount("keydown"), baselineKeydown, "repeated teardown changed listener state");
+});
 
-console.log("BUILTIN_BROWSER_BEHAVIORAL_TESTS_PASSED");
-process.exit(0);
+scenario("replaced webview routes bookmark selection to the live webview only", () => {
+  const env = makeEnv();
+  env.context.setupNativeBookmarkButton(env.oldWebview);
+  const newWebview = env.document.createElement("webview");
+  newWebview.loadURL = url => env.newCalls.push(url);
+  env.oldWebview.replaceWith(newWebview);
+  assert.strictEqual(env.oldWebview.isConnected, false, "the replaced webview must be detached");
+  assert.strictEqual(newWebview.isConnected, true, "the replacement webview must be connected");
+
+  const address = env.context.getBookmarks()[0].address;
+  click(openMainMenu(env).querySelector(".swiss-bookmark-menu-row"));
+  assert.deepStrictEqual(env.newCalls, [address], "live webview did not receive the bookmark URL");
+  assert.deepStrictEqual(env.oldCalls, [], "detached webview received the bookmark URL");
+});
+
+if (failures.length) {
+  failures.forEach(failure => console.error("\n" + failure.name + "\n" + failure.error));
+  process.exitCode = 1;
+} else {
+  console.log("BOOKMARK_DOM_LIFECYCLE_OK");
+}
 `
-		cmd := exec.Command(nodePath, "-e", nodeTestScript)
-		cmd.Stdin = strings.NewReader(js)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("Node.js builtin browser behavioral test failed: %v\n%s", err, string(out))
-		}
-		if !strings.Contains(string(out), "BUILTIN_BROWSER_BEHAVIORAL_TESTS_PASSED") {
-			t.Fatalf("expected behavioral tests to pass, got output:\n%s", string(out))
-		}
+
+	cmd := exec.Command(nodePath, "-e", nodeScript)
+	cmd.Stdin = strings.NewReader(js[start:end])
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bookmark DOM lifecycle test failed: %v\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "BOOKMARK_DOM_LIFECYCLE_OK") {
+		t.Fatalf("expected BOOKMARK_DOM_LIFECYCLE_OK, got:\n%s", string(out))
 	}
 }
