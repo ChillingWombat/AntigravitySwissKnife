@@ -788,3 +788,120 @@ func TestConversationIdentity_GeneratedNewConversationRingResetCallChain(t *test
 })().catch((error) => { console.error(error.stack || error); process.exit(1); });
 `)
 }
+
+func TestConversationIdentity_CrossInstanceMetricResetEpochCallChain(t *testing.T) {
+	runIdentityCallChain(t, `
+(async () => {
+  const oldId = "c23cddd7-1111-4222-8333-444444444444";
+  const newId = "eef014a4-5555-4666-8777-888888888888";
+  const metricRequests = [];
+  const oldMetrics = deferred();
+  const routerCalls = [];
+  const hostSetTimeout = require("timers").setTimeout;
+  const later = (ms) => new Promise(resolve => hostSetTimeout(resolve, ms));
+
+  window.__swissConversationMetricResetEpoch = 0;
+  window.__swissExplicitConversationNavigation = null;
+  window.fetch = async (url) => {
+    if (String(url).includes("/api/tokens/chat-metrics")) {
+      const id = new URL(url).searchParams.get("conversation_id");
+      metricRequests.push(id);
+      if (id === oldId) return oldMetrics.promise;
+      if (id === newId) {
+        return {
+          ok: true,
+          json: async () => ({
+            conversation_id: newId,
+            success: true,
+            turns: [{ context_tokens: 187000, input_tokens: 187000, output_tokens: 0 }],
+            context_window: { used_tokens: 187000, max_tokens: 256000 }
+          })
+        };
+      }
+    }
+    return {
+      ok: true,
+      json: async () => ({ success: true, pending_intents: [], user_prompt_count: 0, prompts: [], turns: [] })
+    };
+  };
+  window.__TSR_ROUTER__ = { navigate: ({ to }) => routerCalls.push(to) };
+
+  const view = new NodeEl("div", "conversation-view");
+  const inputBox = new NodeEl("div", "agent-input-box");
+  inputBox.className = "no-focus-agent-input";
+  inputBox.classList.add("no-focus-agent-input");
+  const trigger = new NodeEl("button", "model-selector-trigger");
+  inputBox.appendChild(trigger);
+  view.appendChild(inputBox);
+  document.body.appendChild(view);
+
+  function setVisible(id) {
+    view.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
+    inputBox.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
+  }
+
+  location.pathname = "/c/" + oldId;
+  location.search = "";
+  location.hash = "";
+  setVisible(oldId);
+  cachedTokensByConv[oldId] = 245000;
+  cachedContextWindowByConv[oldId] = { used_tokens: 245000, max_tokens: 256000 };
+  renderContextWindowProgressRing();
+
+  let ring = document.getElementById("swiss-context-window-ring");
+  assert(ring && /96% \(245K\/256K active\)/.test(ring.getAttribute("title")), "fixture must paint the old numeric ring");
+  assert.deepStrictEqual(metricRequests, [oldId], "fixture must leave an old-route metric response pending");
+  metricRequests.length = 0;
+
+  // Another injected instance changed the page-scoped epoch. This instance did
+  // not run the owning click listener's local cleanup.
+  window.__swissConversationMetricResetEpoch += 1;
+  renderContextWindowProgressRing();
+
+  assert.strictEqual(conversationMetricIdentity.conversationId, null, "an unseen epoch must invalidate this instance's identity");
+  assert.strictEqual(conversationMetricIdentity.phase, "blank", "an unseen epoch must suppress the stale rendered ID");
+  assert.strictEqual(document.getElementById("swiss-context-window-ring"), null, "an unseen epoch must remove the stale ring before metrics render");
+  assert.strictEqual(document.querySelectorAll(".swiss-context-window-ring, .swiss-context-window-ring-sub").length, 0, "an unseen epoch must remove every ring");
+  assert(!Object.prototype.hasOwnProperty.call(cachedTokensByConv, oldId), "an unseen epoch must discard this instance's token cache");
+  assert(!Object.prototype.hasOwnProperty.call(cachedContextWindowByConv, oldId), "an unseen epoch must discard this instance's context-window cache");
+
+  oldMetrics.resolve({
+    ok: true,
+    json: async () => ({
+      conversation_id: oldId,
+      success: true,
+      user_prompt_count: 1,
+      prompts: [{ index: 0, text: "old prompt" }],
+      turns: [{ context_tokens: 245000, input_tokens: 245000, output_tokens: 0 }],
+      context_window: { used_tokens: 245000, max_tokens: 256000 }
+    })
+  });
+  await flush();
+  await later(20);
+  await flush();
+
+  assert.strictEqual(document.getElementById("swiss-context-window-ring"), null, "a delayed old response must not repaint the stale ring");
+  assert.strictEqual(document.querySelectorAll("[title*='245K']").length, 0, "a delayed old response must not restore a numeric title");
+  assert.strictEqual(conversationMetricIdentity.conversationId, null, "a delayed old response must not restore identity");
+
+  location.pathname = "/c/" + oldId;
+  setVisible(newId);
+  renderContextWindowProgressRing();
+  await flush();
+  await later(20);
+  await flush();
+
+  ring = document.getElementById("swiss-context-window-ring");
+  assert(ring, "a new valid rendered ID must mount the ring after an epoch reset");
+  assert(/73% \(187K\/256K active\)/.test(ring.getAttribute("title")), "a new valid ID must render fresh metrics: " + ring.getAttribute("title"));
+  assert.strictEqual(conversationMetricIdentity.conversationId, newId, "a new valid ID must not stay permanently suppressed");
+  assert.deepStrictEqual(metricRequests, [newId], "a new valid ID must fetch metrics exactly once");
+  assert.deepStrictEqual(routerCalls, ["/c/" + newId], "a new valid ID must still synchronize the route exactly once");
+
+  renderContextWindowProgressRing();
+  await flush();
+  assert.deepStrictEqual(metricRequests, [newId], "render after a new ID must not repeat the metric fetch");
+  console.log("INTEGRATED_IDENTITY_OK");
+})().catch((error) => { console.error(error.stack || error); process.exit(1); });
+`)
+}

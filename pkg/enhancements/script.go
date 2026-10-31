@@ -2557,6 +2557,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     const SWISS_EXPLICIT_NAVIGATION_SELECTOR = '[data-testid="new-conversation-button"], [data-testid="app-icon-new-conversation-button"], [data-testid="conversation-row-sidebar"], a[href*="/c/"]';
     const SWISS_NEW_CONVERSATION_SELECTOR = '[data-testid="new-conversation-button"], [data-testid="app-icon-new-conversation-button"]';
     const SWISS_EXPLICIT_NAVIGATION_STORAGE_KEY = "antigravity_swiss_explicit_navigation";
+    const SWISS_CONVERSATION_METRIC_RESET_EPOCH_KEY = "__swissConversationMetricResetEpoch";
 
     function isConversationId(value) {
       return typeof value === "string" && SWISS_CONVERSATION_ID_RE.test(value);
@@ -2619,15 +2620,6 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       } catch (_) {
         return false;
       }
-    }
-
-    function invalidateConversationMetricIdentityForExplicitIntent(intent, identity, requestGenerations) {
-      if (!intent || intent.kind !== "new_conversation" || !intent.pending) return false;
-      identity.phase = "blank";
-      identity.lastRenderedId = null;
-      identity.routeFallbackBlocked = true;
-      activateConversationIdentity(identity, requestGenerations, null);
-      return true;
     }
 
     function explicitConversationNavigationFencesRenderedRoute(intent, location, visibleId) {
@@ -2695,6 +2687,30 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       if (!convId) return;
       delete cachedTokens[convId];
       delete cachedWindows[convId];
+    }
+
+    function clearConversationMetricInstanceState() {
+      conversationMetricRequestGenerations = {};
+      cachedTokensByConv = {};
+      cachedContextWindowByConv = {};
+      lastTokensFetchTimeByConv = {};
+      subagentNameToConvId = {};
+    }
+
+    function synchronizeConversationMetricResetEpoch() {
+      const currentEpoch = Number(window[SWISS_CONVERSATION_METRIC_RESET_EPOCH_KEY]) || 0;
+      if (currentEpoch === conversationMetricResetEpochSeen) return false;
+
+      const renderedId = getVisibleConversationId(document.querySelector('[data-testid="conversation-view"]'));
+      conversationMetricResetStaleId = conversationMetricIdentity.conversationId ||
+        (isConversationId(renderedId) ? renderedId : null);
+      conversationMetricResetEpochSeen = currentEpoch;
+      conversationMetricIdentity = createConversationMetricIdentityState();
+      conversationMetricIdentity.phase = "blank";
+      conversationMetricIdentity.routeFallbackBlocked = true;
+      clearConversationMetricInstanceState();
+      removeContextWindowProgressRings();
+      return true;
     }
 
     function activateConversationIdentity(identity, requestGenerations, convId) {
@@ -3548,6 +3564,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
 
     let conversationMetricIdentity = createConversationMetricIdentityState();
     let conversationRouteSyncState = { attemptedKey: "" };
+    let conversationMetricResetEpochSeen = Number(window[SWISS_CONVERSATION_METRIC_RESET_EPOCH_KEY]) || 0;
+    let conversationMetricResetStaleId = null;
     let conversationMetricRequestGenerations = {};
     let lastTokensFetchTimeByConv = {};
     let cachedTokensByConv = {};
@@ -3648,18 +3666,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     function resetConversationMetricsForNewConversation(intent) {
-      if (!invalidateConversationMetricIdentityForExplicitIntent(intent, conversationMetricIdentity, conversationMetricRequestGenerations)) {
-        return false;
-      }
-      // Fence every prior reader, including detached renders and subagent metrics.
-      Object.keys(conversationMetricRequestGenerations).forEach(cacheKey => {
-        beginConversationMetricRequest(conversationMetricRequestGenerations, cacheKey);
-      });
-      cachedTokensByConv = {};
-      cachedContextWindowByConv = {};
-      lastTokensFetchTimeByConv = {};
-      subagentNameToConvId = {};
-      removeContextWindowProgressRings();
+      if (!intent || intent.kind !== "new_conversation" || !intent.pending) return false;
+      window[SWISS_CONVERSATION_METRIC_RESET_EPOCH_KEY] =
+        (Number(window[SWISS_CONVERSATION_METRIC_RESET_EPOCH_KEY]) || 0) + 1;
+      synchronizeConversationMetricResetEpoch();
       return true;
     }
 
@@ -4065,6 +4075,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         removeContextWindowProgressRings();
         return;
       }
+      if (synchronizeConversationMetricResetEpoch()) return;
 
       const conversationView = document.querySelector('[data-testid="conversation-view"]');
       const renderedConversationId = getVisibleConversationId(conversationView);
@@ -4073,7 +4084,14 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const newConversationPending = Boolean(explicitIntent && explicitIntent.kind === "new_conversation" && explicitIntent.pending);
       const newConversationRendered = newConversationPending && isConversationId(renderedConversationId) &&
         (!isConversationId(sourceConversationId) || renderedConversationId !== sourceConversationId);
-      const visibleConversationId = newConversationPending && !newConversationRendered ? null : renderedConversationId;
+      let visibleConversationId = newConversationPending && !newConversationRendered ? null : renderedConversationId;
+      if (conversationMetricResetStaleId) {
+        if (!isConversationId(visibleConversationId) || visibleConversationId === conversationMetricResetStaleId) {
+          removeContextWindowProgressRings();
+          return;
+        }
+        conversationMetricResetStaleId = null;
+      }
       synchronizeRenderedConversationRoute(conversationRouteSyncState, visibleConversationId, window.location, explicitIntent);
       const parentConvId = transitionConversationMetricIdentity(
         conversationMetricIdentity,
