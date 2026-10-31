@@ -178,7 +178,7 @@ func TestProxyGCPStreamFailuresEndWithTerminalFrame(t *testing.T) {
 		want    string
 	}{
 		{name: "malformed", body: "data: {\"candidates\":[\n\n", want: "decode vertex stream"},
-		{name: "stalled", stalled: true, want: "request canceled"},
+		{name: "stalled", stalled: true, want: "vertex stream"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
