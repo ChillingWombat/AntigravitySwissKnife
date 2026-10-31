@@ -160,6 +160,44 @@ test('custom model settings reads are allowed without machine-control approval',
   ]);
 });
 
+test('local UI configuration writes are allowed without machine-control approval', async () => {
+  const calls = [];
+  let approvals = 0;
+  const broker = createDaemonBroker({
+    getToken: () => 'main-process-secret',
+    requestApproval: async () => {
+      approvals += 1;
+      return true;
+    },
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return fakeResponse(200, '{}', { 'Content-Type': 'application/json' });
+    },
+  });
+
+  for (const path of [
+    '/api/custom_models/integration',
+    '/api/files/ide/config',
+    '/api/gui/projects/delete',
+  ]) {
+    const result = await broker.request({
+      method: 'POST',
+      path,
+      body: JSON.stringify({}),
+    });
+    assert.equal(result.status, 200);
+    assert.equal(ALLOWED_ROUTES.POST.has(path), true, `${path} must be an allowed POST`);
+    assert.equal(PRIVILEGED_ROUTES.POST.has(path), false, `${path} must not require approval`);
+  }
+  assert.equal(approvals, 0);
+  assert.deepEqual(calls, [
+    'http://127.0.0.1:8765/api/custom_models/integration',
+    'http://127.0.0.1:8765/api/files/ide/config',
+    'http://127.0.0.1:8765/api/gui/projects/delete',
+  ]);
+  assert.equal(PRIVILEGED_ROUTES.POST.has('/api/custom_models/launch'), true);
+});
+
 test('import metadata scan is allowed without machine-control approval', async () => {
   const calls = [];
   let approvals = 0;
