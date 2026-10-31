@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -122,7 +123,8 @@ func TestProxyProviderFailureEndsSSEWithSingleTerminalFrame(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("proxy status = %d, body = %s", rr.Code, rr.Body.String())
 	}
-	assertTerminalProviderFailure(t, rr, "provider unavailable")
+	assertTerminalProviderFailure(t, rr, "provider unavailable", "provider unavailable")
+	assertFailureBodyExcludes(t, rr, "TOP-SECRET-PROMPT", "sk-test")
 	logText := logs.String()
 	if got := strings.Count(logText, "provider failure"); got != 1 {
 		t.Fatalf("provider failure logs = %d, want 1; logs = %q", got, logText)
@@ -161,8 +163,9 @@ func TestProxyRejectsInvalidGCPCredentialsBeforeRequest(t *testing.T) {
 	proxy.gw.AllowLoopback = true
 	proxy.gw.client = upstream.Client()
 
-	rr := runAppStreamEnvelope(t, proxy, "gcp-invalid-test", "hello")
-	assertTerminalProviderFailure(t, rr, "service_account")
+	rr := runAppStreamEnvelope(t, proxy, "gcp-invalid-test", "TOP-SECRET-PROMPT")
+	assertTerminalProviderFailure(t, rr, "service_account", "service_account")
+	assertFailureBodyExcludes(t, rr, "TOP-SECRET-PROMPT")
 	if got := requests.Load(); got != 0 {
 		t.Fatalf("Vertex requests = %d, want 0 before credential validation", got)
 	}
@@ -172,13 +175,29 @@ func TestProxyGCPStreamFailuresEndWithTerminalFrame(t *testing.T) {
 	installVertexTokenTransport(t)
 	key := testVertexServiceAccountKey(t)
 	tests := []struct {
-		name    string
-		body    string
-		stalled bool
-		want    string
+		name          string
+		body          string
+		stalled       bool
+		idleTimeout   time.Duration
+		clientTimeout time.Duration
+		wantError     string
+		wantVisible   string
 	}{
-		{name: "malformed", body: "data: {\"candidates\":[\n\n", want: "decode vertex stream"},
-		{name: "stalled", stalled: true, want: "vertex stream"},
+		{
+			name:          "malformed",
+			body:          "data: {\"candidates\":[\n\n",
+			clientTimeout: 2 * time.Second,
+			wantError:     "decode vertex stream",
+			wantVisible:   "decode vertex stream",
+		},
+		{
+			name:          "stalled",
+			stalled:       true,
+			idleTimeout:   50 * time.Millisecond,
+			clientTimeout: time.Second,
+			wantError:     "Vertex stream made no progress for 50ms",
+			wantVisible:   "Vertex stream made no progress for 50ms",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -215,14 +234,18 @@ func TestProxyGCPStreamFailuresEndWithTerminalFrame(t *testing.T) {
 			}
 			proxy := NewProxy(store)
 			proxy.gw.AllowLoopback = true
-			proxy.gw.client = &http.Client{Timeout: 250 * time.Millisecond}
+			if tc.idleTimeout > 0 {
+				proxy.gw.vertexStreamIdleTimeout = tc.idleTimeout
+			}
+			proxy.gw.client = &http.Client{Timeout: tc.clientTimeout}
 
 			started := time.Now()
 			rr := runAppStreamEnvelope(t, proxy, model.ID, "TOP-SECRET-PROMPT")
 			if elapsed := time.Since(started); elapsed > 2*time.Second {
 				t.Fatalf("failure took %s, want a bounded response", elapsed)
 			}
-			assertTerminalProviderFailure(t, rr, tc.want)
+			assertTerminalProviderFailure(t, rr, tc.wantError, tc.wantVisible)
+			assertFailureBodyExcludes(t, rr, "TOP-SECRET-PROMPT", "vertex-test-token", "PRIVATE KEY")
 			if got := requests.Load(); got != 1 {
 				t.Fatalf("Vertex requests = %d, want 1", got)
 			}
@@ -230,7 +253,74 @@ func TestProxyGCPStreamFailuresEndWithTerminalFrame(t *testing.T) {
 	}
 }
 
-func assertTerminalProviderFailure(t *testing.T, rr *httptest.ResponseRecorder, want string) {
+func TestProxyGCPActiveStreamResetsIdleGuard(t *testing.T) {
+	installVertexTokenTransport(t)
+	const idleTimeout = 300 * time.Millisecond
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for i := 0; i < 5; i++ {
+			_, _ = fmt.Fprintf(w, "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"part-%d\"}]}}]}\n\n", i)
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			if i < 4 {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}))
+	defer upstream.Close()
+
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	model := CustomModel{
+		ID:                   "gcp-stream-active",
+		Name:                 "gemini-2.5-pro",
+		ProviderType:         ProviderGCP,
+		BaseURL:              upstream.URL,
+		GCPRegion:            "us-central1",
+		GCPServiceAccountKey: testVertexServiceAccountKey(t),
+		Enabled:              true,
+	}
+	if err := store.SaveModel(model); err != nil {
+		t.Fatalf("SaveModel: %v", err)
+	}
+	proxy := NewProxy(store)
+	proxy.gw.AllowLoopback = true
+	proxy.gw.vertexStreamIdleTimeout = idleTimeout
+	proxy.gw.client = &http.Client{Timeout: 3 * time.Second}
+
+	started := time.Now()
+	rr := runAppStreamEnvelope(t, proxy, model.ID, "TOP-SECRET-PROMPT")
+	if elapsed := time.Since(started); elapsed <= idleTimeout {
+		t.Fatalf("active stream finished in %s, want more than one idle interval", elapsed)
+	}
+	frames := decodeAppSSEFrames(t, rr.Body.Bytes())
+	if len(frames) != 6 {
+		t.Fatalf("frames = %d, want five active frames plus terminal STOP; body = %s", len(frames), rr.Body.String())
+	}
+	var text strings.Builder
+	for _, frame := range frames {
+		if frame.Error != nil {
+			t.Fatalf("active stream ended with error: %+v", frame.Error)
+		}
+		for _, candidate := range frame.Candidates {
+			for _, part := range candidate.Content.Parts {
+				text.WriteString(part.Text)
+			}
+		}
+	}
+	if got := text.String(); got != "part-0part-1part-2part-3part-4" {
+		t.Fatalf("streamed text = %q", got)
+	}
+	last := frames[len(frames)-1]
+	if len(last.Candidates) != 1 || last.Candidates[0].FinishReason != "STOP" {
+		t.Fatalf("terminal frame = %+v, want one STOP candidate", last)
+	}
+}
+
+func assertTerminalProviderFailure(t *testing.T, rr *httptest.ResponseRecorder, wantError, wantVisible string) {
 	t.Helper()
 	if rr.Code != http.StatusOK {
 		t.Fatalf("proxy status = %d, body = %s", rr.Code, rr.Body.String())
@@ -243,6 +333,9 @@ func assertTerminalProviderFailure(t *testing.T, rr *httptest.ResponseRecorder, 
 	if frame.Error == nil {
 		t.Fatalf("terminal frame = %+v, want error", frame)
 	}
+	if !strings.Contains(strings.ToLower(frame.Error.Message), strings.ToLower(wantError)) {
+		t.Fatalf("error message = %q, want %q", frame.Error.Message, wantError)
+	}
 	if len(frame.Candidates) != 1 {
 		t.Fatalf("terminal frame candidates = %d, want 1", len(frame.Candidates))
 	}
@@ -254,12 +347,21 @@ func assertTerminalProviderFailure(t *testing.T, rr *httptest.ResponseRecorder, 
 	for _, part := range candidate.Content.Parts {
 		text.WriteString(part.Text)
 	}
-	visible := strings.ToLower(frame.Error.Message + "\n" + text.String())
-	if !strings.Contains(visible, strings.ToLower(want)) {
-		t.Fatalf("terminal failure = %q, want %q; body = %s", visible, want, rr.Body.String())
+	if !strings.Contains(strings.ToLower(text.String()), strings.ToLower(wantVisible)) {
+		t.Fatalf("candidate text = %q, want %q", text.String(), wantVisible)
 	}
 	if text.Len() == 0 {
 		t.Fatal("terminal failure has no visible text for the host")
+	}
+}
+
+func assertFailureBodyExcludes(t *testing.T, rr *httptest.ResponseRecorder, secrets ...string) {
+	t.Helper()
+	body := rr.Body.String()
+	for _, secret := range secrets {
+		if strings.Contains(body, secret) {
+			t.Fatalf("terminal response leaked %q: %s", secret, body)
+		}
 	}
 }
 

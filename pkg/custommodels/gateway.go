@@ -34,9 +34,10 @@ const gatewayMaxBody = 32 * 1024 * 1024
 
 // Gateway serves custom models to Antigravity surfaces that support a gateway URL.
 type Gateway struct {
-	store         *Store
-	token         string
-	AllowLoopback bool
+	store                   *Store
+	token                   string
+	AllowLoopback           bool
+	vertexStreamIdleTimeout time.Duration
 	// client is overridable in tests.
 	client *http.Client
 }
@@ -44,9 +45,10 @@ type Gateway struct {
 // NewGateway builds a gateway over the custom model store.
 func NewGateway(store *Store) *Gateway {
 	return &Gateway{
-		store:         store,
-		token:         store.GatewayToken(),
-		AllowLoopback: core.IsRunningTests(),
+		store:                   store,
+		token:                   store.GatewayToken(),
+		AllowLoopback:           core.IsRunningTests(),
+		vertexStreamIdleTimeout: defaultVertexStreamIdleTimeout,
 		client: &http.Client{
 			Timeout: 300 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {

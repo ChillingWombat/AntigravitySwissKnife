@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const vertexStreamIdleTimeout = 45 * time.Second
+const defaultVertexStreamIdleTimeout = 45 * time.Second
 
 // runVertex executes Gemini requests against Vertex AI with the service-account
 // credential managed by the custom model store.
@@ -38,9 +38,13 @@ func (g *Gateway) runVertex(r *http.Request, model *CustomModel, request *gemini
 	if err != nil {
 		return fmt.Errorf("encode Vertex request: %w", err)
 	}
+	idleTimeout := g.vertexStreamIdleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = defaultVertexStreamIdleTimeout
+	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	idleTimer := time.AfterFunc(vertexStreamIdleTimeout, cancel)
+	idleTimer := time.AfterFunc(idleTimeout, cancel)
 	defer idleTimer.Stop()
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -54,7 +58,7 @@ func (g *Gateway) runVertex(r *http.Request, model *CustomModel, request *gemini
 	resp, err := g.client.Do(httpReq)
 	if err != nil {
 		if ctx.Err() != nil && r.Context().Err() == nil {
-			return fmt.Errorf("Vertex stream made no progress for %s", vertexStreamIdleTimeout)
+			return fmt.Errorf("Vertex stream made no progress for %s", idleTimeout)
 		}
 		return fmt.Errorf("call Vertex: %w", err)
 	}
@@ -63,14 +67,14 @@ func (g *Gateway) runVertex(r *http.Request, model *CustomModel, request *gemini
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return fmt.Errorf("Vertex returned %s: %s", resp.Status, strings.TrimSpace(string(snippet)))
 	}
-	idleTimer.Reset(vertexStreamIdleTimeout)
+	idleTimer.Reset(idleTimeout)
 	err = consumeVertexSSE(&idleReadCloser{
 		ReadCloser: resp.Body,
 		timer:      idleTimer,
-		timeout:    vertexStreamIdleTimeout,
+		timeout:    idleTimeout,
 	}, emit)
 	if err != nil && ctx.Err() != nil && r.Context().Err() == nil {
-		return fmt.Errorf("Vertex stream made no progress for %s", vertexStreamIdleTimeout)
+		return fmt.Errorf("Vertex stream made no progress for %s", idleTimeout)
 	}
 	return err
 }
