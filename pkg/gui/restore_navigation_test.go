@@ -246,3 +246,56 @@ global.document = {
 		t.Errorf("no bootstrap rewrite may happen once the view is mounted, got %d", n)
 	}
 }
+
+// TestRestoreConversationPathScript_ExplicitUserRouteSurvivesRestore pins the
+// post-error recovery contract: once the user chooses a sidebar conversation,
+// an older startup restore target must not pull the host back to the failed
+// Untitled Conversation. The router acknowledgement remains the navigation
+// primitive when no direct user intent is present.
+func TestRestoreConversationPathScript_ExplicitUserRouteSurvivesRestore(t *testing.T) {
+	target := "/c/bbbbbbbb-5555-6666-7777-888888888888"
+	userRoute := "/c/aaaaaaaa-1111-2222-3333-444444444444"
+	run := runRestorePathScript(t, target, `
+const __state = { pathname: "`+userRoute+`", search: "" };
+global.window = {
+  location: { get pathname() { return __state.pathname; }, get search() { return __state.search; }, assign: (url) => { __calls.assign.push(url); } },
+  __TSR_ROUTER__: {
+    state: { location: { get pathname() { return __state.pathname; } } },
+    navigate: (opts) => { __calls.navigate.push(opts || {}); }
+  },
+  __swissExplicitConversationNavigation: { at: Date.now(), fromHref: "/c/`+target+`" },
+  history: { state: { __TSR_key: "k1" }, replaceState: (s, u, url) => { __calls.replaceState.push(url); } },
+  __swissLastRestoreNudge: 0
+};
+global.document = {
+  getElementById: (id) => (id === "root" ? { childElementCount: 1 } : null),
+  querySelector: (sel) => {
+    if (sel.indexOf("conversation-view") !== -1) return {};
+    if (sel.indexOf("new-conversation-button") !== -1 || sel.indexOf("conversation-list-sidebar") !== -1) return {};
+    if (sel.indexOf('a[href*=') === 0) return { click: () => { __calls.click++; } };
+    return null;
+  }
+};
+`)
+	if boolField(t, run.Res, "ready") {
+		t.Errorf("the old restore target is not ready while the user is on another route: %v", run.Res)
+	}
+	if got := stringField(t, run.Res, "action"); got != "user_navigation" {
+		t.Errorf("action = %q, want user_navigation", got)
+	}
+	if boolField(t, run.Res, "explicit_user_navigation") != true {
+		t.Errorf("explicit user navigation must be reported: %v", run.Res)
+	}
+	if n, _ := run.Calls["click"].(float64); n != 0 {
+		t.Errorf("restore must not click a sidebar link over direct user navigation, got %v", n)
+	}
+	if n := len(run.Calls["navigate"].([]interface{})); n != 0 {
+		t.Errorf("restore must not router-navigate over direct user navigation, got %d", n)
+	}
+	if n := len(run.Calls["replaceState"].([]interface{})); n != 0 {
+		t.Errorf("restore must not rewrite the address bar over direct user navigation, got %d", n)
+	}
+	if n := len(run.Calls["assign"].([]interface{})); n != 0 {
+		t.Errorf("restore must not hard-navigate over direct user navigation, got %d", n)
+	}
+}

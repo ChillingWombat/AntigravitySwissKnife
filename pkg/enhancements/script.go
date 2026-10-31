@@ -2552,6 +2552,69 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     /* === Active Conversation Auto-Revival & Continuation Handler === */
+    /* __SWISS_CONVERSATION_IDENTITY_START__ */
+    const SWISS_CONVERSATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const SWISS_EXPLICIT_NAVIGATION_SELECTOR = '[data-testid="new-conversation-button"], [data-testid="app-icon-new-conversation-button"], [data-testid="conversation-row-sidebar"], a[href*="/c/"]';
+    const SWISS_EXPLICIT_NAVIGATION_GRACE_MS = 30000;
+
+    function isConversationId(value) {
+      return typeof value === "string" && SWISS_CONVERSATION_ID_RE.test(value);
+    }
+
+    function parseConversationId(pathname) {
+      const match = String(pathname || "").match(/^\/c\/([^/?#]+)/);
+      return match && isConversationId(match[1]) ? match[1] : null;
+    }
+
+    function resolveConversationIdentity(visibleId, pathname) {
+      return isConversationId(visibleId) ? visibleId : parseConversationId(pathname);
+    }
+
+    function beginConversationMetricRequest(requestGenerations, cacheKey) {
+      const generation = (requestGenerations[cacheKey] || 0) + 1;
+      requestGenerations[cacheKey] = generation;
+      return generation;
+    }
+
+    function isCurrentConversationMetricRequest(requestGenerations, cacheKey, generation) {
+      return Boolean(cacheKey) && requestGenerations[cacheKey] === generation;
+    }
+
+    function clearConversationMetricCache(cachedTokens, cachedWindows, convId) {
+      if (!convId) return;
+      delete cachedTokens[convId];
+      delete cachedWindows[convId];
+    }
+
+    function activateConversationIdentity(identity, requestGenerations, convId) {
+      const nextId = isConversationId(convId) ? convId : null;
+      if (identity.conversationId && identity.conversationId !== nextId) {
+        beginConversationMetricRequest(requestGenerations, identity.conversationId);
+      }
+      identity.conversationId = nextId;
+      return nextId;
+    }
+
+    function isExplicitConversationNavigationElement(element) {
+      return Boolean(element && typeof element.closest === "function" && element.closest(SWISS_EXPLICIT_NAVIGATION_SELECTOR));
+    }
+
+    function createExplicitConversationNavigationIntent(element, fromHref, now) {
+      if (!isExplicitConversationNavigationElement(element)) return null;
+      const anchor = typeof element.closest === "function" ? element.closest("a[href]") : null;
+      return {
+        at: now,
+        fromHref: fromHref || "",
+        targetHref: anchor ? (anchor.href || anchor.getAttribute("href") || "") : ""
+      };
+    }
+
+    function hasRecentExplicitConversationNavigation(intent, now) {
+      const markedAt = intent ? Number(intent.at) : NaN;
+      return Number.isFinite(markedAt) && now >= markedAt && (now - markedAt) < SWISS_EXPLICIT_NAVIGATION_GRACE_MS;
+    }
+    /* __SWISS_CONVERSATION_IDENTITY_END__ */
+
     let autoRevivalInFlight = false;
     let lastRevivalCheckTime = 0;
 
@@ -2682,6 +2745,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     async function checkAndExecuteConversationRevival() {
+      if (hasRecentExplicitConversationNavigation(window.__swissExplicitConversationNavigation, Date.now())) {
+        return;
+      }
       checkAndRecoverFromNonexistentConversation();
 
       if (autoRevivalInFlight) return;
@@ -3266,6 +3332,33 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return null;
     }
 
+    function getVisibleConversationId(el) {
+      const candidates = [];
+      const add = (candidate) => {
+        if (candidate && candidates.indexOf(candidate) === -1) candidates.push(candidate);
+      };
+      add(el);
+      if (el && typeof el.closest === "function") {
+        add(el.closest('[data-testid="agent-input-box"]'));
+      }
+      const view = document.querySelector('[data-testid="conversation-view"]');
+      if (view) {
+        view.querySelectorAll('[data-testid="agent-input-box"]').forEach(add);
+        add(view);
+      }
+      for (let i = 0; i < candidates.length; i++) {
+        const id = getConversationIdFromElement(candidates[i]);
+        if (isConversationId(id)) return id;
+      }
+      return null;
+    }
+
+    function resolveCurrentConversationId(el) {
+      return resolveConversationIdentity(getVisibleConversationId(el), window.location.pathname);
+    }
+
+    let conversationMetricIdentity = { conversationId: null };
+    let conversationMetricRequestGenerations = {};
     let lastTokensFetchTimeByConv = {};
     let cachedTokensByConv = {};
     let cachedContextWindowByConv = {};
@@ -3277,6 +3370,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       const now = Date.now();
       if (now - (lastTokensFetchTimeByConv[cacheKey] || 0) < 2500) return;
       lastTokensFetchTimeByConv[cacheKey] = now;
+      const requestGeneration = beginConversationMetricRequest(conversationMetricRequestGenerations, cacheKey);
       try {
         let url = "http://127.0.0.1:8765/api/tokens/chat-metrics?";
         if (convId) {
@@ -3292,6 +3386,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         });
         if (res.ok) {
           const data = await res.json();
+          if (!isCurrentConversationMetricRequest(conversationMetricRequestGenerations, cacheKey, requestGeneration)) {
+            return;
+          }
           const targetId = data.conversation_id || convId;
           if (targetId) {
             if (parentId && agentName) {
@@ -3342,8 +3439,16 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               renderPromptJumpBar();
             }
           }
+        } else if (isCurrentConversationMetricRequest(conversationMetricRequestGenerations, cacheKey, requestGeneration)) {
+          clearConversationMetricCache(cachedTokensByConv, cachedContextWindowByConv, convId);
+          renderContextWindowProgressRing();
         }
-      } catch (_) {}
+      } catch (_) {
+        if (isCurrentConversationMetricRequest(conversationMetricRequestGenerations, cacheKey, requestGeneration)) {
+          clearConversationMetricCache(cachedTokensByConv, cachedContextWindowByConv, convId);
+          renderContextWindowProgressRing();
+        }
+      }
     }
 
     function removeContextWindowProgressRings() {
@@ -3358,14 +3463,39 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         cachedTokensByConv = {};
         cachedContextWindowByConv = {};
         lastTokensFetchTimeByConv = {};
+        conversationMetricIdentity = { conversationId: null };
+        conversationMetricRequestGenerations = {};
       } else {
         cachedTokensByConv = {};
         cachedContextWindowByConv = {};
         lastTokensFetchTimeByConv = {};
+        conversationMetricIdentity = { conversationId: null };
+        conversationMetricRequestGenerations = {};
         syncConfigFromServer();
         renderContextWindowProgressRing();
       }
     };
+
+    if (!window.__swissExplicitConversationNavigationBound) {
+      window.__swissExplicitConversationNavigationBound = true;
+      if (!window.__swissExplicitConversationNavigation) {
+        try {
+          const storedNavigation = sessionStorage.getItem("antigravity_swiss_explicit_navigation");
+          if (storedNavigation) window.__swissExplicitConversationNavigation = JSON.parse(storedNavigation);
+        } catch (_) {}
+      }
+      if (typeof document.addEventListener === "function") {
+        document.addEventListener("click", (e) => {
+          if (!e.isTrusted) return;
+          const intent = createExplicitConversationNavigationIntent(e.target, window.location.href, Date.now());
+          if (!intent) return;
+          window.__swissExplicitConversationNavigation = intent;
+          try {
+            sessionStorage.setItem("antigravity_swiss_explicit_navigation", JSON.stringify(intent));
+          } catch (_) {}
+        }, true);
+      }
+    }
 
     const compactingStateByRing = {};
 
@@ -3721,8 +3851,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         return;
       }
 
-      const parentConvId = (window.location.pathname || "").replace(/^\/c\//, "").split(/[?#]/)[0];
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const visibleConversationId = getVisibleConversationId(document.querySelector('[data-testid="conversation-view"]'));
+      const parentConvId = resolveConversationIdentity(visibleConversationId, window.location.pathname);
+      activateConversationIdentity(conversationMetricIdentity, conversationMetricRequestGenerations, parentConvId);
 
       // Part 1: Main Conversation Chat Input (Model Selector Trigger)
       const trigger = document.querySelector('[data-testid="model-selector-trigger"]') ||
@@ -3740,8 +3871,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         if (isInsideSubagentBox) {
           if (mainRing) mainRing.remove();
         } else {
-          const convId = getConversationIdFromElement(trigger) || parentConvId;
-          if (convId && uuidRegex.test(convId)) {
+          const convId = resolveCurrentConversationId(trigger) || parentConvId;
+          if (isConversationId(convId)) {
             fetchActiveConversationTokens(convId);
           }
           if (!mainRing) {
@@ -3824,7 +3955,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             subConvId = null;
             fetchActiveConversationTokens(null, parentConvId, agentName);
           }
-        } else if (subConvId && uuidRegex.test(subConvId)) {
+        } else if (isConversationId(subConvId)) {
           fetchActiveConversationTokens(subConvId);
         }
 

@@ -1076,6 +1076,11 @@ func restoreConversationPathScript(targetPath string) string {
 			const hasConvoView = Boolean(document.querySelector('[data-testid="conversation-view"]'));
 			const hasShell = Boolean(document.querySelector('[data-testid="new-conversation-button"], [data-testid="conversation-list-sidebar"]'));
 			const isConvoTarget = targetPathOnly.startsWith("/c/");
+			const now = Date.now();
+			const explicitNavigation = window.__swissExplicitConversationNavigation;
+			const explicitNavigationAt = explicitNavigation ? Number(explicitNavigation.at) : NaN;
+			const explicitUserNavigation = Number.isFinite(explicitNavigationAt) &&
+				now >= explicitNavigationAt && (now - explicitNavigationAt) < 30000;
 
 			// Router acknowledgement: the app's own view of the current route.
 			let routerPath = "";
@@ -1097,10 +1102,11 @@ func restoreConversationPathScript(targetPath string) string {
 
 			let action = "none";
 			if (!viewReady) {
-				const now = Date.now();
 				const nudgedRecently = Boolean(window.__swissLastRestoreNudge) && (now - window.__swissLastRestoreNudge) < 1200;
 				const onTargetRoute = curPath === targetPathOnly && !routeConflicted;
-				if (!onTargetRoute) {
+				if (!onTargetRoute && explicitUserNavigation) {
+					action = "user_navigation";
+				} else if (!onTargetRoute) {
 					const convId = targetPathOnly.replace(/^\/c\//, "");
 					const link = document.querySelector('a[href*="' + convId + '"]');
 					if (link && typeof link.click === "function" && !nudgedRecently) {
@@ -1139,6 +1145,7 @@ func restoreConversationPathScript(targetPath string) string {
 				path_only: curPath,
 				route_path: routerPath,
 				router_observable: routerObservable,
+				explicit_user_navigation: explicitUserNavigation,
 				view_mounted: hasConvoView,
 				root_ready: rootReady,
 				shell_mounted: hasShell,
@@ -1147,7 +1154,7 @@ func restoreConversationPathScript(targetPath string) string {
 		} catch (e) {
 			return {
 				ready: false, path: "", path_only: "", route_path: "",
-				router_observable: false, view_mounted: false, root_ready: false,
+				router_observable: false, explicit_user_navigation: false, view_mounted: false, root_ready: false,
 				shell_mounted: false, action: "error"
 			};
 		}
