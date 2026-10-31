@@ -1397,6 +1397,136 @@ func TestBrowserViewBookmarkManagement(t *testing.T) {
 	}
 }
 
+func TestBrowserViewBookmarkLegacyEmptyMigration(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	defaultsStart := strings.Index(js, "const DEFAULT_BOOKMARKS = [")
+	if defaultsStart < 0 {
+		t.Fatal("expected DEFAULT_BOOKMARKS declaration")
+	}
+	defaultsEnd := strings.Index(js[defaultsStart:], "];")
+	if defaultsEnd < 0 {
+		t.Fatal("expected DEFAULT_BOOKMARKS terminator")
+	}
+	defaults := js[defaultsStart : defaultsStart+defaultsEnd+2]
+	legacyBookmark := extractJSHandlerBlock(t, js, "function legacyBookmark")
+	migrateQuickPorts := extractJSHandlerBlock(t, js, "function migrateQuickPorts")
+
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeScript := defaults + `
+function bookmarkId() { return "bm_test"; }
+` + legacyBookmark + `
+` + migrateQuickPorts + `
+const assert = require("assert");
+const shapes = values => values.map(({ name, address }) => ({ name, address }));
+
+assert.deepStrictEqual(
+  shapes(migrateQuickPorts([])),
+  [],
+  "an explicitly emptied Quick Ports array must migrate to no bookmarks"
+);
+assert.strictEqual(migrateQuickPorts(null).length, 5, "missing Quick Ports may use defaults");
+assert.strictEqual(migrateQuickPorts(undefined).length, 5, "undefined Quick Ports may use defaults");
+assert.strictEqual(migrateQuickPorts("invalid").length, 5, "invalid Quick Ports may use defaults");
+console.log("BOOKMARK_MIGRATION_OK");
+`
+		cmd := exec.Command(nodePath, "-e", nodeScript)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("node Quick Port migration test failed: %v\n%s", err, string(out))
+		}
+		if !strings.Contains(string(out), "BOOKMARK_MIGRATION_OK") {
+			t.Fatalf("expected BOOKMARK_MIGRATION_OK, got %q", string(out))
+		}
+	}
+}
+
+func TestBrowserViewBookmarkDialogRecovery(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	normalizeAddress := extractJSHandlerBlock(t, js, "function normalizeBookmarkAddress")
+	openDialog := extractJSHandlerBlock(t, js, "function openBookmarkDialog")
+
+	if nodePath, err := exec.LookPath("node"); err == nil {
+		nodeScript := normalizeAddress + `
+` + openDialog + `
+const assert = require("assert");
+
+class MockInput {
+  constructor() {
+    this.value = "";
+    this.validationMessage = "";
+    this.listeners = {};
+  }
+  setCustomValidity(message) { this.validationMessage = message; }
+  addEventListener(type, handler) {
+    if (!this.listeners[type]) this.listeners[type] = [];
+    this.listeners[type].push(handler);
+  }
+  focus() { document.activeElement = this; }
+  select() {}
+  input() {
+    (this.listeners.input || []).forEach(handler => handler({ target: this }));
+  }
+}
+
+const nameInput = new MockInput();
+const addressInput = new MockInput();
+const form = { onsubmit: null };
+const cancel = { onclick: null };
+const backdrop = {
+  removed: false,
+  querySelector(selector) {
+    return {
+      form,
+      "[data-swiss-bookmark-name]": nameInput,
+      "[data-swiss-bookmark-address]": addressInput,
+      "[data-swiss-bookmark-cancel]": cancel
+    }[selector];
+  },
+  remove() { this.removed = true; }
+};
+
+global.document = {
+  createElement() { return backdrop; },
+  body: { appendChild(element) { assert.strictEqual(element, backdrop); } },
+  addEventListener() {},
+  removeEventListener() {},
+  activeElement: null
+};
+
+const trigger = { isConnected: true, focus() {} };
+const saved = [];
+openBookmarkDialog(null, trigger, values => saved.push(values));
+
+const submit = () => form.onsubmit({ preventDefault() {} });
+submit();
+assert.strictEqual(saved.length, 0, "blank Save must not close or save the bookmark");
+assert.strictEqual(nameInput.validationMessage, "Required");
+assert.strictEqual(addressInput.validationMessage, "Required");
+assert.strictEqual(backdrop.removed, false);
+
+nameInput.value = "Local API";
+addressInput.value = "localhost:4321";
+nameInput.input();
+addressInput.input();
+assert.strictEqual(nameInput.validationMessage, "", "typing a name must clear its custom validity");
+assert.strictEqual(addressInput.validationMessage, "", "typing an address must clear its custom validity");
+
+if (!nameInput.validationMessage && !addressInput.validationMessage) submit();
+assert.deepStrictEqual(saved, [{ name: "Local API", address: "http://localhost:4321" }]);
+assert.strictEqual(backdrop.removed, true, "the same dialog must close after a valid retry");
+console.log("BOOKMARK_DIALOG_RECOVERY_OK");
+`
+		cmd := exec.Command(nodePath, "-e", nodeScript)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("node bookmark dialog recovery test failed: %v\n%s", err, string(out))
+		}
+		if !strings.Contains(string(out), "BOOKMARK_DIALOG_RECOVERY_OK") {
+			t.Fatalf("expected BOOKMARK_DIALOG_RECOVERY_OK, got %q", string(out))
+		}
+	}
+}
+
 func TestBrowserViewBookmarkMenuResponsiveness(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	css := GenerateAuxiliaryPluginsCSS()

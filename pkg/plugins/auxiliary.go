@@ -4398,7 +4398,7 @@ func GenerateAuxiliaryPluginsScript() string {
     }
 
     function migrateQuickPorts(legacy) {
-      const values = Array.isArray(legacy) && legacy.length ? legacy : DEFAULT_BOOKMARKS;
+      const values = Array.isArray(legacy) ? legacy : DEFAULT_BOOKMARKS;
       const seen = new Set();
       const bookmarks = [];
       values.forEach(value => {
@@ -4550,6 +4550,8 @@ func GenerateAuxiliaryPluginsScript() string {
         nameInput.value = bookmark.name;
         addressInput.value = bookmark.address;
       }
+      nameInput.addEventListener("input", () => nameInput.setCustomValidity(""));
+      addressInput.addEventListener("input", () => addressInput.setCustomValidity(""));
       const priorFocus = trigger && trigger.isConnected ? trigger : document.activeElement;
       const close = restoreFocus => {
         document.removeEventListener("keydown", onKeyDown, true);
