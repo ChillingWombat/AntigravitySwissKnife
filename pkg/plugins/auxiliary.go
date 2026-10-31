@@ -4906,6 +4906,7 @@ func GenerateAuxiliaryPluginsScript() string {
         webview.__swissTeardown();
       }
       webview.__swissEnhanced = false;
+      removeNativeBookmarkButtons();
     }
 
     function setupBuiltinBrowserEnhancements() {

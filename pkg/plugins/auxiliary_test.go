@@ -4065,12 +4065,27 @@ scenario("legacy native wrapper migrates and installs one Swiss functions bar", 
   click(openMainMenu(env).querySelector(".swiss-bookmark-menu-row"));
   assert.deepStrictEqual(env.oldCalls, [address], "bookmark Star stopped navigating the native webview");
 
+  const teardownMenu = openMainMenu(env);
+  click(teardownMenu.querySelector(".swiss-bookmark-menu-add"));
+  assert(env.document.querySelector(".swiss-bookmark-dialog-backdrop"), "bookmark dialog did not open before teardown");
+
   env.context.teardownBuiltinBrowserEnhancements(env.oldWebview);
   assert(!env.pane.querySelector(".swiss-native-browser-toolbar"), "teardown left the Swiss functions bar");
   assert(!env.pane.querySelector(".swiss-native-browser-overlay"), "teardown left the annotation overlay");
+  assert(!env.pane.querySelector("#swiss-bookmark-star"), "teardown left the bookmark Star");
+  assert(!env.document.querySelector(".swiss-bookmark-menu"), "teardown left the bookmark menu");
+  assert(!env.document.querySelector(".swiss-bookmark-dialog"), "teardown left the bookmark dialog");
+  assert(!env.document.querySelector(".swiss-bookmark-dialog-backdrop"), "teardown left the bookmark dialog backdrop");
   assert.strictEqual(env.oldWebview.parentElement, env.pane, "teardown moved the native webview");
   assert.strictEqual(env.camera.parentElement.isConnected, true, "teardown removed the native browser bar");
   assert.strictEqual(env.camera.isConnected, true, "teardown removed a native control");
+
+  env.context.teardownBuiltinBrowserEnhancements(env.oldWebview);
+  assert(!env.pane.querySelector(".swiss-native-browser-toolbar"), "repeated teardown recreated the Swiss functions bar");
+  assert(!env.pane.querySelector(".swiss-native-browser-overlay"), "repeated teardown recreated the annotation overlay");
+  assert(!env.pane.querySelector("#swiss-bookmark-star"), "repeated teardown recreated the bookmark Star");
+  assert.strictEqual(env.oldWebview.parentElement, env.pane, "repeated teardown moved the native webview");
+  assert.strictEqual(env.camera.isConnected, true, "repeated teardown removed a native control");
 });
 
 scenario("disabled enhancements still migrate a legacy wrapper", () => {
