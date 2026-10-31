@@ -2890,9 +2890,18 @@ func TestWebGUIUtilitiesACPEndpoint(t *testing.T) {
 		if name, _ := agent["name"].(string); name != expName {
 			t.Errorf("expected agent %s name '%s', got '%s'", expID, expName, name)
 		}
-		if expID != "agent-antigravity-acp" {
-			if port, _ := agent["port_socket"].(string); port == "" {
-				t.Errorf("agent %s has empty port_socket", expID)
+		port, _ := agent["port_socket"].(string)
+		switch expID {
+		case "agent-antigravity-acp", "agent-pi", "agent-codex":
+			if port != "" {
+				t.Errorf("stdio agent %s has socket %q", expID, port)
+			}
+			if transport, _ := agent["transport"].(string); transport != "stdio" {
+				t.Errorf("stdio agent %s transport = %q", expID, transport)
+			}
+		default:
+			if port == "" {
+				t.Errorf("socket agent %s has empty port_socket", expID)
 			}
 		}
 		// Version and tools are negotiated data: they exist only for a reachable

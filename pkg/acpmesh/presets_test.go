@@ -74,10 +74,10 @@ func TestDefaultEndpointPerOS(t *testing.T) {
 			want:     "127.0.0.1:4096",
 		},
 		{
-			name:     "tcp preset unchanged on darwin",
+			name:     "codex stdio has empty endpoint on darwin",
 			goos:     "darwin",
 			presetID: PresetCodex,
-			want:     "127.0.0.1:48080",
+			want:     "",
 		},
 		{
 			name:     "tcp preset unchanged on linux",
@@ -95,6 +95,20 @@ func TestDefaultEndpointPerOS(t *testing.T) {
 			}
 			if got := preset.DefaultEndpoint(testEnv(tc.goos)); got != tc.want {
 				t.Fatalf("DefaultEndpoint(%s) = %q, want %q", tc.goos, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPiAndCodexPresetsUseStdio(t *testing.T) {
+	for _, id := range []string{PresetPi, PresetCodex} {
+		t.Run(id, func(t *testing.T) {
+			preset, ok := PresetByID(id)
+			if !ok {
+				t.Fatalf("preset %q not found", id)
+			}
+			if endpoint := preset.DefaultEndpoint(testEnv("linux")); endpoint != "" {
+				t.Fatalf("DefaultEndpoint(linux) = %q, want stdio", endpoint)
 			}
 		})
 	}

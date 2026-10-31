@@ -11,9 +11,10 @@ import (
 
 // Endpoint kinds returned by EndpointKind and reported in detection results.
 const (
-	KindUnix = "unix"
-	KindPipe = "pipe"
-	KindTCP  = "tcp"
+	KindUnix  = "unix"
+	KindPipe  = "pipe"
+	KindTCP   = "tcp"
+	KindStdio = "stdio"
 )
 
 // EndpointKind classifies an endpoint string.

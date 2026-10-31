@@ -153,6 +153,8 @@ func ProbeAgentHandshake(ctx context.Context, agent Resolved, expandedBin string
 		return probeACPBin(ctx, agent, bin, []string{"--surface", "auto"}, TransportStdioACP)
 	case agent.ID == PresetPi:
 		return probePiHandshake(ctx, agent, expandedBin)
+	case agent.ID == PresetCodex:
+		return probeCodexHandshake(ctx, agent, expandedBin)
 	case strings.TrimSpace(agent.Endpoint) == "":
 		bin := resolveExecutable(expandedBin, agent.BinaryPath)
 		args := []string{"--surface", "auto"}
@@ -169,46 +171,26 @@ func probePiHandshake(ctx context.Context, agent Resolved, expandedBin string) H
 	ctx, cancel := boundPiHandshakeContext(ctx)
 	defer cancel()
 
-	var piErr error
-	acpTarget := expandedBin
-	if !isPiACPName(acpTarget) && isPiACPName(agent.BinaryPath) {
-		acpTarget = agent.BinaryPath
-	}
-	acpBin := resolvePiACPExecutable(acpTarget)
-	if isPiACPName(expandedBin) || isPiACPName(agent.BinaryPath) {
-		if acpBin != "" {
-			result := probeACPBin(ctx, agent, acpBin, nil, TransportStdioACP)
-			if result.Verified {
-				return result
-			}
-			piErr = errors.New(result.Error)
+	var acpErr, piErr error
+	acpBin := resolvePiACPExecutable(expandedBin)
+	if acpBin != "" {
+		result := probeACPBin(ctx, agent, acpBin, nil, TransportStdioACP)
+		if result.Verified {
+			return result
 		}
+		acpErr = errors.New(firstNonEmpty(result.Error, result.Summary, "pi-acp handshake failed"))
 	}
 
 	piBin := resolvePiExecutable(expandedBin, agent.BinaryPath)
 	if piBin != "" {
 		result := probePiRPC(ctx, agent, piBin)
 		if result.Verified {
-			return result
-		}
-		piErr = errors.New(result.Error)
-	}
-
-	if acpBin != "" {
-		result := probeACPBin(ctx, agent, acpBin, nil, TransportStdioACP)
-		if result.Verified {
-			if piErr != nil {
-				if result.Summary != "" {
-					result.Summary = fmt.Sprintf("%s (pi-rpc fallback: %v)", result.Summary, piErr)
-				} else {
-					result.Summary = fmt.Sprintf("pi-rpc fallback: %v", piErr)
-				}
+			if acpErr != nil {
+				result.Summary = fmt.Sprintf("%s (pi-acp fallback: %v)", result.Summary, acpErr)
 			}
 			return result
 		}
-		if piErr == nil {
-			piErr = errors.New(result.Error)
-		}
+		piErr = errors.New(firstNonEmpty(result.Error, result.Summary, "pi-rpc handshake failed"))
 	}
 
 	if strings.TrimSpace(agent.Endpoint) != "" {
@@ -217,12 +199,47 @@ func probePiHandshake(ctx context.Context, agent Resolved, expandedBin string) H
 			return result
 		}
 	}
-	if piErr != nil {
-		result := newHandshakeResult(agent, TransportPiRPC)
-		return failHandshake(&result, fmt.Errorf("Pi handshake failed: %w", piErr))
-	}
 	result := newHandshakeResult(agent, TransportPiRPC)
-	return failHandshake(&result, errors.New("pi, pi-acp and the configured endpoint are unavailable"))
+	switch {
+	case acpErr != nil && piErr != nil:
+		return failHandshake(&result, fmt.Errorf("Pi handshake failed: pi-acp: %v; pi-rpc: %v", acpErr, piErr))
+	case acpErr != nil:
+		return failHandshake(&result, fmt.Errorf("Pi handshake failed: %w", acpErr))
+	case piErr != nil:
+		return failHandshake(&result, fmt.Errorf("Pi handshake failed: %w", piErr))
+	default:
+		return failHandshake(&result, errors.New("pi, pi-acp and the configured endpoint are unavailable"))
+	}
+}
+
+func probeCodexHandshake(ctx context.Context, agent Resolved, expandedBin string) HandshakeResult {
+	bin := resolveCodexACPExecutable(expandedBin)
+	var acpErr error
+	if bin != "" {
+		result := probeACPBin(ctx, agent, bin, nil, TransportStdioACP)
+		if result.Verified {
+			return result
+		}
+		acpErr = errors.New(firstNonEmpty(result.Error, result.Summary, "codex-acp handshake failed"))
+	}
+	if strings.TrimSpace(agent.Endpoint) != "" {
+		result := probeSocketHandshake(agent)
+		if result.Reachable {
+			if acpErr != nil {
+				result.Summary = fmt.Sprintf("%s (codex-acp fallback: %v)", result.Summary, acpErr)
+			}
+			return result
+		}
+		if acpErr != nil {
+			result = newHandshakeResult(agent, TransportStdioACP)
+			return failHandshake(&result, fmt.Errorf("codex-acp: %v; endpoint: %s did not answer", acpErr, agent.Endpoint))
+		}
+	}
+	result := newHandshakeResult(agent, TransportStdioACP)
+	if acpErr != nil {
+		return failHandshake(&result, fmt.Errorf("codex-acp: %w", acpErr))
+	}
+	return failHandshake(&result, errors.New("codex-acp executable not found"))
 }
 
 func probeACPBin(ctx context.Context, agent Resolved, bin string, args []string, transport string) HandshakeResult {
@@ -474,6 +491,12 @@ func PromptAgent(ctx context.Context, agent Resolved, expandedBin string, prompt
 			return promptACP(ctx, agent, acpBin, nil, prompt, workDir)
 		}
 		return nil, errors.New("pi and pi-acp are unavailable")
+	case agent.ID == PresetCodex:
+		bin := resolveCodexACPExecutable(expandedBin)
+		if bin == "" {
+			return nil, errors.New("codex-acp executable not found")
+		}
+		return promptACP(ctx, agent, bin, nil, prompt, workDir)
 	case agent.ID == PresetAntigravityACP:
 		bin := resolveExecutable(expandedBin, agent.BinaryPath)
 		if bin == "" {
@@ -917,12 +940,20 @@ func resolvePiExecutable(expandedBin, configured string) string {
 }
 
 func resolvePiACPExecutable(expandedBin string) string {
-	if isPiACPName(expandedBin) {
+	return resolveACPAdapterExecutable(expandedBin, "pi-acp")
+}
+
+func resolveCodexACPExecutable(expandedBin string) string {
+	return resolveACPAdapterExecutable(expandedBin, "codex-acp")
+}
+
+func resolveACPAdapterExecutable(expandedBin, name string) string {
+	if hasExecutableName(expandedBin, name) {
 		if bin := resolveExecutable(expandedBin); bin != "" {
 			return bin
 		}
 	}
-	if bin := lookPath("pi-acp"); bin != "" {
+	if bin := lookPath(name); bin != "" {
 		return bin
 	}
 	home, err := os.UserHomeDir()
@@ -930,11 +961,11 @@ func resolvePiACPExecutable(expandedBin string) string {
 		return ""
 	}
 	patterns := []string{
-		filepath.Join(home, ".config", "nvm", "versions", "node", "*", "bin", "pi-acp"),
-		filepath.Join(home, ".nvm", "versions", "node", "*", "bin", "pi-acp"),
+		filepath.Join(home, ".config", "nvm", "versions", "node", "*", "bin", name),
+		filepath.Join(home, ".nvm", "versions", "node", "*", "bin", name),
 	}
 	if nvmDir := strings.TrimSpace(os.Getenv("NVM_DIR")); nvmDir != "" {
-		patterns = append(patterns, filepath.Join(nvmDir, "versions", "node", "*", "bin", "pi-acp"))
+		patterns = append(patterns, filepath.Join(nvmDir, "versions", "node", "*", "bin", name))
 	}
 	var matches []string
 	for _, pattern := range patterns {
@@ -1087,8 +1118,12 @@ func compareVersions(a, b string) int {
 }
 
 func isPiACPName(path string) bool {
+	return hasExecutableName(path, "pi-acp")
+}
+
+func hasExecutableName(path, want string) bool {
 	name := strings.TrimSuffix(strings.ToLower(filepath.Base(strings.TrimSpace(path))), ".exe")
-	return name == "pi-acp"
+	return name == want
 }
 
 func resolveExecutable(candidates ...string) string {

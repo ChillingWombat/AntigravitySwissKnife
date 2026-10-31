@@ -236,7 +236,7 @@ done
 	}
 }
 
-func TestProbeAgentHandshakeRealPi(t *testing.T) {
+func TestProbeAgentHandshakeRealPiPrefersACP(t *testing.T) {
 	const piPath = "/home/david/.local/bin/pi"
 	if _, err := os.Stat(piPath); err != nil {
 		t.Skip("installed pi binary is not present")
@@ -255,15 +255,14 @@ func TestProbeAgentHandshakeRealPi(t *testing.T) {
 	if !result.Reachable || !result.Verified {
 		t.Fatalf("real Pi handshake failed: %+v", result)
 	}
-	if result.Transport != "pi-rpc" || result.Protocol != "pi-rpc-v1" {
+	if result.Transport != TransportStdioACP || result.Protocol != acpProtocol {
 		t.Fatalf("unexpected real Pi transport: %+v", result)
+	}
+	if result.AgentName != "pi-acp" || result.AgentVersion == "" {
+		t.Fatalf("unexpected real Pi ACP metadata: %+v", result)
 	}
 	if result.LatencyMs <= 0 {
 		t.Fatalf("real Pi latency was not measured: %+v", result)
-	}
-	wantTools := []string{"read", "bash", "edit", "write", "grep", "find", "ls"}
-	if strings.Join(result.Tools, ",") != strings.Join(wantTools, ",") {
-		t.Fatalf("tools = %v, want %v", result.Tools, wantTools)
 	}
 }
 
@@ -283,6 +282,112 @@ func TestProbeAgentHandshakeInstalledPiACP(t *testing.T) {
 	}
 	if result.Transport != "stdio-acp" || result.AgentName != "pi-acp" {
 		t.Fatalf("unexpected installed pi-acp result: %+v", result)
+	}
+}
+
+func TestProbeAgentHandshakeInstalledCodexACP(t *testing.T) {
+	codexACPPath := resolveCodexACPExecutable("")
+	if codexACPPath == "" {
+		t.Skip("installed codex-acp binary is not present")
+	}
+
+	agent := Resolved{ID: PresetCodex, Name: "Codex", BinaryPath: codexACPPath}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result := ProbeAgentHandshake(ctx, agent, codexACPPath)
+	if !result.Reachable || !result.Verified {
+		t.Fatalf("installed codex-acp handshake failed: %+v", result)
+	}
+	if result.Transport != TransportStdioACP || result.AgentName != "@agentclientprotocol/codex-acp" {
+		t.Fatalf("unexpected installed codex-acp result: %+v", result)
+	}
+}
+
+func TestProbeAgentHandshakeCodexACPStdio(t *testing.T) {
+	script := writeACPTestScriptNamed(t, "codex-acp", `
+if [ "$#" -ne 0 ]; then
+  exit 2
+fi
+IFS= read -r line || exit 3
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo":{"name":"@agentclientprotocol/codex-acp","version":"2.2.2"}}}'
+`)
+
+	agent := Resolved{
+		ID:         PresetCodex,
+		Name:       "Codex",
+		BinaryPath: script,
+	}
+	result := ProbeAgentHandshake(context.Background(), agent, script)
+
+	if !result.Reachable || !result.Verified {
+		t.Fatalf("expected a verified Codex ACP handshake, got %+v", result)
+	}
+	if result.Transport != "stdio-acp" {
+		t.Fatalf("transport = %q, want stdio-acp", result.Transport)
+	}
+	if result.AgentName != "@agentclientprotocol/codex-acp" || result.AgentVersion != "2.2.2" {
+		t.Fatalf("unexpected agent metadata: %+v", result)
+	}
+}
+
+func TestProbeCodexHandshakeFallsBackToConfiguredSocket(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip("no loopback listener available")
+	}
+	defer listener.Close()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+
+	agent := Resolved{
+		ID:       PresetCodex,
+		Name:     "Codex",
+		Endpoint: listener.Addr().String(),
+	}
+	result := ProbeAgentHandshake(context.Background(), agent, "")
+
+	if !result.Reachable || result.Verified {
+		t.Fatalf("expected a reachable but unverified socket, got %+v", result)
+	}
+	if result.Transport != "socket" {
+		t.Fatalf("transport = %q, want socket", result.Transport)
+	}
+}
+
+func TestProbeAgentHandshakePiPrefersACP(t *testing.T) {
+	dir := t.TempDir()
+	acpScript := writeACPTestScriptNamed(t, "pi-acp", `
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo":{"name":"pi-acp","version":"0.0.34"}}}'
+      ;;
+  esac
+done
+`)
+	piScript := writeACPTestScriptNamed(t, "pi", `
+if [ "$1" = "--version" ]; then
+  printf '%s\n' '0.99.0'
+  exit 0
+fi
+IFS= read -r line || exit 3
+printf '%s\n' '{"id":"probe-1","type":"response","command":"get_state","success":true}'
+`)
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	acpBin := filepath.Join(dir, "pi-acp")
+	if err := os.Rename(acpScript, acpBin); err != nil {
+		t.Fatalf("move fake pi-acp onto PATH: %v", err)
+	}
+
+	agent := Resolved{ID: PresetPi, Name: "Pi", BinaryPath: piScript}
+	result := ProbeAgentHandshake(context.Background(), agent, piScript)
+
+	if !result.Verified || result.Transport != "stdio-acp" {
+		t.Fatalf("expected Pi ACP to win over pi-rpc fallback, got %+v", result)
+	}
+	if result.AgentName != "pi-acp" {
+		t.Fatalf("agent name = %q, want pi-acp", result.AgentName)
 	}
 }
 
@@ -327,6 +432,40 @@ func TestProbeAgentHandshakeBuiltAntigravityACP(t *testing.T) {
 	}
 	if result.AgentName != "antigravity-acp" || result.AgentVersion == "" {
 		t.Fatalf("unexpected built adapter metadata: %+v", result)
+	}
+}
+
+func TestPromptAgentCodexACPStdio(t *testing.T) {
+	script := writeACPTestScriptNamed(t, "codex-acp", `
+if [ "$#" -ne 0 ]; then
+  exit 2
+fi
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo":{"name":"@agentclientprotocol/codex-acp","version":"2.2.2"}}}'
+      ;;
+    *'"method":"session/new"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"codex-session"}}'
+      ;;
+    *'"method":"session/prompt"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"codex-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"codex answer"}}}}'
+      printf '%s\n' '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}'
+      ;;
+  esac
+done
+`)
+
+	agent := Resolved{ID: PresetCodex, Name: "Codex", BinaryPath: script}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := PromptAgent(ctx, agent, script, "Reply through codex-acp", t.TempDir())
+	if err != nil {
+		t.Fatalf("PromptAgent failed: %v", err)
+	}
+	if result["response"] != "codex answer" || result["transport"] != "stdio-acp" {
+		t.Fatalf("unexpected codex-acp result: %#v", result)
 	}
 }
 
@@ -430,7 +569,9 @@ func TestBoundPiHandshakeContextCapsLongParentDeadline(t *testing.T) {
 }
 
 func TestProbePiHandshakeHonorsParentDeadline(t *testing.T) {
-	hangingPi := writeACPTestScriptNamed(t, "pi", `while :; do sleep 1; done`)
+	hangingACP := writeACPTestScriptNamed(t, "pi-acp", `while :; do /bin/sleep 1; done`)
+	hangingPi := writeACPTestScriptNamed(t, "pi", `while :; do /bin/sleep 1; done`)
+	t.Setenv("PATH", filepath.Dir(hangingACP))
 	agent := Resolved{ID: PresetPi, Name: "Pi", BinaryPath: hangingPi}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
@@ -446,41 +587,36 @@ func TestProbePiHandshakeHonorsParentDeadline(t *testing.T) {
 }
 
 func TestProbePiHandshakeFallbackDiagnostics(t *testing.T) {
-	// Mock a failing pi executable that exits immediately
-	failingPi := writeACPTestScript(t, `exit 1`)
-	// Mock a working pi-acp executable
-	workingACP := writeACPTestScriptNamed(t, "pi-acp", `
-while IFS= read -r line; do
-  case "$line" in
-    *'"method":"initialize"'*)
-      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo":{"name":"pi-acp","version":"1.0.0"}}}'
-      ;;
-  esac
-done
+	failingACP := writeACPTestScriptNamed(t, "pi-acp", `exit 1`)
+	workingPi := writeACPTestScriptNamed(t, "pi", `
+if [ "$1" = "--version" ]; then
+  printf '%s\n' '1.0.0'
+  exit 0
+fi
+IFS= read -r line || exit 3
+printf '%s\n' '{"id":"probe-1","type":"response","command":"get_state","success":true}'
 `)
 
-	// Agent pointing to failingPi as binary path, with workingACP on PATH or resolved
 	agent := Resolved{
 		ID:         PresetPi,
 		Name:       "Pi",
-		BinaryPath: failingPi,
+		BinaryPath: workingPi,
 	}
 
-	// Put directory of workingACP in front of PATH
-	acpDir := filepath.Dir(workingACP)
+	acpDir := filepath.Dir(failingACP)
 	t.Setenv("PATH", acpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	result := ProbeAgentHandshake(ctx, agent, failingPi)
+	result := ProbeAgentHandshake(ctx, agent, workingPi)
 	if !result.Verified {
 		t.Fatalf("expected fallback to verify, got %+v", result)
 	}
-	if result.Transport != TransportStdioACP {
-		t.Fatalf("transport = %q, want %q", result.Transport, TransportStdioACP)
+	if result.Transport != TransportPiRPC {
+		t.Fatalf("transport = %q, want %q", result.Transport, TransportPiRPC)
 	}
-	if !strings.Contains(result.Summary, "pi-rpc fallback:") {
+	if !strings.Contains(result.Summary, "pi-acp fallback:") {
 		t.Fatalf("summary %q missing fallback diagnostic note", result.Summary)
 	}
 }

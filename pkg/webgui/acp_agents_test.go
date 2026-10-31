@@ -176,7 +176,7 @@ func TestACPAgentRegistryEndpoints(t *testing.T) {
 		for _, body := range []string{
 			`{"name":"Bad","endpoint":"not-an-endpoint"}`,
 			`{"endpoint":"127.0.0.1:19002"}`,
-			`{"id":"agent-pi","endpoint":""}`,
+			`{"id":"agent-opencode","endpoint":""}`,
 			`not json`,
 		} {
 			resp := post(body)
@@ -258,6 +258,36 @@ func TestACPAgentDetectEndpoint(t *testing.T) {
 			resp.Body.Close()
 			if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusBadRequest {
 				t.Fatalf("body %q: expected 400/404, got %d", body, resp.StatusCode)
+			}
+		}
+	})
+
+	t.Run("stdio presets report a transport candidate", func(t *testing.T) {
+		for _, id := range []string{acpmesh.PresetPi, acpmesh.PresetCodex} {
+			resp := post(`{"id":"` + id + `"}`)
+			if resp.StatusCode != http.StatusOK {
+				resp.Body.Close()
+				t.Fatalf("%s: expected 200, got %d", id, resp.StatusCode)
+			}
+
+			var out struct {
+				Candidates []acpmesh.Candidate `json:"candidates"`
+				OSDefault  string              `json:"os_default"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+				resp.Body.Close()
+				t.Fatalf("%s: decode failed: %v", id, err)
+			}
+			resp.Body.Close()
+
+			if out.OSDefault != "" {
+				t.Fatalf("%s: os_default = %q, want stdio", id, out.OSDefault)
+			}
+			if len(out.Candidates) == 0 ||
+				out.Candidates[0].Endpoint != "stdio" ||
+				out.Candidates[0].Kind != acpmesh.KindStdio ||
+				out.Candidates[0].Note == "" {
+				t.Fatalf("%s: missing stdio candidate: %+v", id, out.Candidates)
 			}
 		}
 	})

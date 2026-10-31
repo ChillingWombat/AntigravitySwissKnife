@@ -580,6 +580,22 @@ func (s *Server) handleUtilitiesACPAgentDetect(w http.ResponseWriter, r *http.Re
 	for i := range candidates {
 		candidates[i].Reachable, _ = acpmesh.ProbeEndpoint(candidates[i].Endpoint, 30*time.Millisecond)
 	}
+	if preset, ok := acpmesh.PresetByID(agent.ID); ok && preset.TCPAddr == "" && preset.SocketName == "" {
+		result := acpmesh.ProbeAgentHandshake(r.Context(), *agent, agent.BinaryPath)
+		note := "stdio transport"
+		if result.Transport != "" {
+			note += ": " + result.Transport
+		}
+		if result.AgentVersion != "" {
+			note += " " + result.AgentVersion
+		}
+		candidates = append([]acpmesh.Candidate{{
+			Endpoint:  "stdio",
+			Kind:      acpmesh.KindStdio,
+			Reachable: result.Reachable,
+			Note:      note,
+		}}, candidates...)
+	}
 
 	writeJSON(w, map[string]interface{}{
 		"candidates": candidates,

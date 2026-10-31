@@ -83,6 +83,33 @@ func TestAbsentAgentReportsNotFound(t *testing.T) {
 	}
 }
 
+func TestInstalledStdioPresetsReportInstalled(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "agent")
+	if err := os.WriteFile(bin, []byte("fake"), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+
+	for _, id := range []string{acpmesh.PresetPi, acpmesh.PresetCodex} {
+		t.Run(id, func(t *testing.T) {
+			node := buildACPNode(acpmesh.Resolved{
+				ID:         id,
+				Name:       id,
+				BinaryPath: bin,
+			}, false, 0, false)
+
+			if node["status"] != "installed_idle" {
+				t.Fatalf("status = %v, want installed_idle", node["status"])
+			}
+			if node["transport"] != "stdio" {
+				t.Fatalf("transport = %v, want stdio", node["transport"])
+			}
+			if node["ping_latency_ms"] != nil || node["last_handshake"] != "never" {
+				t.Fatalf("unnegotiated node must not report a handshake: %#v", node)
+			}
+		})
+	}
+}
+
 func TestAntigravityACPBinFallbackInCWD(t *testing.T) {
 	dir := t.TempDir()
 	binDir := filepath.Join(dir, "bin")
