@@ -1505,6 +1505,12 @@ func TestAutomateTasksOverlayBadgeAndColorResetLifecycle(t *testing.T) {
 	if !strings.Contains(preloadScript, "persistent_styles.css") {
 		t.Errorf("generatePreloadLoaderScript missing persistent_styles.css sync")
 	}
+	if !strings.Contains(preloadScript, "Boolean(window.__swissMainScriptInjected || window.__swissDesktopScriptInjected)") {
+		t.Errorf("generatePreloadLoaderScript missing cross-loader injection guard")
+	}
+	if !strings.Contains(preloadScript, "window.__swissMainScriptInjected = true; window.__swissDesktopScriptInjected = true") {
+		t.Errorf("generatePreloadLoaderScript missing shared injection markers")
+	}
 
 	// 6. Verify FACTORY_PROJECT_COLORS map and factory reset behavior
 	if !strings.Contains(script, "FACTORY_PROJECT_COLORS") {

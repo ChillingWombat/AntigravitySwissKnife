@@ -733,7 +733,7 @@ func generatePreloadLoaderScript() string {
     const cssPath = path.join(configDir, "persistent_styles.css");
     const jsPath = path.join(configDir, "persistent_script.js");
 
-    function injectSwiss() {
+    async function injectSwiss() {
       try {
         // 0. Pre-inject disk-saved project colors so they take precedence over factory defaults across port resets
         let diskSavedColors = {};
@@ -801,28 +801,37 @@ func generatePreloadLoaderScript() string {
         if (!window.__swissDesktopScriptInjected && fs.existsSync(jsPath)) {
           const js = fs.readFileSync(jsPath, 'utf8');
           if (js && js.trim()) {
-            window.__swissDesktopScriptInjected = true;
-            const fullScript = diskBootstrap + js;
-            let executedInMain = false;
+            let alreadyInjected = false;
             try {
-              if (webFrame && typeof webFrame.executeJavaScriptInIsolatedWorld === "function") {
-                webFrame.executeJavaScriptInIsolatedWorld(0, [{ code: fullScript }]);
-                executedInMain = true;
+              if (webFrame && typeof webFrame.executeJavaScript === "function") {
+                alreadyInjected = await webFrame.executeJavaScript("Boolean(window.__swissMainScriptInjected || window.__swissDesktopScriptInjected)");
               }
             } catch (_) {}
-            if (!executedInMain) {
+            if (!alreadyInjected) {
+              window.__swissDesktopScriptInjected = true;
+              const markerScript = 'window.__swissMainScriptInjected = true; window.__swissDesktopScriptInjected = true;\n';
+              const fullScript = diskBootstrap + markerScript + js;
+              let executedInMain = false;
               try {
-                const s = document.createElement("script");
-                s.textContent = fullScript;
-                (document.head || document.documentElement).appendChild(s);
-                s.remove();
-                executedInMain = true;
+                if (webFrame && typeof webFrame.executeJavaScriptInIsolatedWorld === "function") {
+                  webFrame.executeJavaScriptInIsolatedWorld(0, [{ code: fullScript }]);
+                  executedInMain = true;
+                }
               } catch (_) {}
-            }
-            if (!executedInMain) {
-              try {
-                webFrame.executeJavaScript(fullScript).catch(() => {});
-              } catch (_) {}
+              if (!executedInMain) {
+                try {
+                  const s = document.createElement("script");
+                  s.textContent = fullScript;
+                  (document.head || document.documentElement).appendChild(s);
+                  s.remove();
+                  executedInMain = true;
+                } catch (_) {}
+              }
+              if (!executedInMain) {
+                try {
+                  webFrame.executeJavaScript(fullScript).catch(() => {});
+                } catch (_) {}
+              }
             }
           }
         }
