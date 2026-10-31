@@ -3021,7 +3021,7 @@ func GenerateAuxiliaryPluginsScript() string {
     // ----------------------------------------------------
     // 2. LIVE BROWSER & APP PREVIEWER WITH ANNOTATIONS
     // ----------------------------------------------------
-    function renderBrowserView(container, existingWebview = null) {
+    function renderBrowserView(container, existingWebview = null, includeToolbar = true) {
       const wrap = document.createElement("div");
       wrap.className = "swiss-browser-view";
 
@@ -3140,7 +3140,9 @@ func GenerateAuxiliaryPluginsScript() string {
       stage.appendChild(frameBox);
       vpWrap.appendChild(stage);
 
-      wrap.appendChild(toolbar);
+      if (includeToolbar) {
+        wrap.appendChild(toolbar);
+      }
       wrap.appendChild(vpWrap);
       container.appendChild(wrap);
 
@@ -4787,7 +4789,7 @@ func GenerateAuxiliaryPluginsScript() string {
       wrap.style.overflow = "hidden";
 
       parent.insertBefore(wrap, webview);
-      renderBrowserView(wrap, webview);
+      renderBrowserView(wrap, webview, false);
     }
 
     window.setupBuiltinBrowserEnhancements = setupBuiltinBrowserEnhancements;
