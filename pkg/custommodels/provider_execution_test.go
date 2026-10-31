@@ -343,8 +343,11 @@ func TestProxyGCPActiveStreamResetsIdleGuard(t *testing.T) {
 		t.Fatalf("streamed text = %q", got)
 	}
 	last := frames[len(frames)-1]
-	if len(last.Candidates) != 1 || last.Candidates[0].FinishReason != "STOP" {
-		t.Fatalf("terminal frame = %+v, want one STOP candidate", last)
+	if len(last.Candidates) != 1 {
+		t.Fatalf("terminal frame = %+v, want one candidate", last)
+	}
+	if got := last.Candidates[0].FinishReason; got != "STOP" {
+		t.Fatalf("finishReason = %q, want exact \"STOP\"", got)
 	}
 }
 
@@ -369,7 +372,7 @@ func assertTerminalProviderFailure(t *testing.T, rr *httptest.ResponseRecorder, 
 	}
 	candidate := frame.Candidates[0]
 	if candidate.FinishReason != "STOP" {
-		t.Fatalf("finishReason = %q, want STOP terminal marker", candidate.FinishReason)
+		t.Fatalf("finishReason = %q, want exact \"STOP\"", candidate.FinishReason)
 	}
 	var text strings.Builder
 	for _, part := range candidate.Content.Parts {
