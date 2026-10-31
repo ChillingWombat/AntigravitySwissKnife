@@ -160,7 +160,6 @@ func Presets() []Preset {
 			Type:              "Pi Agent Core",
 			Version:           "v1.1.2",
 			Tools:             []string{"chat_eval", "python_repl", "knowledge_query"},
-			TCPAddr:           "127.0.0.1:41888",
 			BinaryLinux:       "~/.local/bin/pi",
 			BinaryWindows:     "~/.local/bin/pi.exe",
 			StatusWhenRunning: "connected",
@@ -171,9 +170,8 @@ func Presets() []Preset {
 			Type:    "Codex Agent CLI",
 			Version: "v1.2.0-draft",
 			Tools:   []string{"sandbox_exec", "git_apply", "review", "web_search"},
-			// The historical preset pinned an nvm-managed path; it is left
-			// untouched because no cross-platform location is known.
-			TCPAddr:           "127.0.0.1:48080",
+			// The CLI path stays for installation status. The ACP adapter is
+			// resolved separately from PATH or NVM during negotiation.
 			BinaryLinux:       "~/.config/nvm/versions/node/v24.16.0/bin/codex",
 			StatusWhenRunning: "connected",
 		},

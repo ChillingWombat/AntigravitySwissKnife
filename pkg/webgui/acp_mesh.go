@@ -580,12 +580,34 @@ func (s *Server) handleUtilitiesACPAgentDetect(w http.ResponseWriter, r *http.Re
 	for i := range candidates {
 		candidates[i].Reachable, _ = acpmesh.ProbeEndpoint(candidates[i].Endpoint, 30*time.Millisecond)
 	}
+	if preset, ok := acpmesh.PresetByID(agent.ID); ok && preset.TCPAddr == "" && preset.SocketName == "" {
+		result := acpmesh.ProbeAgentHandshake(r.Context(), *agent, agent.BinaryPath)
+		if verifiedStdioHandshake(result) {
+			note := "stdio transport: " + result.Transport
+			if result.AgentVersion != "" {
+				note += " " + result.AgentVersion
+			}
+			candidates = append([]acpmesh.Candidate{{
+				Endpoint:  "stdio",
+				Kind:      acpmesh.KindStdio,
+				Reachable: result.Reachable,
+				Note:      note,
+			}}, candidates...)
+		}
+	}
 
 	writeJSON(w, map[string]interface{}{
 		"candidates": candidates,
 		"os_default": osDefault,
 		"pid":        pid,
 	})
+}
+
+func verifiedStdioHandshake(result acpmesh.HandshakeResult) bool {
+	if !result.Verified {
+		return false
+	}
+	return result.Transport == acpmesh.TransportStdioACP || result.Transport == acpmesh.TransportPiRPC
 }
 
 // handleUtilitiesACPPing negotiates with one agent, or the whole registry, using

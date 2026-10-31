@@ -3,11 +3,16 @@ package webgui
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/acpmesh"
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 type acpMeshResponse struct {
@@ -39,6 +44,27 @@ func agentByID(t *testing.T, mesh acpMeshResponse, id string) map[string]interfa
 	}
 	t.Fatalf("agent %q missing from response", id)
 	return nil
+}
+
+func writeWebGUIStdioAdapter(t *testing.T, name string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-based ACP stdio fixture is not available on Windows")
+	}
+	path := filepath.Join(t.TempDir(), name)
+	content := `#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo":{"name":"webgui-fake-acp","version":"2.6.7"}}}'
+      ;;
+  esac
+done
+`
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake ACP executable: %v", err)
+	}
+	return path
 }
 
 func TestACPAgentRegistryEndpoints(t *testing.T) {
@@ -176,7 +202,7 @@ func TestACPAgentRegistryEndpoints(t *testing.T) {
 		for _, body := range []string{
 			`{"name":"Bad","endpoint":"not-an-endpoint"}`,
 			`{"endpoint":"127.0.0.1:19002"}`,
-			`{"id":"agent-pi","endpoint":""}`,
+			`{"id":"agent-opencode","endpoint":""}`,
 			`not json`,
 		} {
 			resp := post(body)
@@ -261,4 +287,101 @@ func TestACPAgentDetectEndpoint(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("verified stdio presets report a transport candidate", func(t *testing.T) {
+		for _, id := range []string{acpmesh.PresetPi, acpmesh.PresetCodex} {
+			t.Run(id, func(t *testing.T) {
+				adapterName := "codex-acp"
+				if id == acpmesh.PresetPi {
+					adapterName = "pi-acp"
+				}
+				adapter := writeWebGUIStdioAdapter(t, adapterName)
+				t.Setenv("PATH", filepath.Dir(adapter)+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+				resp := post(`{"id":"` + id + `"}`)
+				if resp.StatusCode != http.StatusOK {
+					resp.Body.Close()
+					t.Fatalf("%s: expected 200, got %d", id, resp.StatusCode)
+				}
+
+				var out struct {
+					Candidates []acpmesh.Candidate `json:"candidates"`
+					OSDefault  string              `json:"os_default"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+					resp.Body.Close()
+					t.Fatalf("%s: decode failed: %v", id, err)
+				}
+				resp.Body.Close()
+
+				if out.OSDefault != "" {
+					t.Fatalf("%s: os_default = %q, want stdio", id, out.OSDefault)
+				}
+				if len(out.Candidates) == 0 ||
+					out.Candidates[0].Endpoint != "stdio" ||
+					out.Candidates[0].Kind != acpmesh.KindStdio ||
+					out.Candidates[0].Note == "" {
+					t.Fatalf("%s: missing stdio candidate: %+v", id, out.Candidates)
+				}
+			})
+		}
+	})
+}
+
+func TestACPAgentDetectExplicitCodexSocketDoesNotFabricateStdio(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen for Codex socket: %v", err)
+	}
+	defer listener.Close()
+	endpoint := listener.Addr().String()
+
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if err := cfg.SetACPAgents([]core.ACPAgentConfig{{
+		ID:       acpmesh.PresetCodex,
+		Name:     "Codex",
+		Endpoint: endpoint,
+	}}); err != nil {
+		t.Fatalf("configure Codex endpoint: %v", err)
+	}
+
+	srv := newTestServer("127.0.0.1:0", "")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	resp, err := http.Post(
+		"http://"+srv.Addr()+"/api/utilities/acp/detect",
+		"application/json",
+		bytes.NewBufferString(`{"id":"`+acpmesh.PresetCodex+`"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST detect failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var out struct {
+		Candidates []acpmesh.Candidate `json:"candidates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(out.Candidates) != 1 {
+		t.Fatalf("expected only the explicit socket candidate, got %+v", out.Candidates)
+	}
+	candidate := out.Candidates[0]
+	if candidate.Endpoint != endpoint || candidate.Kind != acpmesh.KindTCP || !candidate.Reachable {
+		t.Fatalf("unexpected Codex socket candidate: %+v", candidate)
+	}
 }
