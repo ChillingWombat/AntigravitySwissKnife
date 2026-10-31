@@ -255,16 +255,27 @@ func TestProxyGCPStreamFailuresEndWithTerminalFrame(t *testing.T) {
 
 func TestProxyGCPActiveStreamResetsIdleGuard(t *testing.T) {
 	installVertexTokenTransport(t)
-	const idleTimeout = 300 * time.Millisecond
+	const (
+		idleTimeout   = 750 * time.Millisecond
+		requestDelay  = 600 * time.Millisecond
+		frameInterval = 300 * time.Millisecond
+		frameCount    = 5
+	)
+	timestamps := make(chan time.Time, frameCount+1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(requestDelay)
 		w.Header().Set("Content-Type", "text/event-stream")
-		for i := 0; i < 5; i++ {
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		timestamps <- time.Now()
+		for i := 0; i < frameCount; i++ {
+			time.Sleep(frameInterval)
+			timestamps <- time.Now()
 			_, _ = fmt.Fprintf(w, "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"part-%d\"}]}}]}\n\n", i)
 			if flusher, ok := w.(http.Flusher); ok {
 				flusher.Flush()
-			}
-			if i < 4 {
-				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	}))
@@ -289,15 +300,32 @@ func TestProxyGCPActiveStreamResetsIdleGuard(t *testing.T) {
 	proxy := NewProxy(store)
 	proxy.gw.AllowLoopback = true
 	proxy.gw.vertexStreamIdleTimeout = idleTimeout
-	proxy.gw.client = &http.Client{Timeout: 3 * time.Second}
+	proxy.gw.client = &http.Client{Timeout: 4 * time.Second}
 
 	started := time.Now()
 	rr := runAppStreamEnvelope(t, proxy, model.ID, "TOP-SECRET-PROMPT")
-	if elapsed := time.Since(started); elapsed <= idleTimeout {
-		t.Fatalf("active stream finished in %s, want more than one idle interval", elapsed)
+	elapsed := time.Since(started)
+	if elapsed <= idleTimeout {
+		t.Fatalf("active stream finished in %s, want total duration above the idle guard %s", elapsed, idleTimeout)
 	}
+
+	headerAt := <-timestamps
+	previous := headerAt
+	var lastFrameAt time.Time
+	for i := 0; i < frameCount; i++ {
+		frameAt := <-timestamps
+		if interval := frameAt.Sub(previous); interval >= idleTimeout {
+			t.Fatalf("frame %d arrived after %s, want every interval below %s", i, interval, idleTimeout)
+		}
+		previous = frameAt
+		lastFrameAt = frameAt
+	}
+	if span := lastFrameAt.Sub(headerAt); span <= idleTimeout {
+		t.Fatalf("stream spans %s, want an active stream longer than the idle guard", span)
+	}
+
 	frames := decodeAppSSEFrames(t, rr.Body.Bytes())
-	if len(frames) != 6 {
+	if len(frames) != frameCount+1 {
 		t.Fatalf("frames = %d, want five active frames plus terminal STOP; body = %s", len(frames), rr.Body.String())
 	}
 	var text strings.Builder
