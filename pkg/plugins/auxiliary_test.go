@@ -3473,6 +3473,38 @@ func TestBuiltinBrowserBookmarkContract(t *testing.T) {
 	}
 }
 
+func TestBuiltinBrowserOmitsDuplicateControlBar(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	attachStart := strings.Index(js, "function attachBuiltinBrowserEnhancements")
+	attachEnd := strings.Index(js, "window.setupBuiltinBrowserEnhancements")
+	if attachStart < 0 || attachEnd <= attachStart {
+		t.Fatalf("generated native browser attachment block not found")
+	}
+	attachBlock := js[attachStart:attachEnd]
+
+	if !strings.Contains(attachBlock, "renderBrowserView(wrap, webview, false)") {
+		t.Errorf("native host wrapper must render without the legacy Swiss toolbar")
+	}
+	if strings.Contains(attachBlock, "renderBrowserView(wrap, webview);") {
+		t.Errorf("native host wrapper still requests the duplicate control bar")
+	}
+	if !strings.Contains(js, "if (includeToolbar) {\n        wrap.appendChild(toolbar);\n      }") {
+		t.Errorf("generated browser DOM must guard the legacy toolbar append")
+	}
+
+	preserved := []string{
+		"screen.appendChild(existingWebview);",
+		"screen.appendChild(canvas);",
+		`const camera = pane.querySelector('[data-testid="webview-url-bar-screenshot"]')`,
+		"camera.parentElement.insertBefore(starButton, camera)",
+	}
+	for _, token := range preserved {
+		if !strings.Contains(js, token) {
+			t.Errorf("native browser contract missing %q", token)
+		}
+	}
+}
+
 func TestBuiltinBrowserBookmarkDOMLifecycle(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	start := strings.Index(js, "const BOOKMARKS_KEY")
