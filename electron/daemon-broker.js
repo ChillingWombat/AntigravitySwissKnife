@@ -55,6 +55,7 @@ const GET_PATHS = Object.freeze([
   '/api/memos',
   '/api/memos/config',
   '/api/memos/export',
+  '/api/utilities/import/scan',
   '/api/utilities/acp',
   '/api/tokens/summary',
   '/api/tokens/chat-metrics',
@@ -190,7 +191,6 @@ const PRIVILEGED_GET_PATHS = Object.freeze([
   '/api/custom_models/key',
   '/api/files/list',
   '/api/files/read',
-  '/api/utilities/import/scan',
   '/api/bridge/remote/config',
 ]);
 

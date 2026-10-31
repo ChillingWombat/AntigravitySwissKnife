@@ -160,6 +160,30 @@ test('custom model settings reads are allowed without machine-control approval',
   ]);
 });
 
+test('import metadata scan is allowed without machine-control approval', async () => {
+  const calls = [];
+  let approvals = 0;
+  const broker = createDaemonBroker({
+    getToken: () => 'main-process-secret',
+    requestApproval: async () => {
+      approvals += 1;
+      return true;
+    },
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return fakeResponse(200, '{"candidates":[]}', { 'Content-Type': 'application/json' });
+    },
+  });
+
+  const path = '/api/utilities/import/scan?source=opencode';
+  const result = await broker.request({ method: 'GET', path });
+  assert.equal(result.status, 200);
+  assert.equal(ALLOWED_ROUTES.GET.has('/api/utilities/import/scan'), true);
+  assert.equal(PRIVILEGED_ROUTES.GET.has('/api/utilities/import/scan'), false);
+  assert.equal(approvals, 0);
+  assert.deepEqual(calls, ['http://127.0.0.1:8765/api/utilities/import/scan?source=opencode']);
+});
+
 test('OAuth cancellation is direct while start and exchange remain approval-gated', async () => {
   assert.equal(ALLOWED_ROUTES.POST.has('/api/oauth/google/cancel'), true);
   assert.equal(PRIVILEGED_ROUTES.POST.has('/api/oauth/google/cancel'), false);
@@ -196,6 +220,7 @@ test('broker allowlist contains approved reads and exact mutation routes', () =>
     '/api/github/issues/detail',
     '/api/github/context',
     '/api/memos/export',
+    '/api/utilities/import/scan',
     '/api/bridge/channels/config',
   ]) {
     assert.equal(ALLOWED_ROUTES.GET.has(route), true, route);
@@ -203,7 +228,7 @@ test('broker allowlist contains approved reads and exact mutation routes', () =>
   for (const route of ['/api/enhancements', '/api/gui/color', '/api/conversations/ack', '/api/memos/save', '/api/memos/extract']) {
     assert.equal(ALLOWED_ROUTES.POST.has(route), true, route);
   }
-  for (const route of ['/api/accounts/export', '/api/totp', '/api/custom_models/key', '/api/utilities/import/scan']) {
+  for (const route of ['/api/accounts/export', '/api/totp', '/api/custom_models/key']) {
     assert.equal(PRIVILEGED_ROUTES.GET.has(route), true, route);
   }
   assert.equal(ALLOWED_ROUTES.POST.has('/api/custom_models'), false);
@@ -300,7 +325,6 @@ test('sensitive GETs require approval except redacted channel config', async () 
     '/api/accounts/export?email=person@example.com',
     '/api/totp?email=person@example.com',
     '/api/custom_models/key?id=model-1',
-    '/api/utilities/import/scan?source=opencode',
     '/api/bridge/remote/config',
     '/api/bridge/channels/config?unredacted=true',
   ]) {
@@ -310,13 +334,12 @@ test('sensitive GETs require approval except redacted channel config', async () 
     '/api/accounts/export?email=person@example.com',
     '/api/totp?email=person@example.com',
     '/api/custom_models/key?id=model-1',
-    '/api/utilities/import/scan?source=opencode',
     '/api/bridge/remote/config',
     '/api/bridge/channels/config?unredacted=true',
   ]);
 
   await broker.request({ method: 'GET', path: '/api/bridge/channels/config' });
-  assert.equal(approvals.length, 6);
+  assert.equal(approvals.length, 5);
 });
 
 test('file reads and listings require approval and approve the resolved workspace path', async (t) => {
