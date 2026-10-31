@@ -178,7 +178,6 @@ test('local UI configuration writes are allowed without machine-control approval
   for (const path of [
     '/api/custom_models/integration',
     '/api/files/ide/config',
-    '/api/gui/projects/delete',
   ]) {
     const result = await broker.request({
       method: 'POST',
@@ -193,9 +192,36 @@ test('local UI configuration writes are allowed without machine-control approval
   assert.deepEqual(calls, [
     'http://127.0.0.1:8765/api/custom_models/integration',
     'http://127.0.0.1:8765/api/files/ide/config',
-    'http://127.0.0.1:8765/api/gui/projects/delete',
   ]);
   assert.equal(PRIVILEGED_ROUTES.POST.has('/api/custom_models/launch'), true);
+  assert.equal(PRIVILEGED_ROUTES.POST.has('/api/gui/projects/delete'), true);
+});
+
+test('GUI project deletion remains approval-gated', async () => {
+  let approvals = 0;
+  let fetches = 0;
+  const broker = createDaemonBroker({
+    getToken: () => 'main-process-secret',
+    requestApproval: async () => {
+      approvals += 1;
+      return false;
+    },
+    fetchImpl: async () => {
+      fetches += 1;
+      return fakeResponse(200, '{}', { 'Content-Type': 'application/json' });
+    },
+  });
+
+  await assert.rejects(
+    broker.request({
+      method: 'POST',
+      path: '/api/gui/projects/delete',
+      body: JSON.stringify({ name: 'DeleteMe' }),
+    }),
+    (error) => error.code === 'APPROVAL_DENIED',
+  );
+  assert.equal(approvals, 1);
+  assert.equal(fetches, 0);
 });
 
 test('import metadata scan is allowed without machine-control approval', async () => {

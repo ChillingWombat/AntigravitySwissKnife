@@ -983,6 +983,49 @@ func TestArchiveAndRestoreProject(t *testing.T) {
 	}
 }
 
+func TestDeleteProjectRejectsPathTraversal(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	projectsDir := filepath.Join(tmpHome, ".gemini", "config", "projects")
+	if err := os.MkdirAll(projectsDir, 0o755); err != nil {
+		t.Fatalf("create projects dir: %v", err)
+	}
+	outsidePath := filepath.Join(tmpHome, ".gemini", "config", "outside.json")
+	if err := os.WriteFile(outsidePath, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("create outside project: %v", err)
+	}
+
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore error: %v", err)
+	}
+
+	for _, name := range []string{"../outside", `..\outside`, "..", ".", "nested/name", `C:\outside`} {
+		if err := store.DeleteProject(name); err == nil {
+			t.Errorf("DeleteProject(%q) accepted an unsafe project name", name)
+		}
+	}
+
+	if _, err := os.Stat(outsidePath); err != nil {
+		t.Fatalf("outside project was moved: %v", err)
+	}
+	if _, err := os.Stat(outsidePath + ".deleted"); !os.IsNotExist(err) {
+		t.Fatalf("outside project gained a .deleted copy")
+	}
+
+	insidePath := filepath.Join(projectsDir, "DeleteMe.json")
+	if err := os.WriteFile(insidePath, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("create inside project: %v", err)
+	}
+	if err := store.DeleteProject("DeleteMe"); err != nil {
+		t.Fatalf("DeleteProject valid name: %v", err)
+	}
+	if _, err := os.Stat(insidePath + ".deleted"); err != nil {
+		t.Fatalf("valid project was not renamed: %v", err)
+	}
+}
+
 func TestArchivedCSS(t *testing.T) {
 	cfg := &Config{
 		Enabled:             true,
@@ -2311,4 +2354,3 @@ func TestInjector_FocusActiveWindows(t *testing.T) {
 		t.Errorf("expected Runtime.evaluate (window.focus()) to be sent to active window, got methods: %v", methods)
 	}
 }
-

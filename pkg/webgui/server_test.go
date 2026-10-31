@@ -181,6 +181,16 @@ func TestWebGUIEndpoints(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
+
+	traversalJSON, _ := json.Marshal(map[string]string{"name": "../outside"})
+	resp, err = http.Post(baseURL+"/api/gui/projects/delete", "application/json", bytes.NewReader(traversalJSON))
+	if err != nil {
+		t.Fatalf("POST /api/gui/projects/delete traversal failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for traversal project name, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
 }
 
 func TestWebGUIQuotaAndAccountsEndpoints(t *testing.T) {

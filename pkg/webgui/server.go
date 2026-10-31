@@ -2472,6 +2472,11 @@ func (s *Server) handleGUIProjectDelete(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid parameters, name is required", http.StatusBadRequest)
 		return
 	}
+	p.Name = strings.TrimSpace(p.Name)
+	if err := gui.ValidateProjectName(p.Name); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if service := s.guiService(); service != nil {
 		if err := service.DeleteProject(p.Name); err != nil {
