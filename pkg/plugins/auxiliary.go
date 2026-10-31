@@ -4653,12 +4653,10 @@ func GenerateAuxiliaryPluginsScript() string {
     }
 
     function currentBookmarkWebview(webview, trigger) {
-      let pane = null;
-      if (trigger && typeof trigger.closest === "function") {
-        pane = trigger.closest('[data-testid="builtin-browser-pane"]');
-      } else if (webview && typeof webview.closest === "function") {
-        pane = webview.closest('[data-testid="builtin-browser-pane"]');
-      }
+      let pane = trigger && typeof trigger.closest === "function"
+        ? trigger.closest('[data-testid="builtin-browser-pane"]')
+        : null;
+      if (!pane) pane = resolveBuiltinBrowserPane(webview);
       const current = pane && pane.querySelector("webview");
       if (current) return current;
       const adapter = pane && bookmarkAdapters.get(pane);
@@ -4861,8 +4859,73 @@ func GenerateAuxiliaryPluginsScript() string {
       if (fallbackFocus) fallbackFocus.focus();
     }
 
+    function readBrowserCssProperty(node, property, camelName) {
+      if (!node) return "";
+      const values = [];
+      try {
+        if (node.style && typeof node.style.getPropertyValue === "function") {
+          values.push(node.style.getPropertyValue(property));
+        }
+      } catch (_) {}
+      if (node.style && node.style[camelName]) values.push(node.style[camelName]);
+      if (typeof getComputedStyle === "function") {
+        try {
+          const computed = getComputedStyle(node);
+          if (computed) {
+            if (typeof computed.getPropertyValue === "function") values.push(computed.getPropertyValue(property));
+            if (computed[camelName]) values.push(computed[camelName]);
+          }
+        } catch (_) {}
+      }
+      for (const value of values) {
+        const normalized = String(value || "").trim();
+        if (normalized) return normalized;
+      }
+      return "";
+    }
+
+    function browserAnchorNames(value) {
+      const absent = new Set(["auto", "none"]);
+      return String(value || "").split(",")
+        .map(name => name.trim())
+        .filter(name => name && !absent.has(name.toLowerCase()));
+    }
+
+    function webviewAnchorName(webview) {
+      let node = webview;
+      while (node && node !== document) {
+        const names = browserAnchorNames(readBrowserCssProperty(node, "position-anchor", "positionAnchor"));
+        if (names.length) return names[0];
+        node = node.parentElement;
+      }
+      return "";
+    }
+
+    function resolveBuiltinBrowserPane(webview) {
+      if (!webview) return null;
+      const pane = typeof webview.closest === "function"
+        ? webview.closest('[data-testid="builtin-browser-pane"]')
+        : null;
+      if (pane) return pane;
+
+      const anchorName = webviewAnchorName(webview);
+      if (anchorName) {
+        const placeholders = Array.from(document.querySelectorAll('[data-testid="builtin-browser-placeholder"]'));
+        const placeholder = placeholders.find(node =>
+          browserAnchorNames(readBrowserCssProperty(node, "anchor-name", "anchorName")).includes(anchorName)
+        );
+        const associated = placeholder && typeof placeholder.closest === "function"
+          ? placeholder.closest('[data-testid="builtin-browser-pane"]')
+          : null;
+        if (associated) return associated;
+      }
+
+      const panes = Array.from(document.querySelectorAll('[data-testid="builtin-browser-pane"]'));
+      return panes.length === 1 ? panes[0] : null;
+    }
+
     function setupNativeBookmarkButton(webview) {
-      const pane = webview.closest('[data-testid="builtin-browser-pane"]');
+      const pane = resolveBuiltinBrowserPane(webview);
       if (!pane) return;
       cleanupBookmarkAdapters();
       let starButton = pane.querySelector("#swiss-bookmark-star");
