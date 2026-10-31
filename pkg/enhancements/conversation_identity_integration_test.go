@@ -555,6 +555,235 @@ func TestConversationIdentity_GeneratedRouteSynchronizationCallChain(t *testing.
 `)
 }
 
+func TestConversationIdentity_RouteSyncAcknowledgesAsyncRouterNoOp(t *testing.T) {
+	runIdentityCallChain(t, `
+(async () => {
+  const staleId = "9d07fb82-25f8-46d6-9692-16bded70cb35";
+  const visibleId = "eef014a4-c5ae-4fbe-9da6-8592c619ced9";
+  const hostSetTimeout = require("timers").setTimeout;
+  const hostClearTimeout = require("timers").clearTimeout;
+  globalThis.setTimeout = hostSetTimeout;
+  globalThis.clearTimeout = hostClearTimeout;
+  const later = (ms) => new Promise((resolve) => hostSetTimeout(resolve, ms));
+  const routerCalls = [];
+  const replacements = [];
+  const popstateEvents = [];
+
+  function applyLocationURL(url) {
+    const parsed = new URL(String(url), "http://127.0.0.1");
+    location.pathname = parsed.pathname;
+    location.search = parsed.search;
+    location.hash = parsed.hash;
+  }
+
+  location.pathname = "/c/" + staleId;
+  location.search = "?tab=chat";
+  location.hash = "#reply";
+  window.__TSR_ROUTER__ = { navigate: ({ to }) => routerCalls.push(to) };
+  window.history = {
+    state: { hostState: "keep" },
+    replaceState: (state, title, url) => {
+      replacements.push({ state, title, url });
+      applyLocationURL(url);
+    }
+  };
+  window.dispatchEvent = (event) => { popstateEvents.push(event.type); return true; };
+
+  assert.strictEqual(
+    synchronizeRenderedConversationRoute(conversationRouteSyncState, visibleId, location, null),
+    "navigate",
+    "the first rendered mismatch must navigate through the host router"
+  );
+  assert.deepStrictEqual(routerCalls, ["/c/" + visibleId + "?tab=chat#reply"], "the first navigate must preserve query and hash");
+  synchronizeRenderedConversationRoute(conversationRouteSyncState, visibleId, location, null);
+  synchronizeRenderedConversationRoute(conversationRouteSyncState, visibleId, location, null);
+  assert.strictEqual(routerCalls.length, 1, "render ticks during the acknowledgement window must not duplicate navigate");
+
+  await later(240);
+  assert.strictEqual(routerCalls.length, 2, "an unacknowledged navigate must receive one bounded retry");
+  assert.strictEqual(replacements.length, 1, "an unacknowledged retry must fall back exactly once");
+  assert.strictEqual(replacements[0].url, "/c/" + visibleId + "?tab=chat#reply", "fallback must preserve query and hash");
+  assert.deepStrictEqual(replacements[0].state, { hostState: "keep" }, "fallback must preserve host history state");
+  assert.strictEqual(parseConversationId(location.pathname), visibleId, "the fallback URL must converge on the rendered conversation");
+  assert.strictEqual(
+    synchronizeRenderedConversationRoute(conversationRouteSyncState, visibleId, location, null),
+    "none",
+    "converged routes must not start another synchronization"
+  );
+  assert.strictEqual(replacements.length, 1, "converged routes must not repeat fallback");
+  assert(!popstateEvents.includes("popstate"), "route acknowledgement must not synthesize popstate");
+  console.log("INTEGRATED_IDENTITY_OK");
+})().catch((error) => { console.error(error.stack || error); process.exit(1); });
+`)
+}
+
+func TestConversationIdentity_RouteSyncDelayedSuccessAndObsoleteTargetCancellation(t *testing.T) {
+	runIdentityCallChain(t, `
+(async () => {
+  const staleId = "11111111-1111-4111-8111-111111111111";
+  const firstVisibleId = "22222222-2222-4222-8222-222222222222";
+  const secondVisibleId = "33333333-3333-4333-8333-333333333333";
+  const hostSetTimeout = require("timers").setTimeout;
+  const hostClearTimeout = require("timers").clearTimeout;
+  globalThis.setTimeout = hostSetTimeout;
+  globalThis.clearTimeout = hostClearTimeout;
+  const later = (ms) => new Promise((resolve) => hostSetTimeout(resolve, ms));
+  const routerCalls = [];
+  const replacements = [];
+  let acceptedTarget = "";
+
+  function applyLocationURL(url) {
+    const parsed = new URL(String(url), "http://127.0.0.1");
+    location.pathname = parsed.pathname;
+    location.search = parsed.search;
+    location.hash = parsed.hash;
+  }
+
+  location.pathname = "/c/" + staleId;
+  location.search = "";
+  location.hash = "";
+  window.__TSR_ROUTER__ = {
+    navigate: ({ to }) => {
+      routerCalls.push(to);
+      const target = to;
+      hostSetTimeout(() => {
+        if (acceptedTarget === target) applyLocationURL(target);
+      }, 15);
+    }
+  };
+  window.history = {
+    state: { hostState: "keep" },
+    replaceState: (state, title, url) => replacements.push({ state, title, url })
+  };
+
+  acceptedTarget = "/c/" + firstVisibleId;
+  assert.strictEqual(
+    synchronizeRenderedConversationRoute(conversationRouteSyncState, firstVisibleId, location, null),
+    "navigate",
+    "the first target must navigate"
+  );
+  synchronizeRenderedConversationRoute(conversationRouteSyncState, firstVisibleId, location, null);
+  synchronizeRenderedConversationRoute(conversationRouteSyncState, firstVisibleId, location, null);
+  assert.deepStrictEqual(routerCalls, ["/c/" + firstVisibleId], "repeated ticks must stay inside the first acknowledgement window");
+
+  acceptedTarget = "/c/" + secondVisibleId;
+  assert.strictEqual(
+    synchronizeRenderedConversationRoute(conversationRouteSyncState, secondVisibleId, location, null),
+    "navigate",
+    "a changed rendered target must supersede the pending target"
+  );
+  synchronizeRenderedConversationRoute(conversationRouteSyncState, secondVisibleId, location, null);
+  await later(120);
+
+  assert.deepStrictEqual(routerCalls, ["/c/" + firstVisibleId, "/c/" + secondVisibleId], "the delayed second target must acknowledge without duplicate navigation");
+  assert.strictEqual(parseConversationId(location.pathname), secondVisibleId, "delayed router success must converge on the newest target");
+  assert.strictEqual(replacements.length, 0, "delayed router success must not trigger fallback");
+  assert.strictEqual(
+    synchronizeRenderedConversationRoute(conversationRouteSyncState, secondVisibleId, location, null),
+    "none",
+    "a delayed acknowledgement must clear pending synchronization"
+  );
+  console.log("INTEGRATED_IDENTITY_OK");
+})().catch((error) => { console.error(error.stack || error); process.exit(1); });
+`)
+}
+
+func TestConversationIdentity_RouteSyncExplicitIntentAndMissingRouterFallback(t *testing.T) {
+	runIdentityCallChain(t, `
+(async () => {
+  const staleId = "44444444-4444-4444-8444-444444444444";
+  const explicitId = "55555555-5555-4555-8555-555555555555";
+  const disagreementId = "66666666-6666-4666-8666-666666666666";
+  const fallbackId = "77777777-7777-4777-8777-777777777777";
+  const hostSetTimeout = require("timers").setTimeout;
+  const hostClearTimeout = require("timers").clearTimeout;
+  globalThis.setTimeout = hostSetTimeout;
+  globalThis.clearTimeout = hostClearTimeout;
+  const later = (ms) => new Promise((resolve) => hostSetTimeout(resolve, ms));
+  const routerCalls = [];
+  const replacements = [];
+  const popstateEvents = [];
+
+  function applyLocationURL(url) {
+    const parsed = new URL(String(url), "http://127.0.0.1");
+    location.pathname = parsed.pathname;
+    location.search = parsed.search;
+    location.hash = parsed.hash;
+  }
+  function navigationElement(targetId) {
+    const anchor = { href: "http://127.0.0.1/c/" + targetId };
+    const element = {
+      closest: (selector) => {
+        const value = String(selector);
+        if (value.includes("a[href]")) return anchor;
+        if (value.includes("conversation-row-sidebar")) return element;
+        return null;
+      }
+    };
+    return element;
+  }
+
+  location.pathname = "/c/" + staleId;
+  location.search = "";
+  location.hash = "";
+  window.__TSR_ROUTER__ = {
+    navigate: ({ to }) => {
+      routerCalls.push(to);
+      hostSetTimeout(() => applyLocationURL(to), 10);
+    }
+  };
+  window.history = {
+    state: { hostState: "keep" },
+    replaceState: (state, title, url) => {
+      replacements.push({ state, title, url });
+      applyLocationURL(url);
+    }
+  };
+  window.dispatchEvent = (event) => { popstateEvents.push(event.type); return true; };
+
+  const agreementIntent = createExplicitConversationNavigationIntent(navigationElement(explicitId), location, 1);
+  assert.strictEqual(
+    synchronizeRenderedConversationRoute(conversationRouteSyncState, explicitId, location, agreementIntent),
+    "navigate",
+    "an explicit target agreeing with the rendered ID must repair the stale URL"
+  );
+  synchronizeRenderedConversationRoute(conversationRouteSyncState, explicitId, location, agreementIntent);
+  await later(100);
+  assert.deepStrictEqual(routerCalls, ["/c/" + explicitId], "explicit target agreement must synchronize once");
+  assert.strictEqual(replacements.length, 0, "acknowledged explicit target agreement must not fall back");
+
+  location.pathname = "/c/" + staleId;
+  location.search = "";
+  location.hash = "";
+  const callsBeforeDisagreement = routerCalls.length;
+  assert.strictEqual(
+    synchronizeRenderedConversationRoute(conversationRouteSyncState, disagreementId, location, agreementIntent),
+    "none",
+    "an explicit target disagreeing with the rendered ID must fence synchronization"
+  );
+  assert.strictEqual(routerCalls.length, callsBeforeDisagreement, "explicit target disagreement must not navigate");
+  assert.strictEqual(replacements.length, 0, "explicit target disagreement must not fall back");
+
+  location.pathname = "/c/" + staleId;
+  location.search = "?tab=chat";
+  location.hash = "#reply";
+  window.__TSR_ROUTER__ = null;
+  assert.strictEqual(
+    synchronizeRenderedConversationRoute(conversationRouteSyncState, fallbackId, location, null),
+    "replaceState",
+    "a missing router must use the immediate safe history fallback"
+  );
+  assert.strictEqual(replacements.length, 1, "missing-router fallback must run exactly once");
+  assert.strictEqual(replacements[0].url, "/c/" + fallbackId + "?tab=chat#reply", "missing-router fallback must preserve query and hash");
+  assert.deepStrictEqual(replacements[0].state, { hostState: "keep" }, "missing-router fallback must preserve host state");
+  synchronizeRenderedConversationRoute(conversationRouteSyncState, fallbackId, location, null);
+  assert.strictEqual(replacements.length, 1, "missing-router fallback must not repeat after convergence");
+  assert(!popstateEvents.includes("popstate"), "explicit-intent and fallback synchronization must not synthesize popstate");
+  console.log("INTEGRATED_IDENTITY_OK");
+})().catch((error) => { console.error(error.stack || error); process.exit(1); });
+`)
+}
+
 func TestConversationIdentity_ExplicitIntentRouteAgreementAndBlankReset(t *testing.T) {
 	runIdentityCallChain(t, `
 (async () => {
