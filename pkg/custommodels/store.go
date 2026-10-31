@@ -735,17 +735,16 @@ func (s *Store) SetThinkingLevel(modelID string, level string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	found := false
 	for i := range s.config.Models {
-		if s.config.Models[i].ID == modelID {
-			s.config.Models[i].ThinkingLevel = level
-			s.config.Models[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			found = true
-			break
+		model := &s.config.Models[i]
+		if model.ID != modelID {
+			continue
 		}
+		model.ThinkingLevel = level
+		if err := model.Validate(); err != nil {
+			return err
+		}
+		return s.saveLocked()
 	}
-	if !found {
-		return fmt.Errorf("model %q not found", modelID)
-	}
-	return s.saveLocked()
+	return fmt.Errorf("custom model with ID %q not found", modelID)
 }

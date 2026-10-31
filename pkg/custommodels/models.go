@@ -230,11 +230,14 @@ func (m *CustomModel) Validate() error {
 		m.BudgetCapValue = nil
 	}
 	var cleanLevels []string
-	for _, l := range m.ThinkingLevels {
-		trimmed := strings.ToLower(strings.TrimSpace(l))
-		if trimmed != "" && trimmed != "off" {
-			cleanLevels = append(cleanLevels, trimmed)
+	seenLevels := make(map[string]bool)
+	for _, candidate := range m.ThinkingLevels {
+		level := strings.ToLower(strings.TrimSpace(candidate))
+		if !isSupportedThinkingLevel(level) || seenLevels[level] {
+			continue
 		}
+		cleanLevels = append(cleanLevels, level)
+		seenLevels[level] = true
 	}
 	if m.ProviderType == ProviderGCP {
 		if _, detectedThinking, _ := detectModelMetadata(m.Name, m.DisplayName, m.ContextWindow); detectedThinking {
@@ -243,30 +246,37 @@ func (m *CustomModel) Validate() error {
 	}
 	if m.SupportsThinking || len(cleanLevels) > 0 || (strings.TrimSpace(m.ThinkingLevel) != "" && !strings.EqualFold(m.ThinkingLevel, "off")) {
 		m.SupportsThinking = true
-		if strings.TrimSpace(m.ThinkingLevel) == "" || strings.EqualFold(m.ThinkingLevel, "off") {
-			m.ThinkingLevel = "high"
-		} else {
-			m.ThinkingLevel = strings.ToLower(strings.TrimSpace(m.ThinkingLevel))
-		}
-		if len(cleanLevels) < 2 {
+		if len(cleanLevels) == 0 {
 			cleanLevels = []string{"low", "medium", "high"}
 		}
-		hasActive := false
-		for _, l := range cleanLevels {
-			if l == m.ThinkingLevel {
-				hasActive = true
-				break
-			}
-		}
-		if !hasActive && m.ThinkingLevel != "" {
-			cleanLevels = append(cleanLevels, m.ThinkingLevel)
-		}
+		m.ThinkingLevel = normalizeThinkingLevel(cleanLevels, m.ThinkingLevel)
 		m.ThinkingLevels = cleanLevels
 	} else if strings.EqualFold(m.ThinkingLevel, "off") {
 		m.SupportsThinking = false
 		m.ThinkingLevel = "off"
 	}
 	return nil
+}
+
+func isSupportedThinkingLevel(level string) bool {
+	return level == "low" || level == "medium" || level == "high"
+}
+
+func normalizeThinkingLevel(levels []string, active string) string {
+	active = strings.ToLower(strings.TrimSpace(active))
+	for _, level := range levels {
+		if level == active {
+			return active
+		}
+	}
+	for _, preferred := range []string{"high", "medium", "low"} {
+		for _, level := range levels {
+			if level == preferred {
+				return preferred
+			}
+		}
+	}
+	return levels[0]
 }
 
 // CalculatePercentage computes the percentage to display in the circular gauge.
