@@ -282,7 +282,7 @@ func (p *Proxy) tryCustomModel(w http.ResponseWriter, r *http.Request, body []by
 	w.WriteHeader(http.StatusOK)
 	if err := p.gw.runTurn(r, model, &request, emit); err != nil {
 		logProviderFailure("[cloudcode-proxy]", model)
-		_ = emit(geminiResponse{Error: &geminiError{Code: 500, Message: err.Error(), Status: "INTERNAL"}})
+		_ = emit(providerFailureFrame(err))
 		return true
 	}
 	_ = emit(geminiResponse{Candidates: []geminiCandidate{{

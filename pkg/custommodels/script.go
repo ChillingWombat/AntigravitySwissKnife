@@ -184,6 +184,10 @@ func GenerateCustomModelsScript(cfg *Config) string {
       const activeLvl = getActiveThinkingLevel(modelObj, levels);
       const effortText = activeLvl ? formatEffortLabel(activeLvl) : "";
       const sig = modelObj.id + ":" + activeLvl;
+      const accessibleLabel = effortText ? cleanName + " (" + effortText + ")" : cleanName;
+      if (trigger.getAttribute("aria-label") !== accessibleLabel) {
+        trigger.setAttribute("aria-label", accessibleLabel);
+      }
       if (trigger.getAttribute("data-swiss-custom-bound") !== sig || !(label.textContent || "").includes(cleanName)) {
         trigger.setAttribute("data-swiss-custom-bound", sig);
         label.textContent = cleanName;
@@ -799,7 +803,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
               submenu.__sourceItem = itemEl;
               submenu.setAttribute("role", "menu");
               submenu.className = "bg-card text-foreground rounded-[10px] border border-border shadow-md outline-none no-focus-ring min-w-40 scrollbar-none flex flex-col p-1 gap-px";
-              const menuCard = (panel && panel.parentElement) ? panel.parentElement : popover;
+              const menuCard = getModelSelectorPopover() || popover;
               const menuRect = menuCard.getBoundingClientRect();
               const itemRect = itemEl.getBoundingClientRect();
               const targetLeft = (menuRect.right + 165 > window.innerWidth) ? Math.max(4, Math.round(menuRect.left - 162)) : Math.round(menuRect.right);
