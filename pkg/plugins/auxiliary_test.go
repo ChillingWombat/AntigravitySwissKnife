@@ -3693,6 +3693,7 @@ class MiniDocument {
     this.defaultView = window;
     this.listeners = new Map();
     this.body = new MiniNode("body", this);
+    this.body.parentNode = this;
     this.activeElement = this.body;
   }
 
@@ -3773,7 +3774,15 @@ function makeEnv() {
   const oldCalls = [];
   const newCalls = [];
   oldWebview.loadURL = url => oldCalls.push(url);
-  return { context, document, pane, camera, oldWebview, oldCalls, newCalls };
+  assert.strictEqual(document.body.isConnected, true, "document body must be connected through document ancestry");
+  assert.strictEqual(camera.isConnected, true, "the native camera anchor must be connected before teardown");
+
+  const cameraFocus = { count: 0 };
+  camera.focus = () => {
+    cameraFocus.count += 1;
+    MiniNode.prototype.focus.call(camera);
+  };
+  return { context, document, pane, camera, cameraFocus, oldWebview, oldCalls, newCalls };
 }
 
 function click(node) {
@@ -3811,7 +3820,11 @@ scenario("teardown removes open dialog and global listener without retaining ove
   assert(!env.document.querySelector(".swiss-bookmark-dialog"), "dialog form survived teardown");
   assert(!env.document.querySelector("#swiss-bookmark-star"), "bookmark Star survived teardown");
   assert.strictEqual(env.document.listenerCount("keydown"), baselineKeydown, "global dialog key listener survived teardown");
-  assert(!backdrop.contains(env.document.activeElement), "teardown retained focus inside the removed dialog");
+  assert.strictEqual(env.cameraFocus.count, 1, "teardown did not exercise the connected camera fallback");
+  assert.strictEqual(env.document.activeElement, env.camera, "teardown did not restore focus to the connected camera");
+
+  const detached = env.document.createElement("button");
+  assert.strictEqual(detached.isConnected, false, "a node without document ancestry must remain disconnected");
 
   env.context.removeNativeBookmarkButtons();
   assert.strictEqual(env.document.listenerCount("keydown"), baselineKeydown, "repeated teardown changed listener state");
@@ -3823,6 +3836,8 @@ scenario("replaced webview routes bookmark selection to the live webview only", 
   const newWebview = env.document.createElement("webview");
   newWebview.loadURL = url => env.newCalls.push(url);
   env.oldWebview.replaceWith(newWebview);
+  assert.strictEqual(env.oldWebview.isConnected, false, "the replaced webview must be detached");
+  assert.strictEqual(newWebview.isConnected, true, "the replacement webview must be connected");
 
   const address = env.context.getBookmarks()[0].address;
   click(openMainMenu(env).querySelector(".swiss-bookmark-menu-row"));
