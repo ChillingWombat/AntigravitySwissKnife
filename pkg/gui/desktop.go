@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
@@ -106,15 +108,15 @@ func (dm *DesktopManager) InstallDesktopLoader() (*ApplyResult, error) {
 		}
 	}
 
-	// 2. Pre-flight lock check: verify asarPath is writable before extracting and packing.
-	// On Windows, if the host Antigravity desktop app is running, app.asar is locked exclusively.
-	if f, err := os.OpenFile(asarPath, os.O_WRONLY, 0); err != nil {
+	// 2. Pre-flight replacement check. Linux packages commonly ship app.asar
+	// root-owned with 0644 permissions while the resources directory remains
+	// writable. Opening the file itself would fail even though an atomic rename
+	// is permitted, so only Windows needs the destination lock probe.
+	if err := ensureDesktopFileReplaceable(asarPath); err != nil {
 		return &ApplyResult{
 			Success: false,
-			Message: fmt.Sprintf("Antigravity desktop app is running and locking app.asar (please quit Antigravity to install the permanent loader): %v", err),
-		}, fmt.Errorf("app.asar is locked or non-writable: %w", err)
-	} else {
-		_ = f.Close()
+			Message: fmt.Sprintf("Antigravity app.asar cannot be replaced: %v", err),
+		}, err
 	}
 
 	// 3. Extract asar to temporary directory
@@ -320,6 +322,39 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
+func ensureDesktopFileReplaceable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory", path)
+	}
+
+	if runtime.GOOS == "windows" {
+		f, err := os.OpenFile(path, os.O_WRONLY, 0)
+		if err != nil {
+			return fmt.Errorf("app.asar is locked or non-writable (quit Antigravity and retry): %w", err)
+		}
+		return f.Close()
+	}
+
+	probe, err := os.CreateTemp(filepath.Dir(path), ".swiss-replace-check-*")
+	if err != nil {
+		return fmt.Errorf("resources directory is not writable: %w", err)
+	}
+	probePath := probe.Name()
+	closeErr := probe.Close()
+	removeErr := os.Remove(probePath)
+	if closeErr != nil {
+		return closeErr
+	}
+	if removeErr != nil {
+		return removeErr
+	}
+	return nil
+}
+
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -348,10 +383,12 @@ func copyFile(src, dst string) error {
 	_ = os.Chmod(tmpName, 0644)
 
 	if err := os.Rename(tmpName, dst); err != nil {
-		if os.IsPermission(err) {
-			_ = os.Chmod(dst, 0666)
-			_ = os.Remove(dst)
-			return os.Rename(tmpName, dst)
+		if runtime.GOOS == "windows" && os.IsPermission(err) {
+			if chmodErr := os.Chmod(dst, 0666); chmodErr == nil {
+				if renameErr := os.Rename(tmpName, dst); renameErr == nil {
+					return nil
+				}
+			}
 		}
 		return err
 	}
@@ -419,8 +456,101 @@ func jsonUnmarshal(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
 
+type injectedDaemonRoutes struct {
+	GET    []string
+	POST   []string
+	DELETE []string
+}
+
+var injectedDaemonRouteAllowlist = injectedDaemonRoutes{
+	GET: []string{
+		"/api/accounts",
+		"/api/available_models",
+		"/api/conversations/status",
+		"/api/custom_models",
+		"/api/custom_models/cli_status",
+		"/api/custom_models/integration",
+		"/api/custom_models/presets",
+		"/api/enhancements",
+		"/api/extensions/community",
+		"/api/files/ide/config",
+		"/api/files/list",
+		"/api/files/open_ide",
+		"/api/files/read",
+		"/api/github/agent-tasks",
+		"/api/github/issues",
+		"/api/github/issues/detail",
+		"/api/github/kanban",
+		"/api/github/prs",
+		"/api/github/repo",
+		"/api/gui/config",
+		"/api/gui/conversations/pruned",
+		"/api/gui/desktop/status",
+		"/api/gui/projects",
+		"/api/gui/projects/archived",
+		"/api/memos",
+		"/api/memos/config",
+		"/api/models/available",
+		"/api/quota",
+		"/api/quota/fleet",
+		"/api/rules",
+		"/api/status",
+		"/api/tokens/chat-metrics",
+		"/api/tokens/pricing",
+		"/api/tokens/summary",
+	},
+	POST: []string{
+		"/api/conversations/ack",
+		"/api/custom_models/active",
+		"/api/custom_models/thinking_level",
+		"/api/enhancements",
+		"/api/enhancements/apply",
+		"/api/extensions/community",
+		"/api/files/copy",
+		"/api/files/create",
+		"/api/files/delete",
+		"/api/files/ide/config",
+		"/api/files/move",
+		"/api/files/open_ide",
+		"/api/files/rename",
+		"/api/files/reveal",
+		"/api/files/terminal",
+		"/api/files/write",
+		"/api/github/agent-tasks/bind",
+		"/api/github/agent-tasks/label",
+		"/api/github/issues/comment",
+		"/api/github/issues/create",
+		"/api/github/issues/update",
+		"/api/github/kanban/move",
+		"/api/gui/apply",
+		"/api/gui/color",
+		"/api/gui/color/delete",
+		"/api/gui/color/reset",
+		"/api/gui/config",
+		"/api/gui/conversations/auto-archive",
+		"/api/gui/projects/archive",
+		"/api/gui/projects/delete",
+		"/api/gui/projects/open_settings",
+		"/api/gui/projects/order",
+		"/api/gui/projects/restore",
+		"/api/gui/reorder",
+		"/api/memos/config",
+		"/api/memos/delete",
+		"/api/memos/export",
+		"/api/memos/extract",
+		"/api/memos/save",
+		"/api/tokens/chat-metrics",
+		"/api/tokens/pricing",
+	},
+	DELETE: []string{
+		"/api/extensions/community",
+		"/api/tokens/pricing",
+	},
+}
+
 func generateMainLoaderScript() string {
-	return SwissMainLoaderMarker + `
+	routesJSON, _ := json.Marshal(injectedDaemonRouteAllowlist)
+	script := SwissMainLoaderMarker + `
 (() => {
   try {
     const fs = require('fs');
@@ -436,11 +566,105 @@ func generateMainLoaderScript() string {
           ? path.join(os.homedir(), "Library", "Application Support", "antigravity-swiss")
           : path.join((typeof process !== "undefined" && process.env && process.env.XDG_CONFIG_HOME) || path.join(os.homedir(), ".config"), "antigravity-swiss"));
 
+    const allowedDaemonRoutes = __SWISS_DAEMON_ROUTES__;
+    const trustedDaemonWebContents = new Set();
     const cssPath = path.join(configDir, "persistent_styles.css");
     const jsPath = path.join(configDir, "persistent_script.js");
+    const injecting = new WeakSet();
 
-    function injectIntoWebContents(wc) {
-      if (!wc || wc.isDestroyed()) return;
+    function buildDaemonBrokerScript() {
+      return [
+        "(() => {",
+        "  if (window.swiss && typeof window.swiss.request === 'function') return;",
+        "  const allowedRoutes = " + JSON.stringify(allowedDaemonRoutes) + ";",
+        "  allowedRoutes.GET = new Set(allowedRoutes.GET || []);",
+        "  allowedRoutes.POST = new Set(allowedRoutes.POST || []);",
+        "  allowedRoutes.DELETE = new Set(allowedRoutes.DELETE || []);",
+        "  async function request(input) {",
+        "    const req = input && typeof input === 'object' ? input : {};",
+        "    const method = String(req.method || 'GET').toUpperCase();",
+        "    const routes = allowedRoutes[method];",
+        "    if (!routes) throw new Error('Daemon method is not allowed');",
+        "    const rawPath = String(req.path || '');",
+        "    if (!rawPath.startsWith('/') || rawPath.startsWith('//') || rawPath.includes('\\\\') || rawPath.includes('#')) throw new Error('Daemon path is invalid');",
+        "    let url;",
+        "    try { url = new URL(rawPath, 'http://127.0.0.1:8765'); } catch (_) { throw new Error('Daemon path is invalid'); }",
+        "    if (url.origin !== 'http://127.0.0.1:8765' || !routes.has(url.pathname)) throw new Error('Daemon route is not allowed');",
+        "    let body;",
+        "    if (req.body !== undefined) {",
+        "      if (typeof req.body !== 'string') throw new Error('Daemon request body must be a string');",
+        "      if (method !== 'POST') throw new Error('Daemon request body is not allowed for this method');",
+        "      body = req.body;",
+        "    }",
+        "    const headers = { Accept: 'application/json' };",
+        "    if (body !== undefined) headers['Content-Type'] = 'application/json';",
+        "    return new Promise((resolve, reject) => {",
+        "      const xhr = new XMLHttpRequest();",
+        "      xhr.open(method, url.toString(), true);",
+        "      xhr.timeout = 15000;",
+        "      Object.keys(headers).forEach((key) => xhr.setRequestHeader(key, headers[key]));",
+        "      xhr.onload = () => {",
+        "        const responseHeaders = {};",
+        "        String(xhr.getAllResponseHeaders() || '').trim().split(/\\r?\\n/).forEach((line) => {",
+        "          const idx = line.indexOf(':');",
+        "          if (idx > 0) responseHeaders[line.slice(0, idx).trim().toLowerCase()] = line.slice(idx + 1).trim();",
+        "        });",
+        "        if (xhr.responseURL && xhr.responseURL !== url.toString()) { reject(new Error('Swiss daemon redirects are not allowed')); return; }",
+        "        resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, statusText: xhr.statusText || '', headers: responseHeaders, body: xhr.responseText || '' });",
+        "      };",
+        "      xhr.onerror = () => reject(new Error('Swiss daemon request failed'));",
+        "      xhr.ontimeout = () => reject(new Error('Swiss daemon request timed out'));",
+        "      xhr.onabort = () => reject(new Error('Swiss daemon request aborted'));",
+        "      xhr.send(body === undefined ? null : body);",
+        "    });",
+        "  }",
+        "  window.swiss = { request };",
+        "})();"
+      ].join("\n");
+    }
+
+    function readDaemonToken() {
+      try {
+        return fs.readFileSync(path.join(configDir, "session.token"), "utf8").trim();
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function isAllowedDaemonRoute(method, pathname) {
+      const routes = allowedDaemonRoutes[method];
+      return Array.isArray(routes) && routes.includes(pathname);
+    }
+
+    function installDaemonAuthBridge(ses, wc) {
+      if (!wc) return;
+      trustedDaemonWebContents.add(wc.id);
+      wc.once('destroyed', () => trustedDaemonWebContents.delete(wc.id));
+      if (!ses || !ses.webRequest || ses.__swissDaemonAuthBridgeInstalled) return;
+      ses.__swissDaemonAuthBridgeInstalled = true;
+      ses.webRequest.onBeforeSendHeaders({ urls: ['http://127.0.0.1:8765/*'] }, (details, callback) => {
+        const headers = details.requestHeaders || {};
+        let url;
+        try {
+          url = new URL(details.url);
+        } catch (_) {
+          callback({ requestHeaders: headers });
+          return;
+        }
+        const method = String(details.method || 'GET').toUpperCase();
+        const token = readDaemonToken();
+        const trustedFrame = !details.frame || !details.frame.parent;
+        if (trustedDaemonWebContents.has(details.webContentsId) && trustedFrame &&
+          url.origin === 'http://127.0.0.1:8765' && token && isAllowedDaemonRoute(method, url.pathname)) {
+          headers['X-Session-Token'] = token;
+        }
+        callback({ requestHeaders: headers });
+      });
+    }
+
+    async function injectIntoWebContents(wc) {
+      if (!wc || wc.isDestroyed() || injecting.has(wc)) return;
+      injecting.add(wc);
       try {
         if (fs.existsSync(cssPath)) {
           const css = fs.readFileSync(cssPath, 'utf8');
@@ -451,17 +675,35 @@ func generateMainLoaderScript() string {
         if (fs.existsSync(jsPath)) {
           const js = fs.readFileSync(jsPath, 'utf8');
           if (js && js.trim()) {
-            wc.executeJavaScript(js).catch(() => {});
+            const broker = buildDaemonBrokerScript();
+            if (broker) {
+              try {
+                await wc.executeJavaScript(broker);
+              } catch (e) {
+                console.warn("[SwissKnife Main] Broker injection failed:", e);
+              }
+            }
+            let alreadyInjected = false;
+            try {
+              alreadyInjected = await wc.executeJavaScript("Boolean(window.__swissMainScriptInjected || window.__swissDesktopScriptInjected)");
+            } catch (_) {}
+            if (!alreadyInjected) {
+              await wc.executeJavaScript(js);
+              await wc.executeJavaScript("window.__swissMainScriptInjected = true; window.__swissDesktopScriptInjected = true");
+            }
           }
         }
       } catch (e) {
         console.warn("[SwissKnife Main] Injection failed:", e);
+      } finally {
+        injecting.delete(wc);
       }
     }
 
     if (app && typeof app.on === "function") {
       app.on('browser-window-created', (_event, win) => {
         if (!win || !win.webContents) return;
+        installDaemonAuthBridge(win.webContents.session, win.webContents);
         win.webContents.on('dom-ready', () => {
           injectIntoWebContents(win.webContents);
         });
@@ -475,6 +717,7 @@ func generateMainLoaderScript() string {
   }
 })();
 `
+	return strings.Replace(script, "__SWISS_DAEMON_ROUTES__", string(routesJSON), 1)
 }
 
 func generatePreloadLoaderScript() string {
@@ -496,7 +739,7 @@ func generatePreloadLoaderScript() string {
     const cssPath = path.join(configDir, "persistent_styles.css");
     const jsPath = path.join(configDir, "persistent_script.js");
 
-    function injectSwiss() {
+    async function injectSwiss() {
       try {
         // 0. Pre-inject disk-saved project colors so they take precedence over factory defaults across port resets
         let diskSavedColors = {};
@@ -564,28 +807,37 @@ func generatePreloadLoaderScript() string {
         if (!window.__swissDesktopScriptInjected && fs.existsSync(jsPath)) {
           const js = fs.readFileSync(jsPath, 'utf8');
           if (js && js.trim()) {
-            window.__swissDesktopScriptInjected = true;
-            const fullScript = diskBootstrap + js;
-            let executedInMain = false;
+            let alreadyInjected = false;
             try {
-              if (webFrame && typeof webFrame.executeJavaScriptInIsolatedWorld === "function") {
-                webFrame.executeJavaScriptInIsolatedWorld(0, [{ code: fullScript }]);
-                executedInMain = true;
+              if (webFrame && typeof webFrame.executeJavaScript === "function") {
+                alreadyInjected = await webFrame.executeJavaScript("Boolean(window.__swissMainScriptInjected || window.__swissDesktopScriptInjected)");
               }
             } catch (_) {}
-            if (!executedInMain) {
+            if (!alreadyInjected) {
+              window.__swissDesktopScriptInjected = true;
+              const markerScript = 'window.__swissMainScriptInjected = true; window.__swissDesktopScriptInjected = true;\n';
+              const fullScript = diskBootstrap + markerScript + js;
+              let executedInMain = false;
               try {
-                const s = document.createElement("script");
-                s.textContent = fullScript;
-                (document.head || document.documentElement).appendChild(s);
-                s.remove();
-                executedInMain = true;
+                if (webFrame && typeof webFrame.executeJavaScriptInIsolatedWorld === "function") {
+                  webFrame.executeJavaScriptInIsolatedWorld(0, [{ code: fullScript }]);
+                  executedInMain = true;
+                }
               } catch (_) {}
-            }
-            if (!executedInMain) {
-              try {
-                webFrame.executeJavaScript(fullScript).catch(() => {});
-              } catch (_) {}
+              if (!executedInMain) {
+                try {
+                  const s = document.createElement("script");
+                  s.textContent = fullScript;
+                  (document.head || document.documentElement).appendChild(s);
+                  s.remove();
+                  executedInMain = true;
+                } catch (_) {}
+              }
+              if (!executedInMain) {
+                try {
+                  webFrame.executeJavaScript(fullScript).catch(() => {});
+                } catch (_) {}
+              }
             }
           }
         }
