@@ -16,6 +16,8 @@ func TestMainLoaderScript_IncludesBrokerAndPassesNodeCheck(t *testing.T) {
 		"const xhr = new XMLHttpRequest();",
 		"installDaemonAuthBridge",
 		"onBeforeSendHeaders",
+		"trustedDaemonWebContents.has(details.webContentsId)",
+		"const trustedFrame = !details.frame || !details.frame.parent;",
 		`headers['X-Session-Token'] = token`,
 		"window.swiss = { request }",
 		"__swissMainScriptInjected",

@@ -567,6 +567,7 @@ func generateMainLoaderScript() string {
           : path.join((typeof process !== "undefined" && process.env && process.env.XDG_CONFIG_HOME) || path.join(os.homedir(), ".config"), "antigravity-swiss"));
 
     const allowedDaemonRoutes = __SWISS_DAEMON_ROUTES__;
+    const trustedDaemonWebContents = new Set();
     const cssPath = path.join(configDir, "persistent_styles.css");
     const jsPath = path.join(configDir, "persistent_script.js");
     const injecting = new WeakSet();
@@ -635,7 +636,10 @@ func generateMainLoaderScript() string {
       return Array.isArray(routes) && routes.includes(pathname);
     }
 
-    function installDaemonAuthBridge(ses) {
+    function installDaemonAuthBridge(ses, wc) {
+      if (!wc) return;
+      trustedDaemonWebContents.add(wc.id);
+      wc.once('destroyed', () => trustedDaemonWebContents.delete(wc.id));
       if (!ses || !ses.webRequest || ses.__swissDaemonAuthBridgeInstalled) return;
       ses.__swissDaemonAuthBridgeInstalled = true;
       ses.webRequest.onBeforeSendHeaders({ urls: ['http://127.0.0.1:8765/*'] }, (details, callback) => {
@@ -649,7 +653,9 @@ func generateMainLoaderScript() string {
         }
         const method = String(details.method || 'GET').toUpperCase();
         const token = readDaemonToken();
-        if (url.origin === 'http://127.0.0.1:8765' && token && isAllowedDaemonRoute(method, url.pathname)) {
+        const trustedFrame = !details.frame || !details.frame.parent;
+        if (trustedDaemonWebContents.has(details.webContentsId) && trustedFrame &&
+          url.origin === 'http://127.0.0.1:8765' && token && isAllowedDaemonRoute(method, url.pathname)) {
           headers['X-Session-Token'] = token;
         }
         callback({ requestHeaders: headers });
@@ -697,7 +703,7 @@ func generateMainLoaderScript() string {
     if (app && typeof app.on === "function") {
       app.on('browser-window-created', (_event, win) => {
         if (!win || !win.webContents) return;
-        installDaemonAuthBridge(win.webContents.session);
+        installDaemonAuthBridge(win.webContents.session, win.webContents);
         win.webContents.on('dom-ready', () => {
           injectIntoWebContents(win.webContents);
         });
