@@ -2558,6 +2558,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     const SWISS_NEW_CONVERSATION_SELECTOR = '[data-testid="new-conversation-button"], [data-testid="app-icon-new-conversation-button"]';
     const SWISS_EXPLICIT_NAVIGATION_STORAGE_KEY = "antigravity_swiss_explicit_navigation";
     const SWISS_CONVERSATION_METRIC_RESET_EPOCH_KEY = "__swissConversationMetricResetEpoch";
+    const SWISS_CONVERSATION_ROUTE_SYNC_MAX_RETRIES = 3;
+    const SWISS_CONVERSATION_ROUTE_SYNC_RETRY_MS = 250;
 
     function isConversationId(value) {
       return typeof value === "string" && SWISS_CONVERSATION_ID_RE.test(value);
@@ -2607,21 +2609,6 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return activateConversationIdentity(identity, requestGenerations, parseConversationId(pathname));
     }
 
-    function replaceConversationRouteInHistory(conversationId, location, history) {
-      if (!isConversationId(conversationId) || !history || typeof history.replaceState !== "function") {
-        return false;
-      }
-      try {
-        const targetPath = "/c/" + conversationId +
-          ((location && location.search) || "") +
-          ((location && location.hash) || "");
-        history.replaceState(history.state, "", targetPath);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }
-
     function explicitConversationNavigationFencesRenderedRoute(intent, location, visibleId) {
       if (!isExplicitConversationNavigationActive(intent, location) || !isConversationId(visibleId)) return false;
       const targetId = intent.targetConversationId;
@@ -2633,44 +2620,157 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       return true;
     }
 
-    function synchronizeRenderedConversationRoute(state, visibleId, location, explicitIntent) {
-      if (!state) return "none";
-      if (!isConversationId(visibleId)) {
-        if (isExplicitConversationNavigationActive(explicitIntent, location)) state.attemptedKey = "";
-        return "none";
+    function replaceConversationRouteInHistory(conversationId, location, history) {
+      if (!isConversationId(conversationId) || !history || typeof history.replaceState !== "function") {
+        return false;
       }
-      if (explicitConversationNavigationFencesRenderedRoute(explicitIntent, location, visibleId)) {
-        state.attemptedKey = "";
-        return "none";
+      try {
+        const targetPath = conversationRouteTargetPath(conversationId, location);
+        history.replaceState(history.state, "", targetPath);
+        return true;
+      } catch (_) {
+        return false;
       }
+    }
 
-      const currentRoute = routeKeyForLocation(location);
-      if (parseConversationId(currentRoute) === visibleId) {
-        state.attemptedKey = "";
-        return "none";
-      }
-
-      const attemptedKey = visibleId + "\u0000" + currentRoute;
-      if (state.attemptedKey === attemptedKey) return "none";
-      state.attemptedKey = attemptedKey;
-
-      const targetPath = "/c/" + visibleId +
+    function conversationRouteTargetPath(visibleId, location) {
+      return "/c/" + visibleId +
         ((location && location.search) || "") +
         ((location && location.hash) || "");
+    }
+
+    function createConversationRouteSyncState() {
+      return {
+        semanticKey: "",
+        generation: 0,
+        timerId: null,
+        retries: 0,
+        outcome: "idle"
+      };
+    }
+
+    function createConversationRouteSyncSemanticKey(visibleId, currentRoute, targetPath, intent) {
+      const navigation = intent || {};
+      return JSON.stringify({
+        visibleId: visibleId,
+        currentRoute: currentRoute,
+        sourceRoute: navigation.sourceRoute || "",
+        targetPath: targetPath,
+        intentKind: navigation.kind || "",
+        intentTargetRoute: navigation.targetRoute || "",
+        intentTargetConversationId: navigation.targetConversationId || "",
+        intentPending: Boolean(navigation.pending)
+      });
+    }
+
+    function conversationRouteMatchesVisible(location, visibleId) {
+      return parseConversationId(routeKeyForLocation(location)) === visibleId;
+    }
+
+    function cancelConversationRouteSyncTimer(state) {
+      const timerId = state.timerId;
+      state.timerId = null;
+      if (timerId === null || timerId === undefined) return;
+      try {
+        clearTimeout(timerId);
+      } catch (_) {}
+    }
+
+    function retireConversationRouteSync(state, outcome, keepSemanticKey) {
+      state.generation += 1;
+      cancelConversationRouteSyncTimer(state);
+      if (!keepSemanticKey) state.semanticKey = "";
+      state.retries = 0;
+      state.outcome = outcome;
+    }
+
+    function attemptConversationRouteSynchronization(visibleId, location) {
+      const targetPath = conversationRouteTargetPath(visibleId, location);
       const router = window.__TSR_ROUTER__;
       if (router && typeof router.navigate === "function") {
         try {
           router.navigate({ to: targetPath });
-          return "navigate";
         } catch (_) {}
+        return "navigate";
       }
-
       // The rendered conversation is authoritative, so mirroring its route in
       // host history is safe as a fallback. Never reload or emit a fake popstate.
       if (replaceConversationRouteInHistory(visibleId, location, window.history)) {
         return "replaceState";
       }
       return "none";
+    }
+
+    function isCurrentConversationRouteSyncAttempt(state, generation, semanticKey, visibleId) {
+      if (state.generation !== generation || state.semanticKey !== semanticKey) return false;
+      const location = window.location;
+      if (conversationRouteMatchesVisible(location, visibleId)) return true;
+      const intent = window.__swissExplicitConversationNavigation;
+      if (explicitConversationNavigationFencesRenderedRoute(intent, location, visibleId)) return false;
+      const currentRoute = routeKeyForLocation(location);
+      const targetPath = conversationRouteTargetPath(visibleId, location);
+      return createConversationRouteSyncSemanticKey(visibleId, currentRoute, targetPath, intent) === semanticKey;
+    }
+
+    function scheduleConversationRouteSyncRetry(state, visibleId, semanticKey) {
+      const generation = state.generation + 1;
+      state.generation = generation;
+      state.outcome = "retrying";
+      try {
+        state.timerId = setTimeout(() => {
+          if (!isCurrentConversationRouteSyncAttempt(state, generation, semanticKey, visibleId)) return;
+          if (conversationRouteMatchesVisible(window.location, visibleId)) {
+            retireConversationRouteSync(state, "navigate", false);
+            return;
+          }
+          state.timerId = null;
+          state.retries += 1;
+          const location = window.location;
+          const outcome = attemptConversationRouteSynchronization(visibleId, location);
+          if (conversationRouteMatchesVisible(location, visibleId)) {
+            retireConversationRouteSync(state, "navigate", false);
+            return;
+          }
+          if (state.retries < SWISS_CONVERSATION_ROUTE_SYNC_MAX_RETRIES) {
+            scheduleConversationRouteSyncRetry(state, visibleId, semanticKey);
+            return;
+          }
+          const fallback = replaceConversationRouteInHistory(visibleId, location, window.history) ? "replaceState" : "none";
+          retireConversationRouteSync(state, fallback, true);
+        }, SWISS_CONVERSATION_ROUTE_SYNC_RETRY_MS);
+      } catch (_) {
+        state.timerId = null;
+        const fallback = replaceConversationRouteInHistory(visibleId, window.location, window.history) ? "replaceState" : "none";
+        retireConversationRouteSync(state, fallback, true);
+      }
+    }
+
+    function beginConversationRouteSynchronization(state, visibleId, location, explicitIntent, semanticKey) {
+      retireConversationRouteSync(state, "idle", false);
+      state.semanticKey = semanticKey;
+      const outcome = attemptConversationRouteSynchronization(visibleId, location);
+      state.outcome = outcome;
+      if (outcome === "navigate" && !conversationRouteMatchesVisible(location, visibleId)) {
+        scheduleConversationRouteSyncRetry(state, visibleId, semanticKey);
+      }
+      return outcome;
+    }
+
+    function synchronizeRenderedConversationRoute(state, visibleId, location, explicitIntent) {
+      if (!state) return "none";
+      if (!isConversationId(visibleId) || explicitConversationNavigationFencesRenderedRoute(explicitIntent, location, visibleId)) {
+        retireConversationRouteSync(state, "idle", false);
+        return "none";
+      }
+      if (conversationRouteMatchesVisible(location, visibleId)) {
+        retireConversationRouteSync(state, "idle", false);
+        return "none";
+      }
+      const currentRoute = routeKeyForLocation(location);
+      const targetPath = conversationRouteTargetPath(visibleId, location);
+      const semanticKey = createConversationRouteSyncSemanticKey(visibleId, currentRoute, targetPath, explicitIntent);
+      if (state.semanticKey === semanticKey) return state.outcome;
+      return beginConversationRouteSynchronization(state, visibleId, location, explicitIntent, semanticKey);
     }
 
     function beginConversationMetricRequest(requestGenerations, cacheKey) {
@@ -3563,7 +3663,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     let conversationMetricIdentity = createConversationMetricIdentityState();
-    let conversationRouteSyncState = { attemptedKey: "" };
+    let conversationRouteSyncState = createConversationRouteSyncState();
     let conversationMetricResetEpochSeen = Number(window[SWISS_CONVERSATION_METRIC_RESET_EPOCH_KEY]) || 0;
     let conversationMetricResetStaleId = null;
     let conversationMetricRequestGenerations = {};
