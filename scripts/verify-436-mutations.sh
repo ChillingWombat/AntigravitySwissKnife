@@ -49,6 +49,19 @@ expect_behavioral_failure active-stream 'frames = ' \
   go -C "$ROOT" test ./pkg/custommodels -run '^TestProxyGCPActiveStreamResetsIdleGuard$' -count=1
 restore_mutant
 
+python3 - "$ROOT/$VERTEX" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+needle = '\tidleTimer.Reset(idleTimeout)\n'
+assert source.count(needle) == 1, 'post-header idle reset pattern missing'
+path.write_text(source.replace(needle, '\tidleTimer.Stop()\n', 1))
+PY
+expect_behavioral_failure post-header-stop 'want "Vertex stream made no progress for 50ms"' \
+  go -C "$ROOT" test ./pkg/custommodels -run '^TestProxyGCPStreamFailuresEndWithTerminalFrame$/^stalled$' -count=1
+restore_mutant
+
 python3 - "$ROOT/$INJECTOR" <<'PY'
 from pathlib import Path
 import sys
