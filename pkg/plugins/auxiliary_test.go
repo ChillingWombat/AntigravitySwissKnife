@@ -3441,7 +3441,6 @@ func TestBuiltinBrowserBookmarkContract(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 
 	nativeAnchor := []string{
-		`const pane = webview.closest('[data-testid="builtin-browser-pane"]')`,
 		`const camera = pane.querySelector('[data-testid="webview-url-bar-screenshot"]')`,
 		`camera.parentElement.insertBefore(starButton, camera)`,
 		`starButton.setAttribute("aria-expanded", "false")`,
@@ -3450,6 +3449,20 @@ func TestBuiltinBrowserBookmarkContract(t *testing.T) {
 	for _, token := range nativeAnchor {
 		if !strings.Contains(js, token) {
 			t.Errorf("expected native Star attachment token %q", token)
+		}
+	}
+
+	resolverContract := []string{
+		`webview.closest('[data-testid="builtin-browser-pane"]')`,
+		`readBrowserCssProperty(node, "position-anchor", "positionAnchor")`,
+		`document.querySelectorAll('[data-testid="builtin-browser-placeholder"]')`,
+		`readBrowserCssProperty(node, "anchor-name", "anchorName")`,
+		`panes.length === 1 ? panes[0] : null`,
+		`const pane = resolveBuiltinBrowserPane(webview);`,
+	}
+	for _, token := range resolverContract {
+		if !strings.Contains(js, token) {
+			t.Errorf("expected native pane resolver contract %q", token)
 		}
 	}
 
@@ -3929,6 +3942,26 @@ function makeEnv() {
   return { context, document, pane, camera, cameraFocus, localStorage, oldWebview, oldCalls, newCalls };
 }
 
+function makePortalEnv() {
+  const env = makeEnv();
+  const anchor = "--builtin-browser-anchor-418";
+  env.oldWebview.remove();
+
+  const pool = env.document.createElement("div");
+  pool.setAttribute("data-testid", "builtin-browser-webview-pool");
+  const wrapper = env.document.createElement("div");
+  wrapper.style.positionAnchor = anchor;
+  wrapper.appendChild(env.oldWebview);
+  pool.appendChild(wrapper);
+  env.document.body.appendChild(pool);
+
+  const placeholder = env.document.createElement("div");
+  placeholder.setAttribute("data-testid", "builtin-browser-placeholder");
+  placeholder.style.anchorName = anchor;
+  env.pane.appendChild(placeholder);
+  return { ...env, anchor, placeholder, pool, wrapper };
+}
+
 function click(node) {
   node.dispatchEvent({ type: "click", bubbles: true, cancelable: true });
 }
@@ -4002,6 +4035,51 @@ scenario("replaced webview routes bookmark selection to the live webview only", 
   click(openMainMenu(env).querySelector(".swiss-bookmark-menu-row"));
   assert.deepStrictEqual(env.newCalls, [address], "live webview did not receive the bookmark URL");
   assert.deepStrictEqual(env.oldCalls, [], "detached webview received the bookmark URL");
+});
+
+scenario("portal anchor mounts one Star and preserves the body-level webview", () => {
+  const env = makePortalEnv();
+
+  env.context.setupNativeBookmarkButton(env.oldWebview);
+
+  const star = env.pane.querySelector("#swiss-bookmark-star");
+  assert(star, "portal-anchored webview did not mount a bookmark Star");
+  assert.strictEqual(env.pane.querySelectorAll("#swiss-bookmark-star").length, 1, "portal setup duplicated the bookmark Star");
+  assert.strictEqual(star.parentElement, env.camera.parentElement, "bookmark Star did not mount in the native URL form");
+  assert.strictEqual(
+    env.camera.parentElement.children.indexOf(star),
+    env.camera.parentElement.children.indexOf(env.camera) - 1,
+    "bookmark Star is not immediately before the native camera"
+  );
+  assert.strictEqual(env.oldWebview.parentElement, env.wrapper, "setup moved the portaled webview out of its pool wrapper");
+
+  env.context.setupNativeBookmarkButton(env.oldWebview);
+  assert.strictEqual(env.pane.querySelectorAll("#swiss-bookmark-star").length, 1, "repeated portal setup duplicated the bookmark Star");
+  assert.strictEqual(env.pane.querySelector("#swiss-bookmark-star"), star, "repeated portal setup replaced the bookmark Star");
+
+  const address = env.context.getBookmarks()[0].address;
+  click(openMainMenu(env).querySelector(".swiss-bookmark-menu-row"));
+  assert.deepStrictEqual(env.oldCalls, [address], "portal bookmark selection did not target the live webview");
+
+  env.context.teardownBuiltinBrowserEnhancements(env.oldWebview);
+  assert(!env.pane.querySelector("#swiss-bookmark-star"), "teardown left the portal bookmark Star");
+  assert.strictEqual(env.pane.isConnected, true, "teardown removed the native pane");
+  assert.strictEqual(env.camera.parentElement.isConnected, true, "teardown removed the native URL form");
+  assert.strictEqual(env.camera.isConnected, true, "teardown removed the native camera");
+  assert.strictEqual(env.pool.isConnected, true, "teardown removed the webview pool");
+  assert.strictEqual(env.wrapper.isConnected, true, "teardown removed the portal wrapper");
+  assert.strictEqual(env.oldWebview.parentElement, env.wrapper, "teardown moved the portaled webview");
+});
+
+scenario("single native pane is the safe fallback without anchor metadata", () => {
+  const env = makePortalEnv();
+  env.placeholder.style.anchorName = "";
+  env.wrapper.style.positionAnchor = "";
+
+  env.context.setupNativeBookmarkButton(env.oldWebview);
+
+  assert(env.pane.querySelector("#swiss-bookmark-star"), "single-pane fallback did not mount the bookmark Star");
+  assert.strictEqual(env.pane.querySelectorAll("#swiss-bookmark-star").length, 1, "single-pane fallback duplicated the bookmark Star");
 });
 
 scenario("legacy native wrapper migrates and installs one Swiss functions bar", () => {
