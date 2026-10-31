@@ -848,11 +848,12 @@ export const api = {
       body: JSON.stringify({ model_id: modelId }),
     }),
 
-  fetchModels: (providerType: ProviderType, baseUrl: string, apiKey?: string) =>
+  fetchModels: (providerType: ProviderType, baseUrl: string, apiKey?: string, modelId?: string) =>
     request<FetchModelsResponse>('/api/custom_models/fetch_models', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        id: modelId,
         provider_type: providerType,
         base_url: baseUrl,
         api_key: apiKey,

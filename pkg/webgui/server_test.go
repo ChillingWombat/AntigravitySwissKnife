@@ -547,6 +547,64 @@ func TestWebGUICustomModelsEndpoints(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestCustomModelFetchModelsUsesStoredAPIKey(t *testing.T) {
+	const savedKey = "saved-" + "provider-test-key"
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tempDir)
+	cmStore, err := custommodels.NewStore(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create custom models store: %v", err)
+	}
+
+	var authorization string
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"stored-secret-model"}]}`))
+	}))
+	defer provider.Close()
+
+	saved := custommodels.CustomModel{
+		ID:           "stored-secret-model",
+		Name:         "stored-secret-model",
+		DisplayName:  "Stored Secret Model",
+		ProviderType: custommodels.ProviderCustom,
+		BaseURL:      provider.URL,
+		APIKey:       savedKey,
+		Enabled:      true,
+	}
+	if err := cmStore.SaveModel(saved); err != nil {
+		t.Fatalf("SaveModel: %v", err)
+	}
+
+	srv := newTestServer("127.0.0.1:0", "")
+	srv.SetCustomModelsStore(cmStore)
+	if err := srv.Start(); err != nil {
+		t.Fatalf("srv.Start error: %v", err)
+	}
+	defer srv.Stop()
+
+	payload := map[string]any{
+		"id":            saved.ID,
+		"provider_type": custommodels.ProviderCustom,
+		"base_url":      provider.URL,
+		"api_key":       "",
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post("http://"+srv.Addr()+"/api/custom_models/fetch_models", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /api/custom_models/fetch_models: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d (%s)", resp.StatusCode, string(raw))
+	}
+	if authorization != "Bearer "+savedKey {
+		t.Fatalf("expected stored key to be hydrated, got Authorization %q", authorization)
+	}
+}
+
 func TestWebGUIEnhancementsEndpoints(t *testing.T) {
 	srv := newTestServer("127.0.0.1:0", "")
 	if err := srv.Start(); err != nil {

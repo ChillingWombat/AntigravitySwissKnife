@@ -201,13 +201,17 @@ function daemonPathLiteralLines(parsed: ts.SourceFile): number[] {
 describe('daemon broker route policy coverage', () => {
   const { routes: frontendRoutes, unresolved } = frontendDaemonRoutes()
 
-  it('classifies every frontend daemon request as allowed or approval-gated', () => {
+  it('allows every frontend daemon request without native approval', () => {
     assert.deepEqual(unresolved, [])
     assert.equal(frontendRoutes.length, 159)
     const missing = frontendRoutes.filter(({ method, path: routePath }) => {
       return !ALLOWED_ROUTES[method].has(routePath) && !PRIVILEGED_ROUTES[method].has(routePath)
     })
     assert.deepEqual(missing, [])
+    const gated = frontendRoutes.filter(({ method, path: routePath }) => {
+      return PRIVILEGED_ROUTES[method].has(routePath)
+    })
+    assert.deepEqual(gated, [])
   })
 
   it('fails closed on computed methods and partially dynamic routes', () => {
@@ -259,18 +263,13 @@ describe('daemon broker route policy coverage', () => {
     assert.deepEqual(daemonPathLiteralLines(fixture), [2, 4, 5])
   })
 
-  it('preserves approval semantics for every query variant', () => {
+  it('keeps every frontend daemon request direct for every query variant', () => {
     for (const route of frontendRoutes) {
-      const privileged = PRIVILEGED_ROUTES[route.method].has(route.path)
       for (const rawPath of route.rawPaths) {
-        if (privileged) {
-          assert.equal(isApprovalRoute(route.method, rawPath), true, rawPath)
-        } else if (!rawPath.includes('unredacted=true')) {
-          assert.equal(isApprovalRoute(route.method, rawPath), false, rawPath)
-        }
+        assert.equal(isApprovalRoute(route.method, rawPath), false, rawPath)
       }
     }
-    assert.equal(isApprovalRoute('GET', '/api/bridge/channels/config?unredacted=true'), true)
+    assert.equal(isApprovalRoute('GET', '/api/bridge/channels/config?unredacted=true'), false)
   })
 
   it('does not place a route in both the allowed and approval-gated sets', () => {
@@ -280,21 +279,27 @@ describe('daemon broker route policy coverage', () => {
     }
   })
 
-  it('only references backend paths registered by the daemon', () => {
-    const serverSource = fs.readFileSync(
-      path.join(repoRoot, 'pkg', 'webgui', 'server.go'),
-      'utf8',
-    )
-    const backendRoutes = new Set(
-      [...serverSource.matchAll(/mux\.HandleFunc\("([^"]+)"/g)].map((match) => match[1]),
-    )
-
-    for (const policy of [ALLOWED_ROUTES, PRIVILEGED_ROUTES]) {
-      for (const method of ['GET', 'POST', 'DELETE'] as const) {
-        for (const routePath of policy[method]) {
-          assert.ok(backendRoutes.has(routePath), `${method} ${routePath} is not registered by the daemon`)
-        }
+  it('allows every backend API HandleFunc route and rejects unregistered paths', () => {
+    const backendRoutes = new Set<string>()
+    const webguiDir = path.join(repoRoot, 'pkg', 'webgui')
+    for (const file of fs.readdirSync(webguiDir)) {
+      if (!file.endsWith('.go') || file.endsWith('_test.go')) continue
+      const source = fs.readFileSync(path.join(webguiDir, file), 'utf8')
+      for (const match of source.matchAll(/mux\.HandleFunc\("([^"]+)"/g)) {
+        backendRoutes.add(match[1])
       }
+    }
+
+    for (const routePath of backendRoutes) {
+      if (!routePath.startsWith('/api/')) continue
+      const methods = (['GET', 'POST', 'DELETE'] as const).filter((method) => ALLOWED_ROUTES[method].has(routePath))
+      assert.ok(methods.length > 0, `${routePath} is not allowlisted`)
+      for (const method of methods) {
+        assert.equal(PRIVILEGED_ROUTES[method].has(routePath), false, `${method} ${routePath} is approval-gated`)
+      }
+    }
+    for (const method of ['GET', 'POST', 'DELETE'] as const) {
+      assert.equal(ALLOWED_ROUTES[method].has('/api/not-a-real-route'), false)
     }
   })
 })

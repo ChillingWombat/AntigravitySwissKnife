@@ -1,5 +1,7 @@
 import { afterEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import React, { act } from 'react'
 import { cancelAllInFlightRequests } from '../api'
 import { CustomModelsPage } from '../pages/CustomModelsPage'
@@ -53,7 +55,7 @@ const apiKeyInput = (view: RenderResult) =>
   view.querySelector<HTMLInputElement>('input[placeholder="sk-..."]') ??
   document.querySelector<HTMLInputElement>('input[placeholder="sk-..."]')
 
-describe('Custom model edit API key hydration', () => {
+describe('Custom model edit key handling', () => {
   const originalFetch = globalThis.fetch
   let view: RenderResult | null = null
 
@@ -64,13 +66,12 @@ describe('Custom model edit API key hydration', () => {
     cancelAllInFlightRequests()
   })
 
-  it('loads the saved unredacted key into the edit modal and preserves the reveal control', async () => {
+  it('opens edit mode without requesting the saved API key', async () => {
     initDOM()
+    const requested: string[] = []
     globalThis.fetch = (async (url: any) => {
       const target = String(url)
-      if (target.startsWith('/api/custom_models/key?')) {
-        return jsonResponse({ success: true, id: 'deepseek-model', api_key: 'sk-live-saved-key' })
-      }
+      requested.push(target)
       if (target === '/api/custom_models') {
         return jsonResponse(makeConfig(makeModel('deepseek-model', 'DeepSeek V4.1 Flash')))
       }
@@ -88,78 +89,26 @@ describe('Custom model edit API key hydration', () => {
     await view.click(editButton)
     await flush()
 
-    const input = apiKeyInput(view)
-    assert.ok(input, 'API Key input must render in the edit modal')
-    assert.equal(input?.value, 'sk-live-saved-key', 'edit modal must receive the saved key instead of [REDACTED]')
-    assert.equal(input?.type, 'password', 'saved key must remain masked until explicitly revealed')
-
-    const revealButton = input?.parentElement?.querySelector('button')
-    assert.ok(revealButton, 'API key reveal button must render')
-    await view.click(revealButton)
-    await flush()
-
-    assert.equal(apiKeyInput(view)?.type, 'text', 'reveal control must still expose the hydrated key')
+    assert.equal(apiKeyInput(view)?.value, '', 'saved keys must stay out of the renderer')
+    assert.equal(
+      requested.some((target) => target.startsWith('/api/custom_models/key')),
+      false,
+      'edit mode must not request the sensitive key endpoint'
+    )
   })
 
-  it('ignores an older key response after the user switches models', async () => {
-    initDOM()
-    let resolveFirst!: (response: Response) => void
-    let resolveSecond!: (response: Response) => void
-    const firstKey = new Promise<Response>((resolve) => {
-      resolveFirst = resolve
-    })
-    const secondKey = new Promise<Response>((resolve) => {
-      resolveSecond = resolve
-    })
-
-    globalThis.fetch = (async (url: any) => {
-      const target = String(url)
-      if (target.includes('/api/custom_models/key?id=first-model')) return firstKey
-      if (target.includes('/api/custom_models/key?id=second-model')) return secondKey
-      if (target === '/api/custom_models') {
-        return jsonResponse(
-          makeConfig(
-            makeModel('first-model', 'First Model'),
-            makeModel('second-model', 'Second Model')
-          )
-        )
-      }
-      if (target === '/api/rules') {
-        return jsonResponse({ default_custom_model: '' })
-      }
-      return jsonResponse({})
-    }) as typeof fetch
-
-    view = await mount(React.createElement(CustomModelsPage))
-    await flush()
-
-    const firstEdit = findEditButton(view, 'First Model')
-    assert.ok(firstEdit, 'First model Edit button must render')
-    await view.click(firstEdit)
-    await flush()
-
-    const secondEdit = findEditButton(view, 'Second Model')
-    assert.ok(secondEdit, 'Second model Edit button must render')
-    await view.click(secondEdit)
-    await flush()
-
-    await act(async () => {
-      resolveSecond(jsonResponse({ success: true, id: 'second-model', api_key: 'sk-second-model' }))
-      await secondKey
-    })
-    await flush()
-    assert.equal(apiKeyInput(view)?.value, 'sk-second-model')
-
-    await act(async () => {
-      resolveFirst(jsonResponse({ success: true, id: 'first-model', api_key: 'sk-first-model' }))
-      await firstKey
-    })
-    await flush()
-
-    assert.equal(
-      apiKeyInput(view)?.value,
-      'sk-second-model',
-      'an older response must not overwrite the currently edited model'
+  it('passes the edited model id to fetchModels so the daemon can hydrate the key', () => {
+    const pageSource = fs.readFileSync(
+      path.resolve(import.meta.dirname, '..', 'pages', 'CustomModelsPage.tsx'),
+      'utf8'
+    )
+    assert.ok(
+      pageSource.includes('api.fetchModels(inferred, baseUrl.trim(), apiKey.trim(), editingModel?.id)'),
+      'model discovery must pass the saved model id for server-side key hydration'
+    )
+    assert.ok(
+      !pageSource.includes('api.getCustomModelKey('),
+      'custom model edit flows must not fetch unredacted credentials'
     )
   })
 })

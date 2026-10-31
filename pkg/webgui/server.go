@@ -3125,6 +3125,47 @@ func (s *Server) isGeminiQuotaExhausted() bool {
 	return len(accounts) > 0 && summary.Fleet5hGeminiAvailable <= 0 && summary.FleetWeeklyGeminiAvailable <= 0
 }
 
+func (s *Server) hydrateCustomModelSecrets(m *custommodels.CustomModel) {
+	if m == nil || strings.TrimSpace(m.ID) == "" {
+		return
+	}
+	store := s.getCustomModelsStore()
+	if store == nil {
+		return
+	}
+	saved, err := store.GetModel(m.ID)
+	if err != nil || saved == nil {
+		return
+	}
+	if m.APIKey == "" || m.APIKey == "[REDACTED]" {
+		m.APIKey = saved.APIKey
+	}
+	if m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]" {
+		m.GCPServiceAccountKey = saved.GCPServiceAccountKey
+	}
+	if m.GCPProjectID == "" {
+		m.GCPProjectID = saved.GCPProjectID
+	}
+	if m.GCPRegion == "" {
+		m.GCPRegion = saved.GCPRegion
+	}
+	if m.BalanceValue == "" {
+		m.BalanceValue = saved.BalanceValue
+	}
+	if len(m.QuotaBuckets) == 0 && len(saved.QuotaBuckets) > 0 {
+		m.QuotaBuckets = saved.QuotaBuckets
+	}
+}
+
+func (s *Server) hydrateFetchModelsRequest(req *custommodels.FetchModelsRequest) {
+	if req == nil {
+		return
+	}
+	model := custommodels.CustomModel{ID: req.ID, APIKey: req.APIKey}
+	s.hydrateCustomModelSecrets(&model)
+	req.APIKey = model.APIKey
+}
+
 func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 	store := s.getCustomModelsStore()
 	if store == nil {
@@ -3166,29 +3207,8 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 				prefix = "custom"
 			}
 			m.ID = fmt.Sprintf("%s-%s-%d", prefix, slug, time.Now().Unix())
-		} else {
-			// When editing an existing model, restore secrets and GCP metadata if redacted or omitted
-			if saved, err := store.GetModel(m.ID); err == nil && saved != nil {
-				if m.APIKey == "" || m.APIKey == "[REDACTED]" {
-					m.APIKey = saved.APIKey
-				}
-				if m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]" {
-					m.GCPServiceAccountKey = saved.GCPServiceAccountKey
-				}
-				if m.GCPProjectID == "" {
-					m.GCPProjectID = saved.GCPProjectID
-				}
-				if m.GCPRegion == "" {
-					m.GCPRegion = saved.GCPRegion
-				}
-				if m.BalanceValue == "" {
-					m.BalanceValue = saved.BalanceValue
-				}
-				if len(m.QuotaBuckets) == 0 && len(saved.QuotaBuckets) > 0 {
-					m.QuotaBuckets = saved.QuotaBuckets
-				}
-			}
 		}
+		s.hydrateCustomModelSecrets(&m)
 		// Auto-derive balance or quota unless manually overridden by user
 		if !m.QuotaManualOverride {
 			quotaRes := custommodels.DetectAndFetchQuota(m)
@@ -3321,22 +3341,7 @@ func (s *Server) handleCustomModelTest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if (m.APIKey == "" || m.APIKey == "[REDACTED]" || m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]") && m.ID != "" {
-		if saved, err := s.customModelsStore.GetModel(m.ID); err == nil && saved != nil {
-			if m.APIKey == "" || m.APIKey == "[REDACTED]" {
-				m.APIKey = saved.APIKey
-			}
-			if m.GCPServiceAccountKey == "" || m.GCPServiceAccountKey == "[REDACTED]" {
-				m.GCPServiceAccountKey = saved.GCPServiceAccountKey
-			}
-			if m.GCPProjectID == "" {
-				m.GCPProjectID = saved.GCPProjectID
-			}
-			if m.GCPRegion == "" {
-				m.GCPRegion = saved.GCPRegion
-			}
-		}
-	}
+	s.hydrateCustomModelSecrets(&m)
 	tester := s.getCustomModelsTester()
 	res, err := tester.TestEndpoint(m)
 	if err != nil {
@@ -3693,6 +3698,7 @@ func (s *Server) handleCustomModelFetchModels(w http.ResponseWriter, r *http.Req
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	s.hydrateFetchModelsRequest(&req)
 	res := custommodels.FetchModels(req)
 	writeJSON(w, res)
 }
@@ -3788,6 +3794,7 @@ func (s *Server) handleCustomModelFetchQuota(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	s.hydrateCustomModelSecrets(&m)
 	res := custommodels.DetectAndFetchQuota(m)
 	inP, cacheP, outP, src := custommodels.FetchModelPricing(r.Context(), m.Name, string(m.ProviderType), m.BaseURL, m.APIKey)
 	res.InputPricePerM = inP
@@ -4735,6 +4742,7 @@ func (s *Server) handleCustomModelSecurityAudit(w http.ResponseWriter, r *http.R
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	s.hydrateCustomModelSecrets(&m)
 	auditor := custommodels.NewAuditor()
 	report := auditor.RunAudit(m)
 	if strings.TrimSpace(m.ID) != "" {

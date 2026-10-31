@@ -24,6 +24,7 @@ type ModelInfo struct {
 
 // FetchModelsRequest specifies the provider credentials and endpoint to query.
 type FetchModelsRequest struct {
+	ID           string       `json:"id,omitempty"`
 	ProviderType ProviderType `json:"provider_type"`
 	BaseURL      string       `json:"base_url"`
 	APIKey       string       `json:"api_key,omitempty"`
@@ -38,7 +39,7 @@ type FetchModelsResponse struct {
 
 // FetchModels queries the remote API for available model identifiers and metadata.
 func FetchModels(req FetchModelsRequest) FetchModelsResponse {
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := NewSafeHTTPClient(req.ProviderType, 8*time.Second, true)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 

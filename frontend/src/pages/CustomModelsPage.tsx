@@ -180,7 +180,6 @@ export const CustomModelsPage: React.FC = () => {
   const [modalTestResult, setModalTestResult] = useState<TestResult | null>(null)
   const [modalSaving, setModalSaving] = useState<boolean>(false)
   const [modalError, setModalError] = useState<string | null>(null)
-  const editKeyRequestRef = useRef(0)
 
   // Security Audit States (inspired by toby-bridges/api-relay-audit)
   const [modalAuditResult, setModalAuditResult] = useState<SecurityAuditReport | null>(null)
@@ -283,21 +282,6 @@ export const CustomModelsPage: React.FC = () => {
         client_id: '',
       })
       setGcpClientEmail(extractedEmail)
-      api.getCustomModelKey(model.id)
-        .then((res) => {
-          if (res?.gcp_service_account_key && res.gcp_service_account_key !== '[REDACTED]') {
-            let formatted = res.gcp_service_account_key
-            try {
-              const parsed = JSON.parse(res.gcp_service_account_key)
-              formatted = JSON.stringify(parsed, null, 2)
-              setGcpParsedKey(parsed)
-              if (parsed.client_email) setGcpClientEmail(parsed.client_email)
-              if (parsed.project_id && !projectId) setGcpProjectId(parsed.project_id)
-            } catch {}
-            setGcpJsonContent(formatted)
-          }
-        })
-        .catch(() => {})
     }
     dispatchDialog({ type: 'openGcp', mode: 'edit', initialModel: model })
   }
@@ -601,7 +585,6 @@ export const CustomModelsPage: React.FC = () => {
   }, [])
 
   const openAddModal = () => {
-    editKeyRequestRef.current += 1
     setDisplayName('')
     setModelName('')
     setProviderType('custom')
@@ -643,7 +626,6 @@ export const CustomModelsPage: React.FC = () => {
       openEditGcpModal(model)
       return
     }
-    const keyRequestId = ++editKeyRequestRef.current
     const listedKey = model.api_key?.trim() || ''
     setDisplayName(model.display_name)
     setModelName(model.name)
@@ -695,25 +677,9 @@ export const CustomModelsPage: React.FC = () => {
     }
     setModalError(null)
     dispatchDialog({ type: 'openModelForm', mode: 'edit', initialModel: model })
-
-    if (!listedKey || listedKey === '[REDACTED]') {
-      api.getCustomModelKey(model.id)
-        .then((res) => {
-          if (editKeyRequestRef.current !== keyRequestId) return
-          const savedKey = res?.api_key?.trim() || ''
-          if (!savedKey || savedKey === '[REDACTED]') return
-          setApiKey((current) => (current.trim() ? current : savedKey))
-        })
-        .catch((err: any) => {
-          if (editKeyRequestRef.current === keyRequestId) {
-            setModalError(`Failed to load saved API key: ${sanitizeConnectionErrorMessage(err?.message || 'Request failed')}`)
-          }
-        })
-    }
   }
 
   const closeCustomModelModal = () => {
-    editKeyRequestRef.current += 1
     dispatchDialog({ type: 'close' })
   }
 
@@ -728,7 +694,7 @@ export const CustomModelsPage: React.FC = () => {
     const inferred = inferProviderType(baseUrl.trim())
     setProviderType(inferred)
     try {
-      const res = await api.fetchModels(inferred, baseUrl.trim(), apiKey.trim())
+      const res = await api.fetchModels(inferred, baseUrl.trim(), apiKey.trim(), editingModel?.id)
       if (res.success && res.models && res.models.length > 0) {
         setFetchedModels(res.models)
         setShowModelDropdown(true)
