@@ -2073,6 +2073,19 @@ const window = {
     }
   }
 };
+const conversationPath = state.pathname.split("?")[0];
+const conversationId = conversationPath.startsWith("/c/") ? conversationPath.slice(3) : "";
+const conversationView = {
+  dataset: { cascadeId: conversationId },
+  getClientRects: () => [{}],
+  getBoundingClientRect: () => ({ width: 900, height: 600 }),
+  contains: () => true
+};
+const conversationInput = {
+  dataset: { cascadeId: conversationId },
+  getClientRects: () => [{}],
+  getBoundingClientRect: () => ({ width: 720, height: 44 })
+};
 const document = {
   getElementById(id) {
     if (id === "root") return { childElementCount: 1 };
@@ -2080,12 +2093,19 @@ const document = {
   },
   querySelector(sel) {
     if (sel.includes("conversation-view")) {
-      return state.routerPath.startsWith("/c/") ? { dataset: {} } : null;
+      return conversationId ? conversationView : null;
     }
     if (sel.includes("new-conversation-button") || sel.includes("conversation-list-sidebar")) {
       return state.onboardingInitialized ? {} : null;
     }
     return null;
+  },
+  querySelectorAll(sel) {
+    if (sel.includes("conversation-view")) return conversationId ? [conversationView] : [];
+    if (sel.includes("agent-input-box") || sel.includes("contenteditable") || sel.includes("chat-input-textarea") || sel.includes("textarea")) {
+      return conversationId ? [conversationInput] : [];
+    }
+    return [];
   }
 };
 const res = %s;

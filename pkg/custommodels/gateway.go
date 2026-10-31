@@ -34,9 +34,10 @@ const gatewayMaxBody = 32 * 1024 * 1024
 
 // Gateway serves custom models to Antigravity surfaces that support a gateway URL.
 type Gateway struct {
-	store         *Store
-	token         string
-	AllowLoopback bool
+	store                   *Store
+	token                   string
+	AllowLoopback           bool
+	vertexStreamIdleTimeout time.Duration
 	// client is overridable in tests.
 	client *http.Client
 }
@@ -44,9 +45,10 @@ type Gateway struct {
 // NewGateway builds a gateway over the custom model store.
 func NewGateway(store *Store) *Gateway {
 	return &Gateway{
-		store:         store,
-		token:         store.GatewayToken(),
-		AllowLoopback: core.IsRunningTests(),
+		store:                   store,
+		token:                   store.GatewayToken(),
+		AllowLoopback:           core.IsRunningTests(),
+		vertexStreamIdleTimeout: defaultVertexStreamIdleTimeout,
 		client: &http.Client{
 			Timeout: 300 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -158,90 +160,146 @@ func (g *Gateway) handleListModels(w http.ResponseWriter, r *http.Request) {
 
 // handleModelAction routes ".../models/{id}:streamGenerateContent" and siblings.
 func (g *Gateway) handleModelAction(w http.ResponseWriter, r *http.Request) {
-	if !g.authorizeExternal(r) {
-		log.Printf("[llm-gateway] rejected generation: missing or wrong proxy PIN")
-		http.Error(w, "proxy PIN required", http.StatusUnauthorized)
+	if !g.authorizeModelAction(w, r) {
 		return
 	}
-	if !g.authorize(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	modelID, action, ok := parseModelAction(w, r)
+	if !ok {
 		return
 	}
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	rest := strings.TrimPrefix(r.URL.Path, "/v1beta/models/")
-	modelID, action, found := strings.Cut(rest, ":")
-	if !found {
-		http.Error(w, "missing action, expected :generateContent or :streamGenerateContent", http.StatusBadRequest)
-		return
-	}
-	modelID = strings.TrimSuffix(strings.Trim(modelID, "/"), "/")
-
-	var target *CustomModel
-	for _, m := range g.enabledModels() {
-		if m.ID == modelID || m.Name == modelID {
-			copy := m
-			target = &copy
-			break
-		}
-	}
+	target := g.findEnabledModel(modelID)
 	if target == nil {
 		http.Error(w, fmt.Sprintf("unknown model %q", modelID), http.StatusNotFound)
 		return
 	}
+	request, ok := readModelActionRequest(w, r)
+	if !ok {
+		return
+	}
+	stream := strings.HasPrefix(action, "streamGenerateContent")
+	log.Printf("[llm-gateway] %s model=%q provider=%s stream=%t", action, modelID, target.ProviderType, stream)
+	g.serveModelAction(w, r, target, request, stream)
+}
 
+func (g *Gateway) authorizeModelAction(w http.ResponseWriter, r *http.Request) bool {
+	if !g.authorizeExternal(r) {
+		log.Printf("[llm-gateway] rejected generation: missing or wrong proxy PIN")
+		http.Error(w, "proxy PIN required", http.StatusUnauthorized)
+		return false
+	}
+	if !g.authorize(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return false
+	}
+	return true
+}
+
+func parseModelAction(w http.ResponseWriter, r *http.Request) (string, string, bool) {
+	rest := strings.TrimPrefix(r.URL.Path, "/v1beta/models/")
+	modelID, action, found := strings.Cut(rest, ":")
+	if !found {
+		http.Error(w, "missing action, expected :generateContent or :streamGenerateContent", http.StatusBadRequest)
+		return "", "", false
+	}
+	modelID = strings.TrimSuffix(strings.Trim(modelID, "/"), "/")
+	return modelID, action, true
+}
+
+func (g *Gateway) findEnabledModel(modelID string) *CustomModel {
+	for _, m := range g.enabledModels() {
+		if m.ID == modelID || m.Name == modelID {
+			copy := m
+			return &copy
+		}
+	}
+	return nil
+}
+
+func readModelActionRequest(w http.ResponseWriter, r *http.Request) (*geminiRequest, bool) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, gatewayMaxBody))
 	if err != nil {
 		http.Error(w, "read request: "+err.Error(), http.StatusBadRequest)
-		return
+		return nil, false
 	}
 	var request geminiRequest
 	if err := json.Unmarshal(body, &request); err != nil {
 		http.Error(w, "invalid GenerateContent payload: "+err.Error(), http.StatusBadRequest)
-		return
+		return nil, false
 	}
+	return &request, true
+}
 
-	log.Printf("[llm-gateway] %s model=%q provider=%s stream=%t", action, modelID, target.ProviderType, strings.HasPrefix(action, "streamGenerateContent"))
-	stream := strings.HasPrefix(action, "streamGenerateContent")
+func (g *Gateway) serveModelAction(w http.ResponseWriter, r *http.Request, target *CustomModel, request *geminiRequest, stream bool) {
 	if stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		w.WriteHeader(http.StatusOK)
-		flusher, _ := w.(http.Flusher)
-		emit := func(frame geminiResponse) error {
-			data, marshalErr := json.Marshal(frame)
-			if marshalErr != nil {
-				return marshalErr
-			}
-			if _, writeErr := fmt.Fprintf(w, "data: %s\n\n", data); writeErr != nil {
-				return writeErr
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
-			return nil
-		}
-		if err := g.runTurn(r, target, &request, emit); err != nil {
-			_ = emit(geminiResponse{Error: &geminiError{Code: 500, Message: err.Error(), Status: "INTERNAL"}})
-		}
-		_ = emit(geminiResponse{Candidates: []geminiCandidate{{
-			Content:      geminiContent{Role: "model", Parts: []geminiPart{}},
-			FinishReason: "STOP",
-		}}})
+		g.serveStreamingModelAction(w, r, target, request)
 		return
 	}
+	g.serveBufferedModelAction(w, r, target, request)
+}
 
-	var frames []geminiResponse
-	if err := g.runTurn(r, target, &request, func(frame geminiResponse) error {
-		frames = append(frames, frame)
+func (g *Gateway) serveStreamingModelAction(w http.ResponseWriter, r *http.Request, target *CustomModel, request *geminiRequest) {
+	startGeminiSSE(w)
+	emit := newGeminiSSEEmitter(w)
+	if err := g.runTurn(r, target, request, emit); err != nil {
+		logProviderFailure("[llm-gateway]", target)
+		_ = emit(providerFailureFrame(err))
+		return
+	}
+	_ = emit(geminiResponse{Candidates: []geminiCandidate{{
+		Content:      geminiContent{Role: "model", Parts: []geminiPart{}},
+		FinishReason: "STOP",
+	}}})
+}
+
+func startGeminiSSE(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+}
+
+func newGeminiSSEEmitter(w http.ResponseWriter) func(geminiResponse) error {
+	flusher, _ := w.(http.Flusher)
+	return func(frame geminiResponse) error {
+		data, marshalErr := json.Marshal(frame)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if _, writeErr := fmt.Fprintf(w, "data: %s\n\n", data); writeErr != nil {
+			return writeErr
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
 		return nil
-	}); err != nil {
+	}
+}
+
+func (g *Gateway) serveBufferedModelAction(w http.ResponseWriter, r *http.Request, target *CustomModel, request *geminiRequest) {
+	merged, err := g.bufferGeminiTurn(r, target, request)
+	if err != nil {
 		writeGatewayJSON(w, http.StatusBadGateway, geminiResponse{Error: &geminiError{Code: 502, Message: err.Error(), Status: "BAD_GATEWAY"}})
 		return
 	}
+	writeGatewayJSON(w, http.StatusOK, merged)
+}
+
+func (g *Gateway) bufferGeminiTurn(r *http.Request, target *CustomModel, request *geminiRequest) (geminiResponse, error) {
+	var frames []geminiResponse
+	if err := g.runTurn(r, target, request, func(frame geminiResponse) error {
+		frames = append(frames, frame)
+		return nil
+	}); err != nil {
+		return geminiResponse{}, err
+	}
+	return mergeGeminiFrames(frames), nil
+}
+
+func mergeGeminiFrames(frames []geminiResponse) geminiResponse {
 	merged := geminiResponse{Candidates: []geminiCandidate{{Content: geminiContent{Role: "model"}, FinishReason: "STOP"}}}
 	for _, frame := range frames {
 		if len(frame.Candidates) > 0 {
@@ -254,7 +312,7 @@ func (g *Gateway) handleModelAction(w http.ResponseWriter, r *http.Request) {
 			merged.UsageMetadata = frame.UsageMetadata
 		}
 	}
-	writeGatewayJSON(w, http.StatusOK, merged)
+	return merged
 }
 
 // runTurn dispatches one translated turn to the model's provider.
@@ -262,13 +320,44 @@ func (g *Gateway) runTurn(r *http.Request, model *CustomModel, request *geminiRe
 	switch model.ProviderType {
 	case ProviderAnthropic:
 		return g.runAnthropic(r, model, request, emit)
-	case ProviderGemini, ProviderGCP:
-		if model.ProviderType == ProviderGCP {
-			return fmt.Errorf("Vertex AI service-account models are not routed through the gateway yet; use an API-key provider or the Antigravity app")
-		}
+	case ProviderGemini:
 		return g.runGeminiAPI(r, model, request, emit)
+	case ProviderGCP:
+		return g.runVertex(r, model, request, emit)
 	default:
 		return g.runOpenAICompatible(r, model, request, emit)
+	}
+}
+
+func logProviderFailure(surface string, model *CustomModel) {
+	log.Printf("%s provider failure stage=stream model=%q provider=%s", surface, model.ID, model.ProviderType)
+}
+
+const providerFailureTextLimit = 320
+
+// providerFailureFrame ends the stream without discarding the provider failure.
+// STOP is the terminal marker Antigravity recognizes; Error remains the result.
+func providerFailureFrame(err error) geminiResponse {
+	message := strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, strings.TrimSpace(err.Error()))), " ")
+	if message == "" {
+		message = "unknown provider error"
+	}
+	runes := []rune(message)
+	if len(runes) > providerFailureTextLimit {
+		message = string(runes[:providerFailureTextLimit]) + "..."
+	}
+	message = "Provider request failed: " + message
+	return geminiResponse{
+		Error: &geminiError{Code: 500, Message: message, Status: "INTERNAL"},
+		Candidates: []geminiCandidate{{
+			Content:      geminiContent{Role: "model", Parts: []geminiPart{{Text: message}}},
+			FinishReason: "STOP",
+		}},
 	}
 }
 

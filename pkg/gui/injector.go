@@ -1048,23 +1048,20 @@ const (
 // nudge script used by RestoreConversationPath.
 //
 // Navigation contract (this is what keeps desktop revival out of the navigation
-// race, see issue #122):
+// race, see issues #122 and #432):
 //
-//   - Readiness requires the target pathname AND, when the renderer exposes its
-//     router, the router's ACKNOWLEDGED location, AND the mounted conversation
-//     view. The address bar alone is never evidence: history.replaceState can
-//     rewrite it without the app loading any data, which is how a resume prompt
-//     used to land in the previously rendered conversation.
+//   - Readiness requires the target pathname, the router's acknowledged
+//     location, a visible conversation view carrying the target cascade ID, and
+//     a visible input associated with that identity. A stale mounted view is
+//     not evidence that the target conversation loaded.
+//   - Sidebar navigation only clicks a visible link whose href resolves to the
+//     target conversation. Hidden duplicate anchors are never navigation
+//     targets.
 //   - The router's location is never fabricated. When the app exposes a router,
-//     navigation only uses real primitives (sidebar link click ->
-//     router.navigate -> location.assign).
-//   - history.replaceState is used ONLY as a pre-router bootstrap nudge (before
-//     the app exposes its router: fresh start / onboarding), where the app
-//     itself adopts the URL when its router initialises. window.history.state is
-//     passed through so TanStack's history bookkeeping is not wiped.
-//   - While the route is already correct (address bar and router agree) the
-//     script does not nudge at all: the app is completing its own transition
-//     (mounting the conversation view) and a second navigation would race it.
+//     navigation uses the visible sidebar link or router.navigate.
+//   - history.replaceState is used only as a pre-router bootstrap nudge.
+//   - Explicit conversation navigation remains authoritative, but a persisted
+//     intent scoped to "/" cannot fence recovery of an unrelated conversation.
 func restoreConversationPathScript(targetPath string) string {
 	return fmt.Sprintf(`(() => {
 		try {
@@ -1073,9 +1070,108 @@ func restoreConversationPathScript(targetPath string) string {
 			const root = document.getElementById("root");
 			const rootReady = Boolean(root && root.childElementCount > 0);
 			const curPath = window.location.pathname || "/";
-			const hasConvoView = Boolean(document.querySelector('[data-testid="conversation-view"]'));
+			const normalizeConversationId = (value) => String(value || "")
+				.replace(/^\/c\//, "")
+				.split(/[?#]/)[0]
+				.replace(/^conversation-/, "")
+				.trim();
+			const routeConversationId = (value) => {
+				const raw = String(value || "");
+				const match = raw.match(/\/c\/([^/?#]+)/);
+				return normalizeConversationId(match ? match[1] : raw);
+			};
+			const targetId = routeConversationId(targetPathOnly);
+			const elementConversationId = (element) => {
+				if (!element) return "";
+				const direct = (element.dataset && (element.dataset.cascadeId || element.dataset.conversationId)) ||
+					(element.getAttribute && (
+						element.getAttribute("data-cascade-id") ||
+						element.getAttribute("data-conversation-id")
+					)) || "";
+				if (direct) return normalizeConversationId(direct);
+				const fiberKey = Object.keys(element).find((key) => key.indexOf("__reactFiber") === 0);
+				let fiber = fiberKey ? element[fiberKey] : null;
+				let depth = 0;
+				while (fiber && depth < 20) {
+					const props = fiber.memoizedProps;
+					const childProps = props && props.children && props.children.props;
+					const candidate = props && (
+						props.cascadeId ||
+						props.conversationId ||
+						(props.params && (props.params.cascadeId || props.params.conversationId)) ||
+						(props.conversation && props.conversation.id) ||
+						(childProps && (childProps.cascadeId || childProps.conversationId))
+					);
+					if (candidate) {
+						const id = normalizeConversationId(candidate);
+						if (id) return id;
+					}
+					fiber = fiber.return;
+					depth++;
+				}
+				return "";
+			};
+			const isVisible = (element) => {
+				if (!element || element.hidden) return false;
+				let style = null;
+				try {
+					style = window.getComputedStyle ? window.getComputedStyle(element) : element.style;
+				} catch (_) {}
+				if (style && (
+					style.display === "none" ||
+					style.visibility === "hidden" ||
+					style.visibility === "collapse"
+				)) return false;
+				try {
+					if (typeof element.getClientRects === "function" && element.getClientRects().length === 0) return false;
+					if (typeof element.getBoundingClientRect === "function") {
+						const rect = element.getBoundingClientRect();
+						if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+					}
+				} catch (_) {
+					return false;
+				}
+				return true;
+			};
+			const queryAll = (selector) => {
+				try {
+					return document.querySelectorAll ? Array.from(document.querySelectorAll(selector)) : [];
+				} catch (_) {
+					return [];
+				}
+			};
+			const views = queryAll('[data-testid="conversation-view"]');
+			const matchingView = views.find((view) =>
+				elementConversationId(view) === targetId && isVisible(view)
+			);
+			const inputSelector = 'div[aria-label="Message input"][contenteditable="true"], ' +
+				'[data-testid="agent-input-box"] [contenteditable="true"], ' +
+				'[data-lexical-editor="true"][contenteditable="true"], ' +
+				'.lexical-container [contenteditable="true"], ' +
+				'[data-testid="chat-input-textarea"], textarea[placeholder*="Ask"]';
+			const inputs = queryAll(inputSelector);
+			const matchingInput = inputs.find((input) => {
+				if (!isVisible(input)) return false;
+				const inputId = elementConversationId(input);
+				if (inputId) return inputId === targetId;
+				return Boolean(matchingView && typeof matchingView.contains === "function" && matchingView.contains(input));
+			});
+			const hasConvoView = views.length > 0;
+			const hasStaleView = hasConvoView && !matchingView;
+			const mountedViewIdentity = views.map(elementConversationId).find(Boolean) || "";
+			const mountedInputIdentity = inputs.map(elementConversationId).find(Boolean) || "";
 			const hasShell = Boolean(document.querySelector('[data-testid="new-conversation-button"], [data-testid="conversation-list-sidebar"]'));
 			const isConvoTarget = targetPathOnly.startsWith("/c/");
+			const now = Date.now();
+			const explicitNavigation = window.__swissExplicitConversationNavigation;
+			const currentRoute = curPath + (window.location.search || "");
+			const explicitIntentRoute = explicitNavigation && typeof explicitNavigation.route === "string"
+				? explicitNavigation.route
+				: "";
+			const explicitConversationRoute = /^\/c\/[^/?#]+(?:\?[^#]*)?$/.test(explicitIntentRoute);
+			const explicitConversationIntent = Boolean(explicitNavigation && explicitConversationRoute);
+			const explicitUserNavigation = Boolean(explicitConversationIntent &&
+				(explicitNavigation.pending === true || explicitIntentRoute === currentRoute));
 
 			// Router acknowledgement: the app's own view of the current route.
 			let routerPath = "";
@@ -1092,17 +1188,24 @@ func restoreConversationPathScript(targetPath string) string {
 			const routerObservable = routerPath !== "";
 			const routeConflicted = routerObservable && routerPath !== targetPathOnly;
 
-			const viewReady = rootReady && curPath === targetPathOnly && (!isConvoTarget || hasConvoView) &&
+			const viewReady = rootReady && curPath === targetPathOnly &&
+				(isConvoTarget ? Boolean(matchingView && matchingInput) : true) &&
 				(routerObservable ? !routeConflicted : true);
 
 			let action = "none";
 			if (!viewReady) {
-				const now = Date.now();
 				const nudgedRecently = Boolean(window.__swissLastRestoreNudge) && (now - window.__swissLastRestoreNudge) < 1200;
 				const onTargetRoute = curPath === targetPathOnly && !routeConflicted;
-				if (!onTargetRoute) {
-					const convId = targetPathOnly.replace(/^\/c\//, "");
-					const link = document.querySelector('a[href*="' + convId + '"]');
+				if (!onTargetRoute && explicitUserNavigation) {
+					action = "user_navigation";
+				} else if (!onTargetRoute || hasStaleView) {
+					const links = targetId
+						? queryAll('a[href*="/c/' + targetId + '"]')
+						: [];
+					const link = links.find((candidate) => {
+						const href = (candidate.getAttribute && candidate.getAttribute("href")) || candidate.href || "";
+						return routeConversationId(href) === targetId && isVisible(candidate);
+					});
 					if (link && typeof link.click === "function" && !nudgedRecently) {
 						window.__swissLastRestoreNudge = now;
 						link.click();
@@ -1127,8 +1230,8 @@ func restoreConversationPathScript(targetPath string) string {
 						action = "assign";
 					}
 				} else {
-					// Address bar and router already agree: the app is mounting the
-					// target view right now. Waiting is the only safe action.
+					// Address bar and router agree and no stale view is mounted: the
+					// app is still mounting the target view. Waiting is safe.
 					action = "wait_for_view";
 				}
 			}
@@ -1139,7 +1242,13 @@ func restoreConversationPathScript(targetPath string) string {
 				path_only: curPath,
 				route_path: routerPath,
 				router_observable: routerObservable,
+				explicit_user_navigation: explicitUserNavigation,
+				target_conversation_id: targetId,
 				view_mounted: hasConvoView,
+				view_identity: mountedViewIdentity,
+				view_matching: Boolean(matchingView),
+				input_identity: mountedInputIdentity,
+				input_matching: Boolean(matchingInput),
 				root_ready: rootReady,
 				shell_mounted: hasShell,
 				action: action
@@ -1147,8 +1256,10 @@ func restoreConversationPathScript(targetPath string) string {
 		} catch (e) {
 			return {
 				ready: false, path: "", path_only: "", route_path: "",
-				router_observable: false, view_mounted: false, root_ready: false,
-				shell_mounted: false, action: "error"
+				router_observable: false, explicit_user_navigation: false,
+				target_conversation_id: "", view_mounted: false, view_identity: "",
+				view_matching: false, input_identity: "", input_matching: false,
+				root_ready: false, shell_mounted: false, action: "error"
 			};
 		}
 	})()`, targetPath)
