@@ -1168,8 +1168,8 @@ func restoreConversationPathScript(targetPath string) string {
 			const explicitIntentRoute = explicitNavigation && typeof explicitNavigation.route === "string"
 				? explicitNavigation.route
 				: "";
-			const explicitConversationIntent = Boolean(explicitNavigation &&
-				(explicitNavigation.kind === "conversation" || explicitIntentRoute.startsWith("/c/")));
+			const explicitConversationRoute = /^\/c\/[^/?#]+(?:\?[^#]*)?$/.test(explicitIntentRoute);
+			const explicitConversationIntent = Boolean(explicitNavigation && explicitConversationRoute);
 			const explicitUserNavigation = Boolean(explicitConversationIntent &&
 				(explicitNavigation.pending === true || explicitIntentRoute === currentRoute));
 

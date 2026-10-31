@@ -519,3 +519,59 @@ global.document = {
 		t.Errorf("visible target click count = %v, want exactly 1", clicks)
 	}
 }
+
+// TestRestoreConversationPathScript_PendingConversationIntentRequiresConcreteRoute
+// covers the combined hidden edge: pending conversation intent does not make a
+// root route authoritative, and recovery still chooses the visible target row
+// over its hidden duplicate.
+func TestRestoreConversationPathScript_PendingConversationIntentRequiresConcreteRoute(t *testing.T) {
+	target := "/c/bbbbbbbb-5555-6666-7777-888888888888"
+	run := runRestorePathScript(t, target, `
+const target = "`+target+`";
+const hidden = {
+  href: target,
+  getAttribute: () => target,
+  getClientRects: () => [],
+  getBoundingClientRect: () => ({ width: 0, height: 0 }),
+  click: () => { __calls.click++; __calls.click_target = "hidden"; }
+};
+const visible = {
+  href: target,
+  getAttribute: () => target,
+  getClientRects: () => [{}],
+  getBoundingClientRect: () => ({ width: 240, height: 32 }),
+  click: () => { __calls.click++; __calls.click_target = "visible"; }
+};
+global.window = {
+  location: { pathname: "/", search: "", assign: (url) => { __calls.assign.push(url); } },
+  __TSR_ROUTER__: {
+    state: { location: { pathname: "/" } },
+    navigate: (opts) => { __calls.navigate.push(opts || {}); }
+  },
+  __swissExplicitConversationNavigation: { version: 2, kind: "conversation", pending: true, route: "/" },
+  history: { state: { __TSR_key: "k1" }, replaceState: (s, u, url) => { __calls.replaceState.push(url); } },
+  __swissLastRestoreNudge: 0
+};
+global.document = {
+  getElementById: (id) => (id === "root" ? { childElementCount: 1 } : null),
+  querySelector: (sel) => {
+    if (sel.indexOf("conversation-view") !== -1) return null;
+    if (sel.indexOf("new-conversation-button") !== -1 || sel.indexOf("conversation-list-sidebar") !== -1) return {};
+    return null;
+  },
+  querySelectorAll: (sel) => sel.indexOf('a[href*=') === 0 ? [hidden, visible] : []
+};
+`)
+	if boolField(t, run.Res, "explicit_user_navigation") {
+		t.Errorf("pending conversation intent at / must not be explicit navigation: %v", run.Res)
+	}
+	if got := stringField(t, run.Res, "action"); got != "click_link" {
+		t.Errorf("action = %q, want click_link recovery from pending root intent", got)
+	}
+	if clicks, _ := run.Calls["click"].(float64); clicks != 1 {
+		t.Errorf("visible target click count = %v, want exactly 1", clicks)
+	}
+	if got, _ := run.Calls["click_target"].(string); got != "visible" {
+		t.Errorf("clicked target = %q, want visible", got)
+	}
+}
