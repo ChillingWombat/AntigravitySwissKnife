@@ -86,8 +86,9 @@ type idleReadCloser struct {
 }
 
 func (r *idleReadCloser) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
 	r.timer.Reset(r.timeout)
-	return r.ReadCloser.Read(p)
+	return n, err
 }
 
 func vertexStreamEndpoint(model *CustomModel, key *ServiceAccountKey) (string, error) {
