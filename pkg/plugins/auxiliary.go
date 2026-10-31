@@ -265,6 +265,17 @@ div:has(> .shrink-0.flex.items-center.border-b),
 .swiss-builtin-browser-view {
   position: relative;
 }
+.swiss-native-browser-toolbar {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  gap: 4px;
+}
+.swiss-native-browser-overlay {
+  position: absolute;
+  z-index: 50;
+  pointer-events: none;
+  overflow: visible;
+}
 .swiss-browser-toolbar {
   display: flex;
   flex-direction: column;
@@ -3021,13 +3032,18 @@ func GenerateAuxiliaryPluginsScript() string {
     // ----------------------------------------------------
     // 2. LIVE BROWSER & APP PREVIEWER WITH ANNOTATIONS
     // ----------------------------------------------------
-    function renderBrowserView(container, existingWebview = null, includeToolbar = true) {
+    function renderBrowserView(container, existingWebview = null, includeToolbar = true, nativeHost = null) {
+      const nativeInitial = nativeHost ? {
+        hostPosition: nativeHost.style.position,
+        webviewStyles: {}
+      } : null;
       const wrap = document.createElement("div");
-      wrap.className = "swiss-browser-view";
+      wrap.className = nativeHost ? "swiss-native-browser-functions" : "swiss-browser-view";
 
       // Annotation toolbar
       const toolbar = document.createElement("div");
       toolbar.className = "swiss-browser-toolbar";
+      if (nativeHost) toolbar.classList.add("swiss-native-browser-toolbar");
       toolbar.innerHTML = ` + "`" + `
         <div class="swiss-browser-tools-row">
           <div class="swiss-browser-device-group">
@@ -3074,7 +3090,7 @@ func GenerateAuxiliaryPluginsScript() string {
       notch.className = "swiss-device-notch";
 
       const screen = document.createElement("div");
-      screen.className = "swiss-device-screen";
+      screen.className = nativeHost ? "swiss-native-browser-overlay" : "swiss-device-screen";
 
       const homeBar = document.createElement("div");
       homeBar.className = "swiss-device-home-bar";
@@ -3121,6 +3137,31 @@ func GenerateAuxiliaryPluginsScript() string {
       canvas.className = "swiss-browser-canvas-overlay";
       canvas.style.pointerEvents = "none";
 
+      if (nativeHost) {
+        const webviewStyleKeys = [
+          "width", "height", "maxWidth", "maxHeight", "flex", "alignSelf",
+          "margin", "transform", "transformOrigin"
+        ];
+        webviewStyleKeys.forEach(key => {
+          nativeInitial.webviewStyles[key] = webview.style[key] || "";
+        });
+        let hostPosition = "";
+        try {
+          hostPosition = typeof getComputedStyle === "function" ? getComputedStyle(nativeHost).position : nativeHost.style.position;
+        } catch (_) {}
+        if (!hostPosition || hostPosition === "static") nativeHost.style.position = "relative";
+        Object.defineProperties(screen, {
+          clientWidth: {
+            configurable: true,
+            get: () => webview.clientWidth || Math.max(1, Math.round(screen.getBoundingClientRect().width))
+          },
+          clientHeight: {
+            configurable: true,
+            get: () => webview.clientHeight || Math.max(1, Math.round(screen.getBoundingClientRect().height))
+          }
+        });
+      }
+
       // Overlay geometry: the canvas is displayed stretched into the (possibly transform-scaled)
       // device frame, so the backing store tracks the *visual* size at the current DPR. Strokes
       // are drawn in visual CSS pixels, which keeps the pen width identical everywhere on screen.
@@ -3128,23 +3169,29 @@ func GenerateAuxiliaryPluginsScript() string {
       let canvasScaleX = 1;
       let canvasScaleY = 1;
 
-      if (existingWebview && existingWebview.parentElement && existingWebview.parentElement !== screen) {
-        screen.appendChild(existingWebview);
-      } else if (!existingWebview || existingWebview.parentElement !== screen) {
-        screen.appendChild(webview);
-      }
-      screen.appendChild(canvas);
-      frameBox.appendChild(notch);
-      frameBox.appendChild(screen);
-      frameBox.appendChild(homeBar);
-      stage.appendChild(frameBox);
-      vpWrap.appendChild(stage);
+      if (nativeHost) {
+        screen.appendChild(canvas);
+        nativeHost.insertBefore(toolbar, webview);
+        nativeHost.insertBefore(screen, webview);
+      } else {
+        if (existingWebview && existingWebview.parentElement && existingWebview.parentElement !== screen) {
+          screen.appendChild(existingWebview);
+        } else if (!existingWebview || existingWebview.parentElement !== screen) {
+          screen.appendChild(webview);
+        }
+        screen.appendChild(canvas);
+        frameBox.appendChild(notch);
+        frameBox.appendChild(screen);
+        frameBox.appendChild(homeBar);
+        stage.appendChild(frameBox);
+        vpWrap.appendChild(stage);
 
-      if (includeToolbar) {
-        wrap.appendChild(toolbar);
+        if (includeToolbar) {
+          wrap.appendChild(toolbar);
+        }
+        wrap.appendChild(vpWrap);
+        container.appendChild(wrap);
       }
-      wrap.appendChild(vpWrap);
-      container.appendChild(wrap);
 
       // Setup Canvas Resize — keeps backing store = visual CSS box × devicePixelRatio and carries
       // any in-progress annotation strokes over to the new geometry.
@@ -3182,6 +3229,22 @@ func GenerateAuxiliaryPluginsScript() string {
         }
       };
       setTimeout(resizeCanvas, 50);
+
+      let nativeResizeObserver = null;
+      let nativeSyncLayout = null;
+      if (nativeHost) {
+        nativeSyncLayout = () => {
+          positionNativeOverlay();
+          resizeCanvas();
+        };
+        window.addEventListener("resize", nativeSyncLayout);
+        if (typeof ResizeObserver !== "undefined") {
+          nativeResizeObserver = new ResizeObserver(nativeSyncLayout);
+          nativeResizeObserver.observe(webview);
+          nativeResizeObserver.observe(nativeHost);
+        }
+        applyNativeDeviceLayout();
+      }
 
       // Panel (sash) resizes change the overlay's CSS box without firing a device-scale change
       // (responsive frame has no transform). Observe the canvas/screen box and resync the bitmap
@@ -3237,8 +3300,61 @@ func GenerateAuxiliaryPluginsScript() string {
       });
 
 
+      function positionNativeOverlay() {
+        if (!nativeHost || !webview || !screen.isConnected) return;
+        const hostRect = nativeHost.getBoundingClientRect();
+        const webviewRect = webview.getBoundingClientRect();
+        screen.style.left = Math.max(0, webviewRect.left - hostRect.left) + "px";
+        screen.style.top = Math.max(0, webviewRect.top - hostRect.top) + "px";
+        screen.style.width = Math.max(1, webviewRect.width) + "px";
+        screen.style.height = Math.max(1, webviewRect.height) + "px";
+      }
+
+      function applyNativeDeviceLayout() {
+        if (!nativeHost || !webview || !nativeInitial) return;
+        Object.keys(nativeInitial.webviewStyles).forEach(key => {
+          webview.style[key] = nativeInitial.webviewStyles[key];
+        });
+
+        const device = toolbar.querySelector("#swiss-b-device")?.value || "responsive";
+        const orientation = toolbar.querySelector("#swiss-b-orientation")?.value || "portrait";
+        const scaleMode = toolbar.querySelector("#swiss-b-scale")?.value || "fit";
+        let targetW = 0;
+        let targetH = 0;
+        if (device === "iphone-16-pro" || device === "iphone16") { targetW = 402; targetH = 874; }
+        else if (device === "pixel-9" || device === "pixel9") { targetW = 412; targetH = 924; }
+        else if (device === "ipad") { targetW = 820; targetH = 1180; }
+        if (targetW && orientation === "landscape") [targetW, targetH] = [targetH, targetW];
+
+        if (targetW) {
+          webview.style.width = targetW + "px";
+          webview.style.height = targetH + "px";
+          webview.style.maxWidth = "none";
+          webview.style.maxHeight = "none";
+          webview.style.flex = "0 0 auto";
+          webview.style.alignSelf = "center";
+          webview.style.margin = "8px auto";
+          let factor = 1;
+          if (scaleMode === "fit") {
+            const hostW = nativeHost.clientWidth || webview.getBoundingClientRect().width || targetW;
+            const hostH = nativeHost.clientHeight || webview.getBoundingClientRect().height || targetH;
+            factor = Math.min(1, Math.max(0.2, Math.min((hostW - 16) / targetW, (hostH - 16) / targetH)));
+          } else if (scaleMode !== "1") {
+            factor = parseFloat(scaleMode) || 1;
+          }
+          webview.style.transform = factor === 1 ? "none" : "scale(" + factor.toFixed(3) + ")";
+          webview.style.transformOrigin = "top center";
+        }
+        positionNativeOverlay();
+        setTimeout(resizeCanvas, 60);
+      }
+
       // Scaling & Fit
       function applyDeviceScale() {
+        if (nativeHost) {
+          applyNativeDeviceLayout();
+          return;
+        }
         const scaleSelect = toolbar.querySelector("#swiss-b-scale");
         if (!frameBox || !vpWrap || !scaleSelect) return;
         const scaleMode = scaleSelect.value;
@@ -4306,6 +4422,14 @@ func GenerateAuxiliaryPluginsScript() string {
       // tab switch. Releases the ResizeObservers and the window resize listeners so they never
       // keep observing detached nodes or run against a destroyed toolbar.
       const teardownBrowserView = () => {
+        if (nativeResizeObserver) {
+          try { nativeResizeObserver.disconnect(); } catch (_) {}
+          nativeResizeObserver = null;
+        }
+        if (nativeSyncLayout) {
+          window.removeEventListener("resize", nativeSyncLayout);
+          nativeSyncLayout = null;
+        }
         if (window.__swissBrowserCanvasRO) {
           try { window.__swissBrowserCanvasRO.disconnect(); } catch (_) {}
           window.__swissBrowserCanvasRO = null;
@@ -4317,10 +4441,28 @@ func GenerateAuxiliaryPluginsScript() string {
         window.removeEventListener("resize", updateToolbarResponsiveness);
         window.removeEventListener("resize", applyDeviceScale);
         window.__swissResizeBound = false;
+        if (nativeHost) {
+          toolbar.remove();
+          screen.remove();
+          Object.keys(nativeInitial.webviewStyles).forEach(key => {
+            webview.style[key] = nativeInitial.webviewStyles[key];
+          });
+          nativeHost.style.position = nativeInitial.hostPosition;
+          webview.__swissEnhanced = false;
+          webview.__swissNativeBrowser = null;
+        } else if (container) {
+          container.__swissTabTeardown = teardownBrowserView;
+        }
+        wrap.__swissTeardown = null;
+        if (webview) webview.__swissTeardown = null;
       };
-      if (container) container.__swissTabTeardown = teardownBrowserView;
       wrap.__swissTeardown = teardownBrowserView;
       if (webview) webview.__swissTeardown = teardownBrowserView;
+      if (nativeHost) {
+        const nativeHandle = { host: nativeHost, toolbar, overlay: screen, teardown: teardownBrowserView };
+        if (webview) webview.__swissNativeBrowser = nativeHandle;
+        return nativeHandle;
+      }
     }
 
     // ----------------------------------------------------
@@ -4744,56 +4886,74 @@ func GenerateAuxiliaryPluginsScript() string {
       bookmarkAdapters.set(pane, adapter);
     }
 
+    function migrateLegacyBuiltinBrowserWrapper(webview) {
+      if (!webview) return null;
+      const legacy = webview.closest ? webview.closest(".swiss-builtin-browser-view") : null;
+      if (!legacy) return webview.parentElement;
+      const host = legacy.parentElement;
+      if (!host) return null;
+      host.insertBefore(webview, legacy);
+      legacy.remove();
+      return host;
+    }
+
+    function teardownBuiltinBrowserEnhancements(webview) {
+      if (!webview) return;
+      const nativeHandle = webview.__swissNativeBrowser;
+      if (nativeHandle && typeof nativeHandle.teardown === "function") {
+        nativeHandle.teardown();
+      } else if (typeof webview.__swissTeardown === "function") {
+        webview.__swissTeardown();
+      }
+      webview.__swissEnhanced = false;
+      removeNativeBookmarkButtons();
+    }
+
     function setupBuiltinBrowserEnhancements() {
+      const webviews = Array.from(document.querySelectorAll("webview"));
       if (!isBrowserEnhancementEnabled()) {
         removeNativeBookmarkButtons();
-        document.querySelectorAll(".swiss-browser-view.swiss-builtin-browser-view").forEach(v => {
-          if (typeof v.__swissTeardown === "function") {
-            try { v.__swissTeardown(); } catch (_) {}
-          }
-          v.remove();
+        webviews.forEach(wv => {
+          migrateLegacyBuiltinBrowserWrapper(wv);
+          teardownBuiltinBrowserEnhancements(wv);
         });
         return;
       }
       cleanupBookmarkAdapters();
 
-      const webviews = Array.from(document.querySelectorAll("webview"));
       webviews.forEach(wv => {
         if (wv.hasAttribute("data-swiss-jail") ||
             (wv.getAttribute("partition") && wv.getAttribute("partition").startsWith("persist:script-jail")) ||
             wv.closest?.(".script-jail, .auth-modal, .modal-popup")) {
           return;
         }
-        setupNativeBookmarkButton(wv);
-        if (wv.__swissEnhanced) {
-          const wrap = wv.closest(".swiss-browser-view");
-          if (wrap && wrap.isConnected) return;
-        }
         attachBuiltinBrowserEnhancements(wv);
       });
     }
 
     function attachBuiltinBrowserEnhancements(webview) {
-      if (!webview) return;
+      if (!webview) return null;
+      const host = migrateLegacyBuiltinBrowserWrapper(webview);
+      if (!host) return null;
+
+      setupNativeBookmarkButton(webview);
+      const existing = webview.__swissNativeBrowser;
+      if (existing && existing.host === host && existing.toolbar.isConnected && existing.overlay.isConnected) {
+        webview.__swissEnhanced = true;
+        return existing;
+      }
+      if (existing && typeof existing.teardown === "function") existing.teardown();
+      host.querySelectorAll(".swiss-native-browser-toolbar, .swiss-native-browser-overlay").forEach(node => node.remove());
+
       webview.__swissEnhanced = true;
-      const parent = webview.parentElement;
-      if (!parent) return;
-
-      const wrap = document.createElement("div");
-      wrap.className = "swiss-browser-view swiss-builtin-browser-view";
-      wrap.style.width = "100%";
-      wrap.style.height = "100%";
-      wrap.style.display = "flex";
-      wrap.style.flexDirection = "column";
-      wrap.style.position = "relative";
-      wrap.style.overflow = "hidden";
-
-      parent.insertBefore(wrap, webview);
-      renderBrowserView(wrap, webview, false);
+      const nativeHandle = renderBrowserView(host, webview, true, host);
+      webview.__swissNativeBrowser = nativeHandle;
+      return nativeHandle;
     }
 
     window.setupBuiltinBrowserEnhancements = setupBuiltinBrowserEnhancements;
     window.attachBuiltinBrowserEnhancements = attachBuiltinBrowserEnhancements;
+    window.teardownBuiltinBrowserEnhancements = teardownBuiltinBrowserEnhancements;
 
     // ----------------------------------------------------
     // 3. LIGHTWEIGHT FILE EXPLORER & IN-PLACE EDITORS
