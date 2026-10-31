@@ -227,7 +227,7 @@ func fetchFromProviderEndpoint(ctx context.Context, modelID, rawBaseURL, apiKey 
 		endpoints = append(endpoints, cleanBase+"/v1/models", cleanBase+"/models")
 	}
 
-	client := &http.Client{Timeout: 3 * time.Second}
+	client := NewSafeHTTPClient(ProviderCustom, 3*time.Second, true)
 	targetLower := strings.ToLower(modelID)
 	if idx := strings.LastIndex(targetLower, "/"); idx != -1 {
 		targetLower = targetLower[idx+1:]

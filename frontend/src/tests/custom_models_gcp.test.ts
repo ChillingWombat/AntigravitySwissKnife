@@ -281,14 +281,14 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     assert.ok(!pageContent.includes('Manual Entry Required'), 'The yellow null-price pill must be removed')
   })
 
-  it('fetches and displays the stored JSON key when editing a GCP model', () => {
+  it('edits a GCP model without fetching the stored JSON key', () => {
     assert.ok(
-      pageContent.includes('api.getCustomModelKey(model.id)'),
-      'openEditGcpModal must query api.getCustomModelKey when editing an existing model'
+      !pageContent.includes('api.getCustomModelKey(model.id)'),
+      'openEditGcpModal must not fetch unredacted service-account credentials'
     )
     assert.ok(
-      pageContent.includes('setGcpJsonContent(formatted)'),
-      'openEditGcpModal must populate gcpJsonContent with the formatted JSON'
+      pageContent.includes("private_key: '[SAVED]'"),
+      'openEditGcpModal must indicate that the stored credential remains server-side'
     )
   })
 

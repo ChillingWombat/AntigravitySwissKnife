@@ -27,8 +27,8 @@ type SecurityAuditProbe struct {
 
 // SecurityAuditReport aggregates all probe findings and risk evaluation.
 type SecurityAuditReport struct {
-	RiskLevel       string               `json:"risk_level"` // "low", "medium", "high", "critical"
-	RiskScore       int                  `json:"risk_score"` // 0-100
+	RiskLevel       string               `json:"risk_level"`     // "low", "medium", "high", "critical"
+	RiskScore       int                  `json:"risk_score"`     // 0-100
 	SecurityGrade   string               `json:"security_grade"` // "A+", "A", "B", "C", "D", "F"
 	ModelID         string               `json:"model_id"`
 	Endpoint        string               `json:"endpoint"`
@@ -47,14 +47,13 @@ type Auditor struct {
 // NewAuditor initializes an active security auditor.
 func NewAuditor() *Auditor {
 	return &Auditor{
-		client: &http.Client{
-			Timeout: 8 * time.Second,
-		},
+		client: NewSafeHTTPClient(ProviderCustom, 8*time.Second, true),
 	}
 }
 
 // RunAudit performs the 6-probe comprehensive security analysis.
 func (a *Auditor) RunAudit(model CustomModel) *SecurityAuditReport {
+	a.client = NewSafeHTTPClient(model.ProviderType, 8*time.Second, true)
 	modelID := strings.TrimSpace(model.Name)
 	if modelID == "" {
 		modelID = model.ID

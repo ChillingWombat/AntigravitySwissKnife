@@ -382,6 +382,53 @@ func TestFetchModels_SanitizesHTMLError(t *testing.T) {
 	}
 }
 
+func TestFetchModels_GeminiUsesHeaderWithoutURLSecret(t *testing.T) {
+	const apiKey = "gemini-test-key"
+	var queryKey string
+	var headerKey string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queryKey = r.URL.Query().Get("key")
+		headerKey = r.Header.Get("x-goog-api-key")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"models/gemini-test","displayName":"Gemini Test","inputTokenLimit":1048576,"supportedGenerationMethods":["generateContent"]}]}`))
+	}))
+	defer ts.Close()
+
+	res := FetchModels(FetchModelsRequest{
+		ProviderType: ProviderGemini,
+		BaseURL:      ts.URL,
+		APIKey:       apiKey,
+	})
+	if !res.Success {
+		t.Fatalf("expected successful fetch, got %q", res.Message)
+	}
+	if queryKey != "" {
+		t.Fatalf("API key must not be placed in the request URL")
+	}
+	if headerKey != apiKey {
+		t.Fatalf("expected x-goog-api-key header to carry the API key")
+	}
+}
+
+func TestFetchModels_NetworkErrorsRedactAPIKey(t *testing.T) {
+	const apiKey = "gemini-" + "network-test-key"
+	ts := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	baseURL := ts.URL
+	ts.Close()
+
+	res := FetchModels(FetchModelsRequest{
+		ProviderType: ProviderGemini,
+		BaseURL:      baseURL,
+		APIKey:       apiKey,
+	})
+	if res.Success {
+		t.Fatal("expected a network failure")
+	}
+	if strings.Contains(res.Message, apiKey) {
+		t.Fatalf("network error leaked the API key: %s", res.Message)
+	}
+}
+
 func TestGenerateCustomModelsScript_CategoryHeaders(t *testing.T) {
 	cfg := &Config{
 		Models: []CustomModel{

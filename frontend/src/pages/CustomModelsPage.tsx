@@ -79,6 +79,18 @@ const inferProviderType = (url: string): ProviderType => {
   return 'custom'
 }
 
+const normalizedEndpoint = (value: string) => value.trim().replace(/\/+$/, '')
+
+const resolveFormProviderType = (url: string, savedModel: CustomModel | null): ProviderType => {
+  if (
+    savedModel?.provider_type &&
+    normalizedEndpoint(url) === normalizedEndpoint(savedModel.base_url || '')
+  ) {
+    return savedModel.provider_type
+  }
+  return inferProviderType(url)
+}
+
 // The Vertex AI "global" location uses the region-less host aiplatform.googleapis.com;
 // every other location (including the us/eu multi-regions) is region-prefixed.
 const gcpBaseUrlForRegion = (region: string): string =>
@@ -180,7 +192,6 @@ export const CustomModelsPage: React.FC = () => {
   const [modalTestResult, setModalTestResult] = useState<TestResult | null>(null)
   const [modalSaving, setModalSaving] = useState<boolean>(false)
   const [modalError, setModalError] = useState<string | null>(null)
-  const editKeyRequestRef = useRef(0)
 
   // Security Audit States (inspired by toby-bridges/api-relay-audit)
   const [modalAuditResult, setModalAuditResult] = useState<SecurityAuditReport | null>(null)
@@ -283,21 +294,6 @@ export const CustomModelsPage: React.FC = () => {
         client_id: '',
       })
       setGcpClientEmail(extractedEmail)
-      api.getCustomModelKey(model.id)
-        .then((res) => {
-          if (res?.gcp_service_account_key && res.gcp_service_account_key !== '[REDACTED]') {
-            let formatted = res.gcp_service_account_key
-            try {
-              const parsed = JSON.parse(res.gcp_service_account_key)
-              formatted = JSON.stringify(parsed, null, 2)
-              setGcpParsedKey(parsed)
-              if (parsed.client_email) setGcpClientEmail(parsed.client_email)
-              if (parsed.project_id && !projectId) setGcpProjectId(parsed.project_id)
-            } catch {}
-            setGcpJsonContent(formatted)
-          }
-        })
-        .catch(() => {})
     }
     dispatchDialog({ type: 'openGcp', mode: 'edit', initialModel: model })
   }
@@ -601,7 +597,6 @@ export const CustomModelsPage: React.FC = () => {
   }, [])
 
   const openAddModal = () => {
-    editKeyRequestRef.current += 1
     setDisplayName('')
     setModelName('')
     setProviderType('custom')
@@ -643,7 +638,6 @@ export const CustomModelsPage: React.FC = () => {
       openEditGcpModal(model)
       return
     }
-    const keyRequestId = ++editKeyRequestRef.current
     const listedKey = model.api_key?.trim() || ''
     setDisplayName(model.display_name)
     setModelName(model.name)
@@ -695,25 +689,9 @@ export const CustomModelsPage: React.FC = () => {
     }
     setModalError(null)
     dispatchDialog({ type: 'openModelForm', mode: 'edit', initialModel: model })
-
-    if (!listedKey || listedKey === '[REDACTED]') {
-      api.getCustomModelKey(model.id)
-        .then((res) => {
-          if (editKeyRequestRef.current !== keyRequestId) return
-          const savedKey = res?.api_key?.trim() || ''
-          if (!savedKey || savedKey === '[REDACTED]') return
-          setApiKey((current) => (current.trim() ? current : savedKey))
-        })
-        .catch((err: any) => {
-          if (editKeyRequestRef.current === keyRequestId) {
-            setModalError(`Failed to load saved API key: ${sanitizeConnectionErrorMessage(err?.message || 'Request failed')}`)
-          }
-        })
-    }
   }
 
   const closeCustomModelModal = () => {
-    editKeyRequestRef.current += 1
     dispatchDialog({ type: 'close' })
   }
 
@@ -725,10 +703,12 @@ export const CustomModelsPage: React.FC = () => {
     setFetchingModels(true)
     setFetchFeedback(null)
     setModalError(null)
-    const inferred = inferProviderType(baseUrl.trim())
-    setProviderType(inferred)
+    const effectiveProvider = resolveFormProviderType(baseUrl, editingModel)
+    if (!editingModel || normalizedEndpoint(baseUrl) !== normalizedEndpoint(editingModel.base_url || '')) {
+      setProviderType(effectiveProvider)
+    }
     try {
-      const res = await api.fetchModels(inferred, baseUrl.trim(), apiKey.trim())
+      const res = await api.fetchModels(effectiveProvider, baseUrl.trim(), apiKey.trim(), editingModel?.id)
       if (res.success && res.models && res.models.length > 0) {
         setFetchedModels(res.models)
         setShowModelDropdown(true)
@@ -795,12 +775,15 @@ export const CustomModelsPage: React.FC = () => {
     const isThinking = thinkingLevel.trim() !== '' && thinkingLevel.toLowerCase() !== 'off'
     const activeThinkingLvl = isThinking ? thinkingLevel.trim() : ''
     const cleanThinkingLevels = thinkingLevels.filter((l) => l.toLowerCase() !== 'off' && l.trim() !== '')
-    const inferred = inferProviderType(baseUrl.trim())
+    const effectiveProvider = resolveFormProviderType(baseUrl, editingModel)
+    if (!editingModel || normalizedEndpoint(baseUrl) !== normalizedEndpoint(editingModel.base_url || '')) {
+      setProviderType(effectiveProvider)
+    }
     const draftModel: CustomModel = {
       id: editingModel?.id || 'draft-test',
       name: modelName.trim(),
       display_name: displayName.trim(),
-      provider_type: inferred,
+      provider_type: effectiveProvider,
       base_url: baseUrl.trim(),
       api_key: apiKey.trim(),
       custom_quota_endpoint: customQuotaEndpoint.trim() || undefined,

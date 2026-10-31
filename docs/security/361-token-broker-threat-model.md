@@ -24,38 +24,35 @@ The renderer receives `window.swiss.request` only. It never receives a raw sessi
 
 ### Local XSS
 
-XSS can invoke every broker route available to the renderer and can alter the visible UI. It cannot read the daemon token from the renderer. Safe and privileged routes are explicit method-and-path tables for GET, POST, and DELETE. Unknown routes fail with `ROUTE_NOT_ALLOWED` before the broker reads a token or calls the daemon. Privileged routes ask through a native Electron dialog showing the exact method and path, with a bounded and redacted body preview. XSS can request a prompt but cannot silently approve it.
+XSS can invoke every exact project API route available to the renderer and can alter the visible UI. It cannot read the daemon token from the renderer. The broker allowlist covers every registered `/api` handler with an explicit method-and-path entry. Unknown routes fail with `ROUTE_NOT_ALLOWED` before the broker reads a token or calls the daemon.
 
 ### Compromised browser extension
 
-An extension with access to the Antigravity renderer has the same broker capability as local XSS and can also manipulate DOM state. It cannot call the native approval API directly or read the Electron main-process token. It can trigger prompt spam and impersonate the product UI around the prompt. Users must verify the native dialog's method and path rather than trusting renderer text.
+An extension with access to the Antigravity renderer has the same broker capability as local XSS and can also manipulate DOM state. It cannot read the Electron main-process token. It can invoke any registered project route without a native approval prompt.
 
 ### Hostile page or navigation
 
 The broker pins requests to `http://127.0.0.1:8765`, rejects absolute and protocol-relative paths, strips caller authentication headers, and rejects redirects. The session interceptor attaches the startup token only to top-level daemon document and static loads. Renderer fetch/XHR requests and daemon `/api` subframe navigations do not receive the token; subframe navigations to that API are cancelled. A hostile page cannot turn the broker into an arbitrary-origin proxy.
 
-### Replay and prompt reuse
+### Replay and route binding
 
-Approval is one request only and is never cached. Tokens are sent in the `X-Session-Token` header, never in URLs, and are not logged. Replaying an approved body requires a new request and a new prompt. The daemon remains the final authorization check.
+Tokens are sent in the `X-Session-Token` header, never in URLs, and are not logged. Every request remains bound to the fixed loopback origin and an exact registered method-and-path entry. The daemon remains the final authorization and validation layer.
 
 ### Confused deputy
 
-The renderer can ask the privileged main process to act. The broker limits the origin and exact route, and the native dialog binds the approval to the method and path. Filesystem, Obsidian, computer-use, HTTP, file-write, and command tools in the Go bridge require an explicit entry in `allowed_tools`; new defaults omit them, and `CallTool` returns `APPROVAL_REQUIRED` instead of treating an empty allowlist as unrestricted. Existing explicit allowlist entries remain intact.
+The renderer can ask the privileged main process to act. The broker limits the origin and exact route. Filesystem, Obsidian, computer-use, HTTP, file-write, and command tools in the Go bridge require an explicit entry in `allowed_tools`; new defaults omit them, and `CallTool` returns `APPROVAL_REQUIRED` instead of treating an empty allowlist as unrestricted. Existing explicit allowlist entries remain intact.
 
 ### File read and list
 
-`/api/files/read` and `/api/files/list` are privileged GET routes. Each request requires a fresh native approval that shows the canonical filesystem path. The broker decodes path values repeatedly until stable, allowing at most ten passes; malformed encoding or a value still changing after ten passes is denied. It rejects missing, relative, NUL-containing, and traversal-containing fully decoded path values. It resolves symlinks when the target exists and compares both lexical and resolved paths against the Swiss daemon configuration directory. Paths inside that directory and files named `session.token`, `session.pid`, or `credentials*` are denied before the broker reads the daemon token or calls the daemon; the native dialog states the denial reason.
+`/api/files/read` and `/api/files/list` are direct routes. The broker still decodes path values repeatedly until stable, allowing at most ten passes; malformed encoding or a value still changing after ten passes is denied. It rejects missing, relative, NUL-containing, and traversal-containing fully decoded path values. It resolves symlinks when the target exists and compares both lexical and resolved paths against the Swiss daemon configuration directory. Paths inside that directory and files named `session.token`, `session.pid`, or `credentials*` are denied before the broker reads the daemon token or calls the daemon.
 
 ## Residual Risks
 
 - A compromised Electron main process or preload script is outside this boundary and can read the token.
-- Approval fatigue can cause a user to accept a dangerous command or path.
 - Body previews redact known sensitive fields and opaque content, but arbitrary secrets can still appear in displayed path names or other short values.
-- Safe broker mutation routes remain silent; every privileged GET, POST, or DELETE route requires one-shot native approval.
-- Sensitive reads such as account export, TOTP, custom-model keys, remote bridge config, and unredacted channel config require approval. Import scans return session metadata only, not transcript content, and are safe reads. Model Source integration and CLI status are safe reads after the daemon redacts the PIN and gateway token. Channel pages load redacted configuration, and writes preserve existing secrets when the redacted placeholder or an empty value is submitted.
-- Custom-model connection, quota, catalog, and security-audit operations are approval-gated because they can send stored credentials to external endpoints. GitHub issue updates, comments, labels, task bindings, and kanban moves are approval-gated external writes.
-- Local UI configuration writes such as Model Source mode, preferred IDE, and GUI project deletion are safe POSTs. They persist app configuration only and do not launch processes, write arbitrary files, or contact external services.
-- A filesystem race can replace a checked path after approval and before the daemon opens it. The daemon still accepts sensitive reads when called directly with a valid session token.
+- Every exact `/api` route registered by the web GUI is available without native approval. A compromised renderer therefore has the full project API capability, including account exports, credential reads, filesystem operations, process launches, bridge configuration, and factory reset.
+- Sensitive reads such as account export, TOTP, remote bridge config, and unredacted channel config remain direct. The raw custom-model credential route is removed; edit, test, discovery, quota, audit, and save operations use daemon-side credential hydration only when the provider and endpoint still match the saved model.
+- Custom-model connection, quota, catalog, security-audit, and save operations are direct. Their network paths use SSRF-checked transports and redact credential values from UI responses.
+- A filesystem race can replace a checked path after validation and before the daemon opens it. The daemon still accepts sensitive reads when called directly with a valid session token.
 - The non-Electron browser fallback keeps its unlocked session token only in page memory, so reloads require another unlock. Local XSS in that browser mode can still read the in-memory token during the unlocked session.
 - The daemon token is long-lived on disk; rotation and secure storage depend on the daemon installation.
-- An extension or screen-control malware that can click the native dialog defeats user approval.

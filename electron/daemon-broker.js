@@ -16,206 +16,19 @@ const DAEMON_SESSION_RESOURCE_TYPES = new Set([
   'media',
 ]);
 
-const GET_PATHS = Object.freeze([
-  '/health',
-  '/api/status',
-  '/api/auth/status',
-  '/api/accounts',
-  '/api/accounts/scan',
-  '/api/quota',
-  '/api/quota/fleet',
-  '/api/rules',
-  '/api/models/available',
-  '/api/surfaces',
-  '/api/oauth/google/url',
-  '/api/settings/password',
-  '/api/settings/storage',
-  '/api/settings/privacy',
-  '/api/settings/runtime-mode',
-  '/api/settings/theme',
-  '/api/fingerprint',
-  '/api/cache/scan',
-  '/api/cache/config',
-  '/api/vault/status',
-  '/api/system/installations',
-  '/api/system/app_release',
-  '/api/custom_models',
-  '/api/custom_models/active',
-  '/api/custom_models/integration',
-  '/api/custom_models/cli_status',
-  '/api/custom_models/presets',
-  '/api/gui/config',
-  '/api/gui/projects',
-  '/api/gui/projects/archived',
-  '/api/gui/conversations/pruned',
-  '/api/gui/desktop/status',
-  '/api/enhancements',
-  '/api/extensions/community',
-  '/api/files/ide/config',
-  '/api/memos',
-  '/api/memos/config',
-  '/api/memos/export',
-  '/api/utilities/import/scan',
-  '/api/utilities/acp',
-  '/api/tokens/summary',
-  '/api/tokens/chat-metrics',
-  '/api/tokens/pricing',
-  '/api/github/repo',
-  '/api/github/issues',
-  '/api/github/issues/detail',
-  '/api/github/prs',
-  '/api/github/prs/detail',
-  '/api/github/agent-tasks',
-  '/api/github/context',
-  '/api/github/kanban',
-  '/api/bridge/status',
-  '/api/bridge/http-allowlist',
-  '/api/bridge/remote/status',
-  '/api/bridge/channels/status',
-  '/api/bridge/channels/config',
-]);
-
-const POST_PATHS = Object.freeze([
-  '/api/quota/refresh',
-  '/api/rules',
-  '/api/rules/auto_switch',
-  '/api/cache/config',
-  '/api/settings/runtime-mode',
-  '/api/settings/theme',
-  '/api/oauth/google/cancel',
-  '/api/system/check_updates',
-  '/api/system/check_app_release',
-  '/api/custom_models/active',
-  '/api/custom_models/integration',
-  '/api/custom_models/thinking_level',
-  '/api/enhancements',
-  '/api/utilities/acp/detect',
-  '/api/utilities/acp/ping',
-  '/api/gui/config',
-  '/api/gui/color',
-  '/api/gui/color/reset',
-  '/api/gui/color/delete',
-  '/api/gui/projects/archive',
-  '/api/gui/projects/restore',
-  '/api/gui/conversations/auto-archive',
-  '/api/files/ide/config',
-  '/api/conversations/ack',
-  '/api/memos/save',
-  '/api/memos/delete',
-  '/api/memos/extract',
-  '/api/memos/export',
-  '/api/memos/config',
-]);
-
-const PRIVILEGED_POST_PATHS = Object.freeze([
-  '/api/accounts/import',
-  '/api/accounts/batch-import',
-  '/api/accounts/update',
-  '/api/accounts/delete',
-  '/api/switch',
-  '/api/desktop/relaunch',
-  '/api/desktop/launch',
-  '/api/oauth/google/start',
-  '/api/oauth/google/exchange',
-  '/api/auth/unlock',
-  '/api/settings/password',
-  '/api/settings/storage',
-  '/api/settings/app_path',
-  '/api/settings/account_override',
-  '/api/settings/cache_clear',
-  '/api/settings/privacy',
-  '/api/settings/diagnose-issue',
-  '/api/system/factory_reset',
-  '/api/system/app_release/settings',
-  '/api/system/app_release/upgrade',
-  '/api/totp',
-  '/api/fingerprint',
-  '/api/cache/prune',
-  '/api/vault/sync',
-  '/api/vault/toggle',
-  '/api/custom_models',
-  '/api/custom_models/launch',
-  '/api/custom_models/cli_setup',
-  '/api/custom_models/test',
-  '/api/custom_models/fetch_quota',
-  '/api/custom_models/refresh_quotas',
-  '/api/custom_models/fetch_models',
-  '/api/custom_models/security-audit',
-  '/api/enhancements/apply',
-  '/api/extensions/community',
-  '/api/files/write',
-  '/api/files/create',
-  '/api/files/delete',
-  '/api/files/rename',
-  '/api/files/copy',
-  '/api/files/move',
-  '/api/files/reveal',
-  '/api/files/terminal',
-  '/api/files/open_ide',
-  '/api/gui/projects/open_settings',
-  '/api/gui/projects/delete',
-  '/api/gui/apply',
-  '/api/gui/desktop/persistence',
-  '/api/daemon/start',
-  '/api/utilities/import',
-  '/api/utilities/acp/sync-registry',
-  '/api/utilities/acp/agents',
-  '/api/utilities/acp/prompt',
-  '/api/tokens/pricing',
-  '/api/github/issues/create',
-  '/api/github/issues/update',
-  '/api/github/issues/comment',
-  '/api/github/kanban/move',
-  '/api/github/agent-tasks/label',
-  '/api/github/agent-tasks/bind',
-  '/api/bridge/http-allowlist',
-  '/api/bridge/config',
-  '/api/bridge/dispatch',
-  '/api/bridge/test',
-  '/api/bridge/tunnel/start',
-  '/api/bridge/tunnel/stop',
-  '/api/bridge/token/rotate',
-  '/api/bridge/agent',
-  '/api/bridge/mode',
-  '/api/bridge/remote/config',
-  '/api/bridge/remote/pin/rotate',
-  '/api/bridge/remote/tunnel/start',
-  '/api/bridge/remote/tunnel/stop',
-  '/api/bridge/channels/config',
-  '/api/bridge/channels/test',
-]);
-
-const PRIVILEGED_GET_PATHS = Object.freeze([
-  '/api/accounts/export',
-  '/api/totp',
-  '/api/custom_models/key',
-  '/api/files/list',
-  '/api/files/read',
-  '/api/bridge/remote/config',
-]);
-
-const DELETE_PATHS = Object.freeze([]);
-
-const PRIVILEGED_DELETE_PATHS = Object.freeze([
-  '/api/custom_models',
-  '/api/extensions/community',
-  '/api/utilities/acp/agents',
-  '/api/tokens/pricing',
-]);
-
+const PROJECT_ROUTE_PATHS = require('./daemon-route-allowlist');
 const ALLOWED_ROUTES = Object.freeze({
-  GET: new Set(GET_PATHS),
-  POST: new Set(POST_PATHS),
-  DELETE: new Set(DELETE_PATHS),
+  GET: new Set(PROJECT_ROUTE_PATHS.GET),
+  POST: new Set(PROJECT_ROUTE_PATHS.POST),
+  DELETE: new Set(PROJECT_ROUTE_PATHS.DELETE),
 });
+const ALLOWED_PATH_PREFIXES = PROJECT_ROUTE_PATHS.PREFIXES;
+// Native approval is disabled for the exact project route set above.
 const PRIVILEGED_ROUTES = Object.freeze({
-  GET: new Set(PRIVILEGED_GET_PATHS),
-  POST: new Set(PRIVILEGED_POST_PATHS),
-  DELETE: new Set(PRIVILEGED_DELETE_PATHS),
+  GET: new Set(),
+  POST: new Set(),
+  DELETE: new Set(),
 });
-const PRIVILEGED_QUERY_ROUTES = new Map([
-  ['GET /api/bridge/channels/config', (params) => params.get('unredacted') === 'true'],
-]);
 const FILE_ACCESS_PATHS = new Set(['/api/files/list', '/api/files/read']);
 const SENSITIVE_FILE_NAME = /^(?:session\.token|session\.pid|credentials(?:\..+)?)$/i;
 
@@ -226,13 +39,18 @@ const SENSITIVE_BODY_KEY = /(token|secret|password|passwd|authorization|api[_-]?
 const OPAQUE_BODY_KEY = /^(content|body|data|text|value)$/i;
 const SECRET_IN_TEXT = /(bearer\s+|token|secret|password|api[_-]?key)/i;
 
-function isApprovalRoute(method, pathOrUrl) {
-  const url = typeof pathOrUrl === 'string' ? new URL(pathOrUrl, DAEMON_ORIGIN) : pathOrUrl;
-  if (PRIVILEGED_ROUTES[method] && PRIVILEGED_ROUTES[method].has(url.pathname)) {
+// The native approval system stays available for future policy changes, but
+// every registered project route is intentionally direct now.
+function isApprovalRoute() {
+  return false;
+}
+
+function isAllowedRoute(method, pathname) {
+  if (ALLOWED_ROUTES[method].has(pathname)) {
     return true;
   }
-  const queryRule = PRIVILEGED_QUERY_ROUTES.get(`${method} ${url.pathname}`);
-  return Boolean(queryRule && queryRule(url.searchParams));
+  const prefixes = ALLOWED_PATH_PREFIXES[method] || [];
+  return prefixes.some((prefix) => pathname.startsWith(prefix) && pathname.length > prefix.length);
 }
 
 function getSwissConfigDir(platform = process.platform, env = process.env, home = os.homedir()) {
@@ -502,7 +320,7 @@ function validateRequest(request, defaultTimeoutMs, configDir) {
     invalid('Daemon request must stay on the fixed loopback origin');
   }
   const requiresApproval = isApprovalRoute(method, url);
-  const routeIsAllowed = ALLOWED_ROUTES[method].has(url.pathname) ||
+  const routeIsAllowed = isAllowedRoute(method, url.pathname) ||
     (PRIVILEGED_ROUTES[method] && PRIVILEGED_ROUTES[method].has(url.pathname));
   if (!routeIsAllowed) {
     throw new DaemonBrokerError('ROUTE_NOT_ALLOWED', 'Daemon route is not allowlisted', 403);

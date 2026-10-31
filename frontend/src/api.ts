@@ -753,14 +753,6 @@ export const api = {
   // Custom Model Provider
   getCustomModels: () => request<CustomModelsConfig>('/api/custom_models'),
 
-  getCustomModelKey: (id: string) =>
-    request<{
-      success: boolean
-      id: string
-      gcp_service_account_key?: string
-      api_key?: string
-    }>(`/api/custom_models/key?id=${encodeURIComponent(id)}`),
-
   saveCustomModel: (model: CustomModel) =>
     request<{ success: boolean; model: CustomModel }>('/api/custom_models', {
       method: 'POST',
@@ -848,11 +840,12 @@ export const api = {
       body: JSON.stringify({ model_id: modelId }),
     }),
 
-  fetchModels: (providerType: ProviderType, baseUrl: string, apiKey?: string) =>
+  fetchModels: (providerType: ProviderType, baseUrl: string, apiKey?: string, modelId?: string) =>
     request<FetchModelsResponse>('/api/custom_models/fetch_models', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        id: modelId,
         provider_type: providerType,
         base_url: baseUrl,
         api_key: apiKey,
