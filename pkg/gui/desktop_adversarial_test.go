@@ -80,6 +80,22 @@ func TestAdversarial_CopyFile_OverwriteReadOnlyDestination(t *testing.T) {
 	}
 }
 
+func TestAdversarial_EnsureDesktopFileReplaceable_ReadOnlyFileInWritableDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows requires the destination file itself to be probe-opened")
+	}
+
+	tempDir := t.TempDir()
+	asarPath := filepath.Join(tempDir, "app.asar")
+	if err := os.WriteFile(asarPath, []byte("factory-asar"), 0444); err != nil {
+		t.Fatalf("failed to create read-only asar: %v", err)
+	}
+
+	if err := ensureDesktopFileReplaceable(asarPath); err != nil {
+		t.Fatalf("read-only app.asar in writable resources directory should be replaceable: %v", err)
+	}
+}
+
 func TestAdversarial_CopyFile_LargePayloadAndIntegrity(t *testing.T) {
 	tempDir := t.TempDir()
 	src := filepath.Join(tempDir, "large_src.bin")
