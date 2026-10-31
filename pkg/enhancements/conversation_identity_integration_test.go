@@ -975,3 +975,219 @@ func TestConversationIdentity_CrossInstanceMetricResetEpochCallChain(t *testing.
 })().catch((error) => { console.error(error.stack || error); process.exit(1); });
 `)
 }
+
+func TestConversationIdentity_RouteSynchronizationGenerationAndRetryCallChain(t *testing.T) {
+	runIdentityCallChain(t, `
+(async () => {
+  const viewIdA = "11111111-aaaa-4bbb-8ccc-dddddddddddd";
+  const viewIdB = "22222222-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const staleRouteId = "33333333-cccc-4ddd-8eee-ffffffffffff";
+  const delayedViewId = "44444444-dddd-4eee-8fff-aaaaaaaaaaaa";
+  const sourceRouteIdA = "55555555-eeee-4fff-8aaa-bbbbbbbbbbbb";
+  const sourceRouteIdB = "66666666-ffff-4aaa-8bbb-cccccccccccc";
+  const fencedTargetId = "77777777-aaaa-4bbb-8ccc-dddddddddddd";
+  const routerCalls = [];
+  const replacements = [];
+  const clearedTimers = [];
+  const popstateEvents = [];
+
+  window.fetch = async () => ({ ok: true, json: async () => ({ success: true, pending_intents: [], user_prompt_count: 0, prompts: [], turns: [] }) });
+  window.dispatchEvent = (event) => { popstateEvents.push(event.type); return true; };
+
+  const view = new NodeEl("div", "conversation-view");
+  const inputBox = new NodeEl("div", "agent-input-box");
+  inputBox.className = "no-focus-agent-input";
+  inputBox.classList.add("no-focus-agent-input");
+  const trigger = new NodeEl("button", "model-selector-trigger");
+  inputBox.appendChild(trigger);
+  view.appendChild(inputBox);
+  document.body.appendChild(view);
+
+  function setVisible(id) {
+    view.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
+    inputBox.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
+  }
+  function setLocation(routeId, search, hash) {
+    location.pathname = "/c/" + routeId;
+    location.search = search || "";
+    location.hash = hash || "";
+  }
+  function setHistory() {
+    replacements.length = 0;
+    window.history = {
+      state: { hostState: "keep" },
+      replaceState: (state, title, url) => replacements.push({ state, title, url })
+    };
+  }
+  function activeIntent(sourceId, targetId) {
+    return {
+      version: 2,
+      kind: "conversation",
+      at: 1,
+      sourceRoute: "/c/" + sourceId,
+      targetRoute: "/c/" + targetId,
+      targetConversationId: targetId,
+      route: "/c/" + staleRouteId,
+      conversationId: staleRouteId,
+      pending: false
+    };
+  }
+
+  let tasks;
+  let nextTimerId;
+  let timerNow;
+  let clearMode;
+  function resetTimers(mode) {
+    tasks = new Map();
+    nextTimerId = 1;
+    timerNow = 0;
+    clearMode = mode;
+    clearedTimers.length = 0;
+    globalThis.setTimeout = (fn, delay) => {
+      const id = nextTimerId++;
+      tasks.set(id, { id, at: timerNow + Number(delay || 0), fn });
+      return id;
+    };
+    globalThis.clearTimeout = (id) => {
+      clearedTimers.push(id);
+      if (clearMode === "delete") tasks.delete(id);
+    };
+  }
+  function advance(ms) {
+    const deadline = timerNow + ms;
+    while (true) {
+      const due = Array.from(tasks.values())
+        .filter((task) => task.at <= deadline)
+        .sort((left, right) => left.at - right.at || left.id - right.id)[0];
+      if (!due) break;
+      tasks.delete(due.id);
+      timerNow = due.at;
+      due.fn();
+    }
+    timerNow = deadline;
+  }
+  function resetRouteSync(mode) {
+    resetTimers(mode);
+    conversationRouteSyncState = { attemptedKey: "", semanticKey: "", generation: 0, timerId: null, retries: 0, outcome: "idle" };
+    routerCalls.length = 0;
+    window.__swissExplicitConversationNavigation = null;
+  }
+
+  resetRouteSync("delete");
+  window.__TSR_ROUTER__ = { navigate: ({ to }) => routerCalls.push(to) };
+  setHistory();
+  setLocation(staleRouteId, "?tab=chat", "#thread");
+  setVisible(viewIdA);
+  renderContextWindowProgressRing();
+  assert.deepStrictEqual(routerCalls, ["/c/" + viewIdA + "?tab=chat#thread"], "the first router attempt must remain synchronous");
+  assert.strictEqual(tasks.size, 1, "an unacknowledged router call must schedule one retry");
+  assert.strictEqual(replacements.length, 0, "an unacknowledged router call must not fall back before retrying");
+  renderContextWindowProgressRing();
+  renderContextWindowProgressRing();
+  assert.strictEqual(routerCalls.length, 1, "repeated ticks must not duplicate the pending router attempt");
+  assert.strictEqual(tasks.size, 1, "repeated ticks must not duplicate the pending retry timer");
+  advance(SWISS_CONVERSATION_ROUTE_SYNC_RETRY_MS * (SWISS_CONVERSATION_ROUTE_SYNC_MAX_RETRIES + 1));
+  assert.strictEqual(routerCalls.length, 1 + SWISS_CONVERSATION_ROUTE_SYNC_MAX_RETRIES, "router retries must be bounded");
+  assert.strictEqual(replacements.length, 1, "retry exhaustion must fall back to history exactly once");
+  assert.strictEqual(replacements[0].url, "/c/" + viewIdA + "?tab=chat#thread", "history fallback must preserve query and hash");
+  assert.deepStrictEqual(replacements[0].state, { hostState: "keep" }, "history fallback must preserve host state");
+  renderContextWindowProgressRing();
+  assert.strictEqual(replacements.length, 1, "history fallback must not repeat on later render ticks");
+
+  resetRouteSync("delete");
+  setHistory();
+  setLocation(staleRouteId, "?tab=chat", "#live");
+  setVisible(delayedViewId);
+  let delayedCalls = 0;
+  window.__TSR_ROUTER__ = {
+    navigate: ({ to }) => {
+      delayedCalls += 1;
+      routerCalls.push(to);
+      if (delayedCalls === 2) {
+        location.pathname = "/c/" + delayedViewId;
+        location.search = "?tab=chat";
+        location.hash = "#live";
+      }
+    }
+  };
+  renderContextWindowProgressRing();
+  advance(SWISS_CONVERSATION_ROUTE_SYNC_RETRY_MS);
+  assert.strictEqual(routerCalls.length, 2, "a delayed router acknowledgement must succeed on retry");
+  assert.strictEqual(replacements.length, 0, "a delayed router acknowledgement must suppress history fallback");
+  assert.strictEqual(tasks.size, 0, "an acknowledged route must not leave a retry pending");
+
+  resetRouteSync("preserve");
+  window.__TSR_ROUTER__ = { navigate: ({ to }) => routerCalls.push(to) };
+  setHistory();
+  setLocation(staleRouteId, "?tab=chat", "#thread");
+  setVisible(viewIdA);
+  renderContextWindowProgressRing();
+  setVisible(viewIdB);
+  renderContextWindowProgressRing();
+  setVisible(viewIdA);
+  renderContextWindowProgressRing();
+  assert.deepStrictEqual(routerCalls, ["/c/" + viewIdA + "?tab=chat#thread", "/c/" + viewIdB + "?tab=chat#thread", "/c/" + viewIdA + "?tab=chat#thread"], "fixture must leave A, B, then A retries pending");
+  assert.strictEqual(tasks.size, 3, "failed clearTimeout must leave all stale timer tasks observable");
+  advance(SWISS_CONVERSATION_ROUTE_SYNC_RETRY_MS);
+  assert.deepStrictEqual(routerCalls, ["/c/" + viewIdA + "?tab=chat#thread", "/c/" + viewIdB + "?tab=chat#thread", "/c/" + viewIdA + "?tab=chat#thread", "/c/" + viewIdA + "?tab=chat#thread"], "only the current A generation may retry after A-B-A");
+  assert.strictEqual(replacements.length, 0, "stale callbacks must not trigger history fallback");
+  assert.strictEqual(tasks.size, 1, "only the current A generation may schedule the next retry");
+  advance(SWISS_CONVERSATION_ROUTE_SYNC_RETRY_MS * (SWISS_CONVERSATION_ROUTE_SYNC_MAX_RETRIES + 1));
+  assert.strictEqual(routerCalls.length, 3 + SWISS_CONVERSATION_ROUTE_SYNC_MAX_RETRIES, "A-B-A retries must remain bounded");
+  assert.strictEqual(replacements.length, 1, "A-B-A must produce one fallback for the current generation");
+  assert.strictEqual(replacements[0].url, "/c/" + viewIdA + "?tab=chat#thread", "A-B-A fallback must target the current rendered conversation");
+
+  resetRouteSync("delete");
+  window.__TSR_ROUTER__ = { navigate: ({ to }) => routerCalls.push(to) };
+  setHistory();
+  setLocation(staleRouteId, "", "");
+  setVisible(viewIdA);
+  window.__swissExplicitConversationNavigation = activeIntent(sourceRouteIdA, viewIdA);
+  renderContextWindowProgressRing();
+  const firstIntentTimer = Array.from(tasks.keys())[0];
+  assert.deepStrictEqual(routerCalls, ["/c/" + viewIdA], "fixture must schedule the first intent-bound retry");
+  window.__swissExplicitConversationNavigation = activeIntent(sourceRouteIdB, viewIdA);
+  renderContextWindowProgressRing();
+  assert(clearedTimers.includes(firstIntentTimer), "a sourceRoute-only intent change must cancel the obsolete retry");
+  assert.deepStrictEqual(routerCalls, ["/c/" + viewIdA, "/c/" + viewIdA], "a sourceRoute-only intent change must replace the router attempt");
+  assert.strictEqual(tasks.size, 1, "a sourceRoute-only intent change must leave one current retry");
+  advance(SWISS_CONVERSATION_ROUTE_SYNC_RETRY_MS);
+  assert.deepStrictEqual(routerCalls, ["/c/" + viewIdA, "/c/" + viewIdA, "/c/" + viewIdA], "only the replacement sourceRoute generation may retry");
+  assert.strictEqual(replacements.length, 0, "a rejected sourceRoute retry must not bypass the bounded retry contract");
+
+  resetRouteSync("delete");
+  window.__TSR_ROUTER__ = { navigate: ({ to }) => routerCalls.push(to) };
+  setHistory();
+  setLocation(staleRouteId, "?tab=chat", "#fenced");
+  setVisible(viewIdA);
+  window.__swissExplicitConversationNavigation = {
+    version: 2,
+    kind: "conversation",
+    at: 2,
+    sourceRoute: "/c/" + staleRouteId,
+    targetRoute: "/c/" + fencedTargetId,
+    targetConversationId: fencedTargetId,
+    route: "",
+    conversationId: null,
+    pending: true
+  };
+  renderContextWindowProgressRing();
+  renderContextWindowProgressRing();
+  assert.strictEqual(routerCalls.length, 0, "explicit target disagreement must fence rendered-route synchronization");
+  assert.strictEqual(tasks.size, 0, "a fenced route must not schedule retries");
+  window.__swissExplicitConversationNavigation = null;
+  window.__TSR_ROUTER__ = null;
+  setHistory();
+  renderContextWindowProgressRing();
+  assert.strictEqual(replacements.length, 1, "a missing router must fall back immediately");
+  assert.strictEqual(tasks.size, 0, "a missing router must not schedule a retry");
+  assert.strictEqual(replacements[0].url, "/c/" + viewIdA + "?tab=chat#fenced", "immediate fallback must preserve query and hash");
+  assert.deepStrictEqual(replacements[0].state, { hostState: "keep" }, "immediate fallback must preserve host state");
+  renderContextWindowProgressRing();
+  assert.strictEqual(replacements.length, 1, "immediate fallback must remain one-shot");
+  assert(!popstateEvents.includes("popstate"), "route synchronization must never synthesize popstate");
+
+  console.log("INTEGRATED_IDENTITY_OK");
+})().catch((error) => { console.error(error.stack || error); process.exit(1); });
+`)
+}
