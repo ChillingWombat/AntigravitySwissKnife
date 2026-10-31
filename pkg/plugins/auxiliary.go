@@ -4747,12 +4747,6 @@ func GenerateAuxiliaryPluginsScript() string {
     function setupBuiltinBrowserEnhancements() {
       if (!isBrowserEnhancementEnabled()) {
         removeNativeBookmarkButtons();
-        document.querySelectorAll(".swiss-browser-view.swiss-builtin-browser-view").forEach(v => {
-          if (typeof v.__swissTeardown === "function") {
-            try { v.__swissTeardown(); } catch (_) {}
-          }
-          v.remove();
-        });
         return;
       }
       cleanupBookmarkAdapters();
@@ -4765,10 +4759,6 @@ func GenerateAuxiliaryPluginsScript() string {
           return;
         }
         setupNativeBookmarkButton(wv);
-        if (wv.__swissEnhanced) {
-          const wrap = wv.closest(".swiss-browser-view");
-          if (wrap && wrap.isConnected) return;
-        }
         attachBuiltinBrowserEnhancements(wv);
       });
     }
@@ -4776,20 +4766,6 @@ func GenerateAuxiliaryPluginsScript() string {
     function attachBuiltinBrowserEnhancements(webview) {
       if (!webview) return;
       webview.__swissEnhanced = true;
-      const parent = webview.parentElement;
-      if (!parent) return;
-
-      const wrap = document.createElement("div");
-      wrap.className = "swiss-browser-view swiss-builtin-browser-view";
-      wrap.style.width = "100%";
-      wrap.style.height = "100%";
-      wrap.style.display = "flex";
-      wrap.style.flexDirection = "column";
-      wrap.style.position = "relative";
-      wrap.style.overflow = "hidden";
-
-      parent.insertBefore(wrap, webview);
-      renderBrowserView(wrap, webview, false);
     }
 
     window.setupBuiltinBrowserEnhancements = setupBuiltinBrowserEnhancements;

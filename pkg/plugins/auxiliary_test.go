@@ -3473,7 +3473,7 @@ func TestBuiltinBrowserBookmarkContract(t *testing.T) {
 	}
 }
 
-func TestBuiltinBrowserOmitsDuplicateControlBar(t *testing.T) {
+func TestBuiltinBrowserKeepsNativeHostAndOmitsDuplicateControlBar(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	attachStart := strings.Index(js, "function attachBuiltinBrowserEnhancements")
 	attachEnd := strings.Index(js, "window.setupBuiltinBrowserEnhancements")
@@ -3482,14 +3482,16 @@ func TestBuiltinBrowserOmitsDuplicateControlBar(t *testing.T) {
 	}
 	attachBlock := js[attachStart:attachEnd]
 
-	if !strings.Contains(attachBlock, "renderBrowserView(wrap, webview, false)") {
-		t.Errorf("native host wrapper must render without the legacy Swiss toolbar")
+	if !strings.Contains(attachBlock, "webview.__swissEnhanced = true") {
+		t.Errorf("native webview must be marked as enhanced")
 	}
-	if strings.Contains(attachBlock, "renderBrowserView(wrap, webview);") {
-		t.Errorf("native host wrapper still requests the duplicate control bar")
+	for _, forbidden := range []string{"renderBrowserView(", ".swiss-browser-view", ".swiss-device-stage"} {
+		if strings.Contains(attachBlock, forbidden) {
+			t.Errorf("native attachment must not add a Swiss wrapper containing %q", forbidden)
+		}
 	}
 	if !strings.Contains(js, "if (includeToolbar) {\n        wrap.appendChild(toolbar);\n      }") {
-		t.Errorf("generated browser DOM must guard the legacy toolbar append")
+		t.Errorf("standalone browser renderer must still guard the legacy toolbar append")
 	}
 
 	preserved := []string{
@@ -3508,7 +3510,9 @@ func TestBuiltinBrowserOmitsDuplicateControlBar(t *testing.T) {
 func TestBuiltinBrowserBookmarkDOMLifecycle(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
 	start := strings.Index(js, "const BOOKMARKS_KEY")
-	end := strings.Index(js, "function setupBuiltinBrowserEnhancements")
+	attachEndMarker := "window.attachBuiltinBrowserEnhancements = attachBuiltinBrowserEnhancements;"
+	attachEnd := strings.Index(js, attachEndMarker)
+	end := attachEnd + len(attachEndMarker)
 	if start < 0 || end <= start {
 		t.Fatalf("generated bookmark lifecycle block not found: start=%d end=%d", start, end)
 	}
@@ -3875,6 +3879,33 @@ scenario("replaced webview routes bookmark selection to the live webview only", 
   click(openMainMenu(env).querySelector(".swiss-bookmark-menu-row"));
   assert.deepStrictEqual(env.newCalls, [address], "live webview did not receive the bookmark URL");
   assert.deepStrictEqual(env.oldCalls, [], "detached webview received the bookmark URL");
+});
+
+scenario("native attachment preserves host parent and bookmark Star", () => {
+  const env = makeEnv();
+  const host = env.oldWebview.parentElement;
+  env.context.setupNativeBookmarkButton(env.oldWebview);
+  const star = env.document.querySelector("#swiss-bookmark-star");
+  assert(star, "native bookmark Star did not mount");
+
+  let renderCalls = 0;
+  env.context.renderBrowserView = (container, webview) => {
+    renderCalls += 1;
+    const viewport = env.document.createElement("div");
+    viewport.className = "swiss-browser-viewport-wrap";
+    const stage = env.document.createElement("div");
+    stage.className = "swiss-device-stage";
+    stage.appendChild(webview);
+    viewport.appendChild(stage);
+    container.appendChild(viewport);
+  };
+
+  env.context.attachBuiltinBrowserEnhancements(env.oldWebview);
+
+  assert.strictEqual(renderCalls, 0, "native webview must not use the Swiss browser renderer");
+  assert.strictEqual(env.oldWebview.parentElement, host, "native webview changed host parent");
+  assert.strictEqual(env.oldWebview.__swissEnhanced, true, "native webview was not marked enhanced");
+  assert.strictEqual(star.isConnected, true, "bookmark Star attachment depends on the wrapper");
 });
 
 if (failures.length) {
