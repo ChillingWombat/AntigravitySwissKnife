@@ -796,6 +796,8 @@ func TestConversationIdentity_CrossInstanceMetricResetEpochCallChain(t *testing.
   const newId = "eef014a4-5555-4666-8777-888888888888";
   const metricRequests = [];
   const oldMetrics = deferred();
+  const restoredMetrics = deferred();
+  let oldMetricRequestCount = 0;
   const routerCalls = [];
   const hostSetTimeout = require("timers").setTimeout;
   const later = (ms) => new Promise(resolve => hostSetTimeout(resolve, ms));
@@ -806,7 +808,10 @@ func TestConversationIdentity_CrossInstanceMetricResetEpochCallChain(t *testing.
     if (String(url).includes("/api/tokens/chat-metrics")) {
       const id = new URL(url).searchParams.get("conversation_id");
       metricRequests.push(id);
-      if (id === oldId) return oldMetrics.promise;
+      if (id === oldId) {
+        oldMetricRequestCount += 1;
+        return oldMetricRequestCount === 1 ? oldMetrics.promise : restoredMetrics.promise;
+      }
       if (id === newId) {
         return {
           ok: true,
@@ -853,6 +858,18 @@ func TestConversationIdentity_CrossInstanceMetricResetEpochCallChain(t *testing.
   assert.deepStrictEqual(metricRequests, [oldId], "fixture must leave an old-route metric response pending");
   metricRequests.length = 0;
 
+  window.__swissExplicitConversationNavigation = {
+    version: 2,
+    kind: "new_conversation",
+    at: 1,
+    sourceRoute: "/c/" + oldId,
+    targetRoute: "",
+    targetConversationId: null,
+    route: "",
+    conversationId: null,
+    pending: true
+  };
+
   // Another injected instance changed the page-scoped epoch. This instance did
   // not run the owning click listener's local cleanup.
   window.__swissConversationMetricResetEpoch += 1;
@@ -884,7 +901,60 @@ func TestConversationIdentity_CrossInstanceMetricResetEpochCallChain(t *testing.
   assert.strictEqual(document.querySelectorAll("[title*='245K']").length, 0, "a delayed old response must not restore a numeric title");
   assert.strictEqual(conversationMetricIdentity.conversationId, null, "a delayed old response must not restore identity");
 
+  // Boundary: A -> New Conversation pending -> A must resume A explicitly.
+  metricRequests.length = 0;
+  routerCalls.length = 0;
+  location.pathname = "/c/" + newId;
+  setVisible(oldId);
+  const restoreTarget = {
+    closest: (selector) => {
+      const value = String(selector);
+      if (value.includes("a[href]")) return { href: "http://127.0.0.1/c/" + oldId };
+      if (value.includes("conversation-row-sidebar") || value.includes('a[href*="/c/"]')) return restoreTarget;
+      return null;
+    }
+  };
+  window.__swissExplicitConversationNavigation =
+    createExplicitConversationNavigationIntent(restoreTarget, location, 2);
+  assert.strictEqual(window.__swissExplicitConversationNavigation.kind, "conversation", "fixture must model explicit sidebar navigation");
+  assert.strictEqual(window.__swissExplicitConversationNavigation.targetConversationId, oldId, "fixture must explicitly target A");
+  renderContextWindowProgressRing();
+  assert.deepStrictEqual(metricRequests, [oldId], "explicitly returning to A must issue a fresh metrics request");
+  restoredMetrics.resolve({
+    ok: true,
+    json: async () => ({
+      conversation_id: oldId,
+      success: true,
+      turns: [{ context_tokens: 149000, input_tokens: 149000, output_tokens: 0 }],
+      context_window: { used_tokens: 149000, max_tokens: 256000 }
+    })
+  });
+  await flush();
+  await later(20);
+  await flush();
+
+  ring = document.getElementById("swiss-context-window-ring");
+  assert(ring, "explicitly returning to A must remount the ring");
+  assert(/58% \(149K\/256K active\)/.test(ring.getAttribute("title")), "explicitly returning to A must resume fresh metrics: " + ring.getAttribute("title"));
+  assert.strictEqual(conversationMetricIdentity.conversationId, oldId, "explicitly returning to A must restore metric identity");
+  assert.strictEqual(conversationMetricResetStaleId, null, "explicitly returning to A must clear the stale marker");
+  assert.deepStrictEqual(metricRequests, [oldId], "explicitly returning to A must fetch A metrics once");
+  assert.deepStrictEqual(routerCalls, ["/c/" + oldId], "explicitly returning to A must synchronize the route once");
+
+  // The actual trusted New Conversation listener must advance the shared epoch.
+  metricRequests.length = 0;
+  routerCalls.length = 0;
   location.pathname = "/c/" + oldId;
+  const epochBeforeClick = window.__swissConversationMetricResetEpoch;
+  const newChat = new NodeEl("button", "new-conversation-button");
+  document.body.appendChild(newChat);
+  emitDocument("click", newChat, true);
+  assert.strictEqual(window.__swissConversationMetricResetEpoch, epochBeforeClick + 1, "trusted New Conversation must increment the page-scoped epoch");
+  assert.strictEqual(window.__swissExplicitConversationNavigation.kind, "new_conversation", "trusted New Conversation must install intent");
+  assert.strictEqual(document.getElementById("swiss-context-window-ring"), null, "trusted New Conversation must remove the current ring");
+  renderContextWindowProgressRing();
+  assert.strictEqual(document.getElementById("swiss-context-window-ring"), null, "pending New Conversation must keep A suppressed");
+
   setVisible(newId);
   renderContextWindowProgressRing();
   await flush();

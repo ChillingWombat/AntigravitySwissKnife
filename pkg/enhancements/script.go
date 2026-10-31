@@ -4086,7 +4086,11 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         (!isConversationId(sourceConversationId) || renderedConversationId !== sourceConversationId);
       let visibleConversationId = newConversationPending && !newConversationRendered ? null : renderedConversationId;
       if (conversationMetricResetStaleId) {
-        if (!isConversationId(visibleConversationId) || visibleConversationId === conversationMetricResetStaleId) {
+        // A pending New Conversation can briefly leave the old view mounted.
+        // Concrete navigation back to that conversation ends the fence.
+        const pendingNewConversationWithoutTarget = newConversationPending &&
+          (!isConversationId(visibleConversationId) || visibleConversationId === conversationMetricResetStaleId);
+        if (pendingNewConversationWithoutTarget) {
           removeContextWindowProgressRings();
           return;
         }
