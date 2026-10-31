@@ -3647,6 +3647,22 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       document.querySelectorAll("[id^='swiss-context-window-ring-sub-'], .swiss-context-window-ring, .swiss-context-window-ring-sub").forEach(r => r.remove());
     }
 
+    function resetConversationMetricsForNewConversation(intent) {
+      if (!invalidateConversationMetricIdentityForExplicitIntent(intent, conversationMetricIdentity, conversationMetricRequestGenerations)) {
+        return false;
+      }
+      // Fence every prior reader, including detached renders and subagent metrics.
+      Object.keys(conversationMetricRequestGenerations).forEach(cacheKey => {
+        beginConversationMetricRequest(conversationMetricRequestGenerations, cacheKey);
+      });
+      cachedTokensByConv = {};
+      cachedContextWindowByConv = {};
+      lastTokensFetchTimeByConv = {};
+      subagentNameToConvId = {};
+      removeContextWindowProgressRings();
+      return true;
+    }
+
     window.__swissOnEnhancementsDaemonChanged = function(online) {
       if (!online) {
         removeContextWindowProgressRings();
@@ -3678,9 +3694,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           if (!intent) return;
           window.__swissExplicitConversationNavigation = intent;
           persistExplicitConversationNavigationIntent(intent);
-          if (invalidateConversationMetricIdentityForExplicitIntent(intent, conversationMetricIdentity, conversationMetricRequestGenerations)) {
-            renderContextWindowProgressRing();
-          }
+          resetConversationMetricsForNewConversation(intent);
           setTimeout(() => {
             if (bindExplicitConversationNavigationIntent(intent, window.location)) {
               persistExplicitConversationNavigationIntent(intent);

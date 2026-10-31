@@ -625,9 +625,7 @@ func TestConversationIdentity_ExplicitIntentRouteAgreementAndBlankReset(t *testi
   ring = document.getElementById("swiss-context-window-ring");
   assert.strictEqual(conversationMetricIdentity.conversationId, null, "New Conversation must invalidate identity immediately");
   assert.strictEqual(conversationMetricIdentity.phase, "blank", "New Conversation must enter blank identity immediately");
-  assert(ring, "New Conversation must keep the unavailable ring mounted");
-  assert(!/149K|58%/.test(ring.getAttribute("title")), "New Conversation must clear the stale numeric ring before rerender");
-  assert(/unavailable/i.test(ring.getAttribute("title")), "New Conversation must render unavailable metrics");
+  assert.strictEqual(ring, null, "New Conversation must remove the stale numeric ring immediately");
   assert.deepStrictEqual(metricRequests, [], "a blank New Conversation at the stale URL must not fetch stale metrics");
 
   setVisible(newId);
@@ -656,6 +654,136 @@ func TestConversationIdentity_ExplicitIntentRouteAgreementAndBlankReset(t *testi
   assert.strictEqual(routerCalls.length, 0, "explicit target disagreement must fence rendered-ID synchronization");
   assert(!popstateEvents.includes("popstate"), "explicit-intent route synchronization must not synthesize popstate");
 
+  console.log("INTEGRATED_IDENTITY_OK");
+})().catch((error) => { console.error(error.stack || error); process.exit(1); });
+`)
+}
+
+func TestConversationIdentity_GeneratedNewConversationRingResetCallChain(t *testing.T) {
+	runIdentityCallChain(t, `
+(async () => {
+  const oldId = "c23cddd7-1111-4222-8333-444444444444";
+  const newId = "eef014a4-5555-4666-8777-888888888888";
+  const metricRequests = [];
+  const oldMetrics = deferred();
+  const routerCalls = [];
+  const hostSetTimeout = require("timers").setTimeout;
+  const later = (ms) => new Promise(resolve => hostSetTimeout(resolve, ms));
+
+  window.fetch = async (url) => {
+    if (String(url).includes("/api/tokens/chat-metrics")) {
+      const id = new URL(url).searchParams.get("conversation_id");
+      metricRequests.push(id);
+      if (id === oldId) return oldMetrics.promise;
+      if (id === newId) {
+        return {
+          ok: true,
+          json: async () => ({
+            conversation_id: newId,
+            success: true,
+            turns: [{ context_tokens: 245000, input_tokens: 245000, output_tokens: 0 }],
+            context_window: { used_tokens: 245000, max_tokens: 256000 }
+          })
+        };
+      }
+    }
+    return {
+      ok: true,
+      json: async () => ({ success: true, pending_intents: [], user_prompt_count: 0, prompts: [], turns: [] })
+    };
+  };
+  window.__TSR_ROUTER__ = { navigate: ({ to }) => routerCalls.push(to) };
+  window.__swissExplicitConversationNavigation = null;
+
+  const view = new NodeEl("div", "conversation-view");
+  const inputBox = new NodeEl("div", "agent-input-box");
+  inputBox.className = "no-focus-agent-input";
+  inputBox.classList.add("no-focus-agent-input");
+  const trigger = new NodeEl("button", "model-selector-trigger");
+  inputBox.appendChild(trigger);
+  view.appendChild(inputBox);
+  document.body.appendChild(view);
+
+  function setVisible(id) {
+    view.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
+    inputBox.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
+  }
+
+  location.pathname = "/c/" + oldId;
+  location.search = "";
+  location.hash = "";
+  setVisible(oldId);
+  cachedTokensByConv[oldId] = 245000;
+  cachedContextWindowByConv[oldId] = { used_tokens: 245000, max_tokens: 256000 };
+  renderContextWindowProgressRing();
+
+  let ring = document.getElementById("swiss-context-window-ring");
+  assert(ring && /96% \(245K\/256K active\)/.test(ring.getAttribute("title")), "fixture must paint the old numeric ring");
+  assert.deepStrictEqual(metricRequests, [oldId], "fixture must leave an old-route metric request in flight");
+  metricRequests.length = 0;
+
+  const newChat = new NodeEl("button", "new-conversation-button");
+  document.body.appendChild(newChat);
+  emitDocument("click", newChat, true);
+
+  assert(window.__swissExplicitConversationNavigation, "the real document click listener must install New Conversation intent");
+  assert.strictEqual(conversationMetricIdentity.conversationId, null, "New Conversation must invalidate metric identity immediately");
+  assert.strictEqual(conversationMetricIdentity.phase, "blank", "New Conversation must enter blank identity immediately");
+  assert.strictEqual(document.getElementById("swiss-context-window-ring"), null, "New Conversation must remove the numeric ring synchronously");
+  assert.strictEqual(document.querySelectorAll(".swiss-context-window-ring, .swiss-context-window-ring-sub").length, 0, "New Conversation must remove every context ring synchronously");
+  assert.deepStrictEqual(metricRequests, [], "New Conversation must not fetch metrics for the old route");
+
+  location.pathname = "/";
+  location.search = "";
+  setVisible(null);
+  view.remove();
+  await flush();
+  await later(20);
+  await flush();
+
+  assert.strictEqual(conversationMetricIdentity.conversationId, null, "identity must stay blank while no conversation ID is rendered");
+  assert.strictEqual(conversationMetricIdentity.phase, "blank", "identity must stay in the blank phase while no conversation ID is rendered");
+  assert.strictEqual(document.getElementById("swiss-context-window-ring"), null, "no ring may appear without a rendered conversation identity");
+  assert.deepStrictEqual(metricRequests, [], "no delayed render may fetch the prior route after New Conversation");
+
+  oldMetrics.resolve({
+    ok: true,
+    json: async () => ({
+      conversation_id: oldId,
+      success: true,
+      user_prompt_count: 1,
+      prompts: [{ index: 0, text: "old prompt" }],
+      turns: [{ context_tokens: 245000, input_tokens: 245000, output_tokens: 0 }],
+      context_window: { used_tokens: 245000, max_tokens: 256000 }
+    })
+  });
+  await flush();
+  await later(20);
+  await flush();
+
+  assert.strictEqual(document.getElementById("swiss-context-window-ring"), null, "a delayed prior response must not repaint the ring");
+  assert.strictEqual(document.querySelectorAll("[title*='245K']").length, 0, "a delayed prior response must not restore a numeric title");
+  assert.strictEqual(conversationMetricIdentity.conversationId, null, "a delayed prior response must not restore metric identity");
+  assert(!Object.prototype.hasOwnProperty.call(cachedTokensByConv, oldId), "New Conversation must discard the prior numeric cache");
+  assert(!Object.prototype.hasOwnProperty.call(cachedContextWindowByConv, oldId), "New Conversation must discard the prior context-window cache");
+
+  setVisible(newId);
+  document.body.appendChild(view);
+  renderContextWindowProgressRing();
+  await flush();
+  await later(20);
+  await flush();
+
+  ring = document.getElementById("swiss-context-window-ring");
+  assert(ring, "a rendered conversation ID must mount the ring again");
+  assert(/96% \(245K\/256K active\)/.test(ring.getAttribute("title")), "a rendered conversation ID must render fresh numeric metrics: " + ring.getAttribute("title") + " requests=" + JSON.stringify(metricRequests) + " identity=" + JSON.stringify(conversationMetricIdentity) + " tokens_cache=" + JSON.stringify(cachedTokensByConv[newId]) + " window_cache=" + JSON.stringify(cachedContextWindowByConv[newId]) + " generations=" + JSON.stringify(conversationMetricRequestGenerations));
+  assert.strictEqual(conversationMetricIdentity.conversationId, newId, "a rendered conversation ID must resume metric identity");
+  assert.deepStrictEqual(metricRequests, [newId], "the new conversation must fetch metrics exactly once");
+  assert.deepStrictEqual(routerCalls, ["/c/" + newId], "New Conversation route synchronization must still run once");
+
+  renderContextWindowProgressRing();
+  await flush();
+  assert.deepStrictEqual(metricRequests, [newId], "render ticks must not repeat the fresh metric fetch");
   console.log("INTEGRATED_IDENTITY_OK");
 })().catch((error) => { console.error(error.stack || error); process.exit(1); });
 `)
