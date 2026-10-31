@@ -3473,9 +3473,9 @@ func TestBuiltinBrowserBookmarkContract(t *testing.T) {
 	}
 }
 
-func TestBuiltinBrowserKeepsNativeHostAndOmitsDuplicateControlBar(t *testing.T) {
+func TestBuiltinBrowserMigratesLegacyWrapperAndOmitsDuplicateControlBar(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
-	attachStart := strings.Index(js, "function attachBuiltinBrowserEnhancements")
+	attachStart := strings.Index(js, "function migrateLegacyBuiltinBrowserWrapper")
 	attachEnd := strings.Index(js, "window.setupBuiltinBrowserEnhancements")
 	if attachStart < 0 || attachEnd <= attachStart {
 		t.Fatalf("generated native browser attachment block not found")
@@ -3485,13 +3485,19 @@ func TestBuiltinBrowserKeepsNativeHostAndOmitsDuplicateControlBar(t *testing.T) 
 	if !strings.Contains(attachBlock, "webview.__swissEnhanced = true") {
 		t.Errorf("native webview must be marked as enhanced")
 	}
-	for _, forbidden := range []string{"renderBrowserView(", ".swiss-browser-view", ".swiss-device-stage"} {
+	if !strings.Contains(attachBlock, `webview.closest(".swiss-builtin-browser-view")`) ||
+		!strings.Contains(attachBlock, "host.insertBefore(webview, legacy)") ||
+		!strings.Contains(attachBlock, "legacy.remove()") {
+		t.Errorf("native attachment must migrate a legacy wrapper back to its host")
+	}
+	for _, forbidden := range []string{"parent.insertBefore(wrap, webview)", ".swiss-device-stage"} {
 		if strings.Contains(attachBlock, forbidden) {
-			t.Errorf("native attachment must not add a Swiss wrapper containing %q", forbidden)
+			t.Errorf("native attachment must not mount the standalone wrapper containing %q", forbidden)
 		}
 	}
-	if !strings.Contains(js, "if (includeToolbar) {\n        wrap.appendChild(toolbar);\n      }") {
-		t.Errorf("standalone browser renderer must still guard the legacy toolbar append")
+	if !strings.Contains(js, "if (includeToolbar)") ||
+		!strings.Contains(js, "wrap.appendChild(toolbar)") {
+		t.Errorf("standalone browser renderer must conditionally append the shared toolbar")
 	}
 
 	preserved := []string{
@@ -3505,11 +3511,27 @@ func TestBuiltinBrowserKeepsNativeHostAndOmitsDuplicateControlBar(t *testing.T) 
 			t.Errorf("native browser contract missing %q", token)
 		}
 	}
+	wired := []string{
+		`devSelect.onchange = () =>`,
+		`orientSelect.onchange = () =>`,
+		`toolbar.querySelector("#swiss-b-scale").onchange = applyDeviceScale`,
+		`toolbar.querySelector("#swiss-b-touch").onclick`,
+		`injectTouchEmulation(webview, active)`,
+		`canvas.onmousedown = (e) =>`,
+		`webview.executeJavaScript(inspectorScript)`,
+		`webview.capturePage(`,
+		`toolbar.querySelector("#swiss-b-send-chat").onclick = executeSendToChatWorkflow`,
+	}
+	for _, token := range wired {
+		if !strings.Contains(js, token) {
+			t.Errorf("native browser control is not wired to the live webview: %q", token)
+		}
+	}
 }
 
 func TestBuiltinBrowserBookmarkDOMLifecycle(t *testing.T) {
 	js := GenerateAuxiliaryPluginsScript()
-	start := strings.Index(js, "const BOOKMARKS_KEY")
+	start := strings.Index(js, "function renderBrowserView")
 	attachEndMarker := "window.attachBuiltinBrowserEnhancements = attachBuiltinBrowserEnhancements;"
 	attachEnd := strings.Index(js, attachEndMarker)
 	end := attachEnd + len(attachEndMarker)
@@ -3551,7 +3573,22 @@ class MiniNode {
   get classList() {
     const classes = this.className.split(/\s+/).filter(Boolean);
     return {
-      contains: name => classes.includes(name)
+      contains: name => classes.includes(name),
+      add: (...names) => {
+        const next = new Set(this.className.split(/\s+/).filter(Boolean));
+        names.forEach(name => next.add(name));
+        this.className = Array.from(next).join(" ");
+      },
+      remove: (...names) => {
+        const removed = new Set(names);
+        this.className = this.className.split(/\s+/).filter(name => name && !removed.has(name)).join(" ");
+      },
+      toggle: (name, force) => {
+        const has = this.className.split(/\s+/).includes(name);
+        const enabled = force === undefined ? !has : Boolean(force);
+        this.classList[enabled ? "add" : "remove"](name);
+        return enabled;
+      }
     };
   }
 
@@ -3573,6 +3610,14 @@ class MiniNode {
     return this.classList.contains("swiss-bookmark-menu") || this.classList.contains("swiss-bookmark-context") ? 300 : 0;
   }
 
+  get clientWidth() {
+    return this.tagName === "WEBVIEW" ? 800 : 0;
+  }
+
+  get clientHeight() {
+    return this.tagName === "WEBVIEW" ? 600 : 0;
+  }
+
   set innerHTML(value) {
     this._innerHTML = String(value);
     if (this.classList.contains("swiss-bookmark-dialog-backdrop")) {
@@ -3588,6 +3633,33 @@ class MiniNode {
       form.appendChild(address);
       form.appendChild(cancel);
       this.appendChild(form);
+    }
+    if (this.classList.contains("swiss-browser-toolbar")) {
+      const row = new MiniNode("div", this.ownerDocument);
+      row.className = "swiss-browser-tools-row";
+      const deviceGroup = new MiniNode("div", this.ownerDocument);
+      deviceGroup.className = "swiss-browser-device-group";
+      const annotationGroup = new MiniNode("div", this.ownerDocument);
+      annotationGroup.className = "swiss-browser-annotation-group";
+      [
+        ["select", "swiss-b-device", deviceGroup],
+        ["select", "swiss-b-orientation", deviceGroup],
+        ["select", "swiss-b-scale", deviceGroup],
+        ["button", "swiss-b-touch", deviceGroup],
+        ["button", "swiss-b-pen", annotationGroup],
+        ["button", "swiss-b-rect", annotationGroup],
+        ["button", "swiss-b-inspect", annotationGroup],
+        ["button", "swiss-b-clear", annotationGroup],
+        ["button", "swiss-b-send-chat", annotationGroup]
+      ].forEach(([tag, id, parent]) => {
+        const control = new MiniNode(tag, this.ownerDocument);
+        control.className = "swiss-browser-btn";
+        control.id = id;
+        parent.appendChild(control);
+      });
+      row.appendChild(deviceGroup);
+      row.appendChild(annotationGroup);
+      this.appendChild(row);
     }
   }
 
@@ -3720,7 +3792,29 @@ class MiniNode {
   }
 
   getBoundingClientRect() {
-    return { top: 0, right: this.offsetWidth, bottom: 24, left: 0, width: this.offsetWidth, height: 24 };
+    const width = this.tagName === "WEBVIEW" ? 800 : (this.offsetWidth || 320);
+    const height = this.tagName === "WEBVIEW" ? 600 : (this.offsetHeight || 240);
+    return { top: 0, right: width, bottom: height, left: 0, width, height };
+  }
+
+  getContext() {
+    if (!this._context2d) {
+      this._context2d = {
+        save() {},
+        restore() {},
+        setTransform() {},
+        clearRect() {},
+        beginPath() {},
+        moveTo() {},
+        lineTo() {},
+        stroke() {},
+        strokeRect() {},
+        drawImage() {},
+        getImageData() { return {}; },
+        putImageData() {}
+      };
+    }
+    return this._context2d;
   }
 }
 
@@ -3792,7 +3886,21 @@ function makeEnv() {
   windowObject.document = document;
   windowObject.localStorage = localStorage;
 
-  const context = vm.createContext({ console, document, window: windowObject, localStorage });
+  const context = vm.createContext({
+    console,
+    document,
+    window: windowObject,
+    localStorage,
+    currentBrowserUrl: "about:blank",
+    currentBookmarkUrl: "about:blank",
+    activeDevice: "responsive",
+    deviceOrientation: "portrait",
+    drawTool: "none",
+    isTouchEmulationActive: false,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+    getComputedStyle: node => ({ position: node.style.position || "static" })
+  });
   vm.runInContext(bookmarkBlock, context, { filename: "generated-bookmark-lifecycle.js" });
 
   const pane = document.createElement("div");
@@ -3818,7 +3926,7 @@ function makeEnv() {
     cameraFocus.count += 1;
     MiniNode.prototype.focus.call(camera);
   };
-  return { context, document, pane, camera, cameraFocus, oldWebview, oldCalls, newCalls };
+  return { context, document, pane, camera, cameraFocus, localStorage, oldWebview, oldCalls, newCalls };
 }
 
 function click(node) {
@@ -3828,6 +3936,21 @@ function click(node) {
 function openMainMenu(env) {
   click(env.document.querySelector("#swiss-bookmark-star"));
   return env.document.querySelector(".swiss-bookmark-menu");
+}
+
+function wrapLegacyView(env) {
+  env.oldWebview.remove();
+  const wrapper = env.document.createElement("div");
+  wrapper.className = "swiss-builtin-browser-view";
+  const view = env.document.createElement("div");
+  view.className = "swiss-browser-view";
+  const stage = env.document.createElement("div");
+  stage.className = "swiss-device-stage";
+  stage.appendChild(env.oldWebview);
+  view.appendChild(stage);
+  wrapper.appendChild(view);
+  env.pane.appendChild(wrapper);
+  return wrapper;
 }
 
 const failures = [];
@@ -3881,31 +4004,100 @@ scenario("replaced webview routes bookmark selection to the live webview only", 
   assert.deepStrictEqual(env.oldCalls, [], "detached webview received the bookmark URL");
 });
 
-scenario("native attachment preserves host parent and bookmark Star", () => {
+scenario("legacy native wrapper migrates and installs one Swiss functions bar", () => {
   const env = makeEnv();
-  const host = env.oldWebview.parentElement;
-  env.context.setupNativeBookmarkButton(env.oldWebview);
-  const star = env.document.querySelector("#swiss-bookmark-star");
-  assert(star, "native bookmark Star did not mount");
-
-  let renderCalls = 0;
-  env.context.renderBrowserView = (container, webview) => {
-    renderCalls += 1;
-    const viewport = env.document.createElement("div");
-    viewport.className = "swiss-browser-viewport-wrap";
-    const stage = env.document.createElement("div");
-    stage.className = "swiss-device-stage";
-    stage.appendChild(webview);
-    viewport.appendChild(stage);
-    container.appendChild(viewport);
-  };
+  const wrapper = wrapLegacyView(env);
 
   env.context.attachBuiltinBrowserEnhancements(env.oldWebview);
 
-  assert.strictEqual(renderCalls, 0, "native webview must not use the Swiss browser renderer");
-  assert.strictEqual(env.oldWebview.parentElement, host, "native webview changed host parent");
+  const bar = env.pane.querySelector(".swiss-native-browser-toolbar");
+  assert.strictEqual(env.oldWebview.parentElement, env.pane, "native webview did not return to its host parent");
+  assert.strictEqual(wrapper.isConnected, false, "legacy wrapper survived migration");
+  assert.strictEqual(env.pane.querySelectorAll(".swiss-builtin-browser-view").length, 0, "legacy wrapper remains in the pane");
+  assert(bar, "Swiss functions bar was not inserted");
+  assert.strictEqual(env.pane.querySelectorAll(".swiss-native-browser-toolbar").length, 1, "expected exactly one Swiss functions bar");
+  assert.strictEqual(bar.parentElement, env.pane, "Swiss functions bar is not in the native pane");
+  assert.strictEqual(
+    env.pane.children.indexOf(bar),
+    env.pane.children.indexOf(env.camera.parentElement) + 1,
+    "Swiss functions bar is not immediately below the native browser bar"
+  );
+  const barText = bar.innerHTML.toLowerCase();
+  ["back", "forward", "refresh", "address", "quick ports"].forEach(label => {
+    assert(!barText.includes(label), "Swiss functions bar duplicates native control: " + label);
+  });
+
+  const injected = [];
+  env.oldWebview.executeJavaScript = code => {
+    injected.push(String(code));
+    return Promise.resolve();
+  };
+  const device = bar.querySelector("#swiss-b-device");
+  const orientation = bar.querySelector("#swiss-b-orientation");
+  const scale = bar.querySelector("#swiss-b-scale");
+  device.value = "iphone-16-pro";
+  device.onchange();
+  assert.strictEqual(env.oldWebview.style.width, "402px", "device preset did not size the live webview");
+  orientation.value = "landscape";
+  orientation.onchange();
+  assert.strictEqual(env.oldWebview.style.width, "874px", "orientation did not resize the live webview");
+  assert.strictEqual(env.oldWebview.style.height, "402px", "orientation did not swap webview dimensions");
+  scale.value = "0.5";
+  scale.onchange();
+  assert.strictEqual(env.oldWebview.style.transform, "scale(0.500)", "scale control did not transform the live webview");
+  assert(injected.some(code => code.includes("__swissTouchInstalled")), "touch emulation was not injected into the live webview");
+  click(bar.querySelector("#swiss-b-inspect"));
+  assert(injected.some(code => code.includes("__swissInspectorActive")), "Inspect did not execute in the live webview");
+
+  const star = env.document.querySelector("#swiss-bookmark-star");
+  assert(star, "native bookmark Star did not mount");
+  assert.strictEqual(star.parentElement, env.camera.parentElement, "bookmark Star left the native bar");
+
+  const firstBar = bar;
+  env.context.attachBuiltinBrowserEnhancements(env.oldWebview);
+
+  assert.strictEqual(env.oldWebview.parentElement, env.pane, "native webview changed host parent on reattach");
   assert.strictEqual(env.oldWebview.__swissEnhanced, true, "native webview was not marked enhanced");
-  assert.strictEqual(star.isConnected, true, "bookmark Star attachment depends on the wrapper");
+  assert.strictEqual(env.pane.querySelectorAll(".swiss-native-browser-toolbar").length, 1, "reattach created a duplicate bar");
+  assert.strictEqual(env.pane.querySelector(".swiss-native-browser-toolbar"), firstBar, "reattach replaced the existing bar");
+
+  const address = env.context.getBookmarks()[0].address;
+  click(openMainMenu(env).querySelector(".swiss-bookmark-menu-row"));
+  assert.deepStrictEqual(env.oldCalls, [address], "bookmark Star stopped navigating the native webview");
+
+  env.context.teardownBuiltinBrowserEnhancements(env.oldWebview);
+  assert(!env.pane.querySelector(".swiss-native-browser-toolbar"), "teardown left the Swiss functions bar");
+  assert(!env.pane.querySelector(".swiss-native-browser-overlay"), "teardown left the annotation overlay");
+  assert.strictEqual(env.oldWebview.parentElement, env.pane, "teardown moved the native webview");
+  assert.strictEqual(env.camera.parentElement.isConnected, true, "teardown removed the native browser bar");
+  assert.strictEqual(env.camera.isConnected, true, "teardown removed a native control");
+});
+
+scenario("disabled enhancements still migrate a legacy wrapper", () => {
+  const env = makeEnv();
+  const wrapper = wrapLegacyView(env);
+  env.localStorage.setItem("antigravity_swiss_ext_browser_enabled", "false");
+
+  env.context.setupBuiltinBrowserEnhancements();
+
+  assert.strictEqual(env.oldWebview.parentElement, env.pane, "disabled setup left the webview wrapped");
+  assert.strictEqual(wrapper.isConnected, false, "disabled setup left the legacy wrapper mounted");
+  assert(!env.pane.querySelector(".swiss-native-browser-toolbar"), "disabled setup mounted the Swiss functions bar");
+  assert(!env.pane.querySelector(".swiss-native-browser-overlay"), "disabled setup mounted the annotation overlay");
+  assert(!env.pane.querySelector("#swiss-bookmark-star"), "disabled setup left the bookmark Star mounted");
+});
+
+scenario("detached legacy wrapper without a host is left untouched", () => {
+  const env = makeEnv();
+  const wrapper = env.document.createElement("div");
+  wrapper.className = "swiss-builtin-browser-view";
+  env.oldWebview.remove();
+  wrapper.appendChild(env.oldWebview);
+
+  env.context.attachBuiltinBrowserEnhancements(env.oldWebview);
+
+  assert.strictEqual(env.oldWebview.parentElement, wrapper, "hostless webview was detached");
+  assert.strictEqual(env.oldWebview.__swissEnhanced, undefined, "hostless webview was marked enhanced");
 });
 
 if (failures.length) {
