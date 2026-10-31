@@ -495,7 +495,7 @@ func TestConversationIdentity_GeneratedRouteSynchronizationCallChain(t *testing.
   assert.strictEqual(document.getElementById("swiss-context-window-ring"), stableRing, "route synchronization must not remount the ring");
 
   location.pathname = "/c/" + explicitRouteId;
-  setVisible(explicitViewId);
+  setVisible(explicitRouteId);
   const newChat = {
     closest: (selector) => String(selector).includes("new-conversation-button") ? { setAttribute: () => {} } : null
   };
@@ -549,6 +549,111 @@ func TestConversationIdentity_GeneratedRouteSynchronizationCallChain(t *testing.
   renderContextWindowProgressRing();
   assert.strictEqual(replacements.length, 1, "history fallback must not repeat on observer/render ticks");
   assert(!popstateEvents.includes("popstate"), "route synchronization must not fabricate a popstate acknowledgement");
+
+  console.log("INTEGRATED_IDENTITY_OK");
+})().catch((error) => { console.error(error.stack || error); process.exit(1); });
+`)
+}
+
+func TestConversationIdentity_ExplicitIntentRouteAgreementAndBlankReset(t *testing.T) {
+	runIdentityCallChain(t, `
+(async () => {
+  const oldId = "c23cddd7-1111-4222-8333-444444444444";
+  const newId = "eef014a4-5555-4666-8777-888888888888";
+  const staleUrlId = "99999999-aaaa-4bbb-8ccc-dddddddddddd";
+  const disagreementViewId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const disagreementTargetId = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
+  const routerCalls = [];
+  const metricRequests = [];
+  const popstateEvents = [];
+
+  window.fetch = async (url) => {
+    if (String(url).includes("/api/tokens/chat-metrics")) {
+      metricRequests.push(new URL(url).searchParams.get("conversation_id"));
+    }
+    return { ok: true, json: async () => ({ success: true, pending_intents: [], user_prompt_count: 0, prompts: [], turns: [] }) };
+  };
+  window.__TSR_ROUTER__ = { navigate: ({ to }) => routerCalls.push(to) };
+  window.dispatchEvent = (event) => { popstateEvents.push(event.type); return true; };
+
+  const view = new NodeEl("div", "conversation-view");
+  const inputBox = new NodeEl("div", "agent-input-box");
+  inputBox.className = "no-focus-agent-input";
+  inputBox.classList.add("no-focus-agent-input");
+  const trigger = new NodeEl("button", "model-selector-trigger");
+  inputBox.appendChild(trigger);
+  view.appendChild(inputBox);
+  document.body.appendChild(view);
+
+  function setVisible(id) {
+    view.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
+    inputBox.__reactFiber = { memoizedProps: { conversationId: id }, return: null };
+  }
+  function navigationElement(kind, targetId) {
+    const anchor = targetId ? { href: "http://127.0.0.1/c/" + targetId } : null;
+    const element = {
+      closest: (selector) => {
+        const value = String(selector);
+        if (value.includes("a[href]")) return anchor;
+        if (kind === "new" && value.includes("new-conversation-button")) return element;
+        if (kind === "conversation" && value.includes("conversation-row-sidebar")) return element;
+        if (kind === "conversation" && value.includes('a[href*="/c/"]')) return element;
+        return null;
+      }
+    };
+    return element;
+  }
+
+  location.pathname = "/c/" + oldId;
+  location.search = "";
+  location.hash = "";
+  setVisible(oldId);
+  window.__swissExplicitConversationNavigation = null;
+  cachedTokensByConv[oldId] = 149000;
+  cachedContextWindowByConv[oldId] = { used_tokens: 149000, max_tokens: 256000 };
+  renderContextWindowProgressRing();
+  let ring = document.getElementById("swiss-context-window-ring");
+  assert(ring && /149K/.test(ring.getAttribute("title")), "fixture must paint the old numeric ring before New Conversation");
+  metricRequests.length = 0;
+
+  const newIntent = createExplicitConversationNavigationIntent(navigationElement("new"), location, 1);
+  assert.strictEqual(newIntent.kind, "new_conversation", "fixture must create a New Conversation intent");
+  window.__swissExplicitConversationNavigation = newIntent;
+  invalidateConversationMetricIdentityForExplicitIntent(newIntent, conversationMetricIdentity, conversationMetricRequestGenerations);
+  renderContextWindowProgressRing();
+  ring = document.getElementById("swiss-context-window-ring");
+  assert.strictEqual(conversationMetricIdentity.conversationId, null, "New Conversation must invalidate identity immediately");
+  assert.strictEqual(conversationMetricIdentity.phase, "blank", "New Conversation must enter blank identity immediately");
+  assert(ring, "New Conversation must keep the unavailable ring mounted");
+  assert(!/149K|58%/.test(ring.getAttribute("title")), "New Conversation must clear the stale numeric ring before rerender");
+  assert(/unavailable/i.test(ring.getAttribute("title")), "New Conversation must render unavailable metrics");
+  assert.deepStrictEqual(metricRequests, [], "a blank New Conversation at the stale URL must not fetch stale metrics");
+
+  setVisible(newId);
+  renderContextWindowProgressRing();
+  assert.deepStrictEqual(routerCalls, ["/c/" + newId], "the first rendered New Conversation ID must synchronize once while URL remains old");
+  renderContextWindowProgressRing();
+  renderContextWindowProgressRing();
+  assert.strictEqual(routerCalls.length, 1, "pending New Conversation synchronization must not loop on render ticks");
+
+  routerCalls.length = 0;
+  location.pathname = "/c/" + staleUrlId;
+  setVisible(newId);
+  window.__swissExplicitConversationNavigation = createExplicitConversationNavigationIntent(navigationElement("conversation", newId), location, 2);
+  renderContextWindowProgressRing();
+  assert.deepStrictEqual(routerCalls, ["/c/" + newId], "sidebar intent agreeing with the rendered ID must repair the stale URL exactly once");
+  renderContextWindowProgressRing();
+  renderContextWindowProgressRing();
+  assert.strictEqual(routerCalls.length, 1, "target agreement must not repeat synchronization on render ticks");
+
+  routerCalls.length = 0;
+  location.pathname = "/c/" + staleUrlId;
+  setVisible(disagreementViewId);
+  window.__swissExplicitConversationNavigation = createExplicitConversationNavigationIntent(navigationElement("conversation", disagreementTargetId), location, 3);
+  renderContextWindowProgressRing();
+  renderContextWindowProgressRing();
+  assert.strictEqual(routerCalls.length, 0, "explicit target disagreement must fence rendered-ID synchronization");
+  assert(!popstateEvents.includes("popstate"), "explicit-intent route synchronization must not synthesize popstate");
 
   console.log("INTEGRATED_IDENTITY_OK");
 })().catch((error) => { console.error(error.stack || error); process.exit(1); });

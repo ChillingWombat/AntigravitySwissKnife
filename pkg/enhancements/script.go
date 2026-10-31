@@ -2621,13 +2621,36 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }
     }
 
+    function invalidateConversationMetricIdentityForExplicitIntent(intent, identity, requestGenerations) {
+      if (!intent || intent.kind !== "new_conversation" || !intent.pending) return false;
+      identity.phase = "blank";
+      identity.lastRenderedId = null;
+      identity.routeFallbackBlocked = true;
+      activateConversationIdentity(identity, requestGenerations, null);
+      return true;
+    }
+
+    function explicitConversationNavigationFencesRenderedRoute(intent, location, visibleId) {
+      if (!isExplicitConversationNavigationActive(intent, location) || !isConversationId(visibleId)) return false;
+      const targetId = intent.targetConversationId;
+      if (isConversationId(targetId)) return targetId !== visibleId;
+      if (intent.kind === "new_conversation") {
+        const sourceId = parseConversationId(intent.sourceRoute);
+        return !isConversationId(sourceId) || visibleId === sourceId;
+      }
+      return true;
+    }
+
     function synchronizeRenderedConversationRoute(state, visibleId, location, explicitIntent) {
       if (!state) return "none";
-      if (isExplicitConversationNavigationActive(explicitIntent, location)) {
+      if (!isConversationId(visibleId)) {
+        if (isExplicitConversationNavigationActive(explicitIntent, location)) state.attemptedKey = "";
+        return "none";
+      }
+      if (explicitConversationNavigationFencesRenderedRoute(explicitIntent, location, visibleId)) {
         state.attemptedKey = "";
         return "none";
       }
-      if (!isConversationId(visibleId)) return "none";
 
       const currentRoute = routeKeyForLocation(location);
       if (parseConversationId(currentRoute) === visibleId) {
@@ -3655,6 +3678,9 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
           if (!intent) return;
           window.__swissExplicitConversationNavigation = intent;
           persistExplicitConversationNavigationIntent(intent);
+          if (invalidateConversationMetricIdentityForExplicitIntent(intent, conversationMetricIdentity, conversationMetricRequestGenerations)) {
+            renderContextWindowProgressRing();
+          }
           setTimeout(() => {
             if (bindExplicitConversationNavigationIntent(intent, window.location)) {
               persistExplicitConversationNavigationIntent(intent);
@@ -4027,8 +4053,13 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }
 
       const conversationView = document.querySelector('[data-testid="conversation-view"]');
-      const visibleConversationId = getVisibleConversationId(conversationView);
+      const renderedConversationId = getVisibleConversationId(conversationView);
       const explicitIntent = window.__swissExplicitConversationNavigation;
+      const sourceConversationId = parseConversationId(explicitIntent && explicitIntent.sourceRoute);
+      const newConversationPending = Boolean(explicitIntent && explicitIntent.kind === "new_conversation" && explicitIntent.pending);
+      const newConversationRendered = newConversationPending && isConversationId(renderedConversationId) &&
+        (!isConversationId(sourceConversationId) || renderedConversationId !== sourceConversationId);
+      const visibleConversationId = newConversationPending && !newConversationRendered ? null : renderedConversationId;
       synchronizeRenderedConversationRoute(conversationRouteSyncState, visibleConversationId, window.location, explicitIntent);
       const parentConvId = transitionConversationMetricIdentity(
         conversationMetricIdentity,
@@ -4055,7 +4086,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         if (isInsideSubagentBox) {
           if (mainRing) mainRing.remove();
         } else {
-          const convId = resolveCurrentConversationId(trigger) || parentConvId;
+          const convId = parentConvId;
           if (isConversationId(convId)) {
             fetchActiveConversationTokens(convId);
           }
