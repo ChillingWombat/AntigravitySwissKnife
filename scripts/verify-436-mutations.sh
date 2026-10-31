@@ -122,4 +122,4 @@ if ! cmp -s "$ROOT/$VERTEX" "$TMP/vertex.go" || ! cmp -s "$ROOT/$INJECTOR" "$TMP
   printf 'mutant restoration did not match the pre-probe baseline\n'
   exit 1
 fi
-printf 'All 436 mutants were restored; production files match the pre-probe baseline.\n' 
+printf 'All 436 mutants were restored; production files match the pre-probe baseline.\n'
