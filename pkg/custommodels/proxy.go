@@ -180,61 +180,120 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 
 // tryCustomModel answers a generation call locally when the requested model is a
 // Swiss Knife custom model. It reports whether it handled the request.
+type customModelEnvelope struct {
+	Model     string          `json:"model"`
+	RequestID string          `json:"requestId"`
+	Request   json.RawMessage `json:"request"`
+}
+
 func (p *Proxy) tryCustomModel(w http.ResponseWriter, r *http.Request, body []byte, stream, wrapped bool) bool {
-	var envelope struct {
-		Model     string          `json:"model"`
-		RequestID string          `json:"requestId"`
-		Request   json.RawMessage `json:"request"`
-	}
-	if err := json.Unmarshal(body, &envelope); err != nil {
+	envelope, ok := decodeCustomModelEnvelope(body)
+	if !ok {
 		return false
+	}
+	model := p.resolveCustomModel(r, envelope.Model)
+	if model == nil {
+		return false
+	}
+	request, handled := decodeCustomModelRequest(w, &envelope)
+	if handled {
+		return true
+	}
+	log.Printf("[cloudcode-proxy] %s model=%q -> custom %q (%s)", r.URL.Path, envelope.Model, model.ID, model.ProviderType)
+	p.persistCustomModelConversation(&envelope, request, model)
+	syncModelIdentityInRequest(request, model)
+	if stream {
+		p.completeCustomModelStream(w, r, model, request, envelope.RequestID, wrapped)
+	} else {
+		p.completeCustomModelBuffered(w, r, model, request)
+	}
+	return true
+}
+
+func decodeCustomModelEnvelope(body []byte) (customModelEnvelope, bool) {
+	var envelope customModelEnvelope
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return envelope, false
 	}
 	if len(envelope.Request) == 0 && strings.TrimSpace(envelope.Model) == "" {
-		return false // not an envelope we understand: let it pass through
+		return envelope, false
 	}
-	model := p.findCustomModel(envelope.Model)
-	if model == nil {
-		isCLI := strings.Contains(r.Header.Get("User-Agent"), "antigravity/cli")
-		if !isCLI || strings.TrimSpace(envelope.Model) == "" {
-			model = p.activeCustomModel()
-			if model != nil && model.ThinkingLevel == "" && model.SupportsThinking {
-				lowerModel := strings.ToLower(envelope.Model)
-				for _, lvl := range []string{"high", "medium", "low", "xhigh", "max"} {
-					if strings.HasSuffix(lowerModel, "-"+lvl) {
-						model.ThinkingLevel = lvl
-						break
-					}
-				}
-			}
+	return envelope, true
+}
+
+func (p *Proxy) resolveCustomModel(r *http.Request, requested string) *CustomModel {
+	model := p.findCustomModel(requested)
+	if model != nil {
+		return model
+	}
+	if isAntigravityCLIRequest(r, requested) {
+		return nil
+	}
+	model = p.activeCustomModel()
+	if shouldApplyThinkingLevel(model) {
+		applyThinkingLevelSuffix(model, requested)
+	}
+	return model
+}
+
+func isAntigravityCLIRequest(r *http.Request, requested string) bool {
+	return strings.Contains(r.Header.Get("User-Agent"), "antigravity/cli") && strings.TrimSpace(requested) != ""
+}
+
+func shouldApplyThinkingLevel(model *CustomModel) bool {
+	return model != nil && model.ThinkingLevel == "" && model.SupportsThinking
+}
+
+func applyThinkingLevelSuffix(model *CustomModel, requested string) {
+	lowerModel := strings.ToLower(requested)
+	for _, level := range []string{"high", "medium", "low", "xhigh", "max"} {
+		if strings.HasSuffix(lowerModel, "-"+level) {
+			model.ThinkingLevel = level
+			return
 		}
 	}
-	if model == nil {
-		return false
-	}
+}
 
+func decodeCustomModelRequest(w http.ResponseWriter, envelope *customModelEnvelope) (*geminiRequest, bool) {
 	var request geminiRequest
 	if len(envelope.Request) > 0 {
 		if err := json.Unmarshal(envelope.Request, &request); err != nil {
 			http.Error(w, "invalid request payload: "+err.Error(), http.StatusBadRequest)
-			return true
+			return nil, true
 		}
 	}
-	log.Printf("[cloudcode-proxy] %s model=%q -> custom %q (%s)", r.URL.Path, envelope.Model, model.ID, model.ProviderType)
+	return &request, false
+}
 
+func (p *Proxy) persistCustomModelConversation(envelope *customModelEnvelope, request *geminiRequest, model *CustomModel) {
 	convID := extractConversationID(envelope.RequestID, envelope.Request)
 	if convID != "" && p.store != nil {
 		if err := p.store.RecordConversationModel(convID, model.ID); err != nil {
 			log.Printf("[cloudcode-proxy] persist conversation model %s: %v", convID, err)
 		}
 	}
-	syncModelIdentityInRequest(&request, model)
+}
 
-	requestID := envelope.RequestID
-	emit := func(frame geminiResponse) error {
+func (p *Proxy) completeCustomModelStream(w http.ResponseWriter, r *http.Request, model *CustomModel, request *geminiRequest, requestID string, wrapped bool) bool {
+	startGeminiSSE(w)
+	emit := newProxySSEEmitter(w, wrapped, requestID)
+	if err := p.gw.runTurn(r, model, request, emit); err != nil {
+		logProviderFailure("[cloudcode-proxy]", model)
+		_ = emit(providerFailureFrame(err))
+		return true
+	}
+	_ = emit(geminiResponse{Candidates: []geminiCandidate{{
+		Content:      geminiContent{Role: "model", Parts: []geminiPart{}},
+		FinishReason: "STOP",
+	}}})
+	return true
+}
+
+func newProxySSEEmitter(w http.ResponseWriter, wrapped bool, requestID string) func(geminiResponse) error {
+	flusher, _ := w.(http.Flusher)
+	return func(frame geminiResponse) error {
 		payload := interface{}(frame)
 		if wrapped {
-			// The language server expects the Cloud Code envelope around each
-			// frame; bare Gemini frames are silently rejected and the turn hangs.
 			payload = map[string]interface{}{
 				"response": frame,
 				"traceId":  eventTraceID(requestID),
@@ -248,47 +307,20 @@ func (p *Proxy) tryCustomModel(w http.ResponseWriter, r *http.Request, body []by
 		if _, writeErr := fmt.Fprintf(w, "data: %s\n\n", data); writeErr != nil {
 			return writeErr
 		}
-		if flusher, ok := w.(http.Flusher); ok {
+		if flusher != nil {
 			flusher.Flush()
 		}
 		return nil
 	}
+}
 
-	if !stream {
-		var frames []geminiResponse
-		if err := p.gw.runTurn(r, model, &request, func(frame geminiResponse) error {
-			frames = append(frames, frame)
-			return nil
-		}); err != nil {
-			writeGatewayJSON(w, http.StatusBadGateway, geminiResponse{Error: &geminiError{Code: 502, Message: err.Error(), Status: "BAD_GATEWAY"}})
-			return true
-		}
-		merged := geminiResponse{Candidates: []geminiCandidate{{Content: geminiContent{Role: "model"}, FinishReason: "STOP"}}}
-		for _, frame := range frames {
-			if len(frame.Candidates) > 0 {
-				merged.Candidates[0].Content.Parts = append(merged.Candidates[0].Content.Parts, frame.Candidates[0].Content.Parts...)
-			}
-			if frame.UsageMetadata != nil {
-				merged.UsageMetadata = frame.UsageMetadata
-			}
-		}
-		writeGatewayJSON(w, http.StatusOK, merged)
+func (p *Proxy) completeCustomModelBuffered(w http.ResponseWriter, r *http.Request, model *CustomModel, request *geminiRequest) bool {
+	merged, err := p.gw.bufferGeminiTurn(r, model, request)
+	if err != nil {
+		writeGatewayJSON(w, http.StatusBadGateway, geminiResponse{Error: &geminiError{Code: 502, Message: err.Error(), Status: "BAD_GATEWAY"}})
 		return true
 	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
-	if err := p.gw.runTurn(r, model, &request, emit); err != nil {
-		logProviderFailure("[cloudcode-proxy]", model)
-		_ = emit(providerFailureFrame(err))
-		return true
-	}
-	_ = emit(geminiResponse{Candidates: []geminiCandidate{{
-		Content:      geminiContent{Role: "model", Parts: []geminiPart{}},
-		FinishReason: "STOP",
-	}}})
+	writeGatewayJSON(w, http.StatusOK, merged)
 	return true
 }
 
@@ -300,8 +332,6 @@ func eventTraceID(requestID string) string {
 	return "swiss-cloudcode"
 }
 
-// findCustomModel matches the model id the language server sends against the
-// enabled custom models.
 func (p *Proxy) findCustomModel(modelID string) *CustomModel {
 	wanted := strings.TrimSpace(modelID)
 	if wanted == "" {
