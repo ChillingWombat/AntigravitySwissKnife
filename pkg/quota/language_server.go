@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -32,6 +33,9 @@ type languageServerEndpoint struct {
 	origin    string
 	csrfToken string
 }
+
+// ErrNoLanguageServers means there was no live Antigravity process to update.
+var ErrNoLanguageServers = errors.New("no running Antigravity language_server instances discovered")
 
 type languageServerClientModelConfig struct {
 	ModelID        string                        `json:"modelId"`
@@ -681,9 +685,13 @@ func SetLanguageServerCloudCodeURLForEndpoint(endpoint languageServerEndpoint, t
 // language_server instances to route their Cloud Code requests to targetURL
 // (e.g. "http://127.0.0.1:8765").
 func SetLanguageServerCloudCodeURL(targetURL string) error {
-	endpoints := discoverLanguageServerEndpoints()
+	return setLanguageServerCloudCodeURL(targetURL, discoverLanguageServerEndpoints)
+}
+
+func setLanguageServerCloudCodeURL(targetURL string, discover func() []languageServerEndpoint) error {
+	endpoints := discover()
 	if len(endpoints) == 0 {
-		return fmt.Errorf("no running Antigravity language_server instances discovered")
+		return ErrNoLanguageServers
 	}
 	var lastErr error
 	successCount := 0

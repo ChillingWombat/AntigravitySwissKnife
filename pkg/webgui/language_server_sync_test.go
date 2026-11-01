@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/quota"
 )
 
 func TestLanguageServerURLSyncDisabledDuringTests(t *testing.T) {
@@ -49,6 +51,31 @@ func TestHandleCustomModelRestoreNative(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), `"restored_native":true`) {
 		t.Errorf("expected restored_native true, got: %s", rr.Body.String())
+	}
+}
+
+func TestHandleCustomModelRestoreNativeIgnoresMissingLanguageServers(t *testing.T) {
+	srv := newTestServer("127.0.0.1:0", "")
+	restartCalls := 0
+	srv.restoreNativeDeps = restoreNativeDeps{
+		syncURL: func(string) error { return quota.ErrNoLanguageServers },
+		restartApps: func() error {
+			restartCalls++
+			return nil
+		},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/custom_models/restore_native", nil)
+	rr := httptest.NewRecorder()
+	srv.handleCustomModelRestoreNative(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"restored_native":true`) {
+		t.Errorf("expected restored_native true, got: %s", rr.Body.String())
+	}
+	if restartCalls != 1 {
+		t.Fatalf("restart calls = %d, want 1", restartCalls)
 	}
 }
 
