@@ -753,6 +753,11 @@ export const api = {
   // Custom Model Provider
   getCustomModels: () => request<CustomModelsConfig>('/api/custom_models'),
 
+  getCustomModelKey: (id: string, field: 'api_key' | 'gcp_service_account_key') =>
+    request<{ id: string; field: string; value: string }>(
+      `/api/custom_models/key?id=${encodeURIComponent(id)}&field=${field}`
+    ),
+
   saveCustomModel: (model: CustomModel) =>
     request<{ success: boolean; model: CustomModel }>('/api/custom_models', {
       method: 'POST',

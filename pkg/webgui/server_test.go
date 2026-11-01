@@ -3753,13 +3753,14 @@ func TestCustomModels_KeyEndpointAndDynamicBalanceReconciliation(t *testing.T) {
 	defer srv.Stop()
 	baseURL := "http://" + srv.Addr()
 
-	// 1. The raw credential endpoint is removed.
-	keyResp, err := http.Get(baseURL + "/api/custom_models/key?id=gcp-argon-1")
+	// 1. The selected credential endpoint rejects unauthenticated requests.
+	rawClient := &http.Client{Transport: &http.Transport{}}
+	keyResp, err := rawClient.Get(baseURL + "/api/custom_models/key?id=gcp-argon-1")
 	if err != nil {
 		t.Fatalf("GET /api/custom_models/key failed: %v", err)
 	}
-	if keyResp.StatusCode != http.StatusNotFound {
-		t.Fatalf("GET /api/custom_models/key returned %d, want 404", keyResp.StatusCode)
+	if keyResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET /api/custom_models/key returned %d, want 401", keyResp.StatusCode)
 	}
 	keyBody, _ := io.ReadAll(keyResp.Body)
 	keyResp.Body.Close()

@@ -281,14 +281,14 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     assert.ok(!pageContent.includes('Manual Entry Required'), 'The yellow null-price pill must be removed')
   })
 
-  it('edits a GCP model without fetching the stored JSON key', () => {
+  it('hydrates a GCP model through the selected credential field', () => {
     assert.ok(
-      !pageContent.includes('api.getCustomModelKey(model.id)'),
-      'openEditGcpModal must not fetch unredacted service-account credentials'
+      pageContent.includes("api.getCustomModelKey(gcpEditingModel.id, 'gcp_service_account_key')"),
+      'the selected GCP editor must fetch only the service-account field'
     )
     assert.ok(
-      pageContent.includes("private_key: '[SAVED]'"),
-      'openEditGcpModal must indicate that the stored credential remains server-side'
+      !pageContent.includes("private_key: '[SAVED]'"),
+      'the GCP editor must not render a fake saved credential placeholder'
     )
   })
 

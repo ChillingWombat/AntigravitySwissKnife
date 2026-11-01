@@ -139,6 +139,8 @@ export const CustomModelsPage: React.FC = () => {
   const [providerType, setProviderType] = useState<ProviderType>('gemini')
   const [baseUrl, setBaseUrl] = useState<string>('')
   const [apiKey, setApiKey] = useState<string>('')
+  const [apiKeyLoading, setApiKeyLoading] = useState<boolean>(false)
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null)
   const [customQuotaEndpoint, setCustomQuotaEndpoint] = useState<string>('')
   const [isFetchingCustomQuota, setIsFetchingCustomQuota] = useState<boolean>(false)
   const [customQuotaFeedback, setCustomQuotaFeedback] = useState<{
@@ -202,6 +204,8 @@ export const CustomModelsPage: React.FC = () => {
   const isGcpModalOpen = dialog.type === 'gcpForm'
   const gcpEditingModel = dialog.type === 'gcpForm' ? dialog.initialModel : null
   const [gcpJsonContent, setGcpJsonContent] = useState<string>('')
+  const [gcpKeyLoading, setGcpKeyLoading] = useState<boolean>(false)
+  const [gcpHydrationError, setGcpHydrationError] = useState<string | null>(null)
   const [gcpParsedKey, setGcpParsedKey] = useState<any | null>(null)
   const [gcpParseError, setGcpParseError] = useState<string | null>(null)
   const [gcpProjectId, setGcpProjectId] = useState<string>('')
@@ -221,6 +225,71 @@ export const CustomModelsPage: React.FC = () => {
   // sections do not share (and clobber) each other's collapsed/expanded state.
   const [isGcpQuotaBudgetOpen, setIsGcpQuotaBudgetOpen] = useState<boolean>(false)
   const gcpFileInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    setApiKey('')
+    setApiKeyError(null)
+    setApiKeyLoading(false)
+    setGcpJsonContent('')
+    setGcpParsedKey(null)
+    setGcpParseError(null)
+    setGcpHydrationError(null)
+    setGcpKeyLoading(false)
+
+    if (editingModel) {
+      let cancelled = false
+      setApiKeyLoading(true)
+      api.getCustomModelKey(editingModel.id, 'api_key')
+        .then((result) => {
+          if (cancelled) return
+          if (!result.value) throw new Error('The saved key is empty.')
+          setApiKey(result.value)
+        })
+        .catch((error: any) => {
+          if (cancelled) return
+          setApiKey('')
+          setApiKeyError(`Saved API key could not be loaded: ${error.message || 'unknown error'}`)
+        })
+        .finally(() => {
+          if (!cancelled) setApiKeyLoading(false)
+        })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    if (gcpEditingModel) {
+      let cancelled = false
+      setGcpKeyLoading(true)
+      api.getCustomModelKey(gcpEditingModel.id, 'gcp_service_account_key')
+        .then((result) => {
+          if (cancelled) return
+          if (!result.value) throw new Error('The saved key is empty.')
+          try {
+            const parsed = JSON.parse(result.value)
+            setGcpJsonContent(JSON.stringify(parsed, null, 2))
+            setGcpParsedKey(parsed)
+            if (parsed.client_email) setGcpClientEmail(parsed.client_email)
+            if (parsed.project_id && !gcpProjectId.trim()) setGcpProjectId(parsed.project_id)
+          } catch (error: any) {
+            setGcpJsonContent(result.value)
+            setGcpParsedKey(null)
+            setGcpParseError(`Saved service-account key is not valid JSON: ${error.message || 'parse failed'}`)
+          }
+        })
+        .catch((error: any) => {
+          if (cancelled) return
+          setGcpJsonContent('')
+          setGcpHydrationError(`Saved service-account JSON could not be loaded: ${error.message || 'unknown error'}`)
+        })
+        .finally(() => {
+          if (!cancelled) setGcpKeyLoading(false)
+        })
+      return () => {
+        cancelled = true
+      }
+    }
+  }, [editingModel, gcpEditingModel])
+
 
   const openAddGcpModal = () => {
     setGcpJsonContent('')
@@ -268,33 +337,9 @@ export const CustomModelsPage: React.FC = () => {
     }
     setGcpBalanceValue(initialBalance)
 
-    const inlineKey = model.gcp_service_account_key
-    if (inlineKey && inlineKey !== '[REDACTED]') {
-      let formattedKey = inlineKey
-      try {
-        const parsed = JSON.parse(inlineKey)
-        formattedKey = JSON.stringify(parsed, null, 2)
-        if (parsed.type === 'service_account') {
-          setGcpParsedKey(parsed)
-          if (parsed.client_email) setGcpClientEmail(parsed.client_email)
-        }
-      } catch {
-        setGcpParsedKey(null)
-      }
-      setGcpJsonContent(formattedKey)
-    } else {
-      setGcpJsonContent('')
-      const extractedEmail = model.notes?.match(/via\s+([^\s]+)/)?.[1] || 'Saved Service Account'
-      setGcpParsedKey({
-        type: 'service_account',
-        project_id: projectId,
-        private_key_id: 'saved',
-        private_key: '[SAVED]',
-        client_email: extractedEmail,
-        client_id: '',
-      })
-      setGcpClientEmail(extractedEmail)
-    }
+    setGcpJsonContent('')
+    setGcpParsedKey(null)
+    setGcpClientEmail('')
     dispatchDialog({ type: 'openGcp', mode: 'edit', initialModel: model })
   }
 
@@ -638,12 +683,11 @@ export const CustomModelsPage: React.FC = () => {
       openEditGcpModal(model)
       return
     }
-    const listedKey = model.api_key?.trim() || ''
     setDisplayName(model.display_name)
     setModelName(model.name)
     setProviderType(model.provider_type || inferProviderType(model.base_url))
     setBaseUrl(model.base_url)
-    setApiKey(listedKey && listedKey !== '[REDACTED]' ? listedKey : '')
+    setApiKey('')
     setCustomQuotaEndpoint(model.custom_quota_endpoint || '')
     setIsFetchingCustomQuota(false)
     setCustomQuotaFeedback(null)
@@ -2296,6 +2340,16 @@ export const CustomModelsPage: React.FC = () => {
                     {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
+                {apiKeyLoading && (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Loading saved API key...
+                  </div>
+                )}
+                {apiKeyError && (
+                  <div role="alert" style={{ fontSize: '11px', color: 'var(--red)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <AlertCircle size={12} /> {apiKeyError}
+                  </div>
+                )}
               </div>
 
               {/* Toggles & Test Connection */}
@@ -3118,6 +3172,16 @@ export const CustomModelsPage: React.FC = () => {
                   boxSizing: 'border-box',
                 }}
               />
+              {gcpKeyLoading && (
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Loading saved service-account JSON...
+                </div>
+              )}
+              {gcpHydrationError && (
+                <div role="alert" style={{ fontSize: '11px', color: 'var(--red)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <AlertCircle size={12} /> {gcpHydrationError}
+                </div>
+              )}
               {gcpParseError && (
                 <div style={{ fontSize: '11px', color: 'var(--red)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <AlertCircle size={12} /> {gcpParseError}

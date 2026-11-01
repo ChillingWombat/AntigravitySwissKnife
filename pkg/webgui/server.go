@@ -632,6 +632,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/api/custom_models/thinking_level", s.handleCustomModelThinkingLevel)
 	mux.HandleFunc("/api/custom_models/fetch_quota", s.handleCustomModelFetchQuota)
 	mux.HandleFunc("/api/custom_models/refresh_quotas", s.handleCustomModelRefreshQuotas)
+	mux.HandleFunc("/api/custom_models/key", s.handleCustomModelKey)
 	mux.HandleFunc("/api/custom_models/cli_status", s.handleCustomModelCLIStatus)
 	mux.HandleFunc("/api/custom_models/cli_setup", s.handleCustomModelCLISetup)
 	mux.HandleFunc("/api/custom_models/security-audit", s.handleCustomModelSecurityAudit)
@@ -3362,6 +3363,44 @@ func (s *Server) handleCustomModels(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleCustomModelKey(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	if !s.validateRequestAuth(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		http.Error(w, "missing model id parameter", http.StatusBadRequest)
+		return
+	}
+	field := strings.TrimSpace(r.URL.Query().Get("field"))
+	if field != "api_key" && field != "gcp_service_account_key" {
+		http.Error(w, "field must be api_key or gcp_service_account_key", http.StatusBadRequest)
+		return
+	}
+	store := s.getCustomModelsStore()
+	if store == nil {
+		http.Error(w, "custom models store not initialized", http.StatusInternalServerError)
+		return
+	}
+	model, err := store.GetModel(id)
+	if err != nil || model == nil {
+		http.Error(w, "model not found", http.StatusNotFound)
+		return
+	}
+	value := model.APIKey
+	if field == "gcp_service_account_key" {
+		value = model.GCPServiceAccountKey
+	}
+	writeJSON(w, map[string]string{"id": id, "field": field, "value": value})
 }
 
 func addVaryHeader(header http.Header, value string) {

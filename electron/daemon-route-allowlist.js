@@ -28,6 +28,7 @@ module.exports = Object.freeze({
     "/api/custom_models",
     "/api/custom_models/cli_status",
     "/api/custom_models/integration",
+    "/api/custom_models/key",
     "/api/custom_models/presets",
     "/api/enhancements",
     "/api/extensions/community",

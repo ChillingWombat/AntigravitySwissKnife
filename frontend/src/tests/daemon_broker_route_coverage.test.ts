@@ -203,7 +203,7 @@ describe('daemon broker route policy coverage', () => {
 
   it('allows every frontend daemon request without native approval', () => {
     assert.deepEqual(unresolved, [])
-    assert.equal(frontendRoutes.length, 158)
+    assert.equal(frontendRoutes.length, 159)
     const missing = frontendRoutes.filter(({ method, path: routePath }) => {
       return !ALLOWED_ROUTES[method].has(routePath) && !PRIVILEGED_ROUTES[method].has(routePath)
     })
@@ -270,6 +270,7 @@ describe('daemon broker route policy coverage', () => {
       }
     }
     assert.equal(isApprovalRoute('GET', '/api/bridge/channels/config?unredacted=true'), false)
+    assert.equal(isApprovalRoute('GET', '/api/custom_models/key?id=model&field=api_key'), false)
   })
 
   it('does not place a route in both the allowed and approval-gated sets', () => {
