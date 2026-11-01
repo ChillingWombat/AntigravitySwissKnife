@@ -3747,6 +3747,9 @@ func (s *Server) restoreNative() restoreNativeOutcome {
 	}
 
 	outcome := restoreNativeOutcome{SyncErr: deps.syncURL("")}
+	if errors.Is(outcome.SyncErr, quota.ErrNoLanguageServers) {
+		outcome.SyncErr = nil
+	}
 	outcome.RestartErr = deps.restartApps()
 	return outcome
 }

@@ -3,6 +3,7 @@ package quota
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -433,5 +434,12 @@ func TestSetLanguageServerCloudCodeURL(t *testing.T) {
 	}
 	if urlVal, ok := receivedPayload["url"].(string); !ok || urlVal != targetURL {
 		t.Errorf("received payload url = %v, want %q", receivedPayload["url"], targetURL)
+	}
+}
+
+func TestSetLanguageServerCloudCodeURLNoRunningInstances(t *testing.T) {
+	err := setLanguageServerCloudCodeURL("", func() []languageServerEndpoint { return nil })
+	if !errors.Is(err, ErrNoLanguageServers) {
+		t.Fatalf("error = %v, want ErrNoLanguageServers", err)
 	}
 }
