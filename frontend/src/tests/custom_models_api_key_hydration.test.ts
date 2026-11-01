@@ -108,6 +108,68 @@ describe('Custom model edit key handling', () => {
     )
   })
 
+  it('clears stale API credentials when switching editors before hydration settles', async () => {
+    initDOM()
+    let resolveSecondHydration!: (response: Response) => void
+    const secondHydration = new Promise<Response>((resolve) => {
+      resolveSecondHydration = resolve
+    })
+    globalThis.fetch = (async (url: any) => {
+      const target = String(url)
+      if (target === '/api/custom_models') {
+        return jsonResponse(
+          makeConfig(
+            makeModel('first-api-model', 'First API Model'),
+            makeModel('second-api-model', 'Second API Model')
+          )
+        )
+      }
+      if (target === '/api/rules') {
+        return jsonResponse({ default_custom_model: '' })
+      }
+      if (target.startsWith('/api/custom_models/key?')) {
+        const parsed = new URL(target, 'http://localhost')
+        const id = parsed.searchParams.get('id')
+        assert.equal(parsed.searchParams.get('field'), 'api_key')
+        if (id === 'first-api-model') {
+          return jsonResponse({ id, field: 'api_key', value: 'first-model-saved-key' })
+        }
+        assert.equal(id, 'second-api-model')
+        return secondHydration
+      }
+      return jsonResponse({})
+    }) as typeof fetch
+
+    view = await mount(React.createElement(CustomModelsPage))
+    await flush()
+    const firstEditButton = findEditButton(view, 'First API Model')
+    assert.ok(firstEditButton, 'first model Edit button must render')
+    await view.click(firstEditButton)
+    await flush()
+    assert.equal(apiKeyInput(view)?.value, 'first-model-saved-key')
+
+    const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent?.trim() === 'Cancel'
+    )
+    assert.ok(cancelButton, 'cancel button must render')
+    await view.click(cancelButton)
+    await flush()
+
+    const secondEditButton = findEditButton(view, 'Second API Model')
+    assert.ok(secondEditButton, 'second model Edit button must render')
+    await view.click(secondEditButton)
+    await flush()
+    assert.equal(
+      apiKeyInput(view)?.value,
+      '',
+      'the previous model key must be cleared while the next hydration is still pending'
+    )
+
+    resolveSecondHydration(jsonResponse({ id: 'second-api-model', field: 'api_key', value: 'second-model-saved-key' }))
+    await flush()
+    assert.equal(apiKeyInput(view)?.value, 'second-model-saved-key')
+  })
+
   it('clears credential state on close and reports hydration failures', async () => {
     initDOM()
     let keyRequests = 0
@@ -160,7 +222,7 @@ describe('Custom model edit key handling', () => {
     assert.match(document.body.textContent || '', /Saved API key could not be loaded/)
   })
 
-  it('formats saved GCP JSON and keeps malformed credentials visible with a parse error', async () => {
+  it('pretty-prints hydrated GCP service-account JSON and keeps malformed credentials visible', async () => {
     initDOM()
     const compact = '{"type":"service_account","project_id":"test-proj","private_key":"test-key","client_email":"test@example.com"}'
     let returnMalformed = false
@@ -198,7 +260,17 @@ describe('Custom model edit key handling', () => {
     await view.click(editButton)
     await flush()
     let textarea = document.querySelector<HTMLTextAreaElement>('#gcp-service-account-json')
-    assert.equal(textarea?.value, JSON.stringify(JSON.parse(compact), null, 2), 'saved GCP JSON must be pretty-printed')
+    const expectedPretty = [
+      '{',
+      '  "type": "service_account",',
+      '  "project_id": "test-proj",',
+      '  "private_key": "test-key",',
+      '  "client_email": "test@example.com"',
+      '}',
+    ].join('\n')
+    assert.equal(textarea?.value, expectedPretty, 'saved GCP JSON must be multiline pretty-printed JSON')
+    assert.match(textarea?.value || '', /\n  "project_id": "test-proj"/)
+    assert.notEqual(textarea?.value, compact, 'the hydrated editor must not retain the compact raw JSON')
 
     const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
       (button) => button.textContent?.trim() === 'Cancel'

@@ -687,7 +687,6 @@ export const CustomModelsPage: React.FC = () => {
     setModelName(model.name)
     setProviderType(model.provider_type || inferProviderType(model.base_url))
     setBaseUrl(model.base_url)
-    setApiKey('')
     setCustomQuotaEndpoint(model.custom_quota_endpoint || '')
     setIsFetchingCustomQuota(false)
     setCustomQuotaFeedback(null)
