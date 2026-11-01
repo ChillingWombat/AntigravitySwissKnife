@@ -1,8 +1,12 @@
-import { describe, it } from 'node:test'
+import { afterEach, describe, it } from 'node:test'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import React, { act } from 'react'
+import { cancelAllInFlightRequests } from '../api'
+import { CustomModelsPage } from '../pages/CustomModelsPage'
+import { initDOM, mount, type RenderResult } from '../test-dom'
 
 describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
   const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -382,5 +386,126 @@ describe('Custom Models GCP Integration & Refresh Top Bar Invariants', () => {
     assert.ok(pageContent.includes('formatPing'), 'Card button must format ping with formatPing')
     assert.ok(pageContent.includes('getErrorCode'), 'Card button must extract error code with getErrorCode')
     assert.ok(pageContent.includes('cardTestTimersRef'), 'Card test results must be timed and reset')
+  })
+})
+
+const flush = async () => {
+  for (let index = 0; index < 4; index += 1) {
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
+const jsonResponse = (payload: unknown) =>
+  ({
+    ok: true,
+    status: 200,
+    json: async () => payload,
+  }) as Response
+
+describe('Custom Models GCP editor credential hydration', () => {
+  const originalFetch = globalThis.fetch
+  let view: RenderResult | null = null
+
+  afterEach(() => {
+    view?.unmount()
+    view = null
+    globalThis.fetch = originalFetch
+    cancelAllInFlightRequests()
+  })
+
+  it('renders saved service-account JSON with exact pretty-printed formatting', async () => {
+    initDOM()
+    const parsed = {
+      type: 'service_account',
+      project_id: 'test-proj',
+      private_key: 'line-one\nline-two',
+      client_email: 'test@example.com',
+      oauth: { scopes: ['cloud-platform'] },
+    }
+    const savedJson = JSON.stringify(parsed)
+    const hydration = createDeferred<Response>()
+    let hydrationRequests = 0
+
+    globalThis.fetch = (async (url: any) => {
+      const target = String(url)
+      if (target === '/api/custom_models') {
+        return jsonResponse({
+          version: '1.0.0',
+          inference_supported: true,
+          models: [
+            {
+              id: 'gcp-model',
+              name: 'gcp-model',
+              display_name: 'GCP Test Model',
+              provider_type: 'gcp',
+              base_url: 'https://aiplatform.googleapis.com/v1/projects/test-proj/locations/global/publishers/google/models/gemini-4-argon:generateContent',
+              gcp_project_id: 'test-proj',
+              gcp_region: 'global',
+              gcp_service_account_key: '[REDACTED]',
+              quota_type: 'balance',
+              prepaid_balance: 0,
+              total_budget: 0,
+              quota_fraction: null,
+              is_default: false,
+              enabled: true,
+            },
+          ],
+        })
+      }
+      if (target === '/api/rules') {
+        return jsonResponse({ default_custom_model: '' })
+      }
+      if (target.startsWith('/api/custom_models/key?')) {
+        const requestUrl = new URL(target, 'http://localhost')
+        assert.equal(requestUrl.searchParams.get('id'), 'gcp-model')
+        assert.equal(requestUrl.searchParams.get('field'), 'gcp_service_account_key')
+        hydrationRequests += 1
+        return hydration.promise
+      }
+      return jsonResponse({})
+    }) as typeof fetch
+
+    view = await mount(React.createElement(CustomModelsPage))
+    await flush()
+
+    const card = view
+      .querySelectorAll<HTMLElement>('.google-card')
+      .find((candidate) => candidate.textContent?.includes('GCP Test Model'))
+    const editButton = Array.from(card?.querySelectorAll('button') || []).find(
+      (button) => button.textContent?.trim() === 'Edit'
+    )
+    assert.ok(editButton, 'GCP model Edit button must render')
+    await view.click(editButton)
+    await flush()
+    assert.equal(hydrationRequests, 1, 'opening the GCP editor must request the selected credential')
+
+    hydration.resolve(
+      jsonResponse({
+        id: 'gcp-model',
+        field: 'gcp_service_account_key',
+        value: savedJson,
+      })
+    )
+    await flush()
+
+    const textarea = document.querySelector<HTMLTextAreaElement>('#gcp-service-account-json')
+    const expectedJson = JSON.stringify(parsed, null, 2)
+    assert.equal(
+      textarea?.value,
+      expectedJson,
+      'the saved GCP credential must render as multiline indented JSON'
+    )
+    assert.match(textarea?.value || '', /\n  "project_id": "test-proj"/)
+    assert.notEqual(textarea?.value, savedJson, 'the editor must not render the compact stored value')
   })
 })
