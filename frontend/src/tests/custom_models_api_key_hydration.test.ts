@@ -42,6 +42,14 @@ const flush = async () => {
   })
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 const findEditButton = (view: RenderResult, modelName: string) => {
   const card = view
     .querySelectorAll<HTMLElement>('.google-card')
@@ -49,6 +57,26 @@ const findEditButton = (view: RenderResult, modelName: string) => {
   return Array.from(card?.querySelectorAll('button') || []).find(
     (button) => button.textContent?.trim() === 'Edit'
   )
+}
+
+const openModelEditor = async (
+  view: RenderResult,
+  modelName: string,
+  buttonMessage = `${modelName} Edit button must render`
+) => {
+  const editButton = findEditButton(view, modelName)
+  assert.ok(editButton, buttonMessage)
+  await view.click(editButton)
+  await flush()
+}
+
+const closeModelEditor = async (view: RenderResult) => {
+  const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+    (button) => button.textContent?.trim() === 'Cancel'
+  )
+  assert.ok(cancelButton, 'cancel button must render')
+  await view.click(cancelButton)
+  await flush()
 }
 
 const apiKeyInput = (view: RenderResult) =>
@@ -95,10 +123,7 @@ describe('Custom model edit key handling', () => {
       'loading the model list must not fetch credentials'
     )
 
-    const editButton = findEditButton(view, 'DeepSeek V4.1 Flash')
-    assert.ok(editButton, 'DeepSeek model Edit button must render')
-    await view.click(editButton)
-    await flush()
+    await openModelEditor(view, 'DeepSeek V4.1 Flash', 'DeepSeek model Edit button must render')
 
     assert.equal(apiKeyInput(view)?.value, 'test-saved-api-key', 'selected API-key editor must show the saved key')
     assert.equal(
@@ -106,6 +131,126 @@ describe('Custom model edit key handling', () => {
       1,
       'opening one editor must make one selected-model credential request'
     )
+  })
+
+  it('keeps model B credentials when model A hydration resolves late', async () => {
+    initDOM()
+    const firstHydration = createDeferred<Response>()
+    const secondHydration = createDeferred<Response>()
+    const requestedModels: string[] = []
+    globalThis.fetch = (async (url: any) => {
+      const target = String(url)
+      if (target === '/api/custom_models') {
+        return jsonResponse(
+          makeConfig(
+            makeModel('first-api-model', 'First API Model'),
+            makeModel('second-api-model', 'Second API Model')
+          )
+        )
+      }
+      if (target === '/api/rules') {
+        return jsonResponse({ default_custom_model: '' })
+      }
+      if (target.startsWith('/api/custom_models/key?')) {
+        const parsed = new URL(target, 'http://localhost')
+        const id = parsed.searchParams.get('id')
+        assert.equal(parsed.searchParams.get('field'), 'api_key')
+        assert.ok(id, 'credential request must identify its model')
+        requestedModels.push(id)
+        if (id === 'first-api-model') return firstHydration.promise
+        assert.equal(id, 'second-api-model')
+        return secondHydration.promise
+      }
+      return jsonResponse({})
+    }) as typeof fetch
+
+    view = await mount(React.createElement(CustomModelsPage))
+    await flush()
+    await openModelEditor(view, 'First API Model', 'first model Edit button must render')
+    assert.deepEqual(requestedModels, ['first-api-model'], 'opening model A must start one pending hydration')
+
+    await closeModelEditor(view)
+    assert.equal(apiKeyInput(view), null, 'closing model A must clear its pending editor')
+
+    await openModelEditor(
+      view,
+      'Second API Model',
+      'second model Edit button must render while model A hydration is pending'
+    )
+    assert.deepEqual(
+      requestedModels,
+      ['first-api-model', 'second-api-model'],
+      'switching to model B must start its own hydration before model A resolves'
+    )
+    assert.equal(apiKeyInput(view)?.value, '', 'model B must not display model A credentials')
+
+    secondHydration.resolve(
+      jsonResponse({ id: 'second-api-model', field: 'api_key', value: 'second-model-saved-key' })
+    )
+    await flush()
+    assert.equal(apiKeyInput(view)?.value, 'second-model-saved-key', 'model B must display its own key')
+
+    firstHydration.resolve(jsonResponse({ id: 'first-api-model', field: 'api_key', value: 'first-model-saved-key' }))
+    await flush()
+    assert.equal(
+      apiKeyInput(view)?.value,
+      'second-model-saved-key',
+      'a late response from model A must not replace model B credentials'
+    )
+  })
+
+  it('discards a superseded hydration after closing and reopening the editor', async () => {
+    initDOM()
+    const supersededHydration = createDeferred<Response>()
+    const reopenedHydration = createDeferred<Response>()
+    let hydrationRequests = 0
+    globalThis.fetch = (async (url: any) => {
+      const target = String(url)
+      if (target === '/api/custom_models') {
+        return jsonResponse(makeConfig(makeModel('first-api-model', 'First API Model')))
+      }
+      if (target === '/api/rules') {
+        return jsonResponse({ default_custom_model: '' })
+      }
+      if (target.startsWith('/api/custom_models/key?')) {
+        const parsed = new URL(target, 'http://localhost')
+        assert.equal(parsed.searchParams.get('id'), 'first-api-model')
+        assert.equal(parsed.searchParams.get('field'), 'api_key')
+        const hydration = hydrationRequests === 0 ? supersededHydration : reopenedHydration
+        if (hydrationRequests > 1) throw new Error('unexpected extra hydration request')
+        hydrationRequests += 1
+        return hydration.promise
+      }
+      return jsonResponse({})
+    }) as typeof fetch
+
+    view = await mount(React.createElement(CustomModelsPage))
+    await flush()
+    await openModelEditor(view, 'First API Model', 'model Edit button must render')
+    assert.equal(hydrationRequests, 1, 'opening model A must leave its first hydration pending')
+
+    await closeModelEditor(view)
+    assert.equal(apiKeyInput(view), null, 'closing model A must clear the editor')
+
+    await openModelEditor(view, 'First API Model', 'model Edit button must render after close')
+    assert.equal(hydrationRequests, 2, 'reopening model A must start a fresh hydration')
+    assert.equal(apiKeyInput(view)?.value, '', 'reopened model A must start with an empty field')
+
+    supersededHydration.resolve(
+      jsonResponse({ id: 'first-api-model', field: 'api_key', value: 'superseded-model-key' })
+    )
+    await flush()
+    assert.equal(
+      apiKeyInput(view)?.value,
+      '',
+      'a cancelled hydration must not populate the reopened editor'
+    )
+
+    reopenedHydration.resolve(
+      jsonResponse({ id: 'first-api-model', field: 'api_key', value: 'reopened-model-key' })
+    )
+    await flush()
+    assert.equal(apiKeyInput(view)?.value, 'reopened-model-key', 'the reopened editor must use its own hydration')
   })
 
   it('clears stale API credentials when switching editors before hydration settles', async () => {
@@ -142,23 +287,12 @@ describe('Custom model edit key handling', () => {
 
     view = await mount(React.createElement(CustomModelsPage))
     await flush()
-    const firstEditButton = findEditButton(view, 'First API Model')
-    assert.ok(firstEditButton, 'first model Edit button must render')
-    await view.click(firstEditButton)
-    await flush()
+    await openModelEditor(view, 'First API Model', 'first model Edit button must render')
     assert.equal(apiKeyInput(view)?.value, 'first-model-saved-key')
 
-    const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
-      (button) => button.textContent?.trim() === 'Cancel'
-    )
-    assert.ok(cancelButton, 'cancel button must render')
-    await view.click(cancelButton)
-    await flush()
+    await closeModelEditor(view)
 
-    const secondEditButton = findEditButton(view, 'Second API Model')
-    assert.ok(secondEditButton, 'second model Edit button must render')
-    await view.click(secondEditButton)
-    await flush()
+    await openModelEditor(view, 'Second API Model', 'second model Edit button must render')
     assert.equal(
       apiKeyInput(view)?.value,
       '',
@@ -199,24 +333,13 @@ describe('Custom model edit key handling', () => {
 
     view = await mount(React.createElement(CustomModelsPage))
     await flush()
-    const editButton = findEditButton(view, 'DeepSeek V4.1 Flash')
-    assert.ok(editButton, 'DeepSeek model Edit button must render')
-    await view.click(editButton)
-    await flush()
+    await openModelEditor(view, 'DeepSeek V4.1 Flash', 'DeepSeek model Edit button must render')
     assert.equal(apiKeyInput(view)?.value, 'test-saved-api-key')
 
-    const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
-      (button) => button.textContent?.trim() === 'Cancel'
-    )
-    assert.ok(cancelButton, 'cancel button must render')
-    await view.click(cancelButton)
-    await flush()
+    await closeModelEditor(view)
     assert.equal(apiKeyInput(view), null, 'closing the dialog must discard the credential')
 
-    const reopenedEditButton = findEditButton(view, 'DeepSeek V4.1 Flash')
-    assert.ok(reopenedEditButton, 'DeepSeek model Edit button must render after close')
-    await view.click(reopenedEditButton)
-    await flush()
+    await openModelEditor(view, 'DeepSeek V4.1 Flash', 'DeepSeek model Edit button must render after close')
     assert.equal(keyRequests, 2, 'reopening the editor must hydrate again')
     assert.equal(apiKeyInput(view)?.value, '', 'failed hydration must not leave a stale or placeholder key')
     assert.match(document.body.textContent || '', /Saved API key could not be loaded/)
@@ -255,10 +378,7 @@ describe('Custom model edit key handling', () => {
 
     view = await mount(React.createElement(CustomModelsPage))
     await flush()
-    const editButton = findEditButton(view, 'GCP Test Model')
-    assert.ok(editButton, 'GCP model Edit button must render')
-    await view.click(editButton)
-    await flush()
+    await openModelEditor(view, 'GCP Test Model', 'GCP model Edit button must render')
     let textarea = document.querySelector<HTMLTextAreaElement>('#gcp-service-account-json')
     const expectedPretty = [
       '{',
@@ -272,17 +392,9 @@ describe('Custom model edit key handling', () => {
     assert.match(textarea?.value || '', /\n  "project_id": "test-proj"/)
     assert.notEqual(textarea?.value, compact, 'the hydrated editor must not retain the compact raw JSON')
 
-    const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
-      (button) => button.textContent?.trim() === 'Cancel'
-    )
-    assert.ok(cancelButton, 'cancel button must render')
-    await view.click(cancelButton)
-    await flush()
+    await closeModelEditor(view)
     returnMalformed = true
-    const reopenedEditButton = findEditButton(view, 'GCP Test Model')
-    assert.ok(reopenedEditButton, 'GCP model Edit button must render after close')
-    await view.click(reopenedEditButton)
-    await flush()
+    await openModelEditor(view, 'GCP Test Model', 'GCP model Edit button must render after close')
     textarea = document.querySelector<HTMLTextAreaElement>('#gcp-service-account-json')
     assert.equal(textarea?.value, '{"type":"service_account"', 'malformed saved JSON must remain visible')
     assert.match(document.body.textContent || '', /Saved service-account key is not valid JSON/)
