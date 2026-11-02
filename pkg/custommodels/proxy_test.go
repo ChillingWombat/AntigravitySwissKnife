@@ -597,3 +597,57 @@ func TestProxyCatalogAugmentsForAgyCLI(t *testing.T) {
 		t.Errorf("augmented catalog missing custom model: %s", body)
 	}
 }
+
+func TestProxy_InternalAppRouting_ActiveModelPrecedence(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	gcpModel := CustomModel{
+		ID:           "gcp-argon-1",
+		Name:         "gemini-4-argon",
+		DisplayName:  "Gemini 4 Argon (GCP)",
+		ProviderType: ProviderGCP,
+		BaseURL:      "https://asia-southeast1-aiplatform.googleapis.com",
+		Enabled:      true,
+	}
+	apiModel := CustomModel{
+		ID:               "gemini-api-argon-2",
+		Name:             "gemini-4-argon",
+		DisplayName:      "Gemini 4 Argon (Gemini API)",
+		ProviderType:     ProviderGemini,
+		BaseURL:          "https://generativelanguage.googleapis.com",
+		Enabled:          true,
+		SupportsThinking: true,
+		ThinkingLevels:   []string{"low", "medium", "high"},
+	}
+	_ = store.SaveModel(gcpModel)
+	_ = store.SaveModel(apiModel)
+
+	proxy := NewProxy(store)
+
+	// Case 1: active_model_id is gemini-api-argon-2.
+	_ = store.SetActiveModel("gemini-api-argon-2")
+	reqApp := httptest.NewRequest(http.MethodPost, "/v1internal:streamGenerateContent", nil)
+	envelope := customModelEnvelope{
+		Model: "gemini-4-argon-high",
+	}
+	resolved := proxy.resolveCustomModel(reqApp, "gemini-4-argon-high", &envelope)
+	if resolved == nil {
+		t.Fatalf("expected resolved custom model, got nil")
+	}
+	if resolved.ID != "gemini-api-argon-2" {
+		t.Fatalf("expected active model gemini-api-argon-2, got %q", resolved.ID)
+	}
+	if resolved.ThinkingLevel != "high" {
+		t.Fatalf("expected thinking level high, got %q", resolved.ThinkingLevel)
+	}
+
+	// Case 2: active_model_id is empty (native mode).
+	_ = store.SetActiveModel("")
+	resolvedNative := proxy.resolveCustomModel(reqApp, "gemini-4-argon-high", &envelope)
+	if resolvedNative != nil {
+		t.Fatalf("expected native model request not to be hijacked by custom model name, got %q", resolvedNative.ID)
+	}
+}

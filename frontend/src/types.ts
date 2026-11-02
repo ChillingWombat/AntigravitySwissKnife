@@ -718,19 +718,6 @@ export interface UpgradeResult {
 }
 
 // App Enhancements types
-export interface PromptJumpBarConfig {
-  enabled: boolean
-  show_tooltip: boolean
-  focus_pulse: boolean
-  sync_scroll: boolean
-  position: 'gutter' | 'floating'
-  dash_width: number
-  dash_thickness?: number
-  inactive_thickness?: number
-  color_mode: 'default' | 'project' | 'custom'
-  custom_color: string
-}
-
 export interface OverviewPanelConfig {
   enabled: boolean
   division_style: 'divider_line' | 'border_zone'
@@ -777,7 +764,6 @@ export interface CommunityExtension {
 export interface EnhancementsConfig {
   version: string
   enabled: boolean
-  prompt_jump_bar: PromptJumpBarConfig
   overview_panel?: OverviewPanelConfig
   tool_density_mode: 'normal' | 'muted' | 'hidden'
   breaker_line_enabled: boolean
@@ -843,7 +829,6 @@ export interface GUIConfig {
   chat_telemetry_cache_hit_ratio?: boolean
   chat_telemetry_generation_speed?: boolean
   chat_telemetry_scope?: 'aggregated' | 'main_only'
-  chat_navigator_mode?: 'panel' | 'line'
 }
 
 // Token Monitor types

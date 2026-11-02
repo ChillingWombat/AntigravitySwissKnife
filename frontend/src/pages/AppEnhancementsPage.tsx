@@ -19,70 +19,9 @@ import { ToggleSwitch } from '../components/ToggleSwitch'
 import { api } from '../api'
 import type { EnhancementsConfig, GUIConfig } from '../types'
 
-const PRESET_COLORS = [
-  { name: 'Slate Black', hex: '#0f172a' },
-  { name: 'Slate Grey', hex: '#64748b' },
-  { name: 'Google Blue', hex: '#0b57d0' },
-  { name: 'Vibrant Purple', hex: '#7c3aed' },
-  { name: 'Emerald Green', hex: '#059669' },
-  { name: 'Warm Amber', hex: '#d97706' },
-  { name: 'Coral Red', hex: '#dc2626' },
-]
-
-// Generate 10x10 color palette grid
-const GREYSCALE = ['#ffffff', '#f4f4f5', '#e4e4e7', '#cbd5e1', '#94a3b8', '#64748b', '#475569', '#334155', '#1e293b', '#09090b']
-const CHROMATIC_HUES = [0, 40, 80, 120, 160, 200, 240, 280, 320]
-const LIGHTNESSES = [92, 84, 76, 68, 60, 52, 44, 36, 28, 20]
-const GRID_COLORS: string[][] = []
-for (let r = 0; r < 10; r++) {
-  const row: string[] = []
-  const l = LIGHTNESSES[r]
-  for (let c = 0; c < 10; c++) {
-    if (c === 0) {
-      row.push(GREYSCALE[r])
-    } else {
-      row.push(`hsl(${CHROMATIC_HUES[c - 1]}, 82%, ${l}%)`)
-    }
-  }
-  GRID_COLORS.push(row)
-}
-
-function hslToHex(hsl: string): string {
-  if (hsl.startsWith('#')) return hsl
-  const m = hsl.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/)
-  if (!m) return '#0b57d0'
-  const h = parseInt(m[1]) / 360
-  const s = parseInt(m[2]) / 100
-  const l = parseInt(m[3]) / 100
-
-  let r: number, g: number, b: number
-  if (s === 0) {
-    r = g = b = l
-  } else {
-    const hue2rgb = (p: number, q: number, t: number) => {
-      if (t < 0) t += 1
-      if (t > 1) t -= 1
-      if (t < 1 / 6) return p + (q - p) * 6 * t
-      if (t < 1 / 2) return q
-      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
-      return p
-    }
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s
-    const p = 2 * l - q
-    r = hue2rgb(p, q, h + 1 / 3)
-    g = hue2rgb(p, q, h)
-    b = hue2rgb(p, q, h - 1 / 3)
-  }
-  const toHex = (x: number) => {
-    const hex = Math.round(x * 255).toString(16)
-    return hex.length === 1 ? '0' + hex : hex
-  }
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
-}
-
 function parseColorWithAlpha(colorStr: string): { r: number; g: number; b: number; alpha: number } {
-  const c = (colorStr || '').trim()
-  if (c.startsWith('#')) {
+  const c = (colorStr || "").trim()
+  if (c.startsWith("#")) {
     const hex = c.slice(1)
     if (hex.length === 3) {
       const r = parseInt(hex[0] + hex[0], 16)
@@ -110,28 +49,8 @@ function parseColorWithAlpha(colorStr: string): { r: number; g: number; b: numbe
       const a = parseInt(hex.slice(6, 8), 16) / 255.0
       return { r, g, b, alpha: a }
     }
-  } else if (c.startsWith('rgba(')) {
-    const parts = c.slice(5, -1).split(',')
-    if (parts.length === 4) {
-      return {
-        r: parseInt(parts[0].trim(), 10) || 0,
-        g: parseInt(parts[1].trim(), 10) || 0,
-        b: parseInt(parts[2].trim(), 10) || 0,
-        alpha: parseFloat(parts[3].trim()) || 1.0,
-      }
-    }
-  } else if (c.startsWith('rgb(')) {
-    const parts = c.slice(4, -1).split(',')
-    if (parts.length === 3) {
-      return {
-        r: parseInt(parts[0].trim(), 10) || 0,
-        g: parseInt(parts[1].trim(), 10) || 0,
-        b: parseInt(parts[2].trim(), 10) || 0,
-        alpha: 1.0,
-      }
-    }
   }
-  return { r: 11, g: 87, b: 208, alpha: 1.0 }
+  return { r: 100, g: 116, b: 139, alpha: 0.15 }
 }
 
 function calculateColorMultiplier(r: number, g: number, b: number, alpha: number): number {
@@ -144,7 +63,7 @@ function calculateColorMultiplier(r: number, g: number, b: number, alpha: number
   return Math.min(1.0, Math.max(0.1, alphaMult * lightnessMult))
 }
 
-interface AppEnhancementsPageProps {
+export interface AppEnhancementsPageProps {
   activeCategoryTab?: number // 0: Chat View, 1: Project Panel, 2: Overview Panel, 3: Chat History
 }
 
@@ -153,12 +72,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 }) => {
   const [config, setConfig] = useState<EnhancementsConfig | null>(null)
   const [guiConfig, setGuiConfig] = useState<GUIConfig | null>(null)
-  const [chatNavigatorMode, setChatNavigatorMode] = useState<'panel' | 'line'>('panel')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [applying, setApplying] = useState(false)
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
-  const [previewHover, setPreviewHover] = useState<number | null>(null)
   const [projects, setProjects] = useState<string[]>([])
   const [archiving, setArchiving] = useState(false)
   const [archiveResult, setArchiveResult] = useState<string | null>(null)
@@ -224,7 +141,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
       setConfig(data)
       setProjects((projList || []).map((p) => p.name))
       if (gData) {
-        setChatNavigatorMode(gData.chat_navigator_mode === 'line' ? 'line' : 'panel')
         setGuiConfig({
           ...gData,
           enabled: gData.enabled ?? true,
@@ -245,20 +161,7 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     loadConfig()
   }, [])
 
-  const isValidHexColor = (c?: string) => {
-    if (!c) return true
-    return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c.trim())
-  }
 
-  const handleUpdateNavigatorMode = async (nextMode: 'panel' | 'line') => {
-    setChatNavigatorMode(nextMode)
-    try {
-      await api.updateGUIConfig({ chat_navigator_mode: nextMode })
-      setGuiConfig((current) => (current ? { ...current, chat_navigator_mode: nextMode } : current))
-    } catch (err: any) {
-      setStatusMsg({ text: 'Failed to save Chat Navigator mode: ' + err.message, type: 'error' })
-    }
-  }
 
   const updateConfig = async (patch: Partial<EnhancementsConfig>) => {
     if (!config) return
@@ -274,10 +177,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
   }
 
   const handleSaveAndApply = async () => {
-    if (config?.prompt_jump_bar?.custom_color && !isValidHexColor(config.prompt_jump_bar.custom_color)) {
-      setStatusMsg({ text: 'Invalid hex color format for prompt jump bar (expected e.g. #0b57d0)', type: 'error' })
-      return
-    }
     try {
       setSaving(true)
       setApplying(true)
@@ -326,7 +225,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     )
   }
 
-  const jb = config.prompt_jump_bar
   const contextWindowIndicatorEnabled = config.context_window_indicator_enabled !== false
   const contextWindowClickToCompactEnabled =
     config.context_window_click_to_compact_enabled !== false
@@ -342,16 +240,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
     replace_see_all_triangle: rawOp?.replace_see_all_triangle !== false,
     aux_tabs_format: rawOp?.aux_tabs_format || 'icon',
   }
-  const rawActiveColor =
-    jb.color_mode === 'default'
-      ? '#64748b'
-      : jb.color_mode === 'project'
-      ? '#059669' // Sample project emerald green for preview
-      : jb.custom_color || '#0b57d0'
-  const parsedActiveRgb = parseColorWithAlpha(rawActiveColor)
-  const activeColorLum = (0.2126 * parsedActiveRgb.r + 0.7152 * parsedActiveRgb.g + 0.0722 * parsedActiveRgb.b) / 255.0
-  const activeColor = activeColorLum > 0.85 ? '#334155' : rawActiveColor
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {portalTarget &&
@@ -389,542 +277,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
       {/* Category 1: Chat View */}
       {activeCategoryTab === 0 && (
         <>
-          {/* Feature 1: Chat Navigator */}
-          <div className="google-card">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: jb.enabled ? '16px' : '0',
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>
-            Chat Navigator
-          </h2>
-
-          <ToggleSwitch
-            checked={jb.enabled}
-            onChange={(checked) =>
-              setConfig({
-                ...config,
-                prompt_jump_bar: { ...jb, enabled: checked },
-              })
-            }
-          />
-        </div>
-
-        {jb.enabled && (
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '18px' }}>
-            {/* Optional interaction setting: Pulse Highlight Target Prompt Card on Jump */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                background: 'var(--canvas)',
-                borderRadius: '10px',
-                border: '1px solid var(--border)',
-                padding: '12px 16px',
-                marginBottom: '20px',
-              }}
-            >
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  width: '100%',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  color: 'var(--text)',
-                }}
-              >
-                <span style={{ fontWeight: 500 }}>Pulse Highlight Target Prompt Card On Jump</span>
-                <ToggleSwitch
-                  size="sm"
-                  checked={jb.focus_pulse}
-                  onChange={(checked) =>
-                    setConfig({
-                      ...config,
-                      prompt_jump_bar: { ...jb, focus_pulse: checked },
-                    })
-                  }
-                />
-              </label>
-            </div>
-
-            {/* Chat navigator display mode */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '12px',
-                padding: '12px 16px',
-                marginBottom: '20px',
-                border: '1px solid var(--border)',
-                borderRadius: '10px',
-                background: 'var(--canvas)',
-              }}
-            >
-              <label
-                htmlFor="chat-navigator-mode"
-                style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text)' }}
-              >
-                Navigator Style
-              </label>
-              <select
-                id="chat-navigator-mode"
-                aria-label="Navigator Style"
-                value={chatNavigatorMode}
-                onChange={(e) => handleUpdateNavigatorMode(e.target.value === 'line' ? 'line' : 'panel')}
-                style={{
-                  padding: '6px 10px',
-                  fontSize: '12px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  backgroundColor: 'var(--surface, #ffffff)',
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                }}
-              >
-                <option value="panel">Panel (Default)</option>
-                <option value="line">Single Line</option>
-              </select>
-            </div>
-
-            {/* 2-Column Layout: Settings on Left, Fixed Vertical Divider, Interactive Gutter Preview on Right */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(0, 1fr) 1px 360px',
-                gap: '24px 12px',
-                alignItems: 'stretch',
-              }}
-            >
-              {/* LEFT COLUMN: Color Mode and Line Dimension Settings */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {/* Color Mode Selection (User Request: removed default tag) */}
-                <div
-                  style={{
-                    background: 'var(--canvas)',
-                    borderRadius: '10px',
-                    border: '1px solid var(--border)',
-                    padding: '16px 20px',
-                  }}
-                >
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginBottom: '12px' }}>
-                    Active & Hover Line Color
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '14px' }}>
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        fontSize: '13px',
-                        color: 'var(--text)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="color_mode"
-                        value="default"
-                        checked={jb.color_mode === 'default'}
-                        onChange={() =>
-                          setConfig({
-                            ...config,
-                            prompt_jump_bar: { ...jb, color_mode: 'default' },
-                          })
-                        }
-                        style={{ accentColor: '#0b57d0' }}
-                      />
-                      <span>Slate Grey</span>
-                    </label>
-
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        fontSize: '13px',
-                        color: 'var(--text)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="color_mode"
-                        value="project"
-                        checked={jb.color_mode === 'project'}
-                        onChange={() =>
-                          setConfig({
-                            ...config,
-                            prompt_jump_bar: { ...jb, color_mode: 'project' },
-                          })
-                        }
-                        style={{ accentColor: '#0b57d0' }}
-                      />
-                      <span>Match Project Color</span>
-                    </label>
-
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        fontSize: '13px',
-                        color: 'var(--text)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        name="color_mode"
-                        value="custom"
-                        checked={jb.color_mode === 'custom'}
-                        onChange={() =>
-                          setConfig({
-                            ...config,
-                            prompt_jump_bar: { ...jb, color_mode: 'custom' },
-                          })
-                        }
-                        style={{ accentColor: '#0b57d0' }}
-                      />
-                      <span>Custom Color</span>
-                    </label>
-                  </div>
-
-                  {/* Custom Color Palette */}
-                  {jb.color_mode === 'custom' && (
-                    <div
-                      style={{
-                        background: 'var(--surface, #ffffff)',
-                        padding: '14px',
-                        borderRadius: '8px',
-                        border: '1px solid var(--border)',
-                        marginTop: '10px',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                          Presets:
-                        </span>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                          {PRESET_COLORS.map((p) => {
-                            const isSel = jb.custom_color?.toLowerCase() === p.hex.toLowerCase()
-                            return (
-                              <div
-                                key={p.hex}
-                                onClick={() =>
-                                  setConfig({
-                                    ...config,
-                                    prompt_jump_bar: { ...jb, custom_color: p.hex },
-                                  })
-                                }
-                                title={p.name}
-                                style={{
-                                  width: '22px',
-                                  height: '22px',
-                                  borderRadius: '50%',
-                                  background: p.hex,
-                                  cursor: 'pointer',
-                                  boxSizing: 'border-box',
-                                  border: isSel ? '2px solid var(--text)' : '2px solid transparent',
-                                  boxShadow: isSel && p.hex === '#0f172a' ? 'inset 0 0 0 1.5px #ffffff' : 'none',
-                                  transform: isSel ? 'scale(1.15)' : 'scale(1)',
-                                  transition: 'transform 0.12s',
-                                }}
-                              />
-                            )
-                          })}
-                        </div>
-
-                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Hex:</span>
-                          <div
-                            style={{
-                              width: '18px',
-                              height: '18px',
-                              borderRadius: '4px',
-                              background: isValidHexColor(jb.custom_color) ? (jb.custom_color || '#0b57d0') : '#0b57d0',
-                              border: '1px solid var(--border)',
-                            }}
-                          />
-                          <input
-                            type="text"
-                            value={jb.custom_color || '#0b57d0'}
-                            onChange={(e) =>
-                              setConfig({
-                                ...config,
-                                prompt_jump_bar: { ...jb, custom_color: e.target.value },
-                              })
-                            }
-                            style={{
-                              width: '80px',
-                              padding: '3px 6px',
-                              borderRadius: '4px',
-                              border: '1px solid var(--border)',
-                              fontSize: '12px',
-                              fontFamily: 'monospace',
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* 10x10 Palette */}
-                      <div>
-                        <span
-                          style={{
-                            display: 'block',
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            color: 'var(--text-muted)',
-                            textTransform: 'uppercase',
-                            marginBottom: '6px',
-                          }}
-                        >
-                          10&times;10 Extended Palette:
-                        </span>
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(10, 18px)',
-                            gap: '3px',
-                            padding: '6px',
-                            background: 'var(--canvas)',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border)',
-                            width: 'fit-content',
-                          }}
-                        >
-                          {GRID_COLORS.map((row, r) =>
-                            row.map((cellHsl, c) => {
-                              const hex = hslToHex(cellHsl)
-                              const isSelected = jb.custom_color?.toLowerCase() === hex.toLowerCase()
-                              return (
-                                <div
-                                  key={`${r}-${c}`}
-                                  onClick={() =>
-                                    setConfig({
-                                      ...config,
-                                      prompt_jump_bar: { ...jb, custom_color: hex },
-                                    })
-                                  }
-                                  title={hex}
-                                  style={{
-                                    width: '18px',
-                                    height: '18px',
-                                    borderRadius: '2px',
-                                    boxSizing: 'border-box',
-                                    background: cellHsl,
-                                    cursor: 'pointer',
-                                    border: isSelected ? '2px solid var(--text)' : '1px solid rgba(0,0,0,0.08)',
-                                    boxShadow:
-                                      isSelected && (hex.toLowerCase() === '#09090b' || hex.toLowerCase() === '#1e293b')
-                                        ? 'inset 0 0 0 1px #ffffff'
-                                        : 'none',
-                                    transform: isSelected ? 'scale(1.2)' : 'scale(1)',
-                                    zIndex: isSelected ? 2 : 1,
-                                    transition: 'transform 0.1s',
-                                  }}
-                                />
-                              )
-                            })
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Line Dimensions Settings (Width & Thickness) */}
-                <div
-                  style={{
-                    background: 'var(--canvas)',
-                    borderRadius: '10px',
-                    border: '1px solid var(--border)',
-                    padding: '16px 20px',
-                  }}
-                >
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginBottom: '14px' }}>
-                    Line Dimensions
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
-                    {/* Line Width */}
-                    <div>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-                        Dash Width:
-                      </label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          min="8"
-                          max="36"
-                          value={jb.dash_width || 14}
-                          onChange={(e) =>
-                            setConfig({
-                              ...config,
-                              prompt_jump_bar: { ...jb, dash_width: parseInt(e.target.value) || 14 },
-                            })
-                          }
-                          style={{
-                            width: '70px',
-                            padding: '5px 8px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border)',
-                            fontSize: '13px',
-                          }}
-                        />
-                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (Default: 14)</span>
-                      </div>
-                    </div>
-
-                    {/* Active Line Thickness */}
-                    <div>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-                        Active Thickness:
-                      </label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          min="1.5"
-                          max="8"
-                          step="0.5"
-                          value={jb.dash_thickness || 2.5}
-                          onChange={(e) =>
-                            setConfig({
-                              ...config,
-                              prompt_jump_bar: { ...jb, dash_thickness: parseFloat(e.target.value) || 2.5 },
-                            })
-                          }
-                          style={{
-                            width: '70px',
-                            padding: '5px 8px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border)',
-                            fontSize: '13px',
-                          }}
-                        />
-                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (Default: 2.5)</span>
-                      </div>
-                    </div>
-
-                    {/* Inactive Line Thickness */}
-                    <div>
-                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-                        Inactive Thickness:
-                      </label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          min="1"
-                          max="4"
-                          step="0.5"
-                          value={jb.inactive_thickness || 1.5}
-                          onChange={(e) =>
-                            setConfig({
-                              ...config,
-                              prompt_jump_bar: { ...jb, inactive_thickness: parseFloat(e.target.value) || 1.5 },
-                            })
-                          }
-                          style={{
-                            width: '70px',
-                            padding: '5px 8px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border)',
-                            fontSize: '13px',
-                          }}
-                        />
-                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>px (Default: 1.5)</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* VERTICAL DIVIDER */}
-              <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />
-
-              {/* RIGHT COLUMN: Interactive Gutter Live Preview Component */}
-              <div
-                style={{
-                  width: '360px',
-                  boxSizing: 'border-box',
-                  background: 'var(--canvas)',
-                  borderRadius: '12px',
-                  border: '1px dashed var(--border)',
-                  padding: '20px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '16px',
-                  position: 'sticky',
-                  top: '20px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Interactive Gutter Preview</div>
-                </div>
-
-                <div
-                  style={{
-                    backgroundColor: 'var(--surface)',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border)',
-                    padding: '20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '24px',
-                  }}
-                >
-                  {/* Sample Prompt Jump Bar */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '7px',
-                      padding: '8px 4px',
-                      background: 'transparent',
-                      userSelect: 'none',
-                    }}
-                  >
-                    {[0, 1, 2, 3, 4].map((idx) => {
-                      const isActive = idx === 2
-                      const isHovered = previewHover === idx
-                      const activeH = `${jb.dash_thickness || 2.5}px`
-                      const inactiveH = `${jb.inactive_thickness || 1.5}px`
-                      const h = isActive ? activeH : inactiveH
-                      const dashWidth = jb.dash_width || 14
-                      const bg = isActive || isHovered ? activeColor : 'rgba(100, 116, 139, 0.42)'
-                      return (
-                        <div
-                          key={idx}
-                          onMouseEnter={() => setPreviewHover(idx)}
-                          onMouseLeave={() => setPreviewHover(null)}
-                          title={`Preview Prompt #${idx + 1}`}
-                          style={{
-                            width: `${isHovered ? Math.max(22, dashWidth + 8) : dashWidth}px`,
-                            height: h,
-                            borderRadius: '2px',
-                            background: bg,
-                            cursor: 'pointer',
-                            transition: 'width 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease',
-                          }}
-                        />
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Feature 2: Context Window Indicator */}
       <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

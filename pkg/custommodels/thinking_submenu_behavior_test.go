@@ -138,6 +138,12 @@ console.log("THINKING_SUBMENU_RENDERED");
 func TestGenerateCustomModelsScript_TriggerAriaLabelNamesModelAndLevel(t *testing.T) {
 	script := GenerateCustomModelsScript(nil)
 	renderLabel := generatedFunctionForTest(t, script, "function renderTriggerModelLabel(trigger, modelObj)")
+	// renderTriggerModelLabel drives the native quota meter through this helper when
+	// the script defines it, so the harness has to carry it too.
+	quotaHelper := ""
+	if strings.Contains(script, "function syncQuotaWarningVisibility(trigger, isCustomActive)") {
+		quotaHelper = generatedFunctionForTest(t, script, "function syncQuotaWarningVisibility(trigger, isCustomActive)")
+	}
 	runner := `
 const assert = require("assert");
 
@@ -168,12 +174,13 @@ const label = new FakeElement("span");
 label.textContent = "Gemini 3.8 Flash";
 const trigger = new FakeElement("button");
 trigger.querySelector = selector => selector === "span" ? label : null;
+trigger.querySelectorAll = () => [];
 trigger.setAttribute("aria-label", "Gemini 3.8 Flash");
 const cleanModelDisplayName = raw => raw;
 const getModelThinkingLevels = () => ["low", "high"];
 const getActiveThinkingLevel = () => "high";
 const formatEffortLabel = level => level.charAt(0).toUpperCase() + level.slice(1);
-` + renderLabel + `
+` + quotaHelper + renderLabel + `
 
 renderTriggerModelLabel(trigger, {
   id: "claude-sonnet",

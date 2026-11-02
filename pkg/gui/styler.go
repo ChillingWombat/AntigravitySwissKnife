@@ -447,6 +447,13 @@ body:has(.swiss-left-nav-tab.active) [data-testid="new-conversation-button"]:hov
 			}
 
 			sb.WriteString(fmt.Sprintf(`
+/* Hide native quota warning meter icon when custom model is bound */
+[data-testid="model-selector-trigger"][data-swiss-custom-bound] [data-tooltip-id]:has(svg.text-red-500),
+[data-testid="model-selector-trigger"][data-swiss-custom-bound] div:has(svg.text-red-500),
+[data-testid="model-selector-trigger"][data-swiss-custom-bound] svg.text-red-500 {
+  display: none !important;
+}
+
 /* Project Label Card */
 [data-swiss-project="%s"][data-project-card="true"],
 [data-swiss-project="%s"] [data-project-card="true"] {
