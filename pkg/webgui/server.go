@@ -2099,6 +2099,9 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			if val, ok := p["default_gemini_reasoning_level"].(string); ok {
 				c.DefaultGeminiReasoningLevel = val
 			}
+			if val, ok := p["default_custom_reasoning_level"].(string); ok {
+				c.DefaultCustomReasoningLevel = val
+			}
 			if val, ok := p["auto_import_active_account"].(bool); ok {
 				c.AutoImportActiveAccount = val
 			}
@@ -2199,6 +2202,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			"default_custom_model":             c.DefaultCustomModel,
 			"default_non_gemini_model":         defaultNonGemini,
 			"default_gemini_reasoning_level":   geminiReasoning,
+			"default_custom_reasoning_level":   c.DefaultCustomReasoningLevel,
 			"auto_import_active_account":       c.AutoImportActiveAccount,
 			"multi_app_sync_mode":              syncMode,
 			"active_app_accounts":              activeApps,

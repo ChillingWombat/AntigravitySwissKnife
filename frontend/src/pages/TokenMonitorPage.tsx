@@ -155,7 +155,7 @@ export const TokenMonitorPage: React.FC<TokenMonitorPageProps> = ({
   // Time range filter (#125): shared by the KPI cards and the histogram so both
   // always describe the same window.
   const [timeRange, setTimeRange] = useState<TokenRange>('7d')
-  const [modelFilter, setModelFilter] = useState<'native' | 'custom' | 'all'>('native')
+  const [modelFilter, setModelFilter] = useState<'native' | 'custom' | 'all'>('all')
   const [isFetchingPrices, setIsFetchingPrices] = useState(false)
   const [fetchFeedback, setFetchFeedback] = useState<string | null>(null)
   const [editingPricing, setEditingPricing] = useState<ModelPricingRecord | null>(null)

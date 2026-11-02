@@ -173,8 +173,8 @@ func TestRedactedConfigs_MaskingVerification(t *testing.T) {
 	if redactedChannels.WhatsApp.AccessToken != "[REDACTED]" {
 		t.Errorf("expected WhatsApp AccessToken [REDACTED], got %s", redactedChannels.WhatsApp.AccessToken)
 	}
-	if redactedChannels.WhatsApp.VerifyToken != "[REDACTED]" {
-		t.Errorf("expected WhatsApp VerifyToken [REDACTED], got %s", redactedChannels.WhatsApp.VerifyToken)
+	if redactedChannels.WhatsApp.VerifyToken != "wa-live-verify-token" {
+		t.Errorf("expected WhatsApp VerifyToken to be preserved, got %s", redactedChannels.WhatsApp.VerifyToken)
 	}
 	if redactedChannels.Telegram.BotToken != "[REDACTED]" {
 		t.Errorf("expected Telegram BotToken [REDACTED], got %s", redactedChannels.Telegram.BotToken)

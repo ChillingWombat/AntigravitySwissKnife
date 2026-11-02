@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import React from 'react'
+import fs from 'node:fs'
+import path from 'node:path'
 import { QuotaIndicatorGroup } from '../components/QuotaIndicatorGroup'
 import { mount } from '../test-dom'
 
@@ -50,5 +52,20 @@ describe('Quota progress rendered behavior', () => {
     assert.equal(rendered.querySelectorAll('svg').length, 0)
 
     rendered.unmount()
+  })
+
+  it('centers single 7D and 5H quota bars vertically before multi-window quotas load', () => {
+    const pageSrc = fs.readFileSync(
+      path.resolve(import.meta.dirname, '..', 'pages', 'QuotaDashboardPage.tsx'),
+      'utf8',
+    )
+    assert.ok(
+      pageSrc.includes("verticalAlign: hasMultipleWeeklyBars ? 'top' : 'middle'"),
+      '7D Quota cell must use middle vertical alignment when only a single bar is present',
+    )
+    assert.ok(
+      pageSrc.includes("verticalAlign: hasMultiple5hBars ? 'top' : 'middle'"),
+      '5H Quota cell must use middle vertical alignment when only a single bar is present',
+    )
   })
 })

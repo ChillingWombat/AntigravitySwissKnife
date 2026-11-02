@@ -401,7 +401,7 @@ export const GeminiBridgePage: React.FC = () => {
         )}
 
         {/* Live Gateway URL & Pairing PIN */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div
             style={{
               backgroundColor: 'var(--canvas)',
