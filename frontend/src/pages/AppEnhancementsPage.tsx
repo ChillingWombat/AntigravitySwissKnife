@@ -12,7 +12,6 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
-  ChevronRight,
 } from 'lucide-react'
 import { GithubIcon } from '../components/GithubIcon'
 import { ToggleSwitch } from '../components/ToggleSwitch'
@@ -409,8 +408,10 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
 
   {/* Category 2: Project Panel */}
   {activeCategoryTab === 1 && (
-    <>
-      <div className="google-card">
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 360px', gap: '20px', alignItems: 'start' }}>
+      {/* Left Column: Setting Gadgets */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div className="google-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
           <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
             Target Project in Automations
@@ -452,8 +453,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
           </div>
 
           {(guiConfig.color_styling_enabled ?? true) && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 1px 360px', gap: '24px 12px', alignItems: 'stretch', marginTop: '16px' }}>
-              {/* Settings Controls */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 {/* Mode Selection */}
                 <div>
@@ -671,166 +670,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                   />
                 </div>
               </div>
-
-              {/* VERTICAL DIVIDER */}
-              <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />
-
-              {/* Real-time Interactive Preview */}
-              <div
-                style={{
-                  width: '360px',
-                  boxSizing: 'border-box',
-                  background: 'var(--canvas)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '10px',
-                  padding: '16px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                    Sidebar Live Preview
-                  </span>
-                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Antigravity 2.0</span>
-                </div>
-
-                {/* Preview Sidebar Snippet */}
-                <div
-                  style={{
-                    background: '#ffffff',
-                    border: '1px solid var(--border)',
-                    borderRadius: '10px',
-                    padding: '10px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
-                    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-                  }}
-                >
-                  {/* Project Header */}
-                  <div
-                    style={{
-                      background: previewProjColor,
-                      color: projCardTextColor,
-                      borderRadius: '8px',
-                      height: '32px',
-                      padding: '0 10px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      userSelect: 'none',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, overflow: 'hidden' }}>
-                      <Folder size={14} style={{ flexShrink: 0 }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {activeProjectName}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, opacity: 0.9 }}>
-                      <Plus size={13} style={{ cursor: 'pointer' }} />
-                      <MoreVertical size={13} style={{ cursor: 'pointer' }} />
-                    </div>
-                  </div>
-
-                  {/* Active Open Conversation Tab */}
-                  <div
-                    style={{
-                      height: '32px',
-                      backgroundColor:
-                        guiConfig.active_conversation_indicator === 'background'
-                          ? `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectiveActiveOpacity})`
-                          : `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectivePreviewOpacity})`,
-                      border:
-                        guiConfig.active_conversation_indicator === 'border'
-                          ? `${guiConfig.active_conversation_border_width || '2px'} solid ${projAccentTextColor}`
-                          : '1px solid transparent',
-                      borderLeft:
-                        guiConfig.active_conversation_indicator === 'left_bar'
-                          ? `3px solid ${projAccentTextColor}`
-                          : guiConfig.active_conversation_indicator === 'border'
-                          ? `${guiConfig.active_conversation_border_width || '2px'} solid ${projAccentTextColor}`
-                          : '1px solid transparent',
-                      borderRadius: '8px',
-                      padding: '0 10px',
-                      fontSize: '13px',
-                      fontWeight: (guiConfig.active_conversation_bold ?? false) ? 700 : 400,
-                      color: 'var(--text)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      boxSizing: 'border-box',
-                      transition: 'all 0.15s ease',
-                      userSelect: 'none',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        Task Completion Check
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '11px', color: projAccentTextColor, fontWeight: 600, flexShrink: 0 }}>Just now</span>
-                  </div>
-
-                  {/* Ordinary Conversation Tab 1 */}
-                  <div
-                    style={{
-                      height: '32px',
-                      backgroundColor: `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectivePreviewOpacity})`,
-                      border: '1px solid transparent',
-                      borderRadius: '8px',
-                      padding: '0 10px',
-                      fontSize: '13px',
-                      fontWeight: 400,
-                      color: 'var(--text-muted)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      boxSizing: 'border-box',
-                      userSelect: 'none',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        Matching Font and UI ...
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>6h</span>
-                  </div>
-
-                  {/* Ordinary Conversation Tab 2 */}
-                  <div
-                    style={{
-                      height: '32px',
-                      backgroundColor: `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectivePreviewOpacity})`,
-                      border: '1px solid transparent',
-                      borderRadius: '8px',
-                      padding: '0 10px',
-                      fontSize: '13px',
-                      fontWeight: 400,
-                      color: 'var(--text-muted)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      boxSizing: 'border-box',
-                      userSelect: 'none',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        Antigravity Manager Pl...
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>1d</span>
-                  </div>
-                </div>
-              </div>
-            </div>
           )}
         </div>
       )}
@@ -844,8 +683,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
             </h2>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 1px 360px', gap: '24px 12px', alignItems: 'stretch' }}>
-            {/* Left column: Controls stacked vertically */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {/* Simplicity Replacement Zone */}
               <div
@@ -1102,223 +939,6 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
                 </div>
               </div>
             </div>
-
-            {/* VERTICAL DIVIDER */}
-            <div style={{ width: '1px', backgroundColor: 'var(--border)', alignSelf: 'stretch' }} />
-
-            {/* Right column: Interactive Micro-Interaction Preview */}
-            <div
-              style={{
-                width: '360px',
-                boxSizing: 'border-box',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                background: 'var(--canvas)',
-                padding: '16px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-              }}
-            >
-              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                Divider Visual Design & Micro-Interaction Preview
-              </div>
-
-              {/* Project Card */}
-              <div
-                style={{
-                  background: previewProjColor,
-                  color: projCardTextColor,
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <span>{activeProjectName}</span>
-                <ChevronDown size={12} strokeWidth={2} style={{ opacity: 0.85 }} />
-              </div>
-
-              {/* Visible Sample Rows */}
-              {['Frontend Component Architecture', 'API Endpoint Optimization', 'Design Token Synchronization'].map((title, i) => (
-                <div
-                  key={title}
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    color: 'var(--text)',
-                    background: `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, 0.08)`,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                    {i + 1}h
-                    <ChevronRight size={10} />
-                  </span>
-                </div>
-              ))}
-
-              {previewExpanded &&
-                ['Telemetry Pipeline Refactor', 'State Synchronization Hook'].map((title, i) => (
-                  <div
-                    key={title}
-                    style={{
-                      padding: '6px 10px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      color: 'var(--text)',
-                      background: `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, 0.08)`,
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
-                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{i + 4}h</span>
-                  </div>
-                ))}
-
-              {/* Centered Divider with Solid Triangle Above Continuous Line */}
-              {guiConfig.replace_see_all_triangle !== false ? (
-                <div
-                  onClick={() => setPreviewExpanded(!previewExpanded)}
-                  title={previewExpanded ? 'Show fewer conversations' : 'Show all 5 conversations (2 hidden)'}
-                  style={{
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '100%',
-                    height: '24px',
-                    marginTop: '1px',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    padding: '0',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: 0,
-                      right: 0,
-                      width: '100%',
-                      height: '1px',
-                      transform: 'translateY(-50%)',
-                      background: 'rgba(148, 163, 184, 0.35)',
-                      zIndex: 1,
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      bottom: '50%',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      marginBottom: '1px',
-                      zIndex: 2,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '16px',
-                      height: '11px',
-                      color: 'var(--text-muted)',
-                      fontSize: '8px',
-                      transition: 'all 0.18s ease',
-                    }}
-                  >
-                    {previewExpanded ? (
-                      <ChevronUp size={12} strokeWidth={2} />
-                    ) : (
-                      <ChevronDown size={12} strokeWidth={2} />
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div
-                  onClick={() => setPreviewExpanded(!previewExpanded)}
-                  style={{
-                    padding: '4px 0',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    color: previewProjColor,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  {previewExpanded ? 'See less' : 'See all 5'}
-                </div>
-              )}
-
-              {/* Project 2: Uncontracted project demonstrating consistent bottom spacing */}
-              <div
-                style={{
-                  background: secondaryProjColor,
-                  color: secondaryCardTextColor,
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginTop: '16px',
-                }}
-              >
-                <span>{secondaryProjectName}</span>
-                <ChevronDown size={12} strokeWidth={2} style={{ opacity: 0.85 }} />
-              </div>
-              <div
-                style={{
-                  padding: '6px 10px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  color: 'var(--text)',
-                  background: `rgba(${parsedSecondaryColor.r}, ${parsedSecondaryColor.g}, ${parsedSecondaryColor.b}, 0.08)`,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Active Experiment Runner</span>
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>20m</span>
-              </div>
-              {guiConfig.consistent_project_spacing !== false && (
-                <div
-                  style={{
-                    position: 'relative',
-                    height: '0px',
-                    width: '100%',
-                    boxSizing: 'border-box',
-                  }}
-                  title={
-                    (guiConfig.consistent_project_spacing_line ?? true)
-                      ? 'Consistent horizontal divider line centered in the existing project gap'
-                      : 'Natural project gap below uncontracted project'
-                  }
-                >
-                  {(guiConfig.consistent_project_spacing_line ?? true) && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: '6px',
-                        left: 0,
-                        right: 0,
-                        height: '1px',
-                        background: 'rgba(148, 163, 184, 0.35)',
-                      }}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       )}
 
@@ -1444,7 +1064,318 @@ export const AppEnhancementsPage: React.FC<AppEnhancementsPageProps> = ({
           </div>
         </div>
       </div>
-    </>
+      </div>
+
+      {/* Right Column: Exactly 1 Live Preview Gadget */}
+      {guiConfig && (
+        <div
+          className="google-card"
+          style={{
+            position: 'sticky',
+            top: '24px',
+            boxSizing: 'border-box',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+              Sidebar Live Preview
+            </span>
+            <span style={{ fontSize: '11px', color: '#94a3b8' }}>Antigravity 2.0</span>
+          </div>
+
+          <div
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: '10px',
+              padding: '10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+              fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            }}
+          >
+            {/* Project 1 Header */}
+            <div
+              style={{
+                background: previewProjColor,
+                color: projCardTextColor,
+                borderRadius: '8px',
+                height: '32px',
+                padding: '0 10px',
+                fontSize: '13px',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                userSelect: 'none',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, overflow: 'hidden' }}>
+                <Folder size={14} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {activeProjectName}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, opacity: 0.9 }}>
+                <Plus size={13} style={{ cursor: 'pointer' }} />
+                <MoreVertical size={13} style={{ cursor: 'pointer' }} />
+              </div>
+            </div>
+
+            {/* Active Open Conversation Tab */}
+            <div
+              style={{
+                height: '32px',
+                backgroundColor:
+                  guiConfig.active_conversation_indicator === 'background'
+                    ? `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectiveActiveOpacity})`
+                    : `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectivePreviewOpacity})`,
+                border:
+                  guiConfig.active_conversation_indicator === 'border'
+                    ? `${guiConfig.active_conversation_border_width || '2px'} solid ${projAccentTextColor}`
+                    : '1px solid transparent',
+                borderLeft:
+                  guiConfig.active_conversation_indicator === 'left_bar'
+                    ? `3px solid ${projAccentTextColor}`
+                    : guiConfig.active_conversation_indicator === 'border'
+                    ? `${guiConfig.active_conversation_border_width || '2px'} solid ${projAccentTextColor}`
+                    : '1px solid transparent',
+                borderRadius: '8px',
+                padding: '0 10px',
+                fontSize: '13px',
+                fontWeight: (guiConfig.active_conversation_bold ?? false) ? 700 : 400,
+                color: 'var(--text)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                boxSizing: 'border-box',
+                transition: 'all 0.15s ease',
+                userSelect: 'none',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  Task Completion Check
+                </span>
+              </div>
+              <span style={{ fontSize: '11px', color: projAccentTextColor, fontWeight: 600, flexShrink: 0 }}>Just now</span>
+            </div>
+
+            {/* Ordinary Conversation Tab 1 */}
+            <div
+              style={{
+                height: '32px',
+                backgroundColor: `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectivePreviewOpacity})`,
+                border: '1px solid transparent',
+                borderRadius: '8px',
+                padding: '0 10px',
+                fontSize: '13px',
+                fontWeight: 400,
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                boxSizing: 'border-box',
+                userSelect: 'none',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  Matching Font and UI ...
+                </span>
+              </div>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>6h</span>
+            </div>
+
+            {/* Ordinary Conversation Tab 2 */}
+            <div
+              style={{
+                height: '32px',
+                backgroundColor: `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectivePreviewOpacity})`,
+                border: '1px solid transparent',
+                borderRadius: '8px',
+                padding: '0 10px',
+                fontSize: '13px',
+                fontWeight: 400,
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                boxSizing: 'border-box',
+                userSelect: 'none',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  Antigravity Manager Pl...
+                </span>
+              </div>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>1d</span>
+            </div>
+
+            {previewExpanded &&
+              ['Telemetry Pipeline Refactor', 'State Synchronization Hook'].map((title, i) => (
+                <div
+                  key={title}
+                  style={{
+                    height: '32px',
+                    backgroundColor: `rgba(${parsedProjColor.r}, ${parsedProjColor.g}, ${parsedProjColor.b}, ${effectivePreviewOpacity})`,
+                    border: '1px solid transparent',
+                    borderRadius: '8px',
+                    padding: '0 10px',
+                    fontSize: '13px',
+                    fontWeight: 400,
+                    color: 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    boxSizing: 'border-box',
+                    userSelect: 'none',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, overflow: 'hidden' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {title}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>{i + 4}h</span>
+                </div>
+              ))}
+
+            {/* Centered Divider with Solid Triangle Above Continuous Line */}
+            {guiConfig.replace_see_all_triangle !== false ? (
+              <div
+                onClick={() => setPreviewExpanded(!previewExpanded)}
+                title={previewExpanded ? 'Show fewer conversations' : 'Show all 5 conversations (2 hidden)'}
+                style={{
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '100%',
+                  height: '24px',
+                  marginTop: '1px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  padding: '0',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: 0,
+                    right: 0,
+                    width: '100%',
+                    height: '1px',
+                    transform: 'translateY(-50%)',
+                    background: 'rgba(148, 163, 184, 0.35)',
+                    zIndex: 1,
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: '50%',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    marginBottom: '1px',
+                    zIndex: 2,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '16px',
+                    height: '11px',
+                    color: 'var(--text-muted)',
+                    fontSize: '8px',
+                    transition: 'all 0.18s ease',
+                  }}
+                >
+                  {previewExpanded ? (
+                    <ChevronUp size={12} strokeWidth={2} />
+                  ) : (
+                    <ChevronDown size={12} strokeWidth={2} />
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div
+                onClick={() => setPreviewExpanded(!previewExpanded)}
+                style={{
+                  padding: '4px 0',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: previewProjColor,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                {previewExpanded ? 'See less' : 'See all 5'}
+              </div>
+            )}
+
+            {/* Project 2: Demonstrating consistent bottom spacing */}
+            <div
+              style={{
+                background: secondaryProjColor,
+                color: secondaryCardTextColor,
+                borderRadius: '8px',
+                height: '32px',
+                padding: '0 10px',
+                fontSize: '13px',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: '12px',
+                userSelect: 'none',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, overflow: 'hidden' }}>
+                <Folder size={14} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {secondaryProjectName}
+                </span>
+              </div>
+              <ChevronDown size={12} strokeWidth={2} style={{ opacity: 0.85 }} />
+            </div>
+            <div
+              style={{
+                height: '32px',
+                padding: '0 10px',
+                borderRadius: '8px',
+                fontSize: '13px',
+                color: 'var(--text-muted)',
+                background: `rgba(${parsedSecondaryColor.r}, ${parsedSecondaryColor.g}, ${parsedSecondaryColor.b}, 0.08)`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Active Experiment Runner</span>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>20m</span>
+            </div>
+            {guiConfig.consistent_project_spacing !== false && (guiConfig.consistent_project_spacing_line ?? true) && (
+              <div
+                style={{
+                  height: '1px',
+                  width: '100%',
+                  background: 'rgba(148, 163, 184, 0.35)',
+                  marginTop: '8px',
+                }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   )}
 
   {/* Category 3: Overview Panel */}

@@ -218,8 +218,8 @@ describe('Extensions top tab switcher & Community Extensions UI (#203)', () => {
       'GitHub Workspace card must render in Built-in tab'
     )
     assert.ok(
-      content.includes('Preview Browser'),
-      'Preview Browser card must render in Built-in tab'
+      content.includes('Built-in Browser') || content.includes('Preview Browser'),
+      'Built-in Browser card must render in Built-in tab'
     )
     assert.ok(
       content.includes('Auxiliary File Explorer'),

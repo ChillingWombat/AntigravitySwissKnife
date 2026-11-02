@@ -295,6 +295,8 @@ export interface RuleConfig {
   default_custom_model?: string
   default_non_gemini_model?: string
   default_gemini_reasoning_level?: string
+  default_custom_reasoning_level?: string
+  default_non_gemini_reasoning_level?: string
   auto_import_active_account?: boolean
   multi_app_sync_mode?: MultiAppSyncMode
   active_app_accounts?: Record<string, string>

@@ -289,7 +289,7 @@ export const ModelSourceTab: React.FC = () => {
           >
             <div style={{ ...wrappingTextStyle, fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>Profile Isolation: One Catalog per Window</div>
             <p style={{ ...wrappingTextStyle, margin: '4px 0 0', fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Each app window runs on one catalog with either Native models or Custom models, never both. Launch separate windows to use each source.
+              Run native or custom models in separate windows. Safe with zero proxying.
             </p>
           </button>
           <button
@@ -311,7 +311,7 @@ export const ModelSourceTab: React.FC = () => {
               </span>
             </div>
             <p style={{ ...wrappingTextStyle, margin: '4px 0 0', fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Routes Antigravity traffic through the local proxy, so one catalog per window can serve both Native and Custom models at the same time. Proxied traffic carries a potential ban risk.
+              Use native and custom models together in the same window via the local proxy.
             </p>
           </button>
         </div>
