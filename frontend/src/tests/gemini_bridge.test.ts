@@ -77,7 +77,7 @@ describe('Gemini Bridge Remote Tunneling, Auth & Modes Contract', () => {
     assert.strictEqual(content.includes('Copy PIN'), false, 'Copy PIN button must be removed from Pairing PIN gadget')
     assert.ok(content.includes('status?.pairing_pin'))
     assert.ok(content.includes('status?.auth_token'))
-    assert.ok(content.includes("gridTemplateColumns: '2fr 1fr'"))
+    assert.ok(content.includes("flexDirection: 'column'"))
 
     const endpointIndex = content.indexOf('Active Endpoint')
     const pairingPinIndex = content.indexOf('Pairing PIN (Quick Setup)')

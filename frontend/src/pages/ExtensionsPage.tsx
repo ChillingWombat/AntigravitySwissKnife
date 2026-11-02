@@ -882,14 +882,9 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Globe size={16} color="var(--text-muted)" />
-              <div>
-                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
-                  Built-in Browser Enhancements
-                </h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Preview Browser capabilities on Antigravity's native browser
-                </span>
-              </div>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--text)' }}>
+                Built-in Browser Enhancements
+              </h3>
             </div>
             {renderExtSwitches('browser', 'Built-in Browser')}
           </div>
@@ -920,22 +915,6 @@ export const ExtensionsPage: React.FC<ExtensionsPageProps> = ({ activeTab = 0 })
                   }}
                   placeholder="http://localhost:8765"
                 />
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {['8765', '5173', '3000', '8080'].map((port) => (
-                    <button
-                      key={port}
-                      onClick={() => {
-                        const url = `http://localhost:${port}`
-                        setPreviewUrl(url)
-                        localStorage.setItem('antigravity_browser_default_url', url)
-                      }}
-                      className="btn-pill-tonal"
-                      style={{ padding: '3px 8px', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap' }}
-                    >
-                      :{port}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               {/* Mobile Viewport Simulation Options */}

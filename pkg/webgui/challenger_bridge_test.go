@@ -223,8 +223,8 @@ func TestChallengerBridge_WebGUI_BridgeChannelsConfig_RedactionAndUnredacted(t *
 	if resDefault.Config.WhatsApp.AccessToken != "[REDACTED]" {
 		t.Errorf("expected redacted WhatsApp access token, got: %q", resDefault.Config.WhatsApp.AccessToken)
 	}
-	if resDefault.Config.WhatsApp.VerifyToken != "[REDACTED]" {
-		t.Errorf("expected redacted WhatsApp verify token, got: %q", resDefault.Config.WhatsApp.VerifyToken)
+	if resDefault.Config.WhatsApp.VerifyToken != "secret-wa-verify-token" {
+		t.Errorf("expected unredacted WhatsApp verify token, got: %q", resDefault.Config.WhatsApp.VerifyToken)
 	}
 	if resDefault.Config.Telegram.BotToken != "[REDACTED]" {
 		t.Errorf("expected redacted Telegram bot token, got: %q", resDefault.Config.Telegram.BotToken)

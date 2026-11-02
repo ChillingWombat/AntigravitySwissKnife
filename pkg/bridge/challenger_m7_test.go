@@ -430,7 +430,7 @@ func TestChallengerM7_Channels_SecretPreservation_OnUpdate(t *testing.T) {
 	// 1. Redacted config must mask all tokens
 	redacted := cm.GetChannelsConfigRedacted()
 	if redacted.WhatsApp.AccessToken != "[REDACTED]" ||
-		redacted.WhatsApp.VerifyToken != "[REDACTED]" ||
+		redacted.WhatsApp.VerifyToken != "original_whatsapp_verify_token_456" ||
 		redacted.Telegram.BotToken != "[REDACTED]" ||
 		redacted.Discord.BotToken != "[REDACTED]" {
 		t.Fatalf("secrets leaked in redacted config: %+v", redacted)

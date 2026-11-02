@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
-import { Lock, Eye, EyeOff, KeyRound, ArrowRight } from 'lucide-react'
+import { Eye, EyeOff, KeyRound, ArrowRight } from 'lucide-react'
 import { api } from '../api'
+import { swissLogoUrl } from '../assets/browserAssets'
 
 interface AppLockScreenProps {
   onUnlocked: () => void
@@ -62,18 +63,19 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({ onUnlocked }) => {
       >
         <div
           style={{
-            width: '60px',
-            height: '60px',
+            width: '64px',
+            height: '64px',
             margin: '0 auto 20px',
-            backgroundColor: 'var(--primary-light)',
-            borderRadius: '50%',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: 'var(--primary)',
           }}
         >
-          <Lock size={28} />
+          <img
+            src={swissLogoUrl}
+            alt="Antigravity Swiss Knife Logo"
+            style={{ width: '64px', height: '64px', objectFit: 'contain' }}
+          />
         </div>
 
         <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)', margin: '0 0 6px' }}>

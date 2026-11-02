@@ -1157,7 +1157,7 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 	if convID != "" {
 		if customModelID := custommodels.GetRoutedConversationModel(convID); customModelID != "" {
 			for _, cm := range customModels {
-				if cm.ID == customModelID || cm.Name == customModelID {
+				if strings.EqualFold(cm.ID, customModelID) || strings.EqualFold(cm.Name, customModelID) {
 					disp := cm.DisplayName
 					if disp == "" {
 						disp = cm.Name
@@ -1851,6 +1851,36 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 				return (float64(st.freshInput)*inRate + float64(st.cachedInput)*cacheRate + float64(st.output)*outRate) / 1_000_000.0
 			}
 
+			// Collect the most recent steps of this conversation for the Live
+			// Telemetry tab (a log: always the latest invocations, independent
+			// of the selected aggregation window and classification filter).
+			recent := tStats.steps
+			if len(recent) > 15 {
+				recent = recent[len(recent)-15:]
+			}
+			for _, st := range recent {
+				allRecentSteps = append(allRecentSteps, stepWithContext{
+					rawStepEvent:    st,
+					convID:          convID,
+					project:         projName,
+					modelName:       mDisplayName,
+					modelID:         mID,
+					provider:        pRec.Provider,
+					classification:  pRec.Classification,
+					costUSD:         stepCost(st),
+					priceConfigured: priceConfigured,
+					isSubagent:      isSub,
+					agentRole:       agentRole,
+				})
+			}
+
+			// Classification filter (#native vs #custom vs all) for KPI aggregates and breakdowns
+			if classFilter == "native" || classFilter == "custom" {
+				if string(pRec.Classification) != classFilter {
+					continue
+				}
+			}
+
 			var convCost, convSaved float64
 			if priceConfigured {
 				convInputCost := (float64(agg.freshInput)*inRate + float64(agg.cachedInput)*cacheRate) / 1_000_000.0
@@ -1926,29 +1956,6 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 			}
 			if tStats.lastActive.After(pa.lastActive) {
 				pa.lastActive = tStats.lastActive
-			}
-
-			// Collect the most recent steps of this conversation for the Live
-			// Telemetry tab (a log: always the latest invocations, independent
-			// of the selected aggregation window).
-			recent := tStats.steps
-			if len(recent) > 15 {
-				recent = recent[len(recent)-15:]
-			}
-			for _, st := range recent {
-				allRecentSteps = append(allRecentSteps, stepWithContext{
-					rawStepEvent:    st,
-					convID:          convID,
-					project:         projName,
-					modelName:       mDisplayName,
-					modelID:         mID,
-					provider:        pRec.Provider,
-					classification:  pRec.Classification,
-					costUSD:         stepCost(st),
-					priceConfigured: priceConfigured,
-					isSubagent:      isSub,
-					agentRole:       agentRole,
-				})
 			}
 
 			// Collect every in-window step for the trend histogram (#125).
