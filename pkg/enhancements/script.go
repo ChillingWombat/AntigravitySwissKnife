@@ -2486,6 +2486,21 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     function getConversationIdFromElement(el) {
       if (!el) return null;
       try {
+        if (el.getAttribute) {
+          const directId = el.getAttribute("data-cascade-id") || el.getAttribute("data-conversation-id");
+          if (typeof directId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(directId)) {
+            return directId;
+          }
+        }
+        if (el.closest) {
+          const closestCascade = el.closest("[data-cascade-id], [data-conversation-id]");
+          if (closestCascade) {
+            const id = closestCascade.getAttribute("data-cascade-id") || closestCascade.getAttribute("data-conversation-id");
+            if (typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+              return id;
+            }
+          }
+        }
         const box = el.closest ? el.closest('[data-testid="agent-input-box"]') : el;
         const target = box || el;
         const fiberKey = Object.keys(target).find(k => k.startsWith("__reactFiber"));
