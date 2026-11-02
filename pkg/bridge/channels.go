@@ -164,15 +164,14 @@ func (cm *ChannelsManager) GetConfig() ChannelsConfig {
 }
 
 // GetChannelsConfigRedacted returns current channels settings with bot tokens and secrets masked to [REDACTED].
+// Webhook verification tokens (such as WhatsApp VerifyToken) remain visible so users can configure
+// external platform webhooks without being blocked by placeholder masks.
 func (cm *ChannelsManager) GetChannelsConfigRedacted() ChannelsConfig {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 	cfg := cm.config
 	if cfg.WhatsApp.AccessToken != "" {
 		cfg.WhatsApp.AccessToken = "[REDACTED]"
-	}
-	if cfg.WhatsApp.VerifyToken != "" {
-		cfg.WhatsApp.VerifyToken = "[REDACTED]"
 	}
 	if cfg.Telegram.BotToken != "" {
 		cfg.Telegram.BotToken = "[REDACTED]"

@@ -1205,6 +1205,8 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
               const hasClaude5hQuota = Boolean(rules?.allow_non_gemini_native_models) && typeof acc.quota_5h_claude_gpt === 'number' && acc.quota_5h_claude_gpt !== null
               const hasClaudeWeeklyQuota = Boolean(rules?.allow_non_gemini_native_models) && typeof acc.quota_weekly_claude_gpt === 'number' && acc.quota_weekly_claude_gpt !== null
               const showGeminiLabel = hasArgon5hQuota || hasArgonWeeklyQuota || hasClaude5hQuota || hasClaudeWeeklyQuota
+              const hasMultiple5hBars = hasArgon5hQuota || hasClaude5hQuota
+              const hasMultipleWeeklyBars = hasArgonWeeklyQuota || hasClaudeWeeklyQuota
               const isHealthy = (hasGeminiHealthy || hasNonGeminiHealthy) && !acc.status?.toUpperCase().includes('NEEDS_REAUTH') && !acc.status?.toUpperCase().includes('ERROR') && !acc.status?.toUpperCase().includes('BANNED') && Boolean(acc.refresh_token?.trim())
               const isNextSwitch = Boolean(nextSwitchCandidate && acc.email.toLowerCase() === nextSwitchCandidate.toLowerCase())
               return (
@@ -1265,7 +1267,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     {renderPlanTierBadge(acc.plan_tier)}
                   </td>
 
-                  <td style={{ padding: '12px', verticalAlign: 'top' }}>
+                  <td style={{ padding: '12px', verticalAlign: hasMultiple5hBars ? 'top' : 'middle' }}>
                     {(() => {
                       const avail5h = acc.quota_5h_available ?? current5h
                       const hasDiff = Math.abs(avail5h - current5h) > 0.001
@@ -1383,7 +1385,7 @@ export const QuotaDashboardPage: React.FC<QuotaDashboardPageProps> = ({
                     })()}
                   </td>
 
-                  <td style={{ padding: '12px', verticalAlign: 'top' }}>
+                  <td style={{ padding: '12px', verticalAlign: hasMultipleWeeklyBars ? 'top' : 'middle' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       {hasArgonWeeklyQuota ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

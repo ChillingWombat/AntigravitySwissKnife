@@ -99,6 +99,29 @@ const formatThinkingLevel = (level: string): string => {
   return level.charAt(0).toUpperCase() + level.slice(1)
 }
 
+interface CustomModelOptionItem {
+  id: string
+  name: string
+  model_name?: string
+  supports_thinking?: boolean
+  thinking_levels?: string[]
+  thinking_level?: string
+}
+
+const resolveVariantModelId = (base: GeminiBaseModel, level: string): string => {
+  if (level === 'off' || level === 'none') {
+    const nonThinking = base.modelIds.find((id) => !id.includes('thinking') && !MODEL_LEVEL_SUFFIX_RE.test(id))
+    if (nonThinking) return nonThinking
+  }
+  const levelMatch = base.modelIds.find((id) => id.endsWith('-' + level.toLowerCase()))
+  if (levelMatch) return levelMatch
+  if (level !== 'off' && level !== 'none') {
+    const thinkingMatch = base.modelIds.find((id) => id.includes('thinking'))
+    if (thinkingMatch) return thinkingMatch
+  }
+  return base.modelIds[0] || base.id
+}
+
 export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   initialRules,
   onSaved,
@@ -144,6 +167,12 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   )
   const [defaultCustom, setDefaultCustom] = useState<string>(initialRules?.default_custom_model || '')
   const [defaultNonGemini, setDefaultNonGemini] = useState<string>(initialRules?.default_non_gemini_model || 'claude-opus-4-6-thinking')
+  const [defaultCustomReasoningLevel, setDefaultCustomReasoningLevel] = useState<string>(
+    initialRules?.default_custom_reasoning_level || 'high'
+  )
+  const [defaultNonGeminiReasoningLevel, setDefaultNonGeminiReasoningLevel] = useState<string>(
+    initialRules?.default_non_gemini_reasoning_level || 'high'
+  )
   const [subagentCustomModelsEnabled, setSubagentCustomModelsEnabled] = useState<boolean>(
     initialRules?.subagent_custom_models_enabled ?? false
   )
@@ -159,7 +188,7 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
   const [nonGeminiModelOptions, setNonGeminiModelOptions] = useState<AvailableModelItem[]>([])
   const [isFetchingModels, setIsFetchingModels] = useState<boolean>(false)
   const [autoImportActive, setAutoImportActive] = useState<boolean>(initialRules?.auto_import_active_account ?? false)
-  const [customModelOptions, setCustomModelOptions] = useState<{ id: string; name: string; model_name?: string }[]>([])
+  const [customModelOptions, setCustomModelOptions] = useState<CustomModelOptionItem[]>([])
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
   const geminiBaseModels = buildGeminiBaseModels(geminiModelOptions)
@@ -168,6 +197,45 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     geminiBaseModels.find((model) => model.modelIds.includes(defaultGemini))
   const selectedGeminiThinkingLevels =
     selectedGeminiBaseModel?.supportsThinking ? selectedGeminiBaseModel.thinkingLevels : ['off']
+
+  const nonGeminiBaseModels = buildGeminiBaseModels(nonGeminiModelOptions)
+  const selectedNonGeminiBaseModel =
+    nonGeminiBaseModels.find((model) => model.id === defaultNonGemini) ||
+    nonGeminiBaseModels.find((model) => model.modelIds.includes(defaultNonGemini))
+  const selectedNonGeminiThinkingLevels =
+    selectedNonGeminiBaseModel?.supportsThinking ? selectedNonGeminiBaseModel.thinkingLevels : ['off']
+
+  const selectedCustomModel = customModelOptions.find((cm) => cm.id === effectiveCustomModel)
+  const selectedCustomThinkingLevels = selectedCustomModel?.supports_thinking
+    ? (selectedCustomModel.thinking_levels && selectedCustomModel.thinking_levels.length > 0
+        ? selectedCustomModel.thinking_levels
+        : ['off', 'low', 'medium', 'high'])
+    : ['off']
+
+  const handleNonGeminiBaseChange = (baseId: string) => {
+    const base = nonGeminiBaseModels.find((m) => m.id === baseId)
+    if (!base) {
+      setDefaultNonGemini(baseId)
+      return
+    }
+    const targetId = resolveVariantModelId(base, defaultNonGeminiReasoningLevel)
+    setDefaultNonGemini(targetId)
+  }
+
+  const handleNonGeminiThinkingChange = (newLevel: string) => {
+    setDefaultNonGeminiReasoningLevel(newLevel)
+    if (selectedNonGeminiBaseModel) {
+      const targetId = resolveVariantModelId(selectedNonGeminiBaseModel, newLevel)
+      setDefaultNonGemini(targetId)
+    }
+  }
+
+  const handleCustomThinkingChange = (newLevel: string) => {
+    setDefaultCustomReasoningLevel(newLevel)
+    if (effectiveCustomModel) {
+      api.setThinkingLevel(effectiveCustomModel, newLevel).catch(() => {})
+    }
+  }
 
   const [feedback, setFeedback] = useState<string | null>(null)
   const [isSavingPrompt, setIsSavingPrompt] = useState<boolean>(false)
@@ -365,8 +433,14 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
     if (initialRules.default_custom_model) {
       setDefaultCustom(initialRules.default_custom_model)
     }
+    if (initialRules.default_custom_reasoning_level) {
+      setDefaultCustomReasoningLevel(initialRules.default_custom_reasoning_level)
+    }
     if (initialRules.default_non_gemini_model) {
       setDefaultNonGemini(initialRules.default_non_gemini_model)
+    }
+    if (initialRules.default_non_gemini_reasoning_level) {
+      setDefaultNonGeminiReasoningLevel(initialRules.default_non_gemini_reasoning_level)
     }
     if (initialRules.auto_import_active_account !== undefined) {
       setAutoImportActive(initialRules.auto_import_active_account)
@@ -449,7 +523,16 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       const cmRes = await api.getCustomModels()
       if (cmRes && cmRes.models) {
         const enabled = cmRes.models.filter((m) => m.enabled)
-        setCustomModelOptions(enabled.map((m) => ({ id: m.id, name: m.display_name || m.name || m.id, model_name: m.name })))
+        setCustomModelOptions(
+          enabled.map((m) => ({
+            id: m.id,
+            name: m.display_name || m.name || m.id,
+            model_name: m.name,
+            supports_thinking: m.supports_thinking,
+            thinking_levels: m.thinking_levels,
+            thinking_level: m.thinking_level,
+          }))
+        )
         if (enabled.length > 0) {
           setDefaultCustom((prev) => {
             const trimmedPrev = (prev || '').trim().toLowerCase()
@@ -493,7 +576,16 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       .then((res) => {
         if (res && res.models) {
           const enabled = res.models.filter((m) => m.enabled)
-          setCustomModelOptions(enabled.map((m) => ({ id: m.id, name: m.display_name || m.name || m.id, model_name: m.name })))
+          setCustomModelOptions(
+            enabled.map((m) => ({
+              id: m.id,
+              name: m.display_name || m.name || m.id,
+              model_name: m.name,
+              supports_thinking: m.supports_thinking,
+              thinking_levels: m.thinking_levels,
+              thinking_level: m.thinking_level,
+            }))
+          )
           if (enabled.length > 0) {
             setDefaultCustom((prev) => {
               const trimmedPrev = (prev || '').trim().toLowerCase()
@@ -569,7 +661,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
       default_gemini_model: defaultGemini,
       default_gemini_reasoning_level: defaultGeminiReasoningLevel,
       default_custom_model: effectiveCustomModel,
+      default_custom_reasoning_level: defaultCustomReasoningLevel,
       default_non_gemini_model: defaultNonGemini,
+      default_non_gemini_reasoning_level: defaultNonGeminiReasoningLevel,
       auto_import_active_account: autoImportActive,
       multi_app_sync_mode: isSingleAppOrLess ? 'shared' : multiAppSyncMode,
       subagent_custom_models_enabled: subagentCustomModelsEnabled,
@@ -669,7 +763,9 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
         default_gemini_model: defaultGemini,
         default_gemini_reasoning_level: defaultGeminiReasoningLevel,
         default_custom_model: effectiveCustomModel,
+        default_custom_reasoning_level: defaultCustomReasoningLevel,
         default_non_gemini_model: defaultNonGemini,
+        default_non_gemini_reasoning_level: defaultNonGeminiReasoningLevel,
         auto_import_active_account: autoImportActive,
         multi_app_sync_mode: isSingleAppOrLess ? 'shared' : multiAppSyncMode,
         subagent_custom_models_enabled: subagentCustomModelsEnabled,
@@ -1306,152 +1402,126 @@ export const SwitcherSettingsPage: React.FC<SwitcherSettingsPageProps> = ({
           </div>
 
           {/* Default Custom Model */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Default Custom Model:
-              </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+              Default Custom Model:
             </div>
-            <select
-              value={effectiveCustomModel}
-              onChange={(e) => setDefaultCustom(e.target.value)}
-              disabled={customModelOptions.length === 0}
-              style={{
-                width: '180px',
-                minWidth: '180px',
-                maxWidth: '180px',
-                boxSizing: 'border-box',
-                flexShrink: 0,
-                cursor: customModelOptions.length === 0 ? 'not-allowed' : 'pointer',
-                opacity: customModelOptions.length === 0 ? 0.6 : 1,
-                backgroundColor: customModelOptions.length === 0 ? 'var(--canvas)' : undefined,
-                color: customModelOptions.length === 0 ? 'var(--text-muted)' : undefined,
-                borderColor: customModelOptions.length === 0 ? 'var(--border)' : undefined,
-              }}
-              aria-label="Default Custom Model"
-            >
-              {customModelOptions.length === 0 ? (
-                <option value=""></option>
-              ) : (
-                customModelOptions.map((cm) => (
-                  <option key={cm.id} value={cm.id}>
-                    {cm.name || cm.id}
-                  </option>
-                ))
-              )}
-            </select>
+            <div style={{ display: 'flex', alignItems: 'flex-end', flexWrap: 'wrap', gap: '8px' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                Model
+                <select
+                  value={effectiveCustomModel}
+                  onChange={(e) => {
+                    const newId = e.target.value
+                    setDefaultCustom(newId)
+                    const found = customModelOptions.find((m) => m.id === newId)
+                    if (found?.thinking_level) {
+                      setDefaultCustomReasoningLevel(found.thinking_level)
+                    }
+                  }}
+                  disabled={customModelOptions.length === 0}
+                  style={{
+                    width: '190px',
+                    boxSizing: 'border-box',
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
+                    borderColor: 'var(--border)',
+                    cursor: customModelOptions.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: customModelOptions.length === 0 ? 0.6 : 1,
+                    backgroundColor: customModelOptions.length === 0 ? 'var(--canvas)' : undefined,
+                    color: customModelOptions.length === 0 ? 'var(--text-muted)' : undefined,
+                  }}
+                  aria-label="Default Custom Model"
+                >
+                  {customModelOptions.length === 0 ? (
+                    <option value=""></option>
+                  ) : (
+                    customModelOptions.map((cm) => (
+                      <option key={cm.id} value={cm.id}>
+                        {cm.name || cm.id}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                Thinking
+                <select
+                  value={defaultCustomReasoningLevel}
+                  onChange={(e) => handleCustomThinkingChange(e.target.value)}
+                  disabled={!selectedCustomModel || !selectedCustomModel.supports_thinking}
+                  style={{
+                    width: '120px',
+                    boxSizing: 'border-box',
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
+                    borderColor: 'var(--border)',
+                    cursor: !selectedCustomModel || !selectedCustomModel.supports_thinking ? 'not-allowed' : 'pointer',
+                    opacity: !selectedCustomModel || !selectedCustomModel.supports_thinking ? 0.6 : 1,
+                  }}
+                  aria-label="Default Custom Thinking Level"
+                >
+                  {selectedCustomThinkingLevels.map((level) => (
+                    <option key={level} value={level}>
+                      {selectedCustomModel?.supports_thinking ? formatThinkingLevel(level) : 'None'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
 
           {/* Default Non-Gemini Native Model */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Default Non-Gemini Native Model:
-              </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+              Default Non-Gemini Native Model:
             </div>
-            <select
-              value={defaultNonGemini}
-              onChange={(e) => setDefaultNonGemini(e.target.value)}
-              style={{ width: '180px', minWidth: '180px', maxWidth: '180px', boxSizing: 'border-box', flexShrink: 0 }}
-              aria-label="Default Non-Gemini Native Model"
-            >
-              {nonGeminiModelOptions.length === 0 ? (
-                <option value={defaultNonGemini}>
-                  {isFetchingModels ? 'Fetching live models...' : (defaultNonGemini || 'No Non-Gemini models found')}
-                </option>
-              ) : (
-                nonGeminiModelOptions.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.display_name}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Section 4b: Gemini Subagent Custom Models */}
-      <div className="google-card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.8px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-            Gemini Subagent Custom Models
-          </div>
-          <ToggleSwitch
-            checked={subagentCustomModelsEnabled}
-            onChange={(checked) => setSubagentCustomModelsEnabled(checked)}
-            style={{ flexShrink: 0 }}
-            ariaLabel="Enable Gemini subagent custom models"
-          />
-        </div>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: '12px',
-            opacity: subagentCustomModelsEnabled ? 1 : 0.45,
-            pointerEvents: subagentCustomModelsEnabled ? 'auto' : 'none',
-            transition: 'opacity 0.15s ease',
-          }}
-        >
-          {/* Option A: Default custom model only */}
-          <div
-            onClick={() => setSubagentStrategy('default_custom_only')}
-            style={{
-              border: subagentStrategy === 'default_custom_only' ? '2px solid var(--primary)' : '1px solid var(--border)',
-              backgroundColor: subagentStrategy === 'default_custom_only' ? 'var(--primary-light, rgba(11, 87, 208, 0.04))' : 'var(--surface)',
-              borderRadius: '8px',
-              padding: '14px',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                  Default custom model only
-                </span>
-              </div>
-              {subagentStrategy === 'default_custom_only' && (
-                <CheckCircle2 size={14} color="var(--primary)" />
-              )}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Directs all Gemini subagent workloads to the configured Default Custom Model without dynamic model switching.
-            </div>
-          </div>
-
-          {/* Option B: Auto-decide based on ability, performance, and price */}
-          <div
-            onClick={() => setSubagentStrategy('auto_decide')}
-            style={{
-              border: subagentStrategy === 'auto_decide' ? '2px solid var(--primary)' : '1px solid var(--border)',
-              backgroundColor: subagentStrategy === 'auto_decide' ? 'var(--primary-light, rgba(11, 87, 208, 0.04))' : 'var(--surface)',
-              borderRadius: '8px',
-              padding: '14px',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-                  Auto-decide based on ability, performance, and price
-                </span>
-              </div>
-              {subagentStrategy === 'auto_decide' && (
-                <CheckCircle2 size={14} color="var(--primary)" />
-              )}
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.45' }}>
-              Evaluates task requirements, context size, model latency, and token price across enabled custom models to select the most cost-effective candidate.
+            <div style={{ display: 'flex', alignItems: 'flex-end', flexWrap: 'wrap', gap: '8px' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                Model
+                <select
+                  value={selectedNonGeminiBaseModel?.id || defaultNonGemini}
+                  onChange={(e) => handleNonGeminiBaseChange(e.target.value)}
+                  style={{ width: '190px', boxSizing: 'border-box', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border)' }}
+                  aria-label="Default Non-Gemini Native Model"
+                >
+                  {nonGeminiBaseModels.length === 0 ? (
+                    <option value={defaultNonGemini}>
+                      {isFetchingModels ? 'Fetching live models...' : (defaultNonGemini || 'No Non-Gemini models found')}
+                    </option>
+                  ) : (
+                    nonGeminiBaseModels.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.displayName}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                Thinking
+                <select
+                  value={defaultNonGeminiReasoningLevel}
+                  onChange={(e) => handleNonGeminiThinkingChange(e.target.value)}
+                  disabled={!selectedNonGeminiBaseModel || !selectedNonGeminiBaseModel.supportsThinking}
+                  style={{
+                    width: '120px',
+                    boxSizing: 'border-box',
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
+                    borderColor: 'var(--border)',
+                    cursor: !selectedNonGeminiBaseModel || !selectedNonGeminiBaseModel.supportsThinking ? 'not-allowed' : 'pointer',
+                    opacity: !selectedNonGeminiBaseModel || !selectedNonGeminiBaseModel.supportsThinking ? 0.6 : 1,
+                  }}
+                  aria-label="Default Non-Gemini Thinking Level"
+                >
+                  {selectedNonGeminiThinkingLevels.map((level) => (
+                    <option key={level} value={level}>
+                      {selectedNonGeminiBaseModel?.supportsThinking ? formatThinkingLevel(level) : 'None'}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
         </div>

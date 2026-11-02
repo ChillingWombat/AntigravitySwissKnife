@@ -110,43 +110,9 @@ describe('Subagent Custom Model Options in Switcher Settings', () => {
       const pagePath = path.resolve(import.meta.dirname, '../pages/SwitcherSettingsPage.tsx')
       const content = fs.readFileSync(pagePath, 'utf8')
 
-      // 1. Verify Section 4b exists immediately after Section 4
-      assert.ok(content.includes('Section 4b: Gemini Subagent Custom Models'), 'Section 4b comment header must exist')
-      const sec4Index = content.indexOf('Section 4: Default Models Configuration')
-      const sec4bIndex = content.indexOf('Section 4b: Gemini Subagent Custom Models')
-      const sec5Index = content.indexOf('Section 5: Post-Reset Keep-Alive Warmup Engine')
-      assert.ok(sec4Index < sec4bIndex, 'Section 4b must appear after Section 4')
-      assert.ok(sec4bIndex < sec5Index, 'Section 4b must appear before Section 5')
-
-      // 2. Extract Section 4b code block
-      const sec4bBlock = content.slice(sec4bIndex, sec5Index)
-
-      // 3. Verify zero decorative emojis in Section 4b
-      assert.ok(!emojiRegex.test(sec4bBlock), 'Section 4b in SwitcherSettingsPage.tsx must not contain decorative emojis')
-
-      // 4. Verify single-line action text (whiteSpace: 'nowrap') on headers and option labels
-      assert.ok(sec4bBlock.includes("whiteSpace: 'nowrap'"), 'Section 4b must enforce single-line action headers')
-
-      // 5. Verify 4px grid spacing tokens (12px gap, 14px padding, 16px margin, 8px radius)
-      assert.ok(sec4bBlock.includes("gap: '12px'"), 'Option grid must use 12px gap (3x 4px)')
-      assert.ok(sec4bBlock.includes("padding: '14px'"), 'Option card must use 14px padding')
-      assert.ok(sec4bBlock.includes("borderRadius: '8px'"), 'Option card must use 8px border radius (2x 4px)')
-      assert.ok(sec4bBlock.includes("marginBottom: '16px'"), 'Header must use 16px bottom margin directly separating from options (4x 4px)')
-      assert.ok(!sec4bBlock.includes('Configure how Gemini subagents use custom models'), 'Section 4b must not contain tutorial microcopy')
-
-      // 6. Verify 1px subtle unselected border and 2px primary active border
-      assert.ok(sec4bBlock.includes("border: subagentStrategy === 'default_custom_only' ? '2px solid var(--primary)' : '1px solid var(--border)'"))
-      assert.ok(sec4bBlock.includes("border: subagentStrategy === 'auto_decide' ? '2px solid var(--primary)' : '1px solid var(--border)'"))
-
-      // 7. Verify Lucide icons exclusively & header toggle switch
-      assert.ok(!sec4bBlock.includes('<Bot size={16}'), 'Header icon was removed per user request for clean headers')
-      assert.ok(!sec4bBlock.includes('<Cpu'), 'Option A header icon removed per user request')
-      assert.ok(!sec4bBlock.includes('<Sliders'), 'Option B header icon removed per user request')
-      assert.ok(sec4bBlock.includes('<CheckCircle2 size={14}'), 'Must use Lucide CheckCircle2 icon for active indicator')
-      assert.ok(sec4bBlock.includes('<ToggleSwitch'), 'Section 4b must contain ToggleSwitch in header')
-      assert.ok(sec4bBlock.includes('subagentCustomModelsEnabled'), 'ToggleSwitch controls subagentCustomModelsEnabled')
-      assert.ok(sec4bBlock.includes("opacity: subagentCustomModelsEnabled ? 1 : 0.45"), 'Options dim when disabled')
-      assert.ok(sec4bBlock.includes("pointerEvents: subagentCustomModelsEnabled ? 'auto' : 'none'"), 'Options inert when disabled')
+      // Section 4b gadget removed per user request
+      assert.ok(!content.includes('Section 4b: Gemini Subagent Custom Models'), 'Section 4b gadget must be removed')
+      assert.ok(!content.includes('Enable Gemini subagent custom models'), 'Subagent custom models toggle must be removed')
     })
   })
 

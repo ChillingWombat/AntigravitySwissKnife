@@ -32,6 +32,7 @@ type Config struct {
 	DefaultCustomModel          string   `json:"default_custom_model,omitempty"`
 	DefaultNonGeminiModel       string   `json:"default_non_gemini_model,omitempty"`
 	DefaultGeminiReasoningLevel string   `json:"default_gemini_reasoning_level,omitempty"`
+	DefaultCustomReasoningLevel string   `json:"default_custom_reasoning_level,omitempty"`
 	ActiveAccount              string   `json:"active_account"`
 	AntigravityProtectedPID    int      `json:"antigravity_protected_pid"`
 	AutoImportActiveAccount    bool     `json:"auto_import_active_account"`
