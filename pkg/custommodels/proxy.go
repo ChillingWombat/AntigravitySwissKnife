@@ -233,6 +233,13 @@ func (p *Proxy) resolveCustomModel(r *http.Request, requested string, optEnvelop
 	// identifier. They must only route to custom models if explicitly active or routed;
 	// they must never match by provider model name (e.g. "gemini-4-argon").
 	if isInternalApp && !isCLI {
+		// Active custom model chosen by the user in the IDE selector takes precedence.
+		if active := p.activeCustomModel(); active != nil {
+			if shouldApplyThinkingLevel(active) {
+				applyThinkingLevelSuffix(active, requested)
+			}
+			return active
+		}
 		if envelope != nil && p.store != nil {
 			convID := extractConversationID(envelope.RequestID, envelope.Request)
 			if convID != "" {
@@ -245,12 +252,6 @@ func (p *Proxy) resolveCustomModel(r *http.Request, requested string, optEnvelop
 					}
 				}
 			}
-		}
-		if active := p.activeCustomModel(); active != nil {
-			if shouldApplyThinkingLevel(active) {
-				applyThinkingLevelSuffix(active, requested)
-			}
-			return active
 		}
 		if exact := p.findCustomModelByID(requested); exact != nil {
 			if shouldApplyThinkingLevel(exact) {
