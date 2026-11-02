@@ -1,5 +1,7 @@
 package webgui
 
+import "github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
+
 import (
 	"database/sql"
 	"os"
@@ -117,5 +119,82 @@ func TestGetChatMetricsForConversation_HostContextWindow(t *testing.T) {
 	}
 	if res.ContextWindow.Source != "language_server" {
 		t.Fatalf("unexpected source: %q", res.ContextWindow.Source)
+	}
+}
+
+func TestGetChatMetricsForConversation_CustomModelContextWindowOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+
+	convID := "test-custom-window"
+	brainLogDir := filepath.Join(tmpDir, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs")
+	if err := os.MkdirAll(brainLogDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-10-30T10:00:00Z","content":"hello"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-30T10:00:01Z","input_tokens":1000,"output_tokens":200}
+`
+	if err := os.WriteFile(filepath.Join(brainLogDir, "transcript.jsonl"), []byte(transcript), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	conversationsDir := filepath.Join(tmpDir, ".gemini", "antigravity", "conversations")
+	if err := os.MkdirAll(conversationsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(conversationsDir, convID+".db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO gen_metadata (idx, data) VALUES (?, ?)", 0, testHostContextWindowBlob(49545, 256000)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Setup custom models store with active model having 1M context window
+	swissConfigDir := filepath.Join(tmpDir, ".config", "antigravity-swiss")
+	if err := os.MkdirAll(swissConfigDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, ".config"))
+	cmStore, err := custommodels.NewStore(swissConfigDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argonCustom := custommodels.CustomModel{
+		ID:            "gemini-argon-custom-1",
+		Name:          "gemini-4-argon",
+		DisplayName:   "Gemini 4 Argon (API)",
+		ProviderType:  custommodels.ProviderGemini,
+		BaseURL:       "https://generativelanguage.googleapis.com",
+		ContextWindow: 1048576,
+		Enabled:       true,
+	}
+	if err := cmStore.SaveModel(argonCustom); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmStore.SetActiveModel("gemini-argon-custom-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := GetChatMetricsForConversation(convID, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ContextWindow == nil {
+		t.Fatal("expected context window in response")
+	}
+	if res.ContextWindow.MaxTokens != 1048576 {
+		t.Fatalf("expected overridden max_tokens 1048576, got %d", res.ContextWindow.MaxTokens)
+	}
+	if res.ContextWindow.Source != "custom_model" {
+		t.Fatalf("expected source custom_model, got %q", res.ContextWindow.Source)
+	}
+	if res.ContextWindow.UsedTokens != 49545 {
+		t.Fatalf("expected used_tokens preserved 49545, got %d", res.ContextWindow.UsedTokens)
 	}
 }

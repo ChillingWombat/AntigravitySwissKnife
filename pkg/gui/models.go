@@ -37,7 +37,6 @@ type Config struct {
 	ChatTelemetryCacheHitRatio    bool              `json:"chat_telemetry_cache_hit_ratio"`             // default true
 	ChatTelemetryGenerationSpeed  bool              `json:"chat_telemetry_generation_speed"`            // default true
 	ChatTelemetryScope            string            `json:"chat_telemetry_scope"`                       // "aggregated" (default) or "main_only"
-	ChatNavigatorMode             string            `json:"chat_navigator_mode"`                        // "panel" (default) or "line"
 }
 
 // FactoryProjectColors returns factory default project colors (clean empty map).
@@ -75,7 +74,6 @@ func DefaultConfig() *Config {
 		ChatTelemetryCacheHitRatio:    true,
 		ChatTelemetryGenerationSpeed:  true,
 		ChatTelemetryScope:            "aggregated",
-		ChatNavigatorMode:             "panel",
 	}
 }
 

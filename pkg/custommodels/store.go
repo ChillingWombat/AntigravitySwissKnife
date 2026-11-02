@@ -209,13 +209,20 @@ func (s *Store) saveConversationModelsLocked() error {
 func (s *Store) RecordConversationModel(convID, modelID string) error {
 	convID = strings.TrimSpace(convID)
 	modelID = strings.TrimSpace(modelID)
-	if convID == "" || modelID == "" {
+	if convID == "" {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.convModels == nil {
 		s.convModels = make(map[string]string)
+	}
+	if modelID == "" {
+		if _, existed := s.convModels[convID]; existed {
+			delete(s.convModels, convID)
+			return s.saveConversationModelsLocked()
+		}
+		return nil
 	}
 	previous, existed := s.convModels[convID]
 	if existed && previous == modelID {

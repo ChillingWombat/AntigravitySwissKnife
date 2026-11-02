@@ -176,7 +176,26 @@ func GenerateCustomModelsScript(cfg *Config) string {
       return lvls.includes("high") ? "high" : lvls[lvls.length - 1];
     }
 
+    function syncQuotaWarningVisibility(trigger, isCustomActive) {
+      if (!trigger) return;
+      const svgs = trigger.querySelectorAll("svg");
+      svgs.forEach(svg => {
+        const path = svg.querySelector("path");
+        const d = path ? path.getAttribute("d") || "" : "";
+        const isMeterIcon = d.includes("M532.15") || d.includes("M204.62-180") ||
+                            svg.classList.contains("text-red-500") ||
+                            (svg.className && String(svg.className).includes("text-red"));
+        if (isMeterIcon) {
+          const wrapper = svg.closest("[data-tooltip-id], .flex.shrink-0") || svg;
+          wrapper.style.display = isCustomActive ? "none" : "";
+        }
+      });
+    }
+
     function renderTriggerModelLabel(trigger, modelObj) {
+      if (typeof syncQuotaWarningVisibility === "function") {
+        syncQuotaWarningVisibility(trigger, Boolean(modelObj));
+      }
       if (!trigger || !modelObj) return;
       const label = trigger.querySelector("span") || trigger;
       const cleanName = cleanModelDisplayName(modelObj.display_name || modelObj.name);
@@ -226,6 +245,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
       customConfig.active_model_id = "";
       const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
       if (trigger) {
+        syncQuotaWarningVisibility(trigger, false);
         const savedNative = trigger.getAttribute("data-swiss-native-label");
         trigger.removeAttribute("data-swiss-custom-bound");
         trigger.removeAttribute("data-swiss-native-label");
@@ -256,6 +276,9 @@ func GenerateCustomModelsScript(cfg *Config) string {
         headers: getSwissAuthHeaders(),
         body: JSON.stringify({ model_id: "" })
       }).catch(() => {});
+      if (typeof window !== "undefined" && typeof window.__swissUpdateContextWindow === "function") {
+        try { window.__swissUpdateContextWindow(); } catch (_) {}
+      }
     }
 
     if (!window.__swissNativeModelCaptureBound) {
@@ -326,12 +349,18 @@ func GenerateCustomModelsScript(cfg *Config) string {
           headers: getSwissAuthHeaders(),
           body: JSON.stringify({ model_id: model.id })
         }).catch(() => {});
+        if (typeof window !== "undefined" && typeof window.__swissUpdateContextWindow === "function") {
+          try { window.__swissUpdateContextWindow(); } catch (_) {}
+        }
         return { success: true, model_id: model.id, label: model.display_name || model.name || model.id };
       };
     }
 
     function updateModelSelectorTrigger(trigger, activeCustomModel) {
       if (!trigger) return;
+      if (typeof syncQuotaWarningVisibility === "function") {
+        syncQuotaWarningVisibility(trigger, Boolean(activeCustomModel));
+      }
       const catalogMode = getEffectiveCatalogMode();
       const label = trigger.querySelector("span") || trigger;
 
@@ -772,6 +801,9 @@ func GenerateCustomModelsScript(cfg *Config) string {
               removeCustomThinkingSubmenu();
               document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
               popover.remove();
+              if (typeof window !== "undefined" && typeof window.__swissUpdateContextWindow === "function") {
+                try { window.__swissUpdateContextWindow(); } catch (_) {}
+              }
 
               try {
                 if (chosenLevel) {
