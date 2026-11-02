@@ -2558,7 +2558,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         }
         const res = await fetch(url, {
           headers: getSwissAuthHeaders(),
-          signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(1500) : undefined
+          signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(8000) : undefined
         });
         if (res.ok) {
           const data = await res.json();
