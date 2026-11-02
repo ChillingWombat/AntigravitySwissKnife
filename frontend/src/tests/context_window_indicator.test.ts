@@ -8,18 +8,6 @@ import { cancelAllInFlightRequests } from '../api'
 const BASE_ENHANCEMENTS = {
   version: '1.0.0',
   enabled: true,
-  prompt_jump_bar: {
-    enabled: true,
-    show_tooltip: true,
-    focus_pulse: true,
-    sync_scroll: true,
-    position: 'gutter',
-    dash_width: 14,
-    dash_thickness: 2.5,
-    inactive_thickness: 1.5,
-    color_mode: 'default',
-    custom_color: '#0b57d0',
-  },
   overview_panel: {
     enabled: true,
     division_style: 'divider_line',

@@ -2728,6 +2728,28 @@ func GetChatMetricsForConversation(convID string, scope string) (*ChatMetricsRes
 		}
 	}
 
+	customModelID := custommodels.GetRoutedConversationModel(convID)
+	if customModelID == "" {
+		if store := custommodels.GetGlobalStore(); store != nil {
+			customModelID = store.GetConfig().ActiveModelID
+		}
+	}
+	if customModelID != "" {
+		if store := custommodels.GetGlobalStore(); store != nil {
+			if cm, err := store.GetModel(customModelID); err == nil && cm != nil && cm.ContextWindow > 0 {
+				usedTokens := latestContext
+				if contextWindow != nil && contextWindow.UsedTokens > 0 {
+					usedTokens = contextWindow.UsedTokens
+				}
+				contextWindow = &ChatContextWindow{
+					UsedTokens: usedTokens,
+					MaxTokens:  int64(cm.ContextWindow),
+					Source:     "custom_model",
+				}
+			}
+		}
+	}
+
 	return &ChatMetricsResponse{
 		Success:         true,
 		ConversationID:  convID,

@@ -67,15 +67,6 @@ func (s *Store) load() error {
 	if cfg.Version == "" {
 		cfg.Version = "1.0.0"
 	}
-	if cfg.PromptJumpBar.DashWidth <= 0 {
-		cfg.PromptJumpBar.DashWidth = 14
-	}
-	if cfg.PromptJumpBar.DashThickness <= 0 {
-		cfg.PromptJumpBar.DashThickness = 2.5
-	}
-	if cfg.PromptJumpBar.InactiveThickness <= 0 {
-		cfg.PromptJumpBar.InactiveThickness = 1.5
-	}
 	if cfg.OverviewPanel.DivisionStyle == "" {
 		cfg.OverviewPanel = DefaultConfig().OverviewPanel
 	}
@@ -116,8 +107,6 @@ func (s *Store) load() error {
 	}
 
 	// Prompt preview tooltip on hover and scroll synchronization are permanently enabled core features
-	cfg.PromptJumpBar.ShowTooltip = true
-	cfg.PromptJumpBar.SyncScroll = true
 
 	// Migrate legacy global extension toggles into the per-extension visibility map
 	migratedExtensions := normalizeExtensions(&cfg)
@@ -208,8 +197,6 @@ func (s *Store) UpdateConfig(newCfg EnhancementsConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	newCfg.PromptJumpBar.ShowTooltip = true
-	newCfg.PromptJumpBar.SyncScroll = true
 
 	if newCfg.CommunityExtensions == nil && len(s.config.CommunityExtensions) > 0 {
 		newCfg.CommunityExtensions = s.config.CommunityExtensions
@@ -261,26 +248,6 @@ func (s *Store) UpdateConfig(newCfg EnhancementsConfig) error {
 	return s.save()
 }
 
-// TogglePromptJumpBar toggles the Prompt Jump Bar on or off.
-func (s *Store) TogglePromptJumpBar(enabled bool) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.config.PromptJumpBar.Enabled = enabled
-	return s.save()
-}
-
-// SetPromptJumpBarColor sets the active color mode and custom color.
-func (s *Store) SetPromptJumpBarColor(colorMode, customColor string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.config.PromptJumpBar.ColorMode = colorMode
-	if customColor != "" {
-		s.config.PromptJumpBar.CustomColor = customColor
-	}
-	return s.save()
-}
 
 // SetToolDensityMode sets the tool and thinking process density mode ("normal", "muted", "hidden").
 func (s *Store) SetToolDensityMode(mode string) error {

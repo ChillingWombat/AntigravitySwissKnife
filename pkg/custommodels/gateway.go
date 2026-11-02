@@ -809,8 +809,30 @@ func (g *Gateway) runGeminiAPI(r *http.Request, model *CustomModel, req *geminiR
 	if req.Tools != nil {
 		payload["tools"] = req.Tools
 	}
+	genConfig := make(map[string]interface{})
 	if req.GenerationConfig != nil {
-		payload["generationConfig"] = req.GenerationConfig
+		for k, v := range req.GenerationConfig {
+			genConfig[k] = v
+		}
+	}
+	if model.SupportsThinking || (model.ThinkingLevel != "" && !strings.EqualFold(model.ThinkingLevel, "off")) {
+		budget := -1
+		switch strings.ToLower(model.ThinkingLevel) {
+		case "low":
+			budget = 1000
+		case "medium":
+			budget = 4000
+		case "high", "max", "xhigh":
+			budget = -1
+		case "off":
+			budget = 0
+		}
+		if budget >= -1 {
+			genConfig["thinkingConfig"] = map[string]interface{}{"thinkingBudget": budget}
+		}
+	}
+	if len(genConfig) > 0 {
+		payload["generationConfig"] = genConfig
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -821,8 +843,14 @@ func (g *Gateway) runGeminiAPI(r *http.Request, model *CustomModel, req *geminiR
 		return err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	if model.APIKey != "" {
-		httpReq.Header.Set("x-goog-api-key", model.APIKey)
+	apiKey := model.APIKey
+	if apiKey == "" && g.store != nil {
+		if fullModel, err := g.store.GetModel(model.ID); err == nil && fullModel != nil && fullModel.APIKey != "" {
+			apiKey = fullModel.APIKey
+		}
+	}
+	if apiKey != "" {
+		httpReq.Header.Set("x-goog-api-key", apiKey)
 	}
 	resp, err := g.client.Do(httpReq)
 	if err != nil {

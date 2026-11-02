@@ -191,7 +191,7 @@ func (p *Proxy) tryCustomModel(w http.ResponseWriter, r *http.Request, body []by
 	if !ok {
 		return false
 	}
-	model := p.resolveCustomModel(r, envelope.Model)
+	model := p.resolveCustomModel(r, envelope.Model, &envelope)
 	if model == nil {
 		return false
 	}
@@ -221,12 +221,51 @@ func decodeCustomModelEnvelope(body []byte) (customModelEnvelope, bool) {
 	return envelope, true
 }
 
-func (p *Proxy) resolveCustomModel(r *http.Request, requested string) *CustomModel {
+func (p *Proxy) resolveCustomModel(r *http.Request, requested string, optEnvelope ...*customModelEnvelope) *CustomModel {
+	var envelope *customModelEnvelope
+	if len(optEnvelope) > 0 {
+		envelope = optEnvelope[0]
+	}
+	isInternalApp := strings.HasPrefix(r.URL.Path, "/v1internal")
+	isCLI := isAntigravityCLIRequest(r, requested)
+
+	// Internal Antigravity app requests (/v1internal) carry the host IDE's native model
+	// identifier. They must only route to custom models if explicitly active or routed;
+	// they must never match by provider model name (e.g. "gemini-4-argon").
+	if isInternalApp && !isCLI {
+		if envelope != nil && p.store != nil {
+			convID := extractConversationID(envelope.RequestID, envelope.Request)
+			if convID != "" {
+				if routedID := p.store.GetConversationModel(convID); routedID != "" {
+					if cm := p.findCustomModelByID(routedID); cm != nil {
+						if shouldApplyThinkingLevel(cm) {
+							applyThinkingLevelSuffix(cm, requested)
+						}
+						return cm
+					}
+				}
+			}
+		}
+		if active := p.activeCustomModel(); active != nil {
+			if shouldApplyThinkingLevel(active) {
+				applyThinkingLevelSuffix(active, requested)
+			}
+			return active
+		}
+		if exact := p.findCustomModelByID(requested); exact != nil {
+			if shouldApplyThinkingLevel(exact) {
+				applyThinkingLevelSuffix(exact, requested)
+			}
+			return exact
+		}
+		return nil
+	}
+
 	model := p.findCustomModel(requested)
 	if model != nil {
 		return model
 	}
-	if isAntigravityCLIRequest(r, requested) {
+	if isCLI {
 		return nil
 	}
 	model = p.activeCustomModel()
@@ -358,6 +397,34 @@ func (p *Proxy) findCustomModel(modelID string) *CustomModel {
 				}
 			}
 		}
+	}
+	return nil
+}
+
+func (p *Proxy) findCustomModelByID(id string) *CustomModel {
+	wanted := strings.TrimSpace(id)
+	if wanted == "" {
+		return nil
+	}
+	wanted = strings.TrimPrefix(wanted, "models/")
+	for _, m := range p.gw.enabledModels() {
+		if m.ID == wanted {
+			copy := m
+			return &copy
+		}
+	}
+	lower := strings.ToLower(wanted)
+	for _, lvl := range []string{"high", "medium", "low", "xhigh", "max"} {
+		if strings.HasSuffix(lower, "-"+lvl) {
+			base := wanted[:len(wanted)-len(lvl)-1]
+			for _, m := range p.gw.enabledModels() {
+			if m.ID == base {
+				copy := m
+				copy.ThinkingLevel = lvl
+				return &copy
+			}
+		}
+	}
 	}
 	return nil
 }
