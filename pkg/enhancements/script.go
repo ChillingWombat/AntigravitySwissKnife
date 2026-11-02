@@ -2585,29 +2585,6 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             if (parentId && agentName) {
               subagentNameToConvId[parentId + ":" + agentName] = targetId;
             }
-            let jumpBarChanged = false;
-            if (data && typeof data.user_prompt_count === "number" && data.user_prompt_count >= 0) {
-              // Count only USER_EXPLICIT/USER_INPUT transcript entries. Assistant
-              // execution turns and system boundaries must not create rail rows.
-              const previousPromptCount = jumpBarPromptCountsByConversation[targetId];
-              jumpBarPromptCountsByConversation[targetId] = data.user_prompt_count;
-              jumpBarChanged = previousPromptCount !== data.user_prompt_count;
-            }
-            if (data && Array.isArray(data.prompts)) {
-              // The transcript is authoritative for the turn list, including the
-              // turns the virtualized DOM has unmounted. Absent prompts (older
-              // daemons) leave the rail on its DOM-only fallback.
-              const previousPrompts = jumpBarPromptsByConversation[targetId];
-              jumpBarPromptsByConversation[targetId] = data.prompts;
-              for (let pi = 0; pi < data.prompts.length; pi++) {
-                const prompt = data.prompts[pi];
-                if (!prompt || typeof prompt.index !== "number") continue;
-                cachePromptText(jumpBarPromptTextCache, targetId, prompt.index, prompt.text);
-              }
-              if (!jumpBarChanged && (previousPrompts || []).length !== data.prompts.length) {
-                jumpBarChanged = true;
-              }
-            }
             if (data && Array.isArray(data.turns) && data.turns.length > 0) {
               const lastTurn = data.turns[data.turns.length - 1];
               const turnUsage = lastTurn.context_tokens || ((lastTurn.input_tokens || 0) + (lastTurn.output_tokens || 0));
@@ -2626,8 +2603,6 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
               delete cachedContextWindowByConv[targetId];
             }
             renderContextWindowProgressRing();
-            if (jumpBarChanged) {
-            }
           }
         } else if (isCurrentConversationMetricRequest(conversationMetricRequestGenerations, cacheKey, requestGeneration)) {
           clearConversationMetricCache(cachedTokensByConv, cachedContextWindowByConv, convId);
