@@ -907,8 +907,14 @@ type geminiContent struct {
 type geminiPart struct {
 	Text             string                `json:"text,omitempty"`
 	Thought          bool                  `json:"thought,omitempty"`
+	InlineData       *geminiInlineData     `json:"inlineData,omitempty"`
 	FunctionCall     *geminiFunctionCall   `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFunctionResult `json:"functionResponse,omitempty"`
+}
+
+type geminiInlineData struct {
+	MimeType string `json:"mimeType,omitempty"`
+	Data     string `json:"data,omitempty"`
 }
 
 type geminiFunctionCall struct {
@@ -1502,6 +1508,18 @@ func normalizeGeminiContents(contents []geminiContent) []geminiContent {
 		if strings.TrimSpace(c.Role) == "" {
 			c.Role = "user"
 		}
+		var validParts []geminiPart
+		for _, p := range c.Parts {
+			// Every part sent to Gemini API must have at least one initialized oneof data field:
+			// text, inlineData, functionCall, or functionResponse.
+			if p.Text != "" || p.FunctionCall != nil || p.FunctionResponse != nil || (p.InlineData != nil && p.InlineData.Data != "") {
+				validParts = append(validParts, p)
+			}
+		}
+		if len(validParts) == 0 {
+			validParts = []geminiPart{{Text: " "}}
+		}
+		c.Parts = validParts
 		out = append(out, c)
 	}
 	if strings.EqualFold(strings.TrimSpace(out[len(out)-1].Role), "model") {

@@ -338,3 +338,36 @@ func TestNormalizeGeminiContentsAppendsUserTurnWhenEndingWithModel(t *testing.T)
 		t.Fatalf("expected final turn role=user, got %q", got[len(got)-1].Role)
 	}
 }
+
+func TestNormalizeGeminiContentsFiltersEmptyParts(t *testing.T) {
+	contents := []geminiContent{
+		{
+			Role: "user",
+			Parts: []geminiPart{
+				{Text: "Hello"},
+				{}, // empty part that would trigger oneof data violation
+				{Thought: true}, // thought without text
+				{InlineData: &geminiInlineData{MimeType: "image/png", Data: "base64data"}},
+			},
+		},
+		{
+			Role: "user",
+			Parts: []geminiPart{
+				{}, // all empty
+			},
+		},
+	}
+	normalized := normalizeGeminiContents(contents)
+	if len(normalized[0].Parts) != 2 {
+		t.Fatalf("expected 2 valid parts in turn 0, got %d", len(normalized[0].Parts))
+	}
+	if normalized[0].Parts[0].Text != "Hello" {
+		t.Errorf("expected part 0 to be Hello, got %q", normalized[0].Parts[0].Text)
+	}
+	if normalized[0].Parts[1].InlineData == nil || normalized[0].Parts[1].InlineData.Data != "base64data" {
+		t.Errorf("expected part 1 to have inlineData, got %+v", normalized[0].Parts[1])
+	}
+	if len(normalized[1].Parts) != 1 || normalized[1].Parts[0].Text == "" {
+		t.Errorf("expected turn 1 to fallback to non-empty text, got %+v", normalized[1].Parts)
+	}
+}
