@@ -37,3 +37,17 @@ func TestGenerateScript_AutoAcceptsSecurityNotice(t *testing.T) {
 		t.Fatalf("expected the security-notice auto-accept routine")
 	}
 }
+
+func TestGenerateScript_ShowsBuiltInConversationNavigatorWhenRailFits(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+	script := GenerateScript(nil)
+	if !strings.Contains(script, "swiss-nav-force-visible") {
+		t.Fatalf("expected the conversation navigator visibility override")
+	}
+	if !strings.Contains(script, "syncConversationNavigatorVisibility") {
+		t.Fatalf("expected the conversation navigator clearance check")
+	}
+	if !strings.Contains(script, "conversation-navigator") {
+		t.Fatalf("expected the built-in conversation navigator selector")
+	}
+}

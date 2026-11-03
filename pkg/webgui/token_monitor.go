@@ -1087,6 +1087,17 @@ func mapModelNameToMetadata(rawName string, customModels []custommodels.CustomMo
 // detectConversationModelWithTranscript detects the conversation model using transcript.jsonl step 0 <USER_SETTINGS_CHANGE>,
 // eliminating false positives from SQLite database byte-scanning.
 func detectConversationModelWithTranscript(tPath string, convDBPath string, customModels []custommodels.CustomModel, catalogModels []custommodels.CatalogModelInput) (modelID, displayName, provider string) {
+	return detectConversationModelCore(tPath, convDBPath, customModels, catalogModels, false)
+}
+
+// detectConversationModelIgnoringSidecar resolves a conversation model without
+// consulting conversation_models.json. Used for subagent conversations whose
+// legacy sidecar mapping was produced by the main conversation's active model.
+func detectConversationModelIgnoringSidecar(tPath string, convDBPath string, customModels []custommodels.CustomModel, catalogModels []custommodels.CatalogModelInput) (modelID, displayName, provider string) {
+	return detectConversationModelCore(tPath, convDBPath, customModels, catalogModels, true)
+}
+
+func detectConversationModelCore(tPath string, convDBPath string, customModels []custommodels.CustomModel, catalogModels []custommodels.CatalogModelInput, ignoreSidecar bool) (modelID, displayName, provider string) {
 	// Locate transcript path if not explicitly provided
 	if tPath == "" {
 		if strings.HasSuffix(convDBPath, "transcript.jsonl") {
@@ -1136,6 +1147,9 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 	}
 	if cacheKey != "" {
 		cacheKey = normalizeTokenCacheKey(cacheKey)
+		if ignoreSidecar {
+			cacheKey = "nosidecar:" + cacheKey
+		}
 	}
 	transcriptPath := ""
 	if tPath != "" {
@@ -1154,7 +1168,7 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 	}
 
 	// 0. Priority: Check if Swiss Knife proxy recorded an active custom model for this conversation
-	if convID != "" {
+	if !ignoreSidecar && convID != "" {
 		if customModelID := custommodels.GetRoutedConversationModel(convID); customModelID != "" {
 			for _, cm := range customModels {
 				if strings.EqualFold(cm.ID, customModelID) || strings.EqualFold(cm.Name, customModelID) {
@@ -1227,6 +1241,22 @@ func detectConversationModelWithTranscript(tPath string, convDBPath string, cust
 	}
 
 	return mID, mName, mProv
+}
+
+// resolveTelemetryConversationModel resolves a conversation model for telemetry,
+// discarding sidecar attribution that the proxy created by overriding a
+// subagent's native model with the main conversation's active custom model.
+func resolveTelemetryConversationModel(tPath, convDBPath string, customModels []custommodels.CustomModel, catalogModels []custommodels.CatalogModelInput, convID string, isSubagent bool) (modelID, displayName, provider string) {
+	if !isSubagent || convID == "" {
+		return detectConversationModelWithTranscript(tPath, convDBPath, customModels, catalogModels)
+	}
+	if custommodels.GetConversationModelSource(convID) == custommodels.ConversationModelSourceExplicit {
+		return detectConversationModelWithTranscript(tPath, convDBPath, customModels, catalogModels)
+	}
+	if custommodels.GetRoutedConversationModel(convID) == "" {
+		return detectConversationModelWithTranscript(tPath, convDBPath, customModels, catalogModels)
+	}
+	return detectConversationModelIgnoringSidecar(tPath, convDBPath, customModels, catalogModels)
 }
 
 // detectConversationModel detects the model for a conversation, delegating to transcript extraction.
@@ -1771,7 +1801,7 @@ func (s *Server) handleTokensSummary(w http.ResponseWriter, r *http.Request) {
 
 			// Resolve actual model from transcript or conversations/<convID>.db
 			convDBPath := filepath.Join(convDir, convID+".db")
-			mID, mDisplayName, mProv := detectConversationModelWithTranscript(tPath, convDBPath, customModelsList, catalogModels)
+			mID, mDisplayName, mProv := resolveTelemetryConversationModel(tPath, convDBPath, customModelsList, catalogModels, convID, isSub)
 			if mID == "" {
 				if len(catalogModels) > 0 {
 					mID, mDisplayName = custommodels.NormalizeCanonicalNativeModel(catalogModels[0].ID, catalogModels[0].DisplayName)
@@ -2923,6 +2953,7 @@ func (s *Server) computeModelLifetimeCosts(ctx context.Context) map[string]float
 	dataDir := s.getAntigravityDataDir()
 	brainDir := filepath.Join(dataDir, "brain")
 	convDir := filepath.Join(dataDir, "conversations")
+	metaMap := readConversationMetadataMap(filepath.Join(dataDir, "conversation_summaries.db"))
 	entries, err := os.ReadDir(brainDir)
 	if err != nil {
 		return costs
@@ -2945,7 +2976,9 @@ func (s *Server) computeModelLifetimeCosts(ctx context.Context) map[string]float
 		}
 
 		convDBPath := filepath.Join(convDir, convID+".db")
-		mID, mDisplayName, _ := detectConversationModelWithTranscript(tPath, convDBPath, customModelsList, catalogModels)
+		meta := metaMap[convID]
+		isSubagent := meta.parentConvID != "" || meta.nestingDepth > 0 || meta.agentName != ""
+		mID, mDisplayName, _ := resolveTelemetryConversationModel(tPath, convDBPath, customModelsList, catalogModels, convID, isSubagent)
 		if mID == "" {
 			continue
 		}

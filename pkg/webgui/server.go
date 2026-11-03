@@ -365,6 +365,7 @@ func (s *Server) getCloudCodeProxy() *custommodels.Proxy {
 	defer s.lazyMu.Unlock()
 	if s.cloudCodeProxy == nil {
 		s.cloudCodeProxy = custommodels.NewProxy(store)
+		s.cloudCodeProxy.IsSubagentConversation = s.isSubagentConversation
 	}
 	return s.cloudCodeProxy
 }

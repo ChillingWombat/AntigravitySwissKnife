@@ -120,6 +120,10 @@ type Proxy struct {
 	Upstream string
 	client   *http.Client
 	catalog  catalogCache
+	// IsSubagentConversation reports whether a conversation belongs to a subagent.
+	// Subagent requests carry their own model choice and must not be hijacked by
+	// the globally active custom model selected in the main conversation.
+	IsSubagentConversation func(convID string) bool
 }
 
 // NewProxy builds a proxy over the custom model store.
@@ -191,8 +195,10 @@ func (p *Proxy) tryCustomModel(w http.ResponseWriter, r *http.Request, body []by
 	if !ok {
 		return false
 	}
-	model := p.resolveCustomModel(r, envelope.Model, &envelope)
+	convID := extractConversationID(envelope.RequestID, envelope.Request)
+	model, source := p.resolveCustomModelWithSource(r, envelope.Model, convID)
 	if model == nil {
+		p.clearStaleSubagentMapping(convID)
 		return false
 	}
 	request, handled := decodeCustomModelRequest(w, &envelope)
@@ -200,7 +206,7 @@ func (p *Proxy) tryCustomModel(w http.ResponseWriter, r *http.Request, body []by
 		return true
 	}
 	log.Printf("[cloudcode-proxy] %s model=%q -> custom %q (%s)", r.URL.Path, envelope.Model, model.ID, model.ProviderType)
-	p.persistCustomModelConversation(&envelope, request, model)
+	p.persistCustomModelConversation(convID, model, source)
 	syncModelIdentityInRequest(request, model)
 	if stream {
 		p.completeCustomModelStream(w, r, model, request, envelope.RequestID, wrapped)
@@ -226,29 +232,44 @@ func (p *Proxy) resolveCustomModel(r *http.Request, requested string, optEnvelop
 	if len(optEnvelope) > 0 {
 		envelope = optEnvelope[0]
 	}
+	convID := ""
+	if envelope != nil {
+		convID = extractConversationID(envelope.RequestID, envelope.Request)
+	}
+	model, _ := p.resolveCustomModelWithSource(r, requested, convID)
+	return model
+}
+
+func (p *Proxy) resolveCustomModelWithSource(r *http.Request, requested, convID string) (*CustomModel, string) {
 	isInternalApp := strings.HasPrefix(r.URL.Path, "/v1internal")
 	isCLI := isAntigravityCLIRequest(r, requested)
+	isSubagent := p.isSubagentConversation(convID)
 
 	// Internal Antigravity app requests (/v1internal) carry the host IDE's native model
 	// identifier. They must only route to custom models if explicitly active or routed;
 	// they must never match by provider model name (e.g. "gemini-4-argon").
 	if isInternalApp && !isCLI {
-		// Active custom model chosen by the user in the IDE selector takes precedence.
-		if active := p.activeCustomModel(); active != nil {
-			if shouldApplyThinkingLevel(active) {
-				applyThinkingLevelSuffix(active, requested)
+		// Active custom model chosen in the main conversation takes precedence.
+		// Subagents keep their own model selection instead of inheriting it.
+		if !isSubagent {
+			if active := p.activeCustomModel(); active != nil {
+				if shouldApplyThinkingLevel(active) {
+					applyThinkingLevelSuffix(active, requested)
+				}
+				return active, ConversationModelSourceActive
 			}
-			return active
 		}
-		if envelope != nil && p.store != nil {
-			convID := extractConversationID(envelope.RequestID, envelope.Request)
-			if convID != "" {
+		if convID != "" && p.store != nil {
+			// Only explicit routes survive an active-model change. Mappings created
+			// by the active-model override must not keep a conversation pinned to a
+			// custom model after the user selects a native model.
+			if p.store.GetConversationModelSource(convID) == ConversationModelSourceExplicit {
 				if routedID := p.store.GetConversationModel(convID); routedID != "" {
 					if cm := p.findCustomModelByID(routedID); cm != nil {
 						if shouldApplyThinkingLevel(cm) {
 							applyThinkingLevelSuffix(cm, requested)
 						}
-						return cm
+						return cm, ConversationModelSourceExplicit
 					}
 				}
 			}
@@ -257,23 +278,48 @@ func (p *Proxy) resolveCustomModel(r *http.Request, requested string, optEnvelop
 			if shouldApplyThinkingLevel(exact) {
 				applyThinkingLevelSuffix(exact, requested)
 			}
-			return exact
+			return exact, ConversationModelSourceExplicit
 		}
-		return nil
+		return nil, ""
 	}
 
 	model := p.findCustomModel(requested)
 	if model != nil {
-		return model
+		return model, ConversationModelSourceExplicit
 	}
 	if isCLI {
-		return nil
+		return nil, ""
 	}
 	model = p.activeCustomModel()
 	if shouldApplyThinkingLevel(model) {
 		applyThinkingLevelSuffix(model, requested)
 	}
-	return model
+	if model == nil {
+		return nil, ""
+	}
+	return model, ConversationModelSourceActive
+}
+
+func (p *Proxy) isSubagentConversation(convID string) bool {
+	if strings.TrimSpace(convID) == "" || p.IsSubagentConversation == nil {
+		return false
+	}
+	return p.IsSubagentConversation(convID)
+}
+
+func (p *Proxy) clearStaleSubagentMapping(convID string) {
+	if p.store == nil || !p.isSubagentConversation(convID) {
+		return
+	}
+	if p.store.GetConversationModel(convID) == "" {
+		return
+	}
+	if p.store.GetConversationModelSource(convID) == ConversationModelSourceExplicit {
+		return
+	}
+	if err := p.store.RecordConversationModel(convID, ""); err != nil {
+		log.Printf("[cloudcode-proxy] clear stale subagent model mapping %s: %v", convID, err)
+	}
 }
 
 func isAntigravityCLIRequest(r *http.Request, requested string) bool {
@@ -305,10 +351,9 @@ func decodeCustomModelRequest(w http.ResponseWriter, envelope *customModelEnvelo
 	return &request, false
 }
 
-func (p *Proxy) persistCustomModelConversation(envelope *customModelEnvelope, request *geminiRequest, model *CustomModel) {
-	convID := extractConversationID(envelope.RequestID, envelope.Request)
+func (p *Proxy) persistCustomModelConversation(convID string, model *CustomModel, source string) {
 	if convID != "" && p.store != nil {
-		if err := p.store.RecordConversationModel(convID, model.ID); err != nil {
+		if err := p.store.RecordConversationModelWithSource(convID, model.ID, source); err != nil {
 			log.Printf("[cloudcode-proxy] persist conversation model %s: %v", convID, err)
 		}
 	}
@@ -419,13 +464,13 @@ func (p *Proxy) findCustomModelByID(id string) *CustomModel {
 		if strings.HasSuffix(lower, "-"+lvl) {
 			base := wanted[:len(wanted)-len(lvl)-1]
 			for _, m := range p.gw.enabledModels() {
-			if m.ID == base {
-				copy := m
-				copy.ThinkingLevel = lvl
-				return &copy
+				if m.ID == base {
+					copy := m
+					copy.ThinkingLevel = lvl
+					return &copy
+				}
 			}
 		}
-	}
 	}
 	return nil
 }
