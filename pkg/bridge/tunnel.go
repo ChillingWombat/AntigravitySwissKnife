@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -192,11 +193,9 @@ func (tm *TunnelManager) ProbeAndKeepAlive() bool {
 		return false
 	}
 
-	if tType == "quick" && cmd != nil && cmd.Process != nil {
-		if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
-			tm.invalidateTunnel("Quick tunnel process exited")
-			return false
-		}
+	if tType == "quick" && cmd != nil && cmd.Process != nil && !processAlive(cmd.Process) {
+		tm.invalidateTunnel("Quick tunnel process exited")
+		return false
 	}
 
 	if client == nil {
@@ -227,6 +226,25 @@ func (tm *TunnelManager) ProbeAndKeepAlive() bool {
 
 	tm.appendLog(fmt.Sprintf("Keep-alive ping succeeded (HTTP %d)", resp.StatusCode))
 	return true
+}
+
+// processAlive reports whether p is still running.
+//
+// On Unix, signal 0 is a portable liveness probe. Go's Windows implementation
+// of Process.Signal returns syscall.EWINDOWS for every signal except Kill, so
+// calling it there reports a perfectly healthy cloudflared as dead. The
+// keep-alive loop then invalidates the tunnel on its first tick (every four
+// minutes), which is exactly the interval users observe. On Windows the
+// cmd.Wait goroutine already invalidates an exited Quick Tunnel, so we simply
+// do not probe the handle there.
+func processAlive(p *os.Process) bool {
+	if p == nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return p.Signal(syscall.Signal(0)) == nil
 }
 
 // SetPort updates the target loopback port for subsequent or active tunnels.

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -1145,4 +1146,42 @@ func TestRemoteFavicon_EndpointsAndProxiedReplacement(t *testing.T) {
 	if !strings.Contains(remoteHTML, `<link rel="icon" type="image/svg+xml" href="/favicon.svg">`) {
 		t.Errorf("expected remoteHTML to contain Antigravity favicon link")
 	}
+}
+
+func TestProcessAlive_UnsupportedSignalOnWindows(t *testing.T) {
+	if processAlive(nil) {
+		t.Fatal("nil process must not be reported alive")
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestProcessAliveHelper")
+	cmd.Env = append(os.Environ(), "SWISS_TEST_PROCESS_ALIVE_HELPER=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper process: %v", err)
+	}
+
+	if !processAlive(cmd.Process) {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal("running process must be reported alive")
+	}
+
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+
+	// On Windows processAlive deliberately treats any non-nil process as alive:
+	// Process.Signal(0) is unsupported there and the cmd.Wait goroutine
+	// invalidates exited Quick Tunnels instead.
+	if runtime.GOOS != "windows" && processAlive(cmd.Process) {
+		t.Fatal("exited process must not be reported alive on Unix")
+	}
+}
+
+// TestProcessAliveHelper is re-executed as a child process by
+// TestProcessAlive_UnsupportedSignalOnWindows. It returns immediately unless
+// the marker variable is set.
+func TestProcessAliveHelper(t *testing.T) {
+	if os.Getenv("SWISS_TEST_PROCESS_ALIVE_HELPER") != "1" {
+		return
+	}
+	time.Sleep(30 * time.Second)
 }
