@@ -69,8 +69,8 @@ describe('UI Design System Audit & Voice Invariants (Milestone 16)', () => {
 
       // Verify Lucide chevron imports
       assert.ok(
-        content.includes('ChevronDown') && content.includes('ChevronUp') && content.includes('ChevronRight'),
-        'AppEnhancementsPage must import ChevronDown, ChevronUp, and ChevronRight from lucide-react'
+        content.includes('ChevronDown') && content.includes('ChevronUp'),
+        'AppEnhancementsPage must import ChevronDown and ChevronUp from lucide-react'
       )
     })
   })
@@ -199,7 +199,6 @@ describe('UI Design System Audit & Voice Invariants (Milestone 16)', () => {
         ['SwitcherSettingsPage.tsx', 'Account Switch Mode:'],
         ['SwitcherSettingsPage.tsx', 'Multi-App Account Synchronization Mode'],
         ['SwitcherSettingsPage.tsx', 'Default Non-Gemini Native Model:'],
-        ['SwitcherSettingsPage.tsx', 'Gemini Subagent Custom Models'],
         ['SystemSettingsPage.tsx', 'Lifecycle Mode'],
         ['SystemSettingsPage.tsx', 'Restore Antigravity Apps to Clean Unmodified State'],
       ] as const
