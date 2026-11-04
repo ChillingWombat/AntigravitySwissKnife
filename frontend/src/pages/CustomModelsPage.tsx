@@ -579,10 +579,10 @@ export const CustomModelsPage: React.FC = () => {
 
   const isModelDefault = (m: CustomModel | null | undefined): boolean => {
     if (!m) return false
-    if (m.is_default) return true
-    if (config?.active_model_id && (config.active_model_id === m.id || config.active_model_id === m.name)) return true
-    if (!rulesDefaultCustom) return false
-    return rulesDefaultCustom === m.id || rulesDefaultCustom === m.name
+    const defaultRef =
+      rulesDefaultCustom || config?.models?.find((model) => model.is_default)?.id || ''
+    if (!defaultRef) return false
+    return defaultRef === m.id || defaultRef === m.name
   }
 
   const loadData = async () => {

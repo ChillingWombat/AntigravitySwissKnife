@@ -260,7 +260,7 @@ describe('TokenMonitorPage: Hover Details & 24H Hourly Trend', () => {
     assert.equal(formatCount(1000000000), "1.00B")
   })
 
-  it("renders Native, Custom, All filter switcher with Native as default and filters models", async () => {
+  it("renders Native, Custom, All filter switcher with All as default and filters models", async () => {
     initDOM()
     globalThis.fetch = (async (url: any) => {
       const target = String(url)
@@ -282,26 +282,37 @@ describe('TokenMonitorPage: Hover Details & 24H Hourly Trend', () => {
     assert.ok(btnCustom, "Custom filter button must exist")
     assert.ok(btnAll, "All filter button must exist")
 
-    // Default is Native: native model is displayed, custom model is filtered out
+    // Default is All: both native and custom models are visible.
     let nativeModel = activeView.querySelector('[data-testid="model-row-gemini-3-pro"]')
     let customModel = activeView.querySelector('[data-testid="model-row-claude-3-7-sonnet"]')
     assert.ok(nativeModel, "Native model must be visible by default")
-    assert.equal(customModel, null, "Custom model must be hidden under Native filter")
+    assert.ok(customModel, "Custom model must be visible by default")
 
-    // Switch to Custom
+    // Switch to Native: custom model is filtered out.
+    fireEvent.click(btnNative)
     await act(async () => {
-      btnCustom.dispatchEvent(new MouseEvent("click", { bubbles: true }))
       await new Promise((resolve) => setTimeout(resolve, 50))
     })
 
     nativeModel = activeView.querySelector('[data-testid="model-row-gemini-3-pro"]')
     customModel = activeView.querySelector('[data-testid="model-row-claude-3-7-sonnet"]')
-    assert.equal(nativeModel, null, "Native model must be hidden under Custom filter")
+    assert.ok(nativeModel, "Native model must be visible under Native filter")
+    assert.ok(!customModel, "Custom model must be hidden under Native filter")
+
+    // Switch to Custom: native model is filtered out.
+    fireEvent.click(btnCustom)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    nativeModel = activeView.querySelector('[data-testid="model-row-gemini-3-pro"]')
+    customModel = activeView.querySelector('[data-testid="model-row-claude-3-7-sonnet"]')
+    assert.ok(!nativeModel, "Native model must be hidden under Custom filter")
     assert.ok(customModel, "Custom model must be visible under Custom filter")
 
-    // Switch to All
+    // Switch back to All: both models return.
+    fireEvent.click(btnAll)
     await act(async () => {
-      btnAll.dispatchEvent(new MouseEvent("click", { bubbles: true }))
       await new Promise((resolve) => setTimeout(resolve, 50))
     })
 
