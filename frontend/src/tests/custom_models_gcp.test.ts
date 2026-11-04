@@ -509,3 +509,72 @@ describe('Custom Models GCP editor credential hydration', () => {
     assert.notEqual(textarea?.value, savedJson, 'the editor must not render the compact stored value')
   })
 })
+
+describe('Custom Models default badge', () => {
+  const originalFetch = globalThis.fetch
+  let view: RenderResult | null = null
+
+  afterEach(() => {
+    view?.unmount()
+    view = null
+    globalThis.fetch = originalFetch
+    cancelAllInFlightRequests()
+  })
+
+  it('shows exactly one default badge when the active model differs from the configured default', async () => {
+    initDOM()
+    globalThis.fetch = (async (url: any) => {
+      const target = String(url)
+      if (target === '/api/custom_models') {
+        return jsonResponse({
+          version: '1.0.0',
+          active_model_id: 'gemini-4-argon',
+          models: [
+            {
+              id: 'deepseek-v4-1-flash',
+              name: 'deepseek-v4.1-flash',
+              display_name: 'DeepSeek V4.1 Flash (OpenCode)',
+              provider_type: 'custom',
+              base_url: 'https://opencode.ai/inference/go/openai',
+              quota_type: 'na',
+              prepaid_balance: 0,
+              total_budget: 0,
+              quota_fraction: null,
+              is_default: true,
+              enabled: true,
+            },
+            {
+              id: 'gemini-4-argon',
+              name: 'gemini-4-argon',
+              display_name: 'Gemini 4 Argon (Gemini API)',
+              provider_type: 'gemini',
+              base_url: 'https://generativelanguage.googleapis.com',
+              quota_type: 'na',
+              prepaid_balance: 0,
+              total_budget: 0,
+              quota_fraction: null,
+              is_default: false,
+              enabled: true,
+            },
+          ],
+        })
+      }
+      if (target === '/api/rules') {
+        return jsonResponse({ default_custom_model: 'deepseek-v4-1-flash' })
+      }
+      return jsonResponse({})
+    }) as typeof fetch
+
+    view = await mount(React.createElement(CustomModelsPage))
+    await flush()
+
+    const defaultBadges = Array.from(document.querySelectorAll('.badge-chip')).filter(
+      (badge) => badge.textContent?.trim() === 'Default'
+    )
+    assert.equal(defaultBadges.length, 1, 'only the configured default model may render the Default badge')
+    assert.ok(
+      defaultBadges[0].closest('.google-card')?.textContent?.includes('DeepSeek V4.1 Flash'),
+      'the Default badge must stay on the model selected in default_custom_model'
+    )
+  })
+})

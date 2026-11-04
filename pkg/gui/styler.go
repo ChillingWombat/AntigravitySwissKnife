@@ -132,8 +132,15 @@ func HexToRGB(hex string) (int, int, int, error) {
 
 // GenerateCSS generates custom CSS stylesheet content for all configured project colors and GUI improvements.
 func GenerateCSS(cfg *Config) string {
+	navigatorCSS := `
+/* Antigravity's built-in conversation navigator: keep the rail visible when the
+   chat column leaves room for it even though the stock 40px check rejects it. */
+[data-testid="conversation-navigator"].swiss-nav-force-visible {
+  visibility: visible !important;
+}
+`
 	if cfg == nil || !cfg.Enabled || (!cfg.ColorStylingEnabled && len(cfg.ArchivedProjects) == 0 && cfg.ConversationTabsMode == "" && !cfg.ReplaceSeeAllTriangle && !cfg.ConsistentProjectSpacing) {
-		return "/* Antigravity Swiss Knife Project Styling Disabled */"
+		return "/* Antigravity Swiss Knife Project Styling Disabled */" + navigatorCSS
 	}
 
 	opacity := cfg.TintOpacity
@@ -766,7 +773,7 @@ button[data-swiss-divider="true"]:hover .swiss-convo-tabs-pill,
 `)
 
 	sb.WriteString("\n" + plugins.GenerateAuxiliaryPluginsCSS() + "\n")
-	return sb.String()
+	return navigatorCSS + sb.String()
 }
 
 // generateBaseScript generates the base project tags and conversation tabs styling script.

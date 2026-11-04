@@ -255,6 +255,124 @@ func TestProxyAppModelOverrideRoutesNativeToCustomModel(t *testing.T) {
 	}
 }
 
+func TestProxyActiveModelDoesNotHijackSubagentNativeRequests(t *testing.T) {
+	var customHits, upstreamHits int32
+
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&customHits, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"custom\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer providerServer.Close()
+
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&upstreamHits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"response":{"candidates":[{"content":{"parts":[{"text":"native"}]}}]}}`))
+	}))
+	defer upstreamServer.Close()
+
+	store, proxy := newProxyFixture(t, upstreamServer.URL)
+	if err := store.SaveModel(CustomModel{
+		ID:           "deepseek-active",
+		Name:         "deepseek-chat",
+		DisplayName:  "DeepSeek Active",
+		ProviderType: ProviderOpenAI,
+		BaseURL:      providerServer.URL,
+		APIKey:       "sk-test",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("SaveModel: %v", err)
+	}
+	if err := store.SetActiveModel("deepseek-active"); err != nil {
+		t.Fatalf("SetActiveModel: %v", err)
+	}
+
+	subagentConv := "11111111-1111-4111-8111-111111111111"
+	proxy.IsSubagentConversation = func(convID string) bool { return convID == subagentConv }
+
+	subagentBody := fmt.Sprintf(`{"model":"gemini-3.8-flash","requestId":"agent/%s/1","request":{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}}`, subagentConv)
+	req := httptest.NewRequest(http.MethodPost, "/v1internal:streamGenerateContent?alt=sse", strings.NewReader(subagentBody))
+	rr := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rr, req)
+
+	if got := atomic.LoadInt32(&customHits); got != 0 {
+		t.Fatalf("subagent native request must not hit the active custom model, got %d custom calls", got)
+	}
+	if got := atomic.LoadInt32(&upstreamHits); got != 1 {
+		t.Fatalf("subagent native request must reach Cloud Code, got %d upstream calls", got)
+	}
+	if got := store.GetConversationModel(subagentConv); got != "" {
+		t.Fatalf("subagent conversation must not be mapped to the main custom model, got %q", got)
+	}
+
+	mainConv := "22222222-2222-4222-8222-222222222222"
+	mainBody := fmt.Sprintf(`{"model":"gemini-3.8-flash","requestId":"agent/%s/1","request":{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}}`, mainConv)
+	mainReq := httptest.NewRequest(http.MethodPost, "/v1internal:streamGenerateContent?alt=sse", strings.NewReader(mainBody))
+	mainRR := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(mainRR, mainReq)
+
+	if got := atomic.LoadInt32(&customHits); got != 1 {
+		t.Fatalf("main conversation must still use the active custom model, got %d custom calls", got)
+	}
+	if got := store.GetConversationModel(mainConv); got != "deepseek-active" {
+		t.Fatalf("main conversation mapping = %q, want deepseek-active", got)
+	}
+}
+
+func TestProxyLegacyActiveMappingDoesNotPinConversationAfterNativeSelection(t *testing.T) {
+	var customHits, upstreamHits int32
+
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&customHits, 1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"custom\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer providerServer.Close()
+
+	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&upstreamHits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"response":{"candidates":[{"content":{"parts":[{"text":"native"}]}}]}}`))
+	}))
+	defer upstreamServer.Close()
+
+	store, proxy := newProxyFixture(t, upstreamServer.URL)
+	if err := store.SaveModel(CustomModel{
+		ID:           "deepseek-active",
+		Name:         "deepseek-chat",
+		DisplayName:  "DeepSeek Active",
+		ProviderType: ProviderOpenAI,
+		BaseURL:      providerServer.URL,
+		APIKey:       "sk-test",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("SaveModel: %v", err)
+	}
+
+	convID := "44444444-4444-4444-8444-444444444444"
+	if err := store.RecordConversationModelWithSource(convID, "deepseek-active", ""); err != nil {
+		t.Fatalf("RecordConversationModelWithSource: %v", err)
+	}
+	if err := store.SetActiveModel(""); err != nil {
+		t.Fatalf("SetActiveModel clear: %v", err)
+	}
+
+	body := fmt.Sprintf(`{"model":"gemini-3.8-flash","requestId":"agent/%s/1","request":{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}}`, convID)
+	req := httptest.NewRequest(http.MethodPost, "/v1internal:streamGenerateContent?alt=sse", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rr, req)
+
+	if got := atomic.LoadInt32(&customHits); got != 0 {
+		t.Fatalf("legacy active mapping must not pin a native selection, got %d custom calls", got)
+	}
+	if got := atomic.LoadInt32(&upstreamHits); got != 1 {
+		t.Fatalf("native selection must reach Cloud Code, got %d upstream calls", got)
+	}
+}
+
 const proxyValidCatalog = `{"models":{"gemini-3.8-flash":{"displayName":"Gemini 3.8 Flash"}}}`
 
 func proxyCatalogRequest(proxy *Proxy, ctx context.Context, token string) *httptest.ResponseRecorder {
@@ -552,6 +670,35 @@ func TestStore_RecordAndGetConversationModel(t *testing.T) {
 	}
 	if got := store2.GetConversationModel("conv-1234"); got != "custom-model-abc" {
 		t.Errorf("GetConversationModel after reload = %q, want custom-model-abc", got)
+	}
+}
+
+func TestStore_ConversationModelSourcePersists(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if err := store.RecordConversationModelWithSource("conv-source", "custom-model-abc", ConversationModelSourceActive); err != nil {
+		t.Fatalf("RecordConversationModelWithSource: %v", err)
+	}
+	if got := store.GetConversationModelSource("conv-source"); got != ConversationModelSourceActive {
+		t.Fatalf("source = %q, want %q", got, ConversationModelSourceActive)
+	}
+
+	store2, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore 2: %v", err)
+	}
+	if got := store2.GetConversationModelSource("conv-source"); got != ConversationModelSourceActive {
+		t.Fatalf("source after reload = %q, want %q", got, ConversationModelSourceActive)
+	}
+
+	if err := store2.RecordConversationModel("conv-source", ""); err != nil {
+		t.Fatalf("clear mapping: %v", err)
+	}
+	if got := store2.GetConversationModelSource("conv-source"); got != "" {
+		t.Fatalf("source after clear = %q, want empty", got)
 	}
 }
 

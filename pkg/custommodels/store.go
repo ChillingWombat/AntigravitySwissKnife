@@ -35,10 +35,11 @@ func GetGlobalStore() *Store {
 
 // Store manages the custom models configuration file and project bindings.
 type Store struct {
-	mu         sync.RWMutex
-	configPath string
-	config     *Config
-	convModels map[string]string // conversation_models.json custom-model attribution; host transcripts are never stored here
+	mu          sync.RWMutex
+	configPath  string
+	config      *Config
+	convModels  map[string]string // conversation_models.json custom-model attribution; host transcripts are never stored here
+	convSources map[string]string // conversation_model_sources.json provenance for convModels
 }
 
 // NewStore initializes a Store with config path in core.GetConfigDir().
@@ -52,9 +53,10 @@ func NewStore(configDir string) (*Store, error) {
 
 	configPath := filepath.Join(configDir, "custom_models.json")
 	s := &Store{
-		configPath: configPath,
-		config:     DefaultConfig(),
-		convModels: make(map[string]string),
+		configPath:  configPath,
+		config:      DefaultConfig(),
+		convModels:  make(map[string]string),
+		convSources: make(map[string]string),
 	}
 	SetGlobalStore(s)
 
@@ -71,6 +73,13 @@ func (s *Store) load() error {
 		var mapping map[string]string
 		if err := json.Unmarshal(cdata, &mapping); err == nil {
 			s.convModels = mapping
+		}
+	}
+	sourcesPath := filepath.Join(filepath.Dir(s.configPath), "conversation_model_sources.json")
+	if sdata, err := os.ReadFile(sourcesPath); err == nil && len(sdata) > 0 {
+		var sources map[string]string
+		if err := json.Unmarshal(sdata, &sources); err == nil {
+			s.convSources = sources
 		}
 	}
 
@@ -202,38 +211,105 @@ func (s *Store) saveConversationModelsLocked() error {
 	if err := tmpFile.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, convPath)
+	if err := os.Rename(tmpPath, convPath); err != nil {
+		return err
+	}
+	return s.saveConversationModelSourcesLocked()
 }
+
+// saveConversationModelSourcesLocked atomically replaces the provenance
+// sidecar for conversation model attribution. Callers must hold s.mu.
+func (s *Store) saveConversationModelSourcesLocked() error {
+	data, err := json.MarshalIndent(s.convSources, "", "  ")
+	if err != nil {
+		return err
+	}
+	sourcesPath := filepath.Join(filepath.Dir(s.configPath), "conversation_model_sources.json")
+	tmpFile, err := os.CreateTemp(filepath.Dir(sourcesPath), ".conversation_model_sources-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if err := tmpFile.Chmod(0600); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, sourcesPath)
+}
+
+const (
+	// ConversationModelSourceExplicit marks a mapping created because the request
+	// itself selected the custom model (by id, name, or an existing explicit route).
+	ConversationModelSourceExplicit = "explicit"
+	// ConversationModelSourceActive marks a mapping created because the global
+	// active custom model overrode a request that carried a native model id.
+	ConversationModelSourceActive = "active"
+)
 
 // RecordConversationModel associates an Antigravity conversation ID with the custom model ID that handled it.
 func (s *Store) RecordConversationModel(convID, modelID string) error {
+	return s.RecordConversationModelWithSource(convID, modelID, ConversationModelSourceExplicit)
+}
+
+// RecordConversationModelWithSource records attribution plus how it was chosen.
+func (s *Store) RecordConversationModelWithSource(convID, modelID, source string) error {
 	convID = strings.TrimSpace(convID)
 	modelID = strings.TrimSpace(modelID)
 	if convID == "" {
 		return nil
+	}
+	source = strings.TrimSpace(source)
+	if modelID == "" {
+		source = ""
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.convModels == nil {
 		s.convModels = make(map[string]string)
 	}
+	if s.convSources == nil {
+		s.convSources = make(map[string]string)
+	}
 	if modelID == "" {
-		if _, existed := s.convModels[convID]; existed {
+		_, existed := s.convModels[convID]
+		_, hadSource := s.convSources[convID]
+		if existed || hadSource {
 			delete(s.convModels, convID)
+			delete(s.convSources, convID)
 			return s.saveConversationModelsLocked()
 		}
 		return nil
 	}
 	previous, existed := s.convModels[convID]
-	if existed && previous == modelID {
+	previousSource := s.convSources[convID]
+	if existed && previous == modelID && previousSource == source {
 		return nil
 	}
 	s.convModels[convID] = modelID
+	s.convSources[convID] = source
 	if err := s.saveConversationModelsLocked(); err != nil {
 		if existed {
 			s.convModels[convID] = previous
 		} else {
 			delete(s.convModels, convID)
+		}
+		if previousSource != "" {
+			s.convSources[convID] = previousSource
+		} else {
+			delete(s.convSources, convID)
 		}
 		return fmt.Errorf("persist conversation model: %w", err)
 	}
@@ -258,6 +334,20 @@ func (s *Store) GetConversationModel(convID string) string {
 	return s.getConversationModel(convID)
 }
 
+// GetConversationModelSource returns how convID's custom-model mapping was chosen.
+func (s *Store) GetConversationModelSource(convID string) string {
+	convID = strings.TrimSpace(convID)
+	if convID == "" {
+		return ""
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.convSources != nil {
+		return s.convSources[convID]
+	}
+	return ""
+}
+
 // GetRoutedConversationModel looks up the custom model ID for convID from the global store,
 // falling back to reading conversation_models.json from core.GetConfigDir().
 func GetRoutedConversationModel(convID string) string {
@@ -275,6 +365,29 @@ func GetRoutedConversationModel(convID string) string {
 		var mapping map[string]string
 		if err := json.Unmarshal(data, &mapping); err == nil {
 			return mapping[convID]
+		}
+	}
+	return ""
+}
+
+// GetConversationModelSource returns how convID's custom-model mapping was
+// chosen, falling back to the persisted provenance sidecar when no global store
+// is available.
+func GetConversationModelSource(convID string) string {
+	convID = strings.TrimSpace(convID)
+	if convID == "" {
+		return ""
+	}
+	if store := GetGlobalStore(); store != nil {
+		if source := store.GetConversationModelSource(convID); source != "" {
+			return source
+		}
+	}
+	sourcesPath := filepath.Join(core.GetConfigDir(), "conversation_model_sources.json")
+	if data, err := os.ReadFile(sourcesPath); err == nil && len(data) > 0 {
+		var sources map[string]string
+		if err := json.Unmarshal(data, &sources); err == nil {
+			return sources[convID]
 		}
 	}
 	return ""

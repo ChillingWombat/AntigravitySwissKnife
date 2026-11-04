@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "node --import tsx --test src/**/*.test.ts src/components/__tests__/*.test.ts",
+    "test": "node --max-old-space-size=4096 --import tsx --test --test-concurrency=2 src/**/*.test.ts src/components/__tests__/*.test.ts",
     "lint": "oxlint",
     "preview": "vite preview"
   },

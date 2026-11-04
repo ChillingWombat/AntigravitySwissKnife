@@ -80,3 +80,61 @@ func TestResolveConversationModelUsesSidecarWithoutCustomModels(t *testing.T) {
 		t.Fatalf("resolved model = %q (%q, %q), want %q (%q, openai)", got, displayName, provider, model.Name, model.DisplayName)
 	}
 }
+
+func TestSubagentTelemetryIgnoresLegacyActiveModelMapping(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", configDir)
+	store, err := custommodels.NewStore(configDir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	custom := []custommodels.CustomModel{{
+		ID:           "custom-main",
+		Name:         "custom-main-model",
+		DisplayName:  "Custom Main Model",
+		ProviderType: custommodels.ProviderOpenAI,
+	}}
+	convID := "33333333-3333-4333-8333-333333333333"
+	tPath := filepath.Join(t.TempDir(), "brain", convID, ".system_generated", "logs", "transcript.jsonl")
+	if err := os.MkdirAll(filepath.Dir(tPath), 0755); err != nil {
+		t.Fatalf("create transcript dir: %v", err)
+	}
+	step, err := json.Marshal(map[string]any{
+		"step_index":    1,
+		"source":        "MODEL",
+		"type":          "PLANNER_RESPONSE",
+		"input_tokens":  1200,
+		"output_tokens": 80,
+	})
+	if err != nil {
+		t.Fatalf("marshal transcript: %v", err)
+	}
+	if err := os.WriteFile(tPath, append(step, '\n'), 0644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+
+	// Legacy mapping without provenance: before this fix the proxy always
+	// overrode subagent requests with the main conversation's active model.
+	if err := store.RecordConversationModelWithSource(convID, "custom-main", ""); err != nil {
+		t.Fatalf("RecordConversationModelWithSource: %v", err)
+	}
+
+	got, _, _ := resolveTelemetryConversationModel(tPath, "", custom, nil, convID, true)
+	if got != "gemini-3.8-flash" {
+		t.Fatalf("subagent legacy mapping resolved to %q, want native gemini-3.8-flash", got)
+	}
+
+	got, _, _ = resolveTelemetryConversationModel(tPath, "", custom, nil, convID, false)
+	if got != "custom-main-model" {
+		t.Fatalf("main conversation mapping resolved to %q, want custom-main-model", got)
+	}
+
+	// A mapping created by an explicit subagent custom-model choice is honored.
+	if err := store.RecordConversationModelWithSource(convID, "custom-main", custommodels.ConversationModelSourceExplicit); err != nil {
+		t.Fatalf("RecordConversationModelWithSource explicit: %v", err)
+	}
+	got, _, _ = resolveTelemetryConversationModel(tPath, "", custom, nil, convID, true)
+	if got != "custom-main-model" {
+		t.Fatalf("explicit subagent mapping resolved to %q, want custom-main-model", got)
+	}
+}

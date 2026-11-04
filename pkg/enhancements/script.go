@@ -191,6 +191,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     window.__swissEnhIntervalId = setInterval(() => {
       syncConfigFromServer();
       renderContextWindowProgressRing();
+      syncConversationNavigatorVisibility();
     }, 3000);
 
     function isDarkMode() {
@@ -3044,6 +3045,28 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       }
     }
 
+    // Antigravity hides its built-in conversation navigator unless the chat
+    // column leaves 40px of clearance. At common window widths the column
+    // leaves 36px, enough for the 28px rail. Show it whenever it physically fits.
+    function syncConversationNavigatorVisibility() {
+      try {
+        const nav = document.querySelector('[data-testid="conversation-navigator"]');
+        if (!nav) return;
+        const wrapper = nav.parentElement;
+        const viewport = document.querySelector('[data-testid="autoscroll-viewport"]');
+        const content = viewport && viewport.firstElementChild;
+        if (!wrapper || !content) return;
+        const clearance = content.getBoundingClientRect().left - wrapper.getBoundingClientRect().right;
+        const force = nav.getAttribute("data-fits") === "false" && clearance >= 28;
+        if (force) {
+          nav.classList.add("swiss-nav-force-visible");
+          nav.removeAttribute("aria-hidden");
+        } else {
+          nav.classList.remove("swiss-nav-force-visible");
+        }
+      } catch (_) {}
+    }
+
     function renderContextWindowProgressRing() {
       if (!isContextWindowIndicatorEnabled() || window.__swissDaemonOnline === false || !window.__swissDaemonOnline) {
         removeContextWindowProgressRings();
@@ -3256,6 +3279,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         applyDefaultProjectHandler();
         applyAutomationTargetProjectSelector();
         renderContextWindowProgressRing();
+        syncConversationNavigatorVisibility();
         isEnhancingOverview = true;
         try {
           applyOverviewPanelEnhancements();
@@ -3267,8 +3291,14 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     window.__swissEnhancementsObserver = ob;
     ob.observe(document.body, { childList: true, subtree: true });
 
+    if (!window.__swissNavResizeListener) {
+      window.__swissNavResizeListener = () => syncConversationNavigatorVisibility();
+      window.addEventListener("resize", window.__swissNavResizeListener);
+    }
+
     applyEnhancementsStyles();
     renderContextWindowProgressRing();
+    syncConversationNavigatorVisibility();
     applyDefaultProjectHandler();
     applyAutomationTargetProjectSelector();
     installManageSidecarInterceptor();
