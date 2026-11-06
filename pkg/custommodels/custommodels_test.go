@@ -548,6 +548,38 @@ func TestGenerateCustomModelsScript_SubmenuEdgeCases(t *testing.T) {
 	}
 }
 
+func TestGenerateCustomModelsScript_NativeTriggerRestoreDecomposition(t *testing.T) {
+	script := GenerateCustomModelsScript(nil)
+
+	restoreIdx := strings.Index(script, "function restoreNativeTriggerLabel(trigger)")
+	if restoreIdx == -1 {
+		t.Fatalf("expected script to define restoreNativeTriggerLabel")
+	}
+	restoreEndIdx := strings.Index(script[restoreIdx:], "function updateTriggerLabel()")
+	if restoreEndIdx == -1 {
+		t.Fatalf("expected restoreNativeTriggerLabel to precede updateTriggerLabel")
+	}
+	restoreFn := script[restoreIdx : restoreIdx+restoreEndIdx]
+	for _, want := range []string{
+		"extractFiberLabelText(trigger)",
+		"resolveSavedNativeLabel(trigger)",
+		"applyNativeTriggerLabel(label, savedNative, fiberNative)",
+	} {
+		if !strings.Contains(restoreFn, want) {
+			t.Errorf("expected restoreNativeTriggerLabel to call %q", want)
+		}
+	}
+	for _, helper := range []string{
+		"function extractFiberLabelText(trigger)",
+		"function resolveSavedNativeLabel(trigger)",
+		"function applyNativeTriggerLabel(label, savedNative, fiberNative)",
+	} {
+		if !strings.Contains(script, helper) {
+			t.Errorf("expected helper %q", helper)
+		}
+	}
+}
+
 func TestGenerateCustomModelsScript_NativeModelUnbindCapture(t *testing.T) {
 	script := GenerateCustomModelsScript(nil)
 
@@ -565,8 +597,7 @@ func TestGenerateCustomModelsScript_NativeModelUnbindCapture(t *testing.T) {
 	}
 	for _, want := range []string{
 		`customConfig.active_model_id = "";`,
-		`trigger.removeAttribute("data-swiss-custom-bound");`,
-		`trigger.removeAttribute("data-swiss-native-label");`,
+		`restoreNativeTriggerLabel(trigger);`,
 		`body: JSON.stringify({ model_id: "" })`,
 		`/api/custom_models/active`,
 	} {
@@ -1201,6 +1232,165 @@ func TestGenerateCustomModelsScript_NativeModelSelectionProtection(t *testing.T)
 			t.Errorf("expected script to contain %q for native model selection protection", want)
 		}
 	}
+}
+
+func generatedNativeTriggerRestoreForTest(t *testing.T, script string) string {
+	t.Helper()
+	signatures := []string{
+		"function findReactFiberKey(trigger)",
+		"function collectReactText(node)",
+		"function collectReactValueText(node)",
+		"function collectReactStructureText(node)",
+		"function collectReactChildrenText(node)",
+		"function extractFiberLabelText(trigger)",
+		"function resolveTriggerLabel(trigger)",
+		"function resolveSavedNativeLabel(trigger)",
+		"function applyNativeTriggerLabel(label, savedNative, fiberNative)",
+		"function restoreNativeTriggerLabel(trigger)",
+	}
+	functions := make([]string, 0, len(signatures))
+	for _, signature := range signatures {
+		functions = append(functions, generatedFunctionForTest(t, script, signature))
+	}
+	return strings.Join(functions, "\n")
+}
+
+func TestGenerateCustomModelsScript_OfflineRefreshRestoresNativeState(t *testing.T) {
+	script := GenerateCustomModelsScript(nil)
+	refresh := generatedFunctionForTest(t, script, "async function refreshCustomConfig()")
+	restoreNative := generatedNativeTriggerRestoreForTest(t, script)
+	runner := `
+const assert = require("assert");
+
+let daemonReachable = true;
+let sessionCustomModelSelected = true;
+let customConfig = {
+  active_model_id: "custom-model",
+  integration: { mode: "profile_isolation", apps: {} },
+  models: [{ id: "custom-model", enabled: true }]
+};
+const label = { textContent: "Claude Sonnet" };
+const trigger = {
+  attributes: {
+    "data-swiss-native-label": "Gemini 3.8 Flash",
+    "data-swiss-custom-bound": "custom-model"
+  },
+  setAttribute(name, value) { this.attributes[name] = String(value); },
+  getAttribute(name) {
+    return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
+  },
+  removeAttribute(name) { delete this.attributes[name]; },
+  querySelector(selector) { return selector === "span" ? label : null; }
+};
+const window = {
+  __swiss_session_custom_model_id: "custom-model",
+  __swiss_native_model_selected: false,
+  fetch: async () => { throw new Error("daemon offline"); }
+};
+const fetch = window.fetch;
+const AbortSignal = { timeout: () => undefined };
+const getSwissAuthHeaders = () => ({});
+const getModelSelectorTrigger = () => trigger;
+let quotaVisible = null;
+const syncQuotaWarningVisibility = (_trigger, isCustomActive) => {
+  quotaVisible = isCustomActive;
+};
+` + restoreNative + refresh + `
+
+(async () => {
+  await refreshCustomConfig();
+  assert.strictEqual(daemonReachable, false);
+  assert.strictEqual(sessionCustomModelSelected, false);
+  assert.strictEqual(customConfig.inference_supported, false);
+  assert.deepStrictEqual(customConfig.models, []);
+  assert.strictEqual(window.__swiss_session_custom_model_id, null);
+  assert.strictEqual(window.__swiss_native_model_selected, true);
+  assert.strictEqual(trigger.getAttribute("data-swiss-custom-bound"), null);
+  assert.strictEqual(label.textContent, "Gemini 3.8 Flash");
+  assert.strictEqual(quotaVisible, false);
+  console.log("OFFLINE_REFRESH_RESTORED_NATIVE");
+})().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
+`
+	runGeneratedNode(t, runner, "OFFLINE_REFRESH_RESTORED_NATIVE")
+}
+
+func TestGenerateCustomModelsScript_SelectionFailureRollsBackNativeState(t *testing.T) {
+	script := GenerateCustomModelsScript(nil)
+	selectModel := generatedFunctionForTest(t, script, "async function selectCustomModelWithLevel(chosenLevel)")
+	restoreNative := generatedNativeTriggerRestoreForTest(t, script)
+	updateLabel := generatedFunctionForTest(t, script, "function updateTriggerLabel()")
+	runner := `
+const assert = require("assert");
+
+let daemonReachable = true;
+let sessionCustomModelSelected = false;
+let customConfig = {
+  active_model_id: "",
+  models: [{ id: "custom-model", name: "Claude Sonnet", enabled: true }]
+};
+const label = { textContent: "Gemini 3.8 Flash" };
+const trigger = {
+  attributes: {},
+  setAttribute(name, value) { this.attributes[name] = String(value); },
+  getAttribute(name) {
+    return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
+  },
+  removeAttribute(name) { delete this.attributes[name]; },
+  querySelector(selector) { return selector === "span" ? label : null; }
+};
+const window = {
+  __swiss_session_custom_model_id: null,
+  __swiss_native_model_selected: true
+};
+const fetchCalls = [];
+const fetch = async (url) => {
+  fetchCalls.push(url);
+  return { ok: false };
+};
+const getSwissAuthHeaders = () => ({});
+const getModelSelectorTrigger = () => trigger;
+let quotaVisible = null;
+const syncQuotaWarningVisibility = (_trigger, isCustomActive) => {
+  quotaVisible = isCustomActive;
+};
+const renderTriggerModelLabel = (el, model) => {
+  el.querySelector("span").textContent = model.name;
+};
+const removeCustomThinkingSubmenu = () => {};
+class MouseEvent {
+  constructor(type, options) {
+    this.type = type;
+    this.options = options;
+  }
+}
+const document = { body: { dispatchEvent: () => {} } };
+const popover = { removed: false, remove() { this.removed = true; } };
+const m = { id: "custom-model", name: "Claude Sonnet", enabled: true };
+` + restoreNative + updateLabel + selectModel + `
+
+(async () => {
+  await selectCustomModelWithLevel();
+  assert.strictEqual(customConfig.active_model_id, "");
+  assert.strictEqual(sessionCustomModelSelected, false);
+  assert.strictEqual(window.__swiss_session_custom_model_id, null);
+  assert.strictEqual(window.__swiss_native_model_selected, true);
+  assert.strictEqual(label.textContent, "Gemini 3.8 Flash");
+  assert.strictEqual(trigger.getAttribute("data-swiss-custom-bound"), null);
+  assert.strictEqual(quotaVisible, false);
+  assert.strictEqual(daemonReachable, false);
+  assert.strictEqual(popover.removed, true);
+  assert.strictEqual(fetchCalls.length, 1);
+  assert.match(fetchCalls[0], /\/api\/custom_models\/active$/);
+  console.log("SELECTION_ROLLBACK_RESTORED_NATIVE");
+})().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
+`
+	runGeneratedNode(t, runner, "SELECTION_ROLLBACK_RESTORED_NATIVE")
 }
 
 // The Projects panel display-options menu, conversation menus and other host
