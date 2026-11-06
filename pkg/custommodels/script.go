@@ -874,6 +874,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
               const prevSessionModelId = typeof window !== "undefined" ? window.__swiss_session_custom_model_id : null;
               const prevNativeModelSelected = typeof window !== "undefined" ? window.__swiss_native_model_selected : true;
               const prevThinkingLevel = m.thinking_level;
+              let thinkingLevelSynced = false;
               sessionCustomModelSelected = true;
               if (typeof window !== "undefined") {
                 window.__swiss_session_custom_model_id = m.id;
@@ -900,13 +901,13 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
               try {
                 if (chosenLevel) {
-                  await fetch("http://127.0.0.1:8765/api/custom_models/thinking_level", {
+                  const thinkingRes = await fetch(DAEMON_URL + "/api/custom_models/thinking_level", {
                     method: "POST",
                     headers: getSwissAuthHeaders(),
                     body: JSON.stringify({ model_id: m.id, level: chosenLevel })
-                  }).then((res) => {
-                    if (res && res.ok === false) throw new Error("custom_model_select_failed");
                   });
+                  if (thinkingRes && thinkingRes.ok === false) throw new Error("custom_model_select_failed");
+                  thinkingLevelSynced = Boolean(thinkingRes && thinkingRes.ok);
                 }
                 await fetch("http://127.0.0.1:8765/api/custom_models/active", {
                   method: "POST",
@@ -923,6 +924,13 @@ func GenerateCustomModelsScript(cfg *Config) string {
                 if (typeof window !== "undefined") {
                   window.__swiss_session_custom_model_id = prevSessionModelId;
                   window.__swiss_native_model_selected = prevNativeModelSelected;
+                }
+                if (thinkingLevelSynced && prevThinkingLevel) {
+                  fetch(DAEMON_URL + "/api/custom_models/thinking_level", {
+                    method: "POST",
+                    headers: getSwissAuthHeaders({ "Content-Type": "application/json" }),
+                    body: JSON.stringify({ model_id: m.id, level: prevThinkingLevel })
+                  }).catch(() => {});
                 }
                 updateTriggerLabel();
               }

@@ -50,7 +50,9 @@ const blocked = [
   "data:text/html,<h1>external</h1>",
   "javascript:alert(1)",
   "about:srcdoc",
-  "not a url"
+  "not a url",
+  "file:///tmp/notes.txt",
+  "file:///tmp/doc.pdf"
 ];
 for (const value of allowed) {
   if (!isSwissInjectableWindowURL(value)) {
@@ -83,9 +85,13 @@ func TestAdversarial_DesktopLoader_CSSInjectionDeduplication(t *testing.T) {
 
 	for _, token := range []string{
 		"if (!isSwissInjectableWindowURL(currentUrl)) return;",
+		"const cssNavSeq = wc.__swissNavSeq || 0",
+		"wc.__swissInjectedCssLength = -1",
 		"wc.__swissInjectedCssLength !== cssLength",
+		"wc.__swissInjectedCssLength === -1 && (wc.__swissNavSeq || 0) === cssNavSeq",
 		"wc.__swissInjectedCssLength = cssLength",
 		"win.webContents.on('did-start-navigation'",
+		"win.webContents.__swissNavSeq = (win.webContents.__swissNavSeq || 0) + 1",
 		"win.webContents.__swissInjectedCssLength = 0",
 	} {
 		if !strings.Contains(script, token) {
@@ -135,6 +141,22 @@ function buildDaemonBrokerScript() { return ""; }
   wc.__swissInjectedCssLength = 0;
   await injectIntoWebContents(wc);
   if (inserts !== 2) throw new Error("expected CSS insertion after navigation reset, got " + inserts);
+
+  let resolveStaleInsert;
+  const stale = {
+    __swissInjectedCssLength: undefined,
+    isDestroyed: () => false,
+    getURL: () => "http://localhost:8765",
+    insertCSS: () => new Promise(resolve => { resolveStaleInsert = resolve; }),
+    executeJavaScript: () => { throw new Error("unexpected JavaScript injection"); }
+  };
+  const pendingInsert = injectIntoWebContents(stale);
+  if (typeof resolveStaleInsert !== "function") throw new Error("CSS insertion did not start");
+  stale.__swissNavSeq = (stale.__swissNavSeq || 0) + 1;
+  stale.__swissInjectedCssLength = 0;
+  resolveStaleInsert("css-key");
+  await pendingInsert;
+  if (stale.__swissInjectedCssLength !== 0) throw new Error("stale insertCSS completion overwrote navigation reset");
 
   let externalInserts = 0;
   const external = {

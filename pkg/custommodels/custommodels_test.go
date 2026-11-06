@@ -1346,9 +1346,12 @@ const window = {
   __swiss_native_model_selected: true
 };
 const fetchCalls = [];
-const fetch = async (url) => {
+const fetchBodies = [];
+let responseSequence = [false];
+const fetch = async (url, options) => {
   fetchCalls.push(url);
-  return { ok: false };
+  fetchBodies.push(options && options.body ? JSON.parse(options.body) : null);
+  return { ok: responseSequence.length ? responseSequence.shift() : true };
 };
 const getSwissAuthHeaders = () => ({});
 const getModelSelectorTrigger = () => trigger;
@@ -1384,6 +1387,19 @@ const m = { id: "custom-model", name: "Claude Sonnet", enabled: true };
   assert.strictEqual(popover.removed, true);
   assert.strictEqual(fetchCalls.length, 1);
   assert.match(fetchCalls[0], /\/api\/custom_models\/active$/);
+
+  fetchCalls.length = 0;
+  fetchBodies.length = 0;
+  responseSequence = [true, false];
+  m.thinking_level = "low";
+  await selectCustomModelWithLevel("high");
+  assert.strictEqual(fetchCalls.length, 3);
+  assert.match(fetchCalls[0], /\/api\/custom_models\/thinking_level$/);
+  assert.match(fetchCalls[1], /\/api\/custom_models\/active$/);
+  assert.match(fetchCalls[2], /\/api\/custom_models\/thinking_level$/);
+  assert.strictEqual(fetchBodies[0].level, "high");
+  assert.strictEqual(fetchBodies[2].level, "low");
+  assert.strictEqual(m.thinking_level, "low");
   console.log("SELECTION_ROLLBACK_RESTORED_NATIVE");
 })().catch(err => {
   console.error(err);

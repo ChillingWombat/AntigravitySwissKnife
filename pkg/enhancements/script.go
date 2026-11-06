@@ -51,6 +51,12 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
         const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
         const parsedFlags = JSON.parse(rawFlags);
         if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags)) {
+          const flagsChanged =
+            parsedFlags["remote-control-setting-enabled"] !== true ||
+            parsedFlags["enable-compact-slash-command"] !== true ||
+            (isAutomationTargetProjectEnabled()
+              ? parsedFlags["jetski-sidecar-declared-permissions"] !== true
+              : Object.prototype.hasOwnProperty.call(parsedFlags, "jetski-sidecar-declared-permissions"));
           parsedFlags["remote-control-setting-enabled"] = true;
           if (isAutomationTargetProjectEnabled()) {
             parsedFlags["jetski-sidecar-declared-permissions"] = true;
@@ -58,8 +64,8 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
             delete parsedFlags["jetski-sidecar-declared-permissions"];
           }
           parsedFlags["enable-compact-slash-command"] = true;
-          const nextFlags = JSON.stringify(parsedFlags);
-          if (nextFlags !== rawFlags) {
+          if (flagsChanged) {
+            const nextFlags = JSON.stringify(parsedFlags);
             localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
             if (typeof StorageEvent === "function") {
               window.dispatchEvent(new StorageEvent("storage", {

@@ -647,7 +647,10 @@ func generateMainLoaderScript() string {
         return false;
       }
       const protocol = url.protocol.toLowerCase();
-      if (protocol === "file:" || protocol === "vscode-webview:" || protocol === "vscode-file:" || protocol === "antigravity:") {
+      if (protocol === "file:") {
+        return /(?:workbench|antigravity|index)\.(?:html?|xhtml)$/i.test(url.pathname || "");
+      }
+      if (protocol === "vscode-webview:" || protocol === "vscode-file:" || protocol === "antigravity:") {
         return true;
       }
       if (protocol !== "http:" && protocol !== "https:") return false;
@@ -696,9 +699,13 @@ func generateMainLoaderScript() string {
           const css = fs.readFileSync(cssPath, 'utf8');
           const cssLength = css.length;
           if (css.trim() && wc.__swissInjectedCssLength !== cssLength) {
+            const cssNavSeq = wc.__swissNavSeq || 0;
+            wc.__swissInjectedCssLength = -1;
             try {
               await wc.insertCSS(css);
-              wc.__swissInjectedCssLength = cssLength;
+              if (wc.__swissInjectedCssLength === -1 && (wc.__swissNavSeq || 0) === cssNavSeq) {
+                wc.__swissInjectedCssLength = cssLength;
+              }
             } catch (_) {}
           }
         }
@@ -735,7 +742,10 @@ func generateMainLoaderScript() string {
         if (!win || !win.webContents) return;
         installDaemonAuthBridge(win.webContents.session, win.webContents);
         win.webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
-          if (isMainFrame) win.webContents.__swissInjectedCssLength = 0;
+          if (isMainFrame) {
+            win.webContents.__swissNavSeq = (win.webContents.__swissNavSeq || 0) + 1;
+            win.webContents.__swissInjectedCssLength = 0;
+          }
         });
         win.webContents.on('dom-ready', () => {
           injectIntoWebContents(win.webContents);

@@ -901,7 +901,11 @@ func TestAutomationTargetProjectSelector_FlagOverride(t *testing.T) {
 		"if (isAutomationTargetProjectEnabled()) {",
 		`parsedFlags["jetski-sidecar-declared-permissions"] = true;`,
 		`delete parsedFlags["jetski-sidecar-declared-permissions"];`,
-		"if (nextFlags !== rawFlags) {",
+		`parsedFlags["remote-control-setting-enabled"] !== true ||`,
+		`parsedFlags["enable-compact-slash-command"] !== true ||`,
+		`? parsedFlags["jetski-sidecar-declared-permissions"] !== true`,
+		`: Object.prototype.hasOwnProperty.call(parsedFlags, "jetski-sidecar-declared-permissions")`,
+		"if (flagsChanged) {",
 	} {
 		if !strings.Contains(script, token) {
 			t.Errorf("expected script to contain %q", token)
@@ -943,6 +947,12 @@ function applyFlagOverride(targetProjectEnabled) {
   const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
   const parsedFlags = JSON.parse(rawFlags);
   if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags)) {
+    const flagsChanged =
+      parsedFlags["remote-control-setting-enabled"] !== true ||
+      parsedFlags["enable-compact-slash-command"] !== true ||
+      (targetProjectEnabled
+        ? parsedFlags["jetski-sidecar-declared-permissions"] !== true
+        : Object.prototype.hasOwnProperty.call(parsedFlags, "jetski-sidecar-declared-permissions"));
     parsedFlags["remote-control-setting-enabled"] = true;
     if (targetProjectEnabled) {
       parsedFlags["jetski-sidecar-declared-permissions"] = true;
@@ -950,8 +960,8 @@ function applyFlagOverride(targetProjectEnabled) {
       delete parsedFlags["jetski-sidecar-declared-permissions"];
     }
     parsedFlags["enable-compact-slash-command"] = true;
-    const nextFlags = JSON.stringify(parsedFlags);
-    if (nextFlags !== rawFlags) {
+    if (flagsChanged) {
+      const nextFlags = JSON.stringify(parsedFlags);
       localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
       setCount++;
       if (typeof StorageEvent === "function") {
@@ -979,6 +989,18 @@ applyFlagOverride(true);
 assert.strictEqual(setCount, 1, "unchanged flags must not be persisted");
 assert.strictEqual(dispatchCount, 1, "unchanged flags must not dispatch a synthetic storage event");
 
+storage["jetski.developer.customFlagOverrides"] = [
+  "{",
+  '  "some-other-flag": true,',
+  '  "enable-compact-slash-command": true,',
+  '  "jetski-sidecar-declared-permissions": true,',
+  '  "remote-control-setting-enabled": true',
+  "}"
+].join("\n");
+applyFlagOverride(true);
+assert.strictEqual(setCount, 1, "semantically unchanged whitespace-formatted flags must not be persisted");
+assert.strictEqual(dispatchCount, 1, "semantically unchanged whitespace-formatted flags must not dispatch a synthetic storage event");
+
 storage["jetski.developer.customFlagOverrides"] = JSON.stringify({
   "remote-control-setting-enabled": true,
   "jetski-sidecar-declared-permissions": true,
@@ -987,6 +1009,8 @@ storage["jetski.developer.customFlagOverrides"] = JSON.stringify({
 const disabled = applyFlagOverride(false);
 assert.ok(!Object.prototype.hasOwnProperty.call(disabled, "jetski-sidecar-declared-permissions"));
 assert.strictEqual(disabled["some-other-flag"], true);
+assert.strictEqual(setCount, 2, "a sidecar permission change must be persisted");
+assert.strictEqual(dispatchCount, 2, "a sidecar permission change must dispatch a synthetic storage event");
 
 console.log("flag override OK");
 `

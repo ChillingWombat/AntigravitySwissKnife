@@ -51,6 +51,7 @@ func TestBuiltinBrowserBookmarkCleanupPreservesNativeControls(t *testing.T) {
 		`#swiss-bookmark-star`,
 		`[data-swiss-legacy-bookmark]`,
 		`.antigravity-swiss-legacy-bookmark`,
+		`[data-swiss-browser-bookmark]:not([data-swiss-bookmark-active="1"])`,
 	} {
 		if !strings.Contains(cleanup, token) {
 			t.Errorf("bookmark cleanup missing Swiss-owned selector %q", token)
@@ -4079,10 +4080,21 @@ scenario("teardown removes only Swiss legacy bookmarks and preserves native cont
   legacyClassButton.className = "antigravity-swiss-legacy-bookmark";
   env.document.body.appendChild(legacyClassButton);
 
+  const staleBrowserButton = env.document.createElement("button");
+  staleBrowserButton.setAttribute("data-swiss-browser-bookmark", "1");
+  env.document.body.appendChild(staleBrowserButton);
+
+  env.context.setupNativeBookmarkButton(env.oldWebview);
+  const activeStar = env.document.querySelector("#swiss-bookmark-star");
+  assert(activeStar, "Swiss bookmark button was not mounted");
+  assert.strictEqual(activeStar.getAttribute("data-swiss-bookmark-active"), "1", "mounted Swiss bookmark button is not marked active");
+
   env.context.removeNativeBookmarkButtons();
   assert.strictEqual(nativeButton.isConnected, true, "native bookmark control was removed");
   assert.strictEqual(legacyButton.isConnected, false, "legacy Swiss bookmark control survived");
   assert.strictEqual(legacyClassButton.isConnected, false, "legacy Swiss bookmark class survived");
+  assert.strictEqual(staleBrowserButton.isConnected, false, "orphaned Swiss browser bookmark control survived");
+  assert.strictEqual(activeStar.isConnected, false, "mounted Swiss bookmark control survived teardown");
 });
 
 scenario("teardown removes open dialog and global listener without retaining overlay focus", () => {
