@@ -123,6 +123,7 @@ type Server struct {
 	lifetimeCostsMu           sync.RWMutex
 	lifetimeCostsCache        map[string]float64
 	lifetimeCostsExp          time.Time
+	syncLSURLMu               sync.Mutex
 	syncLSURLStop             chan struct{}
 	restoreNativeDeps         restoreNativeDeps
 }
@@ -812,9 +813,12 @@ func (s *Server) Start() error {
 // Stop gracefully shuts down the web server.
 func (s *Server) Stop() error {
 	wasProxyActive := s.isProxyModeActive()
-	if s.syncLSURLStop != nil {
-		close(s.syncLSURLStop)
-		s.syncLSURLStop = nil
+	s.syncLSURLMu.Lock()
+	stopCh := s.syncLSURLStop
+	s.syncLSURLStop = nil
+	s.syncLSURLMu.Unlock()
+	if stopCh != nil {
+		close(stopCh)
 	}
 	if onServerStopHook != nil && s.addr != "" {
 		onServerStopHook(s.addr)
@@ -886,13 +890,20 @@ func (s *Server) startLanguageServerURLSync() {
 		return
 	}
 	s.syncLanguageServerCloudCodeURL()
-	s.syncLSURLStop = make(chan struct{})
+	stopCh := make(chan struct{})
+	s.syncLSURLMu.Lock()
+	previousStop := s.syncLSURLStop
+	s.syncLSURLStop = stopCh
+	s.syncLSURLMu.Unlock()
+	if previousStop != nil {
+		close(previousStop)
+	}
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-s.syncLSURLStop:
+			case <-stopCh:
 				return
 			case <-ticker.C:
 				s.syncLanguageServerCloudCodeURL()

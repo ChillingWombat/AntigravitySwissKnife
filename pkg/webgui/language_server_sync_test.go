@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/custommodels"
@@ -46,15 +47,55 @@ func disableTestRuntimeDetection(t *testing.T) {
 
 func TestServerStopClosesSyncURLStopOnce(t *testing.T) {
 	srv := &Server{syncLSURLStop: make(chan struct{})}
+	stopCh := srv.syncLSURLStop
 
 	if err := srv.Stop(); err != nil {
 		t.Fatalf("first Stop: %v", err)
 	}
-	if srv.syncLSURLStop != nil {
+	select {
+	case <-stopCh:
+	default:
+		t.Fatal("expected stopCh to be closed")
+	}
+	srv.syncLSURLMu.Lock()
+	cleared := srv.syncLSURLStop == nil
+	srv.syncLSURLMu.Unlock()
+	if !cleared {
 		t.Fatal("Stop must clear syncLSURLStop")
 	}
 	if err := srv.Stop(); err != nil {
 		t.Fatalf("second Stop: %v", err)
+	}
+}
+
+func TestServerStopConcurrentCallsCloseSyncURLStopOnce(t *testing.T) {
+	const callers = 8
+	srv := &Server{syncLSURLStop: make(chan struct{})}
+	stopCh := srv.syncLSURLStop
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- srv.Stop()
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent Stop: %v", err)
+		}
+	}
+	select {
+	case <-stopCh:
+	default:
+		t.Fatal("expected stopCh to be closed")
 	}
 }
 
