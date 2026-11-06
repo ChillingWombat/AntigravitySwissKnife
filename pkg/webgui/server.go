@@ -811,12 +811,10 @@ func (s *Server) Start() error {
 
 // Stop gracefully shuts down the web server.
 func (s *Server) Stop() error {
+	wasProxyActive := s.isProxyModeActive()
 	if s.syncLSURLStop != nil {
-		select {
-		case <-s.syncLSURLStop:
-		default:
-			close(s.syncLSURLStop)
-		}
+		close(s.syncLSURLStop)
+		s.syncLSURLStop = nil
 	}
 	if onServerStopHook != nil && s.addr != "" {
 		onServerStopHook(s.addr)
@@ -848,12 +846,8 @@ func (s *Server) Stop() error {
 			}
 		}
 	}
-	if s.syncLSURLStop != nil {
-		close(s.syncLSURLStop)
-		s.syncLSURLStop = nil
-	}
 	var stopErrs []error
-	if s.isProxyModeActive() {
+	if wasProxyActive {
 		if err := custommodels.CleanShellRCHooks(); err != nil {
 			log.Printf("[webgui] shell RC cleanup failed during stop: %v", err)
 			stopErrs = append(stopErrs, fmt.Errorf("clean shell RC hooks during stop: %w", err))
@@ -876,7 +870,7 @@ func (s *Server) Stop() error {
 }
 
 func (s *Server) syncLanguageServerCloudCodeURL() {
-	if s == nil || s.addr == "" || core.IsRunningTests() || gui.IsTestExecution() {
+	if s == nil || s.addr == "" || core.IsRunningTests() || gui.IsTestExecution() || !s.isProxyModeActive() {
 		return
 	}
 	endpoint := "http://" + loopbackAddr(s.addr)
@@ -884,13 +878,7 @@ func (s *Server) syncLanguageServerCloudCodeURL() {
 }
 
 func (s *Server) isProxyModeActive() bool {
-	if s.customModelsStore != nil && s.customModelsStore.IsProxyModeActive() {
-		return true
-	}
-	if s.syncLSURLStop != nil {
-		return true
-	}
-	return false
+	return s != nil && s.customModelsStore != nil && s.customModelsStore.IsProxyModeActive()
 }
 
 func (s *Server) startLanguageServerURLSync() {
