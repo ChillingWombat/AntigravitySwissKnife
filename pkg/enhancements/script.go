@@ -50,19 +50,30 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       try {
         const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
         const parsedFlags = JSON.parse(rawFlags);
-        const targetProjectFlag = !isAutomationTargetProjectEnabled();
-        if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== targetProjectFlag || parsedFlags["enable-compact-slash-command"] !== true)) {
+        if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags)) {
+          const flagsChanged =
+            parsedFlags["remote-control-setting-enabled"] !== true ||
+            parsedFlags["enable-compact-slash-command"] !== true ||
+            (isAutomationTargetProjectEnabled()
+              ? parsedFlags["jetski-sidecar-declared-permissions"] !== true
+              : Object.prototype.hasOwnProperty.call(parsedFlags, "jetski-sidecar-declared-permissions"));
           parsedFlags["remote-control-setting-enabled"] = true;
-          parsedFlags["jetski-sidecar-declared-permissions"] = targetProjectFlag;
+          if (isAutomationTargetProjectEnabled()) {
+            parsedFlags["jetski-sidecar-declared-permissions"] = true;
+          } else {
+            delete parsedFlags["jetski-sidecar-declared-permissions"];
+          }
           parsedFlags["enable-compact-slash-command"] = true;
-          const nextFlags = JSON.stringify(parsedFlags);
-          localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
-          if (typeof StorageEvent === "function") {
-            window.dispatchEvent(new StorageEvent("storage", {
-              key: "jetski.developer.customFlagOverrides",
-              newValue: nextFlags,
-              storageArea: window.localStorage
-            }));
+          if (flagsChanged) {
+            const nextFlags = JSON.stringify(parsedFlags);
+            localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
+            if (typeof StorageEvent === "function") {
+              window.dispatchEvent(new StorageEvent("storage", {
+                key: "jetski.developer.customFlagOverrides",
+                newValue: nextFlags,
+                storageArea: window.localStorage
+              }));
+            }
           }
         }
       } catch (_) {}
@@ -70,6 +81,7 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
       try {
         if (!window.__swissUserStatusSyncInterval) {
           const syncHostUserStatus = async () => {
+            if (window.__swissHostUserStatusSynced) return;
             try {
               const root = document.getElementById("root");
               if (!root) return;
@@ -92,15 +104,22 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
                 if (node.child) queue.push(node.child);
                 if (node.sibling) queue.push(node.sibling);
               }
-              if (store && resolver) {
+              if (!store) return;
+              const currentState = store.getState();
+              if (currentState && currentState.userStatus) {
+                window.__swissHostUserStatusSynced = true;
+                return;
+              }
+              if (resolver) {
                 const svc = resolver();
                 if (svc && typeof svc.getUserStatus === "function") {
                   const res = await svc.getUserStatus();
                   const next = res && res.userStatus;
                   if (next && next.email) {
-                    const cur = store.getState()?.userStatus;
+                    const cur = currentState?.userStatus;
                     if (!cur || cur.email !== next.email || cur.name !== next.name) {
                       store.dispatch({ type: "userStatus/setUserStatus", payload: next });
+                      window.__swissHostUserStatusSynced = true;
                     }
                   }
                 }
@@ -1157,6 +1176,10 @@ func GenerateEnhancementsScript(cfg *EnhancementsConfig) string {
     }
 
     function applyOverviewPanelEnhancements() {
+      if (!enhConfig.enabled || enhConfig.main_section_extensions_enabled === false) {
+        restoreOverviewPanelFromMainStage();
+        return;
+      }
       if (isMainStageActive()) {
         hideOverviewPanelForMainStage();
         return;

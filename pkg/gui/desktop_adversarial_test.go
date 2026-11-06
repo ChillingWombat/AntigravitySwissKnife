@@ -5,10 +5,177 @@ import (
 	"encoding/hex"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
+
+func TestAdversarial_DesktopLoader_URLInjectionGuard(t *testing.T) {
+	script := generateMainLoaderScript()
+	start := strings.Index(script, "function isSwissInjectableWindowURL")
+	if start < 0 {
+		t.Fatal("generated loader URL guard not found")
+	}
+	endOffset := strings.Index(script[start:], "\n    async function injectIntoWebContents")
+	if endOffset < 0 {
+		t.Fatal("generated loader URL guard boundary not found")
+	}
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required for loader URL guard coverage")
+	}
+
+	nodeScript := script[start:start+endOffset] + `
+const allowed = [
+  "",
+  "about:blank",
+  "file:///tmp/workbench.html",
+  "vscode-webview://antigravity/index.html",
+  "vscode-file://vscode-app/Applications/Antigravity.app/",
+  "antigravity://workbench",
+  "http://127.0.0.1:8765/chat",
+  "https://127.0.0.1:8765/chat",
+  "http://localhost:8765",
+  "https://localhost:3000/chat"
+];
+const blocked = [
+  "devtools://devtools/bundled/inspector.html",
+  "https://example.com/",
+  "http://example.com/",
+  "http://localhost.evil.test/",
+  "https://127.0.0.1.evil.test/",
+  "data:text/html,<h1>external</h1>",
+  "javascript:alert(1)",
+  "about:srcdoc",
+  "not a url",
+  "file:///tmp/notes.txt",
+  "file:///tmp/doc.pdf"
+];
+for (const value of allowed) {
+  if (!isSwissInjectableWindowURL(value)) {
+    console.error("expected injectable URL: " + value);
+    process.exit(1);
+  }
+}
+for (const value of blocked) {
+  if (isSwissInjectableWindowURL(value)) {
+    console.error("expected blocked URL: " + value);
+    process.exit(1);
+  }
+}
+`
+	if out, err := exec.Command(nodePath, "-e", nodeScript).CombinedOutput(); err != nil {
+		t.Fatalf("loader URL guard failed: %v\n%s", err, string(out))
+	}
+}
+
+func TestAdversarial_DesktopLoader_CSSInjectionDeduplication(t *testing.T) {
+	script := generateMainLoaderScript()
+	start := strings.Index(script, "async function injectIntoWebContents")
+	if start < 0 {
+		t.Fatal("generated loader injection function not found")
+	}
+	endOffset := strings.Index(script[start:], "\n    if (app &&")
+	if endOffset < 0 {
+		t.Fatal("generated loader injection function boundary not found")
+	}
+
+	for _, token := range []string{
+		"if (!isSwissInjectableWindowURL(currentUrl)) return;",
+		"const cssNavSeq = wc.__swissNavSeq || 0",
+		"wc.__swissInjectedCssLength = -1",
+		"wc.__swissInjectedCssLength !== cssLength",
+		"wc.__swissInjectedCssLength === -1 && (wc.__swissNavSeq || 0) === cssNavSeq",
+		"wc.__swissInjectedCssLength = cssLength",
+		"win.webContents.on('did-start-navigation'",
+		"win.webContents.__swissNavSeq = (win.webContents.__swissNavSeq || 0) + 1",
+		"win.webContents.__swissInjectedCssLength = 0",
+	} {
+		if !strings.Contains(script, token) {
+			t.Errorf("generated loader missing CSS injection contract %q", token)
+		}
+	}
+
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required for CSS injection deduplication coverage")
+	}
+
+	guardStart := strings.Index(script, "function isSwissInjectableWindowURL")
+	if guardStart < 0 {
+		t.Fatal("generated loader URL guard not found")
+	}
+	guardEndOffset := strings.Index(script[guardStart:], "\n    function installDaemonAuthBridge")
+	if guardEndOffset < 0 {
+		t.Fatal("generated loader URL guard boundary not found")
+	}
+
+	nodeScript := `
+const cssPath = "persistent_styles.css";
+const jsPath = "persistent_script.js";
+const injecting = new WeakSet();
+const fs = {
+  existsSync: value => value === cssPath,
+  readFileSync: value => {
+    if (value !== cssPath) throw new Error("unexpected read: " + value);
+    return "body { color: red; }";
+  }
+};
+function buildDaemonBrokerScript() { return ""; }
+` + script[guardStart:guardStart+guardEndOffset] + script[start:start+endOffset] + `
+(async () => {
+  let inserts = 0;
+  const wc = {
+    __swissInjectedCssLength: undefined,
+    isDestroyed: () => false,
+    getURL: () => "http://localhost:8765",
+    insertCSS: () => { inserts += 1; return Promise.resolve("css-key"); },
+    executeJavaScript: () => { throw new Error("unexpected JavaScript injection"); }
+  };
+  await injectIntoWebContents(wc);
+  await injectIntoWebContents(wc);
+  if (inserts !== 1) throw new Error("expected one CSS insertion, got " + inserts);
+  wc.__swissInjectedCssLength = 0;
+  await injectIntoWebContents(wc);
+  if (inserts !== 2) throw new Error("expected CSS insertion after navigation reset, got " + inserts);
+
+  let resolveStaleInsert;
+  const stale = {
+    __swissInjectedCssLength: undefined,
+    isDestroyed: () => false,
+    getURL: () => "http://localhost:8765",
+    insertCSS: () => new Promise(resolve => { resolveStaleInsert = resolve; }),
+    executeJavaScript: () => { throw new Error("unexpected JavaScript injection"); }
+  };
+  const pendingInsert = injectIntoWebContents(stale);
+  if (typeof resolveStaleInsert !== "function") throw new Error("CSS insertion did not start");
+  stale.__swissNavSeq = (stale.__swissNavSeq || 0) + 1;
+  stale.__swissInjectedCssLength = 0;
+  resolveStaleInsert("css-key");
+  await pendingInsert;
+  if (stale.__swissInjectedCssLength !== 0) throw new Error("stale insertCSS completion overwrote navigation reset");
+
+  let externalInserts = 0;
+  const external = {
+    isDestroyed: () => false,
+    getURL: () => "https://example.com/",
+    insertCSS: () => { externalInserts += 1; return Promise.resolve("css-key"); },
+    executeJavaScript: () => { throw new Error("unexpected external JavaScript injection"); }
+  };
+  await injectIntoWebContents(external);
+  if (externalInserts !== 0) throw new Error("external page received CSS");
+})().catch(error => {
+  console.error(error);
+  process.exit(1);
+});
+`
+	if out, err := exec.Command(nodePath, "-e", nodeScript).CombinedOutput(); err != nil {
+		t.Fatalf("loader CSS deduplication failed: %v\n%s", err, string(out))
+	}
+}
 
 func TestAdversarial_CopyFile_Permissions_RestrictiveSource(t *testing.T) {
 	tempDir := t.TempDir()

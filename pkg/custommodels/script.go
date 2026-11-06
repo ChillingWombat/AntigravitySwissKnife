@@ -45,6 +45,12 @@ func GenerateCustomModelsScript(cfg *Config) string {
         }
       };
     }
+    let daemonReachable = true;
+    let sessionCustomModelSelected = false;
+
+    function getModelSelectorTrigger() {
+      return document.querySelector('[data-testid="model-selector-trigger"]');
+    }
 
     function getEffectiveCatalogMode() {
       const mode = (customConfig && customConfig.integration && customConfig.integration.mode) || "profile_isolation";
@@ -85,7 +91,8 @@ func GenerateCustomModelsScript(cfg *Config) string {
             headers: getSwissAuthHeaders(),
             signal: (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(2000) : undefined
           });
-          if (res.ok) {
+          if (res && res.ok) {
+            daemonReachable = true;
             const loaded = await res.json();
             if (loaded) {
               customConfig = loaded;
@@ -104,6 +111,15 @@ func GenerateCustomModelsScript(cfg *Config) string {
           }
         }
       } catch (_) {}
+      if (typeof window !== "undefined" && typeof window.fetch === "function") {
+        daemonReachable = false;
+        sessionCustomModelSelected = false;
+        window.__swiss_session_custom_model_id = null;
+        window.__swiss_native_model_selected = true;
+        const trigger = getModelSelectorTrigger();
+        if (trigger) restoreNativeTriggerLabel(trigger);
+        syncQuotaWarningVisibility(getModelSelectorTrigger(), false);
+      }
       const savedIntegration = customConfig && customConfig.integration;
       customConfig = {
         version: "1.0.0",
@@ -124,6 +140,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
     function isCustomModelInferenceAvailable() {
       return Boolean(
+        daemonReachable &&
         customConfig &&
         customConfig.inference_supported === true &&
         customConfig.models &&
@@ -192,6 +209,97 @@ func GenerateCustomModelsScript(cfg *Config) string {
       });
     }
 
+    function findReactFiberKey(trigger) {
+      return Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
+    }
+
+    function collectReactText(node) {
+      if (!node) return "";
+      if (typeof node === "string") return node;
+      return collectReactValueText(node);
+    }
+
+    function collectReactValueText(node) {
+      if (typeof node === "number") return String(node);
+      return collectReactStructureText(node);
+    }
+
+    function collectReactStructureText(node) {
+      if (Array.isArray(node)) return node.map(collectReactText).join("");
+      return collectReactChildrenText(node);
+    }
+
+    function collectReactChildrenText(node) {
+      const children = node.props?.children;
+      if (!children) return "";
+      return collectReactText(children);
+    }
+
+    function extractFiberLabelText(trigger) {
+      try {
+        const fiberKey = findReactFiberKey(trigger);
+        if (!fiberKey) return "";
+        const props = trigger[fiberKey].memoizedProps;
+        if (!props) return "";
+        return collectReactText(props.children?.[0]);
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function resolveTriggerLabel(trigger) {
+      return trigger.querySelector("span") || trigger;
+    }
+
+    function resolveSavedNativeLabel(trigger) {
+      const savedNative = trigger.getAttribute("data-swiss-native-label");
+      if (!savedNative) return "";
+      return savedNative;
+    }
+
+    function applyNativeTriggerLabel(label, savedNative, fiberNative) {
+      if (fiberNative) {
+        label.textContent = fiberNative;
+        return;
+      }
+      if (savedNative) label.textContent = savedNative;
+    }
+
+    function restoreNativeTriggerLabel(trigger) {
+      if (!trigger) return;
+      if (typeof trigger.querySelector !== "function") return;
+      const label = resolveTriggerLabel(trigger);
+      const savedNative = resolveSavedNativeLabel(trigger);
+      const fiberNative = extractFiberLabelText(trigger);
+      trigger.removeAttribute("data-swiss-custom-bound");
+      trigger.removeAttribute("data-swiss-native-label");
+      applyNativeTriggerLabel(label, savedNative, fiberNative);
+      syncQuotaWarningVisibility(trigger, false);
+    }
+
+    function updateTriggerLabel() {
+      const trigger = getModelSelectorTrigger();
+      if (!trigger) return;
+      const nativeSelected = typeof window !== "undefined" && window.__swiss_native_model_selected === true;
+      const selectedID = nativeSelected ? "" : (
+        (typeof window !== "undefined" && window.__swiss_session_custom_model_id) ||
+        customConfig.active_model_id ||
+        ""
+      );
+      const selected = selectedID
+        ? (customConfig.models || []).find(m => m && m.enabled && (m.id === selectedID || m.name === selectedID))
+        : null;
+      if (!selected) {
+        restoreNativeTriggerLabel(trigger);
+        return;
+      }
+      const label = trigger.querySelector("span") || trigger;
+      if (!trigger.getAttribute("data-swiss-native-label") && label) {
+        trigger.setAttribute("data-swiss-native-label", (label.textContent || "").trim());
+      }
+      renderTriggerModelLabel(trigger, selected);
+    }
+
     function renderTriggerModelLabel(trigger, modelObj) {
       if (typeof syncQuotaWarningVisibility === "function") {
         syncQuotaWarningVisibility(trigger, Boolean(modelObj));
@@ -238,37 +346,15 @@ func GenerateCustomModelsScript(cfg *Config) string {
     }
 
     function clearSessionCustomModel() {
+      sessionCustomModelSelected = false;
       if (typeof window !== "undefined") {
         window.__swiss_session_custom_model_id = null;
         window.__swiss_native_model_selected = true;
       }
       customConfig.active_model_id = "";
-      const trigger = document.querySelector('[data-testid="model-selector-trigger"]');
+      const trigger = getModelSelectorTrigger();
       if (trigger) {
-        syncQuotaWarningVisibility(trigger, false);
-        const savedNative = trigger.getAttribute("data-swiss-native-label");
-        trigger.removeAttribute("data-swiss-custom-bound");
-        trigger.removeAttribute("data-swiss-native-label");
-        const label = trigger.querySelector("span") || trigger;
-        if (savedNative && label) {
-          label.textContent = savedNative;
-        }
-        try {
-          const k = Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
-          if (k && trigger[k]) {
-            const ch = trigger[k].memoizedProps?.children;
-            const collect = (node) => {
-              if (!node) return "";
-              if (typeof node === "string") return node;
-              if (typeof node === "number") return String(node);
-              if (Array.isArray(node)) return node.map(collect).join("");
-              if (node.props?.children) return collect(node.props.children);
-              return "";
-            };
-            const nativeText = collect(ch?.[0]);
-            if (nativeText && label) label.textContent = nativeText;
-          }
-        } catch (_) {}
+        restoreNativeTriggerLabel(trigger);
       }
       removeCustomThinkingSubmenu();
       fetch("http://127.0.0.1:8765/api/custom_models/active", {
@@ -332,6 +418,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
         const models = customConfig.models || [];
         const model = models.find(m => m && m.enabled && (m.id === wanted || m.name === wanted));
         if (!model) return { success: false, reason: "unknown_or_disabled_model" };
+        sessionCustomModelSelected = true;
         window.__swiss_session_custom_model_id = model.id;
         window.__swiss_native_model_selected = false;
         customConfig.active_model_id = model.id;
@@ -782,6 +869,13 @@ func GenerateCustomModelsScript(cfg *Config) string {
             itemEl.__swissSyncHoverState = syncHoverState;
 
             async function selectCustomModelWithLevel(chosenLevel) {
+              const prevActiveModelId = customConfig.active_model_id;
+              const prevSessionSelected = sessionCustomModelSelected;
+              const prevSessionModelId = typeof window !== "undefined" ? window.__swiss_session_custom_model_id : null;
+              const prevNativeModelSelected = typeof window !== "undefined" ? window.__swiss_native_model_selected : true;
+              const prevThinkingLevel = m.thinking_level;
+              let thinkingLevelSynced = false;
+              sessionCustomModelSelected = true;
               if (typeof window !== "undefined") {
                 window.__swiss_session_custom_model_id = m.id;
                 window.__swiss_native_model_selected = false;
@@ -807,18 +901,39 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
               try {
                 if (chosenLevel) {
-                  await fetch("http://127.0.0.1:8765/api/custom_models/thinking_level", {
+                  const thinkingRes = await fetch("http://127.0.0.1:8765/api/custom_models/thinking_level", {
                     method: "POST",
                     headers: getSwissAuthHeaders(),
                     body: JSON.stringify({ model_id: m.id, level: chosenLevel })
                   });
+                  if (thinkingRes && thinkingRes.ok === false) throw new Error("custom_model_select_failed");
+                  thinkingLevelSynced = Boolean(thinkingRes && thinkingRes.ok);
                 }
                 await fetch("http://127.0.0.1:8765/api/custom_models/active", {
                   method: "POST",
                   headers: getSwissAuthHeaders(),
                   body: JSON.stringify({ model_id: m.id })
+                }).then((res) => {
+                  if (res && res.ok === false) throw new Error("custom_model_select_failed");
                 });
-              } catch (_) {}
+              } catch (_) {
+                daemonReachable = false;
+                customConfig.active_model_id = prevActiveModelId;
+                sessionCustomModelSelected = prevSessionSelected;
+                m.thinking_level = prevThinkingLevel;
+                if (typeof window !== "undefined") {
+                  window.__swiss_session_custom_model_id = prevSessionModelId;
+                  window.__swiss_native_model_selected = prevNativeModelSelected;
+                }
+                if (thinkingLevelSynced && prevThinkingLevel) {
+                  fetch("http://127.0.0.1:8765/api/custom_models/thinking_level", {
+                    method: "POST",
+                    headers: getSwissAuthHeaders({ "Content-Type": "application/json" }),
+                    body: JSON.stringify({ model_id: m.id, level: prevThinkingLevel })
+                  }).catch(() => {});
+                }
+                updateTriggerLabel();
+              }
             }
 
             function openThinkingSubmenu() {
