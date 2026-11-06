@@ -209,31 +209,71 @@ func GenerateCustomModelsScript(cfg *Config) string {
       });
     }
 
-    function restoreNativeTriggerLabel(trigger) {
-      if (!trigger || typeof trigger.querySelector !== "function") return;
+    function findReactFiberKey(trigger) {
+      return Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
+    }
+
+    function collectReactText(node) {
+      if (!node) return "";
+      if (typeof node === "string") return node;
+      return collectReactValueText(node);
+    }
+
+    function collectReactValueText(node) {
+      if (typeof node === "number") return String(node);
+      return collectReactStructureText(node);
+    }
+
+    function collectReactStructureText(node) {
+      if (Array.isArray(node)) return node.map(collectReactText).join("");
+      return collectReactChildrenText(node);
+    }
+
+    function collectReactChildrenText(node) {
+      const children = node.props?.children;
+      if (!children) return "";
+      return collectReactText(children);
+    }
+
+    function extractFiberLabelText(trigger) {
+      try {
+        const fiberKey = findReactFiberKey(trigger);
+        if (!fiberKey) return "";
+        const props = trigger[fiberKey].memoizedProps;
+        if (!props) return "";
+        return collectReactText(props.children?.[0]);
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function resolveTriggerLabel(trigger) {
+      return trigger.querySelector("span") || trigger;
+    }
+
+    function resolveSavedNativeLabel(trigger) {
       const savedNative = trigger.getAttribute("data-swiss-native-label");
+      if (!savedNative) return "";
+      return savedNative;
+    }
+
+    function applyNativeTriggerLabel(label, savedNative, fiberNative) {
+      if (fiberNative) {
+        label.textContent = fiberNative;
+        return;
+      }
+      if (savedNative) label.textContent = savedNative;
+    }
+
+    function restoreNativeTriggerLabel(trigger) {
+      if (!trigger) return;
+      if (typeof trigger.querySelector !== "function") return;
+      const label = resolveTriggerLabel(trigger);
+      const savedNative = resolveSavedNativeLabel(trigger);
+      const fiberNative = extractFiberLabelText(trigger);
       trigger.removeAttribute("data-swiss-custom-bound");
       trigger.removeAttribute("data-swiss-native-label");
-      const label = trigger.querySelector("span") || trigger;
-      if (savedNative && label) {
-        label.textContent = savedNative;
-      }
-      try {
-        const k = Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
-        if (k && trigger[k]) {
-          const ch = trigger[k].memoizedProps?.children;
-          const collect = (node) => {
-            if (!node) return "";
-            if (typeof node === "string") return node;
-            if (typeof node === "number") return String(node);
-            if (Array.isArray(node)) return node.map(collect).join("");
-            if (node.props?.children) return collect(node.props.children);
-            return "";
-          };
-          const nativeText = collect(ch?.[0]);
-          if (nativeText && label) label.textContent = nativeText;
-        }
-      } catch (_) {}
+      applyNativeTriggerLabel(label, savedNative, fiberNative);
       syncQuotaWarningVisibility(trigger, false);
     }
 

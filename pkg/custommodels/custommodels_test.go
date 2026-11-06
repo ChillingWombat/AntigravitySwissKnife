@@ -548,6 +548,38 @@ func TestGenerateCustomModelsScript_SubmenuEdgeCases(t *testing.T) {
 	}
 }
 
+func TestGenerateCustomModelsScript_NativeTriggerRestoreDecomposition(t *testing.T) {
+	script := GenerateCustomModelsScript(nil)
+
+	restoreIdx := strings.Index(script, "function restoreNativeTriggerLabel(trigger)")
+	if restoreIdx == -1 {
+		t.Fatalf("expected script to define restoreNativeTriggerLabel")
+	}
+	restoreEndIdx := strings.Index(script[restoreIdx:], "function updateTriggerLabel()")
+	if restoreEndIdx == -1 {
+		t.Fatalf("expected restoreNativeTriggerLabel to precede updateTriggerLabel")
+	}
+	restoreFn := script[restoreIdx : restoreIdx+restoreEndIdx]
+	for _, want := range []string{
+		"extractFiberLabelText(trigger)",
+		"resolveSavedNativeLabel(trigger)",
+		"applyNativeTriggerLabel(label, savedNative, fiberNative)",
+	} {
+		if !strings.Contains(restoreFn, want) {
+			t.Errorf("expected restoreNativeTriggerLabel to call %q", want)
+		}
+	}
+	for _, helper := range []string{
+		"function extractFiberLabelText(trigger)",
+		"function resolveSavedNativeLabel(trigger)",
+		"function applyNativeTriggerLabel(label, savedNative, fiberNative)",
+	} {
+		if !strings.Contains(script, helper) {
+			t.Errorf("expected helper %q", helper)
+		}
+	}
+}
+
 func TestGenerateCustomModelsScript_NativeModelUnbindCapture(t *testing.T) {
 	script := GenerateCustomModelsScript(nil)
 
@@ -1202,10 +1234,31 @@ func TestGenerateCustomModelsScript_NativeModelSelectionProtection(t *testing.T)
 	}
 }
 
+func generatedNativeTriggerRestoreForTest(t *testing.T, script string) string {
+	t.Helper()
+	signatures := []string{
+		"function findReactFiberKey(trigger)",
+		"function collectReactText(node)",
+		"function collectReactValueText(node)",
+		"function collectReactStructureText(node)",
+		"function collectReactChildrenText(node)",
+		"function extractFiberLabelText(trigger)",
+		"function resolveTriggerLabel(trigger)",
+		"function resolveSavedNativeLabel(trigger)",
+		"function applyNativeTriggerLabel(label, savedNative, fiberNative)",
+		"function restoreNativeTriggerLabel(trigger)",
+	}
+	functions := make([]string, 0, len(signatures))
+	for _, signature := range signatures {
+		functions = append(functions, generatedFunctionForTest(t, script, signature))
+	}
+	return strings.Join(functions, "\n")
+}
+
 func TestGenerateCustomModelsScript_OfflineRefreshRestoresNativeState(t *testing.T) {
 	script := GenerateCustomModelsScript(nil)
 	refresh := generatedFunctionForTest(t, script, "async function refreshCustomConfig()")
-	restoreNative := generatedFunctionForTest(t, script, "function restoreNativeTriggerLabel(trigger)")
+	restoreNative := generatedNativeTriggerRestoreForTest(t, script)
 	runner := `
 const assert = require("assert");
 
@@ -1267,7 +1320,7 @@ const syncQuotaWarningVisibility = (_trigger, isCustomActive) => {
 func TestGenerateCustomModelsScript_SelectionFailureRollsBackNativeState(t *testing.T) {
 	script := GenerateCustomModelsScript(nil)
 	selectModel := generatedFunctionForTest(t, script, "async function selectCustomModelWithLevel(chosenLevel)")
-	restoreNative := generatedFunctionForTest(t, script, "function restoreNativeTriggerLabel(trigger)")
+	restoreNative := generatedNativeTriggerRestoreForTest(t, script)
 	updateLabel := generatedFunctionForTest(t, script, "function updateTriggerLabel()")
 	runner := `
 const assert = require("assert");
