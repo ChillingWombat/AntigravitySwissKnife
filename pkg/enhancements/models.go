@@ -4,7 +4,6 @@ import (
 	"time"
 )
 
-
 // OverviewPanelConfig defines visual section dividing and compact element rules for Antigravity's Overview Panel.
 type OverviewPanelConfig struct {
 	Enabled                bool   `json:"enabled"`                  // Master switch for Overview Panel dividing enhancements
@@ -63,12 +62,13 @@ func IsBuiltinExtensionID(id string) bool {
 // Extension IDs tracked by the visibility map (IDE-real extensions plus facades).
 var ExtensionIDs = []string{"browser", "files", "memos", "github", "mobile", "computer_use"}
 
-// DefaultExtensionVisibility returns the per-extension visibility map with every
-// known extension enabled in the auxiliary panel (default: true) and disabled on the main stage (default: false).
+// DefaultExtensionVisibility returns the per-extension visibility map. Native
+// Antigravity extensions are enabled in the auxiliary panel by default; the
+// browser facade stays off because 2.29 already ships its own browser tab.
 func DefaultExtensionVisibility() map[string]ExtensionVisibility {
 	m := make(map[string]ExtensionVisibility, len(ExtensionIDs))
 	for _, id := range ExtensionIDs {
-		m[id] = ExtensionVisibility{AuxPanel: true, MainPage: false}
+		m[id] = ExtensionVisibility{AuxPanel: id != "browser", MainPage: false}
 	}
 	return m
 }
@@ -76,7 +76,7 @@ func DefaultExtensionVisibility() map[string]ExtensionVisibility {
 // EnhancementsConfig holds configuration for usability improvements and add-on features.
 type EnhancementsConfig struct {
 	Version                            string                         `json:"version"`
-	Enabled                            bool                           `json:"enabled"` // Master switch for all enhancements
+	Enabled                            bool                           `json:"enabled"`              // Master switch for all enhancements
 	OverviewPanel                      OverviewPanelConfig            `json:"overview_panel"`       // Section division and compact controls for Overview Panel
 	ToolDensityMode                    string                         `json:"tool_density_mode"`    // "normal", "muted", "hidden"
 	BreakerLineEnabled                 bool                           `json:"breaker_line_enabled"` // Breaker line between previous answer and new prompt
