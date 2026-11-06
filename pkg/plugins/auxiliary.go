@@ -4863,7 +4863,9 @@ func GenerateAuxiliaryPluginsScript() string {
       bookmarkAdapters.clear();
       document.querySelectorAll("#swiss-bookmark-star").forEach(button => button.remove());
       document.querySelectorAll("[data-swiss-legacy-bookmark], .antigravity-swiss-legacy-bookmark").forEach(button => button.remove());
-      document.querySelectorAll('[data-swiss-browser-bookmark]:not([data-swiss-bookmark-active="1"])').forEach(button => button.remove());
+      document.querySelectorAll('[data-swiss-browser-bookmark], [data-swiss-browser-bookmark="1"]').forEach(button => {
+        if (button.getAttribute("data-swiss-bookmark-active") !== "1") button.remove();
+      });
       if (fallbackFocus) fallbackFocus.focus();
     }
 

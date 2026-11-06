@@ -901,7 +901,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
 
               try {
                 if (chosenLevel) {
-                  const thinkingRes = await fetch(DAEMON_URL + "/api/custom_models/thinking_level", {
+                  const thinkingRes = await fetch("http://127.0.0.1:8765/api/custom_models/thinking_level", {
                     method: "POST",
                     headers: getSwissAuthHeaders(),
                     body: JSON.stringify({ model_id: m.id, level: chosenLevel })
@@ -926,7 +926,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
                   window.__swiss_native_model_selected = prevNativeModelSelected;
                 }
                 if (thinkingLevelSynced && prevThinkingLevel) {
-                  fetch(DAEMON_URL + "/api/custom_models/thinking_level", {
+                  fetch("http://127.0.0.1:8765/api/custom_models/thinking_level", {
                     method: "POST",
                     headers: getSwissAuthHeaders({ "Content-Type": "application/json" }),
                     body: JSON.stringify({ model_id: m.id, level: prevThinkingLevel })

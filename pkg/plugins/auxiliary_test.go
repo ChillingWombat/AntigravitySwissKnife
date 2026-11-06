@@ -51,7 +51,9 @@ func TestBuiltinBrowserBookmarkCleanupPreservesNativeControls(t *testing.T) {
 		`#swiss-bookmark-star`,
 		`[data-swiss-legacy-bookmark]`,
 		`.antigravity-swiss-legacy-bookmark`,
-		`[data-swiss-browser-bookmark]:not([data-swiss-bookmark-active="1"])`,
+		`[data-swiss-browser-bookmark]`,
+		`[data-swiss-browser-bookmark="1"]`,
+		`button.getAttribute("data-swiss-bookmark-active") !== "1"`,
 	} {
 		if !strings.Contains(cleanup, token) {
 			t.Errorf("bookmark cleanup missing Swiss-owned selector %q", token)
