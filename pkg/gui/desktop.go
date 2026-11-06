@@ -636,6 +636,25 @@ func generateMainLoaderScript() string {
       return Array.isArray(routes) && routes.includes(pathname);
     }
 
+    function isSwissInjectableWindowURL(rawUrl) {
+      if (rawUrl === null || rawUrl === undefined) return false;
+      const value = String(rawUrl).trim();
+      if (!value || value === "about:blank") return true;
+      let url;
+      try {
+        url = new URL(value);
+      } catch (_) {
+        return false;
+      }
+      const protocol = url.protocol.toLowerCase();
+      if (protocol === "file:" || protocol === "vscode-webview:" || protocol === "vscode-file:" || protocol === "antigravity:") {
+        return true;
+      }
+      if (protocol !== "http:" && protocol !== "https:") return false;
+      const hostname = url.hostname.toLowerCase();
+      return hostname === "127.0.0.1" || hostname === "localhost";
+    }
+
     function installDaemonAuthBridge(ses, wc) {
       if (!wc) return;
       trustedDaemonWebContents.add(wc.id);
@@ -664,12 +683,23 @@ func generateMainLoaderScript() string {
 
     async function injectIntoWebContents(wc) {
       if (!wc || wc.isDestroyed() || injecting.has(wc)) return;
+      let currentUrl = "";
+      try {
+        currentUrl = wc.getURL();
+      } catch (_) {
+        return;
+      }
+      if (!isSwissInjectableWindowURL(currentUrl)) return;
       injecting.add(wc);
       try {
         if (fs.existsSync(cssPath)) {
           const css = fs.readFileSync(cssPath, 'utf8');
-          if (css && css.trim()) {
-            wc.insertCSS(css).catch(() => {});
+          const cssLength = css.length;
+          if (css.trim() && wc.__swissInjectedCssLength !== cssLength) {
+            try {
+              await wc.insertCSS(css);
+              wc.__swissInjectedCssLength = cssLength;
+            } catch (_) {}
           }
         }
         if (fs.existsSync(jsPath)) {
@@ -704,6 +734,9 @@ func generateMainLoaderScript() string {
       app.on('browser-window-created', (_event, win) => {
         if (!win || !win.webContents) return;
         installDaemonAuthBridge(win.webContents.session, win.webContents);
+        win.webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
+          if (isMainFrame) win.webContents.__swissInjectedCssLength = 0;
+        });
         win.webContents.on('dom-ready', () => {
           injectIntoWebContents(win.webContents);
         });
