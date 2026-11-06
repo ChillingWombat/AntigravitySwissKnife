@@ -314,30 +314,7 @@ func GenerateCustomModelsScript(cfg *Config) string {
       customConfig.active_model_id = "";
       const trigger = getModelSelectorTrigger();
       if (trigger) {
-        syncQuotaWarningVisibility(trigger, false);
-        const savedNative = trigger.getAttribute("data-swiss-native-label");
-        trigger.removeAttribute("data-swiss-custom-bound");
-        trigger.removeAttribute("data-swiss-native-label");
-        const label = trigger.querySelector("span") || trigger;
-        if (savedNative && label) {
-          label.textContent = savedNative;
-        }
-        try {
-          const k = Object.keys(trigger).find(key => key.startsWith("__reactFiber"));
-          if (k && trigger[k]) {
-            const ch = trigger[k].memoizedProps?.children;
-            const collect = (node) => {
-              if (!node) return "";
-              if (typeof node === "string") return node;
-              if (typeof node === "number") return String(node);
-              if (Array.isArray(node)) return node.map(collect).join("");
-              if (node.props?.children) return collect(node.props.children);
-              return "";
-            };
-            const nativeText = collect(ch?.[0]);
-            if (nativeText && label) label.textContent = nativeText;
-          }
-        } catch (_) {}
+        restoreNativeTriggerLabel(trigger);
       }
       removeCustomThinkingSubmenu();
       fetch("http://127.0.0.1:8765/api/custom_models/active", {

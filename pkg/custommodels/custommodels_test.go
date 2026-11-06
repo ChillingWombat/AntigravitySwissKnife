@@ -565,8 +565,7 @@ func TestGenerateCustomModelsScript_NativeModelUnbindCapture(t *testing.T) {
 	}
 	for _, want := range []string{
 		`customConfig.active_model_id = "";`,
-		`trigger.removeAttribute("data-swiss-custom-bound");`,
-		`trigger.removeAttribute("data-swiss-native-label");`,
+		`restoreNativeTriggerLabel(trigger);`,
 		`body: JSON.stringify({ model_id: "" })`,
 		`/api/custom_models/active`,
 	} {
