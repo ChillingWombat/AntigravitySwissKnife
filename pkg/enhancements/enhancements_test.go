@@ -8,6 +8,21 @@ import (
 	"testing"
 )
 
+func TestDefaultExtensionVisibility_AvoidsDuplicateBrowserTab(t *testing.T) {
+	visibility := DefaultExtensionVisibility()
+	if visibility["browser"].AuxPanel {
+		t.Errorf("expected browser facade to default off in the auxiliary panel")
+	}
+	for _, id := range ExtensionIDs {
+		if id == "browser" {
+			continue
+		}
+		if !visibility[id].AuxPanel || visibility[id].MainPage {
+			t.Errorf("expected Extensions[%q] to default to {AuxPanel:true, MainPage:false}, got %+v", id, visibility[id])
+		}
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	if !cfg.Enabled {
@@ -49,8 +64,9 @@ func TestDefaultConfig(t *testing.T) {
 			t.Errorf("expected Extensions map to contain %q", id)
 			continue
 		}
-		if !vis.AuxPanel || vis.MainPage {
-			t.Errorf("expected Extensions[%q] to default to {true, false}, got %+v", id, vis)
+		wantAuxPanel := id != "browser"
+		if vis.AuxPanel != wantAuxPanel || vis.MainPage {
+			t.Errorf("expected Extensions[%q].AuxPanel=%v and MainPage=false, got %+v", id, wantAuxPanel, vis)
 		}
 	}
 }
@@ -590,8 +606,9 @@ func TestExtensionsVisibility_LegacyMigration_Enabled(t *testing.T) {
 			t.Errorf("expected Extensions map to contain %q", id)
 			continue
 		}
-		if !vis.AuxPanel || vis.MainPage {
-			t.Errorf("expected Extensions[%q] to be {true, false}, got %+v", id, vis)
+		wantAuxPanel := id != "browser"
+		if vis.AuxPanel != wantAuxPanel || vis.MainPage {
+			t.Errorf("expected Extensions[%q].AuxPanel=%v and MainPage=false, got %+v", id, wantAuxPanel, vis)
 		}
 	}
 	if cfg.LeftPanelExtensionsMode != "single" {
@@ -881,12 +898,21 @@ func TestAutomationTargetProjectSelector_FlagOverride(t *testing.T) {
 
 	for _, token := range []string{
 		"function isAutomationTargetProjectEnabled()",
-		"const targetProjectFlag = !isAutomationTargetProjectEnabled();",
-		`parsedFlags["jetski-sidecar-declared-permissions"] = targetProjectFlag;`,
+		"if (isAutomationTargetProjectEnabled()) {",
+		`parsedFlags["jetski-sidecar-declared-permissions"] = true;`,
+		`delete parsedFlags["jetski-sidecar-declared-permissions"];`,
+		`parsedFlags["remote-control-setting-enabled"] !== true ||`,
+		`parsedFlags["enable-compact-slash-command"] !== true ||`,
+		`? parsedFlags["jetski-sidecar-declared-permissions"] !== true`,
+		`: Object.prototype.hasOwnProperty.call(parsedFlags, "jetski-sidecar-declared-permissions")`,
+		"if (flagsChanged) {",
 	} {
 		if !strings.Contains(script, token) {
 			t.Errorf("expected script to contain %q", token)
 		}
+	}
+	if strings.Contains(script, `parsedFlags["jetski-sidecar-declared-permissions"] = targetProjectFlag;`) {
+		t.Errorf("expected script to stop forcing jetski-sidecar-declared-permissions")
 	}
 
 	nodePath, err := exec.LookPath("node")
@@ -909,38 +935,82 @@ const localStorage = {
   setItem: (k, v) => { storage[k] = v; }
 };
 
-let dispatched = null;
+let setCount = 0;
+let dispatchCount = 0;
 const window = {
   localStorage,
-  dispatchEvent: (e) => { dispatched = e; }
+  dispatchEvent: (e) => { dispatchCount++; }
 };
 function StorageEvent(type, dict) { Object.assign(this, dict); }
 
 function applyFlagOverride(targetProjectEnabled) {
   const rawFlags = localStorage.getItem("jetski.developer.customFlagOverrides") || "{}";
   const parsedFlags = JSON.parse(rawFlags);
-  const targetProjectFlag = !targetProjectEnabled;
-  if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags) && (parsedFlags["remote-control-setting-enabled"] !== true || parsedFlags["jetski-sidecar-declared-permissions"] !== targetProjectFlag)) {
+  if (parsedFlags && typeof parsedFlags === "object" && !Array.isArray(parsedFlags)) {
+    const flagsChanged =
+      parsedFlags["remote-control-setting-enabled"] !== true ||
+      parsedFlags["enable-compact-slash-command"] !== true ||
+      (targetProjectEnabled
+        ? parsedFlags["jetski-sidecar-declared-permissions"] !== true
+        : Object.prototype.hasOwnProperty.call(parsedFlags, "jetski-sidecar-declared-permissions"));
     parsedFlags["remote-control-setting-enabled"] = true;
-    parsedFlags["jetski-sidecar-declared-permissions"] = targetProjectFlag;
-    localStorage.setItem("jetski.developer.customFlagOverrides", JSON.stringify(parsedFlags));
+    if (targetProjectEnabled) {
+      parsedFlags["jetski-sidecar-declared-permissions"] = true;
+    } else {
+      delete parsedFlags["jetski-sidecar-declared-permissions"];
+    }
+    parsedFlags["enable-compact-slash-command"] = true;
+    if (flagsChanged) {
+      const nextFlags = JSON.stringify(parsedFlags);
+      localStorage.setItem("jetski.developer.customFlagOverrides", nextFlags);
+      setCount++;
+      if (typeof StorageEvent === "function") {
+        window.dispatchEvent(new StorageEvent("storage", {
+          key: "jetski.developer.customFlagOverrides",
+          newValue: nextFlags,
+          storageArea: window.localStorage
+        }));
+      }
+    }
   }
   return JSON.parse(localStorage.getItem("jetski.developer.customFlagOverrides"));
 }
 
 const enabled = applyFlagOverride(true);
 assert.strictEqual(enabled["remote-control-setting-enabled"], true);
-assert.strictEqual(enabled["jetski-sidecar-declared-permissions"], false);
+assert.strictEqual(enabled["jetski-sidecar-declared-permissions"], true);
 assert.strictEqual(enabled["some-other-flag"], true);
+assert.strictEqual(enabled["enable-compact-slash-command"], true);
+assert.strictEqual(setCount, 1);
+assert.strictEqual(dispatchCount, 1);
+
+storage["jetski.developer.customFlagOverrides"] = JSON.stringify(enabled);
+applyFlagOverride(true);
+assert.strictEqual(setCount, 1, "unchanged flags must not be persisted");
+assert.strictEqual(dispatchCount, 1, "unchanged flags must not dispatch a synthetic storage event");
+
+storage["jetski.developer.customFlagOverrides"] = [
+  "{",
+  '  "some-other-flag": true,',
+  '  "enable-compact-slash-command": true,',
+  '  "jetski-sidecar-declared-permissions": true,',
+  '  "remote-control-setting-enabled": true',
+  "}"
+].join("\n");
+applyFlagOverride(true);
+assert.strictEqual(setCount, 1, "semantically unchanged whitespace-formatted flags must not be persisted");
+assert.strictEqual(dispatchCount, 1, "semantically unchanged whitespace-formatted flags must not dispatch a synthetic storage event");
 
 storage["jetski.developer.customFlagOverrides"] = JSON.stringify({
   "remote-control-setting-enabled": true,
-  "jetski-sidecar-declared-permissions": false,
+  "jetski-sidecar-declared-permissions": true,
   "some-other-flag": true
 });
 const disabled = applyFlagOverride(false);
-assert.strictEqual(disabled["jetski-sidecar-declared-permissions"], true);
+assert.ok(!Object.prototype.hasOwnProperty.call(disabled, "jetski-sidecar-declared-permissions"));
 assert.strictEqual(disabled["some-other-flag"], true);
+assert.strictEqual(setCount, 2, "a sidecar permission change must be persisted");
+assert.strictEqual(dispatchCount, 2, "a sidecar permission change must dispatch a synthetic storage event");
 
 console.log("flag override OK");
 `
@@ -952,6 +1022,35 @@ console.log("flag override OK");
 	}
 	if !strings.Contains(string(out), "flag override OK") {
 		t.Fatalf("unexpected output: %s", string(out))
+	}
+}
+
+func TestSyncHostUserStatus_BoundsFiberTraversal(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+	for _, token := range []string{
+		"if (window.__swissHostUserStatusSynced) return;",
+		"const currentState = store.getState();",
+		"if (currentState && currentState.userStatus) {",
+		"window.__swissHostUserStatusSynced = true;",
+	} {
+		if !strings.Contains(script, token) {
+			t.Errorf("expected script to contain %q", token)
+		}
+	}
+	if strings.Count(script, "window.__swissHostUserStatusSynced = true;") < 2 {
+		t.Errorf("expected the sync cache to be set for existing and dispatched user status")
+	}
+}
+
+func TestGenerateEnhancementsScript_RestoresOverviewWhenMainStageDisabled(t *testing.T) {
+	script := GenerateEnhancementsScript(DefaultConfig())
+	for _, token := range []string{
+		"if (!enhConfig.enabled || enhConfig.main_section_extensions_enabled === false) {",
+		"restoreOverviewPanelFromMainStage();",
+	} {
+		if !strings.Contains(script, token) {
+			t.Errorf("expected script to contain %q", token)
+		}
 	}
 }
 

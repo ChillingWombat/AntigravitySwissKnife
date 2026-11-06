@@ -2799,6 +2799,10 @@ func GenerateAuxiliaryPluginsScript() string {
         }
         const isNativeTab = targetBtn.hasAttribute("data-tab-id") || targetBtn.getAttribute("role") === "tab" || targetBtn.hasAttribute("data-tab-index");
         if (isNativeTab) {
+          tabHeader.removeAttribute("data-swiss-aux-active");
+          const nativeAuxPanel = tabHeader.closest('[data-testid="auxiliary-panel"], .part.auxiliarybar, [data-swiss-aux-panel]') ||
+                                 tabHeader.parentElement;
+          if (nativeAuxPanel) nativeAuxPanel.removeAttribute("data-swiss-aux-active");
           switchAuxTab(null);
         }
       };
@@ -4827,6 +4831,8 @@ func GenerateAuxiliaryPluginsScript() string {
       starButton.title = "Bookmarks";
       starButton.setAttribute("aria-label", "Bookmarks");
       starButton.setAttribute("aria-expanded", "false");
+      starButton.setAttribute("data-swiss-browser-bookmark", "1");
+      starButton.setAttribute("data-swiss-bookmark-active", "1");
       starButton.innerHTML = '<svg class="swiss-bookmark-star-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
       return starButton;
     }
@@ -4856,6 +4862,10 @@ func GenerateAuxiliaryPluginsScript() string {
       bookmarkAdapters.forEach(entry => entry.starButton.remove());
       bookmarkAdapters.clear();
       document.querySelectorAll("#swiss-bookmark-star").forEach(button => button.remove());
+      document.querySelectorAll("[data-swiss-legacy-bookmark], .antigravity-swiss-legacy-bookmark").forEach(button => button.remove());
+      document.querySelectorAll('[data-swiss-browser-bookmark], [data-swiss-browser-bookmark="1"]').forEach(button => {
+        if (button.getAttribute("data-swiss-bookmark-active") !== "1") button.remove();
+      });
       if (fallbackFocus) fallbackFocus.focus();
     }
 
