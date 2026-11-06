@@ -6,6 +6,66 @@ import (
 	"testing"
 )
 
+func TestAuxiliaryNativeTabClearsFactorySuppression(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	start := strings.Index(js, "tabHeader.__swissHeaderHandler = (e) => {")
+	if start < 0 {
+		t.Fatal("native factory tab handler not found")
+	}
+	endOffset := strings.Index(js[start:], `tabHeader.addEventListener("click", tabHeader.__swissHeaderHandler);`)
+	if endOffset < 0 {
+		t.Fatal("native factory tab handler boundary not found")
+	}
+	handler := js[start : start+endOffset]
+
+	remove := strings.Index(handler, `tabHeader.removeAttribute("data-swiss-aux-active")`)
+	restore := strings.Index(handler, "switchAuxTab(null)")
+	if remove < 0 || restore < 0 || remove > restore {
+		t.Fatalf("native tab click must clear data-swiss-aux-active before restoring factory state")
+	}
+	for _, token := range []string{
+		`const targetId = targetBtn.getAttribute("data-tab-id") || "";`,
+		`if (targetId.startsWith("swiss-")) {`,
+		`const isNativeTab =`,
+		`nativeAuxPanel.removeAttribute("data-swiss-aux-active")`,
+	} {
+		if !strings.Contains(handler, token) {
+			t.Errorf("native factory tab handler missing %q", token)
+		}
+	}
+}
+
+func TestBuiltinBrowserBookmarkCleanupPreservesNativeControls(t *testing.T) {
+	js := GenerateAuxiliaryPluginsScript()
+	start := strings.Index(js, "function removeNativeBookmarkButtons()")
+	if start < 0 {
+		t.Fatal("bookmark cleanup function not found")
+	}
+	endOffset := strings.Index(js[start:], "\n    function readBrowserCssProperty")
+	if endOffset < 0 {
+		t.Fatal("bookmark cleanup function boundary not found")
+	}
+	cleanup := js[start : start+endOffset]
+
+	for _, token := range []string{
+		`#swiss-bookmark-star`,
+		`[data-swiss-legacy-bookmark]`,
+		`.antigravity-swiss-legacy-bookmark`,
+	} {
+		if !strings.Contains(cleanup, token) {
+			t.Errorf("bookmark cleanup missing Swiss-owned selector %q", token)
+		}
+	}
+	for _, token := range []string{
+		`[title*="bookmark" i]`,
+		`[aria-label*="bookmark" i]`,
+	} {
+		if strings.Contains(cleanup, token) {
+			t.Errorf("bookmark cleanup must not select native controls with %q", token)
+		}
+	}
+}
+
 func TestGenerateAuxiliaryPluginsCSS(t *testing.T) {
 	css := GenerateAuxiliaryPluginsCSS()
 	if css == "" {
@@ -3739,6 +3799,9 @@ class MiniNode {
   }
 
   matches(selector) {
+    if (selector.includes(",")) {
+      return selector.split(",").some(part => this.matches(part.trim()));
+    }
     if (selector.startsWith("#")) return this.id === selector.slice(1);
     if (selector.startsWith(".")) return this.classList.contains(selector.slice(1));
     if (selector.startsWith("[")) {
@@ -4000,6 +4063,27 @@ function scenario(name, fn) {
     console.log("FAIL " + name);
   }
 }
+
+scenario("teardown removes only Swiss legacy bookmarks and preserves native controls", () => {
+  const env = makeEnv();
+  const nativeButton = env.document.createElement("button");
+  nativeButton.title = "Bookmark this page";
+  nativeButton.setAttribute("aria-label", "Bookmark this page");
+  env.document.body.appendChild(nativeButton);
+
+  const legacyButton = env.document.createElement("button");
+  legacyButton.setAttribute("data-swiss-legacy-bookmark", "");
+  env.document.body.appendChild(legacyButton);
+
+  const legacyClassButton = env.document.createElement("button");
+  legacyClassButton.className = "antigravity-swiss-legacy-bookmark";
+  env.document.body.appendChild(legacyClassButton);
+
+  env.context.removeNativeBookmarkButtons();
+  assert.strictEqual(nativeButton.isConnected, true, "native bookmark control was removed");
+  assert.strictEqual(legacyButton.isConnected, false, "legacy Swiss bookmark control survived");
+  assert.strictEqual(legacyClassButton.isConnected, false, "legacy Swiss bookmark class survived");
+});
 
 scenario("teardown removes open dialog and global listener without retaining overlay focus", () => {
   const env = makeEnv();

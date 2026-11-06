@@ -2799,6 +2799,10 @@ func GenerateAuxiliaryPluginsScript() string {
         }
         const isNativeTab = targetBtn.hasAttribute("data-tab-id") || targetBtn.getAttribute("role") === "tab" || targetBtn.hasAttribute("data-tab-index");
         if (isNativeTab) {
+          tabHeader.removeAttribute("data-swiss-aux-active");
+          const nativeAuxPanel = tabHeader.closest('[data-testid="auxiliary-panel"], .part.auxiliarybar, [data-swiss-aux-panel]') ||
+                                 tabHeader.parentElement;
+          if (nativeAuxPanel) nativeAuxPanel.removeAttribute("data-swiss-aux-active");
           switchAuxTab(null);
         }
       };
@@ -4856,6 +4860,7 @@ func GenerateAuxiliaryPluginsScript() string {
       bookmarkAdapters.forEach(entry => entry.starButton.remove());
       bookmarkAdapters.clear();
       document.querySelectorAll("#swiss-bookmark-star").forEach(button => button.remove());
+      document.querySelectorAll("[data-swiss-legacy-bookmark], .antigravity-swiss-legacy-bookmark").forEach(button => button.remove());
       if (fallbackFocus) fallbackFocus.focus();
     }
 
