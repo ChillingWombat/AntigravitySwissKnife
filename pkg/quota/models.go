@@ -19,7 +19,20 @@ type ModelQuota struct {
 
 func isArgonModel(values ...string) bool {
 	value := strings.ToLower(strings.Join(values, " "))
-	return strings.Contains(value, "argon") ||
+	if strings.Contains(value, "argon") {
+		return true
+	}
+	if strings.Contains(value, "hydrogen") || strings.Contains(value, "carbon") {
+		return false
+	}
+	return strings.Contains(value, "orchestrator") ||
+		strings.Contains(value, "m417") ||
+		strings.Contains(value, "m418") ||
+		strings.Contains(value, "m419") ||
+		strings.Contains(value, "m668") ||
+		strings.Contains(value, "gemini-4-pro") ||
+		strings.Contains(value, "gemini_4_pro") ||
+		strings.Contains(value, "gemini 4 pro") ||
 		strings.Contains(value, "gemini-4") ||
 		strings.Contains(value, "gemini_4") ||
 		strings.Contains(value, "gemini 4") ||

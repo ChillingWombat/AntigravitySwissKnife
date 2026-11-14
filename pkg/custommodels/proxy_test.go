@@ -798,3 +798,285 @@ func TestProxy_InternalAppRouting_ActiveModelPrecedence(t *testing.T) {
 		t.Fatalf("expected native model request not to be hijacked by custom model name, got %q", resolvedNative.ID)
 	}
 }
+
+func TestProxyFleetRoutingRootAndParallelSubagents(t *testing.T) {
+	now := time.Now()
+	type capturedCall struct {
+		auth       string
+		project    string
+		reqProject string
+	}
+	var mu sync.Mutex
+	var calls []capturedCall
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var parsed struct {
+			Project string `json:"project"`
+			Request struct {
+				Project string `json:"project"`
+			} `json:"request"`
+		}
+		_ = json.Unmarshal(raw, &parsed)
+		mu.Lock()
+		calls = append(calls, capturedCall{
+			auth:       r.Header.Get("Authorization"),
+			project:    parsed.Project,
+			reqProject: parsed.Request.Project,
+		})
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"response":{"candidates":[]}}`))
+	}))
+	defer upstream.Close()
+
+	_, proxy := newProxyFixture(t, upstream.URL)
+	proxy.FleetRouter = NewFleetSubagentRouter(
+		&stubAccountProvider{
+			activeEmail: "a@example.com",
+			accounts: []*FleetAccount{
+				{Email: "a@example.com", AccessToken: "tok-a", RefreshToken: "ref-a", IsActive: true},
+				{Email: "b@example.com", AccessToken: "tok-b", RefreshToken: "ref-b"},
+				{Email: "c@example.com", AccessToken: "tok-c", RefreshToken: "ref-c"},
+			},
+			quotas: map[string]*FleetQuotaSummary{
+				"a@example.com": {Quota5hArgon: testFloatPtr(0.95), Quota5hFraction: 0.90, LastPolled: now},
+				"b@example.com": {Quota5hArgon: testFloatPtr(0.90), Quota5hFraction: 0.90, LastPolled: now},
+				"c@example.com": {Quota5hArgon: testFloatPtr(0.90), Quota5hFraction: 0.90, LastPolled: now},
+			},
+		},
+		&stubProjectResolver{
+			projects: map[string]string{
+				"a@example.com": "proj-a",
+				"b@example.com": "proj-b",
+				"c@example.com": "proj-c",
+			},
+		},
+	)
+
+	sendTurn := func(body, auth string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1internal:generateContent", strings.NewReader(body))
+		req.Header.Set("Authorization", auth)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		proxy.Handler().ServeHTTP(rr, req)
+		return rr
+	}
+
+	// 1. Root orchestrator stays on A with proj-a.
+	rootBody := `{
+		"model": "MODEL_PLACEHOLDER_M668",
+		"project": "orig-proj",
+		"request": {
+			"project": "orig-req-proj",
+			"cascade_id": "root-conv",
+			"root_cascade_id": "root-conv",
+			"tools": [{"functionDeclarations": [{"name": "exit_plan_mode"}]}],
+			"contents": [{"role": "user", "parts": [{"text": "plan work"}]}]
+		}
+	}`
+	rrRoot := sendTurn(rootBody, "Bearer tok-a")
+	if rrRoot.Code != http.StatusOK {
+		t.Fatalf("root HTTP %d: %s", rrRoot.Code, rrRoot.Body.String())
+	}
+	if got := rrRoot.Header().Get("X-Swiss-Routed-Account"); got != "a@example.com" {
+		t.Fatalf("root X-Swiss-Routed-Account = %q, want a@example.com", got)
+	}
+	if got := rrRoot.Header().Get("X-Swiss-Turn-Role"); got != TurnRoleRootOrchestrator {
+		t.Fatalf("root X-Swiss-Turn-Role = %q, want %q", got, TurnRoleRootOrchestrator)
+	}
+
+	// 2. Parallel subagents fan out across B and C with rewritten Bearer + project.
+	subPayload := func(cid string) string {
+		return fmt.Sprintf(`{
+			"model": "MODEL_PLACEHOLDER_M525",
+			"project": "orig-proj",
+			"request": {
+				"project": "orig-req-proj",
+				"cascade_id": %q,
+				"root_cascade_id": "root-conv",
+				"contents": [{"role": "user", "parts": [{"text": "<subagent_reminder>worker</subagent_reminder>"}]}]
+			}
+		}`, cid)
+	}
+
+	var wg sync.WaitGroup
+	var rrSub1, rrSub2 *httptest.ResponseRecorder
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		rrSub1 = sendTurn(subPayload("sub-1"), "Bearer tok-a")
+	}()
+	go func() {
+		defer wg.Done()
+		rrSub2 = sendTurn(subPayload("sub-2"), "Bearer tok-a")
+	}()
+	wg.Wait()
+
+	acc1 := rrSub1.Header().Get("X-Swiss-Routed-Account")
+	acc2 := rrSub2.Header().Get("X-Swiss-Routed-Account")
+	if acc1 == "" || acc2 == "" || acc1 == "a@example.com" || acc2 == "a@example.com" {
+		t.Fatalf("expected subagents on B and C (not A), got acc1=%q acc2=%q", acc1, acc2)
+	}
+	if acc1 == acc2 {
+		t.Fatalf("expected parallel subagents to spread across B and C, both hit %q", acc1)
+	}
+	if rrSub1.Header().Get("X-Swiss-Turn-Role") != TurnRoleSubagentOrSwarm {
+		t.Fatalf("subagent X-Swiss-Turn-Role = %q", rrSub1.Header().Get("X-Swiss-Turn-Role"))
+	}
+
+	// 3. Turn 2 for sub-1 retains sticky affinity.
+	rrSub1Turn2 := sendTurn(subPayload("sub-1"), "Bearer tok-a")
+	if got := rrSub1Turn2.Header().Get("X-Swiss-Routed-Account"); got != acc1 {
+		t.Fatalf("sub-1 turn 2 = %q, want sticky %q", got, acc1)
+	}
+
+	// Verify upstream saw exact rewritten tokens and project IDs.
+	mu.Lock()
+	if len(calls) != 4 {
+		mu.Unlock()
+		t.Fatalf("expected 4 upstream calls, got %d", len(calls))
+	}
+	rootCall := calls[0]
+	if rootCall.auth != "Bearer tok-a" || rootCall.project != "proj-a" || rootCall.reqProject != "proj-a" {
+		mu.Unlock()
+		t.Fatalf("unexpected root upstream rewrite: %+v", rootCall)
+	}
+	seenWorkerAuth := map[string]string{}
+	for _, c := range calls[1:] {
+		seenWorkerAuth[c.auth] = c.project
+		if c.project != c.reqProject {
+			mu.Unlock()
+			t.Fatalf("nested request.project mismatch: %+v", c)
+		}
+	}
+	mu.Unlock()
+	if seenWorkerAuth["Bearer tok-b"] != "proj-b" || seenWorkerAuth["Bearer tok-c"] != "proj-c" {
+		t.Fatalf("expected worker calls with tok-b/proj-b and tok-c/proj-c, got %+v", seenWorkerAuth)
+	}
+
+	// 4. DisableFleetRouting bypasses fleet routing cleanly.
+	proxy.DisableFleetRouting = true
+	rrDisabled := sendTurn(subPayload("sub-disabled"), "Bearer tok-a")
+	if got := rrDisabled.Header().Get("X-Swiss-Routed-Account"); got != "" {
+		t.Fatalf("expected no X-Swiss-Routed-Account when disabled, got %q", got)
+	}
+	mu.Lock()
+	lastCall := calls[len(calls)-1]
+	mu.Unlock()
+	if lastCall.auth != "Bearer tok-a" || lastCall.project != "orig-proj" {
+		t.Fatalf("expected passthrough when fleet routing disabled, got %+v", lastCall)
+	}
+}
+
+func TestProxyFleetTransparent429And503Failover(t *testing.T) {
+	now := time.Now()
+	var authLog []string
+	var mu sync.Mutex
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		mu.Lock()
+		authLog = append(authLog, auth)
+		mu.Unlock()
+
+		if auth == "Bearer tok-b" {
+			w.Header().Set("Retry-After", "45")
+			http.Error(w, `{"error":"rate limited on b"}`, http.StatusTooManyRequests)
+			return
+		}
+		if auth == "Bearer tok-c" {
+			http.Error(w, `{"error":"overloaded on c"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: {\"response\":{\"candidates\":[]}}\n\n"))
+	}))
+	defer upstream.Close()
+
+	_, proxy := newProxyFixture(t, upstream.URL)
+	proxy.FleetRouter = NewFleetSubagentRouter(
+		&stubAccountProvider{
+			activeEmail: "a@example.com",
+			accounts: []*FleetAccount{
+				{Email: "a@example.com", AccessToken: "tok-a", RefreshToken: "ref-a", IsActive: true},
+				{Email: "b@example.com", AccessToken: "tok-b", RefreshToken: "ref-b"},
+				{Email: "c@example.com", AccessToken: "tok-c", RefreshToken: "ref-c"},
+			},
+			quotas: map[string]*FleetQuotaSummary{
+				"a@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+				"b@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+				"c@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+			},
+		},
+		&stubProjectResolver{
+			projects: map[string]string{
+				"a@example.com": "proj-a",
+				"b@example.com": "proj-b",
+				"c@example.com": "proj-c",
+			},
+		},
+	)
+
+	// Subagent hits B -> 429, retries C -> 503, retries A -> 200 OK SSE without client ever seeing 429/503!
+	subReqBody := `{
+		"model": "gemini-4-hydrogen-high",
+		"project": "orig-proj",
+		"request": {
+			"cascade_id": "sub-failover",
+			"root_cascade_id": "root-1",
+			"contents": [{"role": "user", "parts": [{"text": "You are running as a subagent."}]}]
+		}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/v1internal:streamGenerateContent?alt=sse", strings.NewReader(subReqBody))
+	req.Header.Set("Authorization", "Bearer tok-a")
+	rr := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected transparent failover to 200 OK, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-Swiss-Routed-Account"); got != "a@example.com" {
+		t.Fatalf("expected final routed account a@example.com, got %q", got)
+	}
+	if !strings.Contains(rr.Body.String(), `"candidates"`) {
+		t.Fatalf("unexpected SSE body after failover: %q", rr.Body.String())
+	}
+	if !proxy.FleetRouter.IsOnCooldown("b@example.com", "gemini-4-hydrogen-high") {
+		t.Errorf("expected b@example.com to be placed on cooldown after 429")
+	}
+	if !proxy.FleetRouter.IsOnCooldown("c@example.com", "gemini-4-hydrogen-high") {
+		t.Errorf("expected c@example.com to be placed on cooldown after 503")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(authLog) != 3 {
+		t.Fatalf("expected 3 upstream attempts (B->C->A), got %d: %v", len(authLog), authLog)
+	}
+}
+
+func TestFindCustomModelResolvesPlaceholder(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if err := store.SaveModel(CustomModel{
+		ID:           "gemini-4-hydrogen",
+		Name:         "gemini-4-hydrogen",
+		DisplayName:  "Gemini 4 Hydrogen",
+		ProviderType: ProviderOpenAI,
+		BaseURL:      "http://127.0.0.1:9999/v1",
+		APIKey:       "k",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("SaveModel: %v", err)
+	}
+	proxy := NewProxy(store)
+	m := proxy.findCustomModel("MODEL_PLACEHOLDER_M528")
+	if m == nil || m.ID != "gemini-4-hydrogen" || m.ThinkingLevel != "xhigh" {
+		t.Fatalf("findCustomModel(MODEL_PLACEHOLDER_M528) = %+v", m)
+	}
+}

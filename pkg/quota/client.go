@@ -80,12 +80,24 @@ func IsTrialWarningText(text string) bool {
 		return false
 	}
 	low := strings.ToLower(text)
+	if strings.Contains(low, "gpt-oss") &&
+		(strings.Contains(low, "will be removed") || strings.Contains(low, "removed") || strings.Contains(low, "no longer be available")) &&
+		!strings.Contains(low, "third-party model access") &&
+		!strings.Contains(low, "paid pro") &&
+		!strings.Contains(low, "trial") &&
+		!strings.Contains(low, "promo") &&
+		!strings.Contains(low, "partner offer") &&
+		!strings.Contains(low, "starter quota") &&
+		!strings.Contains(low, "jio") {
+		return false
+	}
 	if strings.Contains(low, "third-party model access will no longer be available on your current plan") ||
 		strings.Contains(low, "sonnet 5.5 is now available on paid pro and ultra plans") ||
 		strings.Contains(low, "paid pro and ultra plans") ||
 		strings.Contains(low, "will no longer be available on your current plan") ||
-		(strings.Contains(low, "third-party model access") && (strings.Contains(low, "current plan") || strings.Contains(low, "november 2"))) ||
+		(strings.Contains(low, "third-party model access") && (strings.Contains(low, "current plan") || strings.Contains(low, "november 2") || strings.Contains(low, "november 18"))) ||
 		strings.Contains(low, "current plan starting on november 2, 2026") ||
+		strings.Contains(low, "current plan starting on november 18, 2026") ||
 		strings.Contains(low, "starter quota") ||
 		strings.Contains(low, "trial") ||
 		strings.Contains(low, "promo") ||
@@ -287,7 +299,7 @@ func FetchProjectAndTier(accessToken string) (*ProjectContextResult, error) {
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+		req.Header.Set("User-Agent", "antigravity/2.32.1 linux/amd64")
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -746,7 +758,7 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 			}
 			req.Header.Set("Authorization", "Bearer "+accessToken)
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+			req.Header.Set("User-Agent", "antigravity/2.32.1 linux/amd64")
 
 			resp, err := client.Do(req)
 			if err != nil {
@@ -1492,7 +1504,7 @@ func fetchDirectArgonQuota(accessToken, project string, now time.Time) (*languag
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+		req.Header.Set("User-Agent", "antigravity/2.32.1 linux/amd64")
 		resp, err := client.Do(req)
 		if err != nil {
 			continue
@@ -1534,7 +1546,7 @@ func fetchDirectArgonQuota(accessToken, project string, now time.Time) (*languag
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+		req.Header.Set("User-Agent", "antigravity/2.32.1 linux/amd64")
 		resp, err := client.Do(req)
 		if err != nil {
 			continue
@@ -1597,7 +1609,7 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+		req.Header.Set("User-Agent", "antigravity/2.32.1 linux/amd64")
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -1646,11 +1658,18 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 			ultraModels := append(data.TieredModelIDs.Ultra, data.TieredModelIDsSnake.Ultra...)
 			proModels := append(data.TieredModelIDs.Pro, data.TieredModelIDsSnake.Pro...)
 			entModels := append(data.TieredModelIDs.Enterprise, data.TieredModelIDsSnake.Enterprise...)
+			flashModels := append(data.TieredModelIDs.Flash, data.TieredModelIDsSnake.Flash...)
+			flashLiteModels := append(data.TieredModelIDs.FlashLite, data.TieredModelIDsSnake.FlashLite...)
 
 			hasUltra := len(ultraModels) > 0
 			hasEnterprise := len(entModels) > 0
 			hasPro := len(proModels) > 0
+			hasPaidPro := false
+			hasFreeModel := len(flashModels) > 0 || len(flashLiteModels) > 0
 			for mID, mMeta := range data.Models {
+				if strings.HasSuffix(strings.ToLower(strings.TrimSpace(mID)), "-disabled") {
+					continue
+				}
 				low := strings.ToLower(mID + " " + mMeta.DisplayName)
 				if strings.Contains(low, "ultra") {
 					hasUltra = true
@@ -1658,8 +1677,15 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 				if strings.Contains(low, "enterprise") {
 					hasEnterprise = true
 				}
-				if strings.Contains(low, "-pro") {
+				if isPaidProModelIdentifier(mID, mMeta.DisplayName) {
 					hasPro = true
+					hasPaidPro = true
+				}
+				if strings.Contains(low, "-pro") || isArgonModel(mID, mMeta.DisplayName) {
+					hasPro = true
+				}
+				if strings.Contains(low, "hydrogen") || strings.Contains(low, "flash") {
+					hasFreeModel = true
 				}
 			}
 
@@ -1670,14 +1696,12 @@ func DetectTierFromAvailableModels(accessToken string) (string, error) {
 				return PlanTierEnterprise, nil
 			}
 			if hasPro {
-				for mID, mMeta := range data.Models {
-					if isPaidProModelIdentifier(mID, mMeta.DisplayName) {
-						return PlanTierPro, nil
-					}
+				if hasPaidPro {
+					return PlanTierPro, nil
 				}
 				return PlanTierProTrial, nil
 			}
-			if len(data.TieredModelIDs.Flash) > 0 || len(data.TieredModelIDs.FlashLite) > 0 {
+			if hasFreeModel {
 				return PlanTierFree, nil
 			}
 		}
@@ -1735,7 +1759,7 @@ func DetectTierFromGoogleUserInfo(accessToken, email string) (string, error) {
 			continue
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
-		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+		req.Header.Set("User-Agent", "antigravity/2.32.1 linux/amd64")
 
 		resp, err := client.Do(req)
 		if err != nil {

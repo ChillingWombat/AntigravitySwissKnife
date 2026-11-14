@@ -43,9 +43,11 @@ func TestReadRoutedModelByStep(t *testing.T) {
 		t.Fatalf("create gen_metadata: %v", err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO gen_metadata (idx, data) VALUES (0, ?), (1, ?)`,
+		`INSERT INTO gen_metadata (idx, data) VALUES (0, ?), (1, ?), (2, ?), (3, ?)`,
 		routedModelMetadataBlob("gemini-3.8-flash-tiered", "0"),
 		routedModelMetadataBlob("claude-sonnet-4-6", "6"),
+		routedModelMetadataBlob("gemini-4-hydrogen-xhigh", "8"),
+		routedModelMetadataBlob("MODEL_PLACEHOLDER_M668", "10"),
 	); err != nil {
 		t.Fatalf("insert gen_metadata: %v", err)
 	}
@@ -56,5 +58,11 @@ func TestReadRoutedModelByStep(t *testing.T) {
 	}
 	if got := routes[7]; got != "claude-sonnet-4-6" {
 		t.Fatalf("route for response step 7 = %q, want claude-sonnet-4-6", got)
+	}
+	if got := routes[9]; got != "gemini-4-hydrogen-xhigh" {
+		t.Fatalf("route for response step 9 = %q, want gemini-4-hydrogen-xhigh", got)
+	}
+	if got := routes[11]; got != "MODEL_PLACEHOLDER_M668" {
+		t.Fatalf("route for response step 11 = %q, want MODEL_PLACEHOLDER_M668", got)
 	}
 }

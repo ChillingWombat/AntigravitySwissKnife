@@ -1,6 +1,9 @@
 import type { ModelPricingRecord } from '../types.ts'
 
 export const GEMINI_SELECTOR_ORDER = [
+  'gemini-4-argon',
+  'gemini-4-hydrogen',
+  'gemini-pro-orchestrator-g1-pro',
   'gemini-3.8-flash',
   'gemini-3.7-flash',
   'gemini-3.6-flash',
@@ -15,8 +18,9 @@ export interface SortPricingOptions {
 export function normalizeModelIdentifier(idOrName?: string | null): string {
   if (!idOrName) return ''
   let s = idOrName.toLowerCase().trim()
+  s = s.replace(/\s*\((?:none|off|low|medium|high|xhigh|thinking)\)\s*$/i, '').trim()
   s = s.replace(/[\s_]+/g, '-')
-  const suffixes = ['-high', '-medium', '-low', '-off', '-thinking', '-tiered', '-agent']
+  const suffixes = ['-xhigh', '-high', '-medium', '-low', '-off', '-thinking', '-tiered', '-agent']
   for (const suf of suffixes) {
     if (s.endsWith(suf)) {
       s = s.slice(0, -suf.length)
@@ -25,6 +29,11 @@ export function normalizeModelIdentifier(idOrName?: string | null): string {
   }
   if (s === 'gemini-pro' || s === 'gemini-3-1-pro') return 'gemini-3.1-pro'
   if (s === 'gemini-3-flash') return 'gemini-3.6-flash'
+  if (s === 'orchestrator-(argon)' || s === 'orchestrator-argon') {
+    return 'gemini-pro-orchestrator-g1-pro'
+  }
+  if (s === 'claude-sonnet-5.5') return 'claude-sonnet-5-5'
+  if (s === 'claude-opus-5.5') return 'claude-opus-5-5'
   return s
 }
 
@@ -36,9 +45,9 @@ export function getGeminiSelectorRank(pr: ModelPricingRecord): number {
     const target = GEMINI_SELECTOR_ORDER[i]
     if (
       normId === target ||
-      normId.includes(target) ||
+      (normId !== '' && normId.includes(target)) ||
       normName === target ||
-      normName.includes(target)
+      (normName !== '' && normName.includes(target))
     ) {
       return i
     }
@@ -71,12 +80,11 @@ export function isModelDefaultNative(
   const normId = normalizeModelIdentifier(pr.canonical_id || pr.model_id)
   const normName = normalizeModelIdentifier(pr.model_name || pr.name)
 
+  if (!target) return false
+
   return (
-    normId === target ||
-    normId.includes(target) ||
-    target.includes(normId) ||
-    normName === target ||
-    normName.includes(target)
+    (normId !== '' && (normId === target || normId.includes(target) || target.includes(normId))) ||
+    (normName !== '' && (normName === target || normName.includes(target)))
   )
 }
 

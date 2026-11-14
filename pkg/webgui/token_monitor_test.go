@@ -80,6 +80,41 @@ func TestModelDetectionFromTranscriptStep0(t *testing.T) {
 			expectedProv: "anthropic",
 		},
 		{
+			name:         "Gemini 4 Hydrogen XHigh Selection",
+			settingsText: "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Gemini 4 Hydrogen (XHigh).\n</USER_SETTINGS_CHANGE>",
+			expectedID:   "gemini-4-hydrogen",
+			expectedName: "Gemini 4 Hydrogen",
+			expectedProv: "gemini",
+		},
+		{
+			name:         "Orchestrator Argon Selection",
+			settingsText: "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Orchestrator (Argon).\n</USER_SETTINGS_CHANGE>",
+			expectedID:   "gemini-pro-orchestrator-g1-pro",
+			expectedName: "Orchestrator (Argon)",
+			expectedProv: "gemini",
+		},
+		{
+			name:         "Claude Sonnet 5.5 High Selection",
+			settingsText: "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Claude Sonnet 5.5 (High).\n</USER_SETTINGS_CHANGE>",
+			expectedID:   "claude-sonnet-5-5",
+			expectedName: "Claude Sonnet 5.5",
+			expectedProv: "anthropic",
+		},
+		{
+			name:         "Claude Sonnet 4.6 Thinking Selection",
+			settingsText: "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Claude Sonnet 4.6 (Thinking).\n</USER_SETTINGS_CHANGE>",
+			expectedID:   "claude-sonnet-4-6",
+			expectedName: "Claude Sonnet 4.6",
+			expectedProv: "anthropic",
+		},
+		{
+			name:         "Placeholder M525 Selection",
+			settingsText: "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to MODEL_PLACEHOLDER_M525.\n</USER_SETTINGS_CHANGE>",
+			expectedID:   "gemini-4-hydrogen",
+			expectedName: "Gemini 4 Hydrogen",
+			expectedProv: "gemini",
+		},
+		{
 			name:         "Custom Model Selection",
 			settingsText: "<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to deepseek-chat.\n</USER_SETTINGS_CHANGE>",
 			expectedID:   "deepseek-chat",
@@ -500,4 +535,111 @@ func TestGetMagpieSpeedData_IntegrationAndFallback(t *testing.T) {
 	if fallbackOverall != 0.0 || fallbackSpeeds != nil {
 		t.Errorf("expected 0 and nil for offline magpie, got %f, %v", fallbackOverall, fallbackSpeeds)
 	}
+}
+
+func TestMapModelNameToMetadata_Antigravity2321AndPlaceholders(t *testing.T) {
+	testCases := []struct {
+		raw          string
+		wantID       string
+		wantDisplay  string
+		wantProvider string
+	}{
+		// Gemini 4 Hydrogen
+		{"gemini-4-hydrogen-high", "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini"},
+		{"gemini-4-hydrogen-xhigh", "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini"},
+		{"Gemini 4 Hydrogen (XHigh)", "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini"},
+		{"Gemini 4 Hydrogen", "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini"},
+		{"MODEL_PLACEHOLDER_M525", "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini"},
+		{"MODEL_PLACEHOLDER_M526", "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini"},
+		{"MODEL_PLACEHOLDER_M527", "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini"},
+		{"MODEL_PLACEHOLDER_M528", "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini"},
+
+		// Gemini 4 Argon
+		{"gemini-4-argon-high", "gemini-4-argon", "Gemini 4 Argon", "gemini"},
+		{"Gemini 4 Argon (High)", "gemini-4-argon", "Gemini 4 Argon", "gemini"},
+		{"Gemini 4", "gemini-4-argon", "Gemini 4 Argon", "gemini"},
+		{"gemini-4", "gemini-4-argon", "Gemini 4 Argon", "gemini"},
+		{"MODEL_PLACEHOLDER_M417", "gemini-4-argon", "Gemini 4 Argon", "gemini"},
+		{"MODEL_PLACEHOLDER_M418", "gemini-4-argon", "Gemini 4 Argon", "gemini"},
+		{"MODEL_PLACEHOLDER_M419", "gemini-4-argon", "Gemini 4 Argon", "gemini"},
+
+		// Orchestrator (Argon)
+		{"gemini-pro-orchestrator-g1-pro", "gemini-pro-orchestrator-g1-pro", "Orchestrator (Argon)", "gemini"},
+		{"gemini-pro-orchestrator", "gemini-pro-orchestrator-g1-pro", "Orchestrator (Argon)", "gemini"},
+		{"Orchestrator (Argon)", "gemini-pro-orchestrator-g1-pro", "Orchestrator (Argon)", "gemini"},
+		{"Gemini Pro Orchestrator", "gemini-pro-orchestrator-g1-pro", "Orchestrator (Argon)", "gemini"},
+		{"MODEL_PLACEHOLDER_M668", "gemini-pro-orchestrator-g1-pro", "Orchestrator (Argon)", "gemini"},
+
+		// Gemini 3.8 Flash & 3.1 Pro
+		{"gemini-3.8-flash-high", "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"},
+		{"MODEL_PLACEHOLDER_M318", "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"},
+		{"MODEL_PLACEHOLDER_M319", "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"},
+		{"MODEL_PLACEHOLDER_M320", "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"},
+		{"gemini-3.1-pro", "gemini-3.1-pro", "Gemini 3.1 Pro", "gemini"},
+		{"Gemini Pro", "gemini-3.1-pro", "Gemini 3.1 Pro", "gemini"},
+
+		// Claude Sonnet 5.5
+		{"claude-sonnet-5-5-high", "claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic"},
+		{"Claude Sonnet 5.5 (High)", "claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic"},
+		{"sonnet-5-5", "claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic"},
+		{"sonnet 5.5", "claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic"},
+		{"MODEL_PLACEHOLDER_M403", "claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic"},
+		{"MODEL_PLACEHOLDER_M404", "claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic"},
+		{"MODEL_PLACEHOLDER_M405", "claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic"},
+
+		// Claude Opus 5.5
+		{"claude-opus-5-5-high", "claude-opus-5-5", "Claude Opus 5.5", "anthropic"},
+		{"MODEL_PLACEHOLDER_M400", "claude-opus-5-5", "Claude Opus 5.5", "anthropic"},
+		{"MODEL_PLACEHOLDER_M401", "claude-opus-5-5", "Claude Opus 5.5", "anthropic"},
+		{"MODEL_PLACEHOLDER_M402", "claude-opus-5-5", "Claude Opus 5.5", "anthropic"},
+
+		// Claude Sonnet 4.6 vs 3.7 Sonnet & Opus 4.6
+		{"claude-sonnet-4-6", "claude-sonnet-4-6", "Claude Sonnet 4.6", "anthropic"},
+		{"Claude Sonnet 4.6 (Thinking)", "claude-sonnet-4-6", "Claude Sonnet 4.6", "anthropic"},
+		{"sonnet-4-6", "claude-sonnet-4-6", "Claude Sonnet 4.6", "anthropic"},
+		{"sonnet 4.6", "claude-sonnet-4-6", "Claude Sonnet 4.6", "anthropic"},
+		{"claude-3-7-sonnet", "claude-3-7-sonnet", "Claude 3.7 Sonnet", "anthropic"},
+		{"Claude Sonnet", "claude-3-7-sonnet", "Claude 3.7 Sonnet", "anthropic"},
+		{"claude-opus-4-6-thinking", "claude-opus-4-6", "Claude Opus 4.6", "anthropic"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.raw, func(t *testing.T) {
+			gotID, gotDisp, gotProv := mapModelNameToMetadata(tc.raw, nil, nil)
+			if gotID != tc.wantID || gotDisp != tc.wantDisplay || gotProv != tc.wantProvider {
+				t.Errorf("mapModelNameToMetadata(%q) = (%q, %q, %q), want (%q, %q, %q)",
+					tc.raw, gotID, gotDisp, gotProv, tc.wantID, tc.wantDisplay, tc.wantProvider)
+			}
+		})
+	}
+
+	t.Run("CatalogAndPlaceholderPrecedence", func(t *testing.T) {
+		catalog := []custommodels.CatalogModelInput{
+			{ID: "gemini-4-hydrogen-xhigh", DisplayName: "Gemini 4 Hydrogen (XHigh)", Provider: "Google"},
+			{ID: "gemini-pro-orchestrator-g1-pro", DisplayName: "Orchestrator (Argon)", Provider: "Google"},
+			{ID: "MODEL_PLACEHOLDER_M405", DisplayName: "Claude Sonnet 5.5 (High)", Provider: "Anthropic"},
+		}
+		custom := []custommodels.CustomModel{
+			{ID: "cm-1", Name: "my-custom-model", DisplayName: "My Custom Model", ProviderType: custommodels.ProviderOpenAI},
+		}
+
+		for _, tc := range []struct {
+			raw          string
+			wantID       string
+			wantDisplay  string
+			wantProvider string
+		}{
+			{"MODEL_PLACEHOLDER_M525", "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini"},
+			{"Gemini 4 Hydrogen (XHigh)", "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini"},
+			{"Orchestrator (Argon)", "gemini-pro-orchestrator-g1-pro", "Orchestrator (Argon)", "gemini"},
+			{"Claude Sonnet 5.5 (High)", "claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic"},
+			{"MODEL_PLACEHOLDER_M405", "claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic"},
+		} {
+			gotID, gotDisp, gotProv := mapModelNameToMetadata(tc.raw, custom, catalog)
+			if gotID != tc.wantID || gotDisp != tc.wantDisplay || gotProv != tc.wantProvider {
+				t.Errorf("mapModelNameToMetadata(%q, custom, catalog) = (%q, %q, %q), want (%q, %q, %q)",
+					tc.raw, gotID, gotDisp, gotProv, tc.wantID, tc.wantDisplay, tc.wantProvider)
+			}
+		}
+	})
 }

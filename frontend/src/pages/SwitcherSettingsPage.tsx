@@ -33,7 +33,7 @@ interface SwitcherSettingsPageProps {
   onSaved: () => void
 }
 
-interface GeminiBaseModel {
+export interface GeminiBaseModel {
   id: string
   displayName: string
   supportsThinking: boolean
@@ -41,33 +41,68 @@ interface GeminiBaseModel {
   modelIds: string[]
 }
 
-const THINKING_LEVEL_ORDER = ['off', 'low', 'medium', 'high']
-const THINKING_SUFFIX_RE = /\s*\((?:none|off|low|medium|high)\)\s*$/i
-const MODEL_LEVEL_SUFFIX_RE = /-(?:none|off|low|medium|high)$/i
+export const THINKING_LEVEL_ORDER = ['off', 'low', 'medium', 'high', 'xhigh'] as const
+export const THINKING_SUFFIX_RE = /\s*\((?:none|off|low|medium|high|xhigh)\)\s*$/i
+export const MODEL_LEVEL_SUFFIX_RE = /-(?:none|off|low|medium|high|xhigh)$/i
 
 const normalizeThinkingLevels = (model: AvailableModelItem): string[] => {
-  const levels = (model.thinking_levels || []).map((level) => level.toLowerCase())
+  const levels = (model.thinking_levels || [])
+    .map((level) => level.toLowerCase().trim())
+    .filter(Boolean)
   if (levels.length > 0) return levels
-  return model.supports_thinking ? ['off', 'low', 'medium', 'high'] : ['off']
+
+  const supportsThinking =
+    model.supports_thinking ??
+    (THINKING_SUFFIX_RE.test(model.display_name) || MODEL_LEVEL_SUFFIX_RE.test(model.id))
+  if (!supportsThinking) return ['off']
+
+  const suffixMatch =
+    model.display_name.match(THINKING_SUFFIX_RE) || model.id.match(MODEL_LEVEL_SUFFIX_RE)
+  const suffixLevel = suffixMatch
+    ? suffixMatch[0].replace(/[\s()-]/g, '').toLowerCase()
+    : ''
+  const defaults = ['off', 'low', 'medium', 'high']
+  if (suffixLevel && suffixLevel !== 'none' && !defaults.includes(suffixLevel)) {
+    defaults.push(suffixLevel)
+  }
+  return defaults
 }
 
-const buildGeminiBaseModels = (models: AvailableModelItem[]): GeminiBaseModel[] => {
+export const buildGeminiBaseModels = (models: AvailableModelItem[]): GeminiBaseModel[] => {
   const grouped = new Map<string, GeminiBaseModel>()
   const levelsById = new Map<string, Set<string>>()
+  const idByDisplayName = new Map<string, string>()
 
   for (const model of models) {
+    const hasThinkingSuffix = THINKING_SUFFIX_RE.test(model.display_name)
     const displayName = model.display_name.replace(THINKING_SUFFIX_RE, '').trim()
-    const id = displayName
+    const slugFromDisplay = displayName
       .toLowerCase()
       .replace(/[^a-z0-9.]+/g, '-')
-      .replace(/^-+|-+$/g, '') || model.id.replace(MODEL_LEVEL_SUFFIX_RE, '')
+      .replace(/^-+|-+$/g, '')
+    const strippedModelId = model.id.replace(MODEL_LEVEL_SUFFIX_RE, '')
+    const displayKey = displayName.toLowerCase()
+    const id =
+      (displayKey ? idByDisplayName.get(displayKey) : undefined) ||
+      (hasThinkingSuffix
+        ? (slugFromDisplay || strippedModelId)
+        : (strippedModelId || slugFromDisplay))
     if (!id) continue
+    if (displayKey && !idByDisplayName.has(displayKey)) {
+      idByDisplayName.set(displayKey, id)
+    }
 
     const levels = normalizeThinkingLevels(model)
+    const modelSupportsThinking =
+      model.supports_thinking ??
+      (levels.some((level) => level !== 'off' && level !== 'none') || hasThinkingSuffix)
+
     const existing = grouped.get(id)
     if (existing) {
-      existing.supportsThinking = existing.supportsThinking || Boolean(model.supports_thinking)
-      existing.modelIds.push(model.id)
+      existing.supportsThinking = existing.supportsThinking || modelSupportsThinking
+      if (!existing.modelIds.includes(model.id)) {
+        existing.modelIds.push(model.id)
+      }
       levels.forEach((level) => levelsById.get(id)?.add(level))
       continue
     }
@@ -75,27 +110,29 @@ const buildGeminiBaseModels = (models: AvailableModelItem[]): GeminiBaseModel[] 
     grouped.set(id, {
       id,
       displayName: displayName || model.id,
-      supportsThinking: Boolean(model.supports_thinking),
+      supportsThinking: modelSupportsThinking,
       thinkingLevels: [],
       modelIds: [model.id],
     })
     levelsById.set(id, new Set(levels))
   }
 
+  const orderSet = new Set<string>(THINKING_LEVEL_ORDER)
   return Array.from(grouped.values()).map((model) => {
     const levels = levelsById.get(model.id) || new Set<string>()
     return {
       ...model,
       thinkingLevels: [
         ...THINKING_LEVEL_ORDER.filter((level) => levels.has(level)),
-        ...Array.from(levels).filter((level) => !THINKING_LEVEL_ORDER.includes(level)),
+        ...Array.from(levels).filter((level) => !orderSet.has(level)),
       ],
     }
   })
 }
 
-const formatThinkingLevel = (level: string): string => {
+export const formatThinkingLevel = (level: string): string => {
   if (level === 'off') return 'Off'
+  if (level === 'xhigh') return 'XHigh'
   return level.charAt(0).toUpperCase() + level.slice(1)
 }
 

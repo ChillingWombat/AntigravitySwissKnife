@@ -232,15 +232,91 @@ func catalogCacheKey(r *http.Request, body []byte) string {
 	return hex.EncodeToString(digest.Sum(nil))
 }
 
-func cleanBaseDisplayName(name string) string {
+var modelPlaceholderToID = map[string]string{
+	"MODEL_PLACEHOLDER_M318": "gemini-3.8-flash-high",
+	"MODEL_PLACEHOLDER_M319": "gemini-3.8-flash-medium",
+	"MODEL_PLACEHOLDER_M320": "gemini-3.8-flash-low",
+	"MODEL_PLACEHOLDER_M400": "claude-opus-5-5-low",
+	"MODEL_PLACEHOLDER_M401": "claude-opus-5-5-medium",
+	"MODEL_PLACEHOLDER_M402": "claude-opus-5-5-high",
+	"MODEL_PLACEHOLDER_M403": "claude-sonnet-5-5-low",
+	"MODEL_PLACEHOLDER_M404": "claude-sonnet-5-5-medium",
+	"MODEL_PLACEHOLDER_M405": "claude-sonnet-5-5-high",
+	"MODEL_PLACEHOLDER_M417": "gemini-4-argon-high",
+	"MODEL_PLACEHOLDER_M418": "gemini-4-argon-medium",
+	"MODEL_PLACEHOLDER_M419": "gemini-4-argon-low",
+	"MODEL_PLACEHOLDER_M525": "gemini-4-hydrogen-high",
+	"MODEL_PLACEHOLDER_M526": "gemini-4-hydrogen-medium",
+	"MODEL_PLACEHOLDER_M527": "gemini-4-hydrogen-low",
+	"MODEL_PLACEHOLDER_M528": "gemini-4-hydrogen-xhigh",
+	"MODEL_PLACEHOLDER_M668": "gemini-pro-orchestrator-g1-pro",
+}
+
+var modelIDToPlaceholder = func() map[string]string {
+	rev := make(map[string]string, len(modelPlaceholderToID))
+	for placeholder, id := range modelPlaceholderToID {
+		rev[id] = placeholder
+	}
+	return rev
+}()
+
+// ResolveModelPlaceholder maps an Antigravity MODEL_PLACEHOLDER_* enum (with or
+// without a "models/" prefix) to its concrete model identifier. Unknown inputs
+// are returned trimmed of "models/" and whitespace.
+func ResolveModelPlaceholder(modelID string) string {
+	trimmed := strings.TrimSpace(modelID)
+	trimmed = strings.TrimPrefix(trimmed, "models/")
+	if trimmed == "" {
+		return ""
+	}
+	if mapped, ok := modelPlaceholderToID[strings.ToUpper(trimmed)]; ok {
+		return mapped
+	}
+	return trimmed
+}
+
+func placeholderForCustomModelVariant(variantID, level string) string {
+	low := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(variantID), "models/"))
+	if ph, ok := modelIDToPlaceholder[low]; ok {
+		return ph
+	}
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "medium":
+		return "MODEL_PLACEHOLDER_M319"
+	case "low":
+		return "MODEL_PLACEHOLDER_M320"
+	default:
+		return "MODEL_PLACEHOLDER_M318"
+	}
+}
+
+func stripEffortSuffix(name string) string {
 	s := strings.TrimSpace(name)
-	for _, lvl := range []string{"High", "Medium", "Low", "Extra", "Max", "high", "medium", "low", "extra", "max"} {
-		suffix := " (" + lvl + ")"
+	if s == "" {
+		return ""
+	}
+	displaySuffixes := []string{
+		" (XHigh)", " (High)", " (Medium)", " (Low)", " (Extra)", " (Max)", " (Off)", " (Thinking)",
+		" (xhigh)", " (high)", " (medium)", " (low)", " (extra)", " (max)", " (off)", " (thinking)",
+		" [XHigh]", " [High]", " [Medium]", " [Low]", " [Extra]", " [Max]", " [Off]", " [Thinking]",
+		" [xhigh]", " [high]", " [medium]", " [low]", " [extra]", " [max]", " [off]", " [thinking]",
+	}
+	for _, suffix := range displaySuffixes {
 		if strings.HasSuffix(s, suffix) {
 			return strings.TrimSpace(strings.TrimSuffix(s, suffix))
 		}
 	}
+	low := strings.ToLower(s)
+	for _, suffix := range []string{"-thinking", "-tiered", "-xhigh", "-high", "-medium", "-low", "-extra", "-max", "-off"} {
+		if strings.HasSuffix(low, suffix) {
+			return strings.TrimSpace(s[:len(s)-len(suffix)])
+		}
+	}
 	return s
+}
+
+func cleanBaseDisplayName(name string) string {
+	return stripEffortSuffix(name)
 }
 
 func orderedThinkingLevels(levels []string, preferred string) []string {
@@ -354,17 +430,14 @@ func (p *Proxy) augmentCatalog(r *http.Request, body []byte) []byte {
 		if m.SupportsThinking && len(levels) > 1 {
 			for _, lvl := range levels {
 				variantID := fmt.Sprintf("%s-%s", cliID, strings.ToLower(lvl))
-				protoModel := "MODEL_PLACEHOLDER_M318"
+				protoModel := placeholderForCustomModelVariant(variantID, lvl)
 				budget := -1
 				switch strings.ToLower(lvl) {
 				case "high", "max", "xhigh":
-					protoModel = "MODEL_PLACEHOLDER_M318"
 					budget = -1
 				case "medium":
-					protoModel = "MODEL_PLACEHOLDER_M319"
 					budget = 4000
 				case "low":
-					protoModel = "MODEL_PLACEHOLDER_M320"
 					budget = 1000
 				}
 
@@ -388,7 +461,7 @@ func (p *Proxy) augmentCatalog(r *http.Request, body []byte) []byte {
 
 			baseMeta := map[string]interface{}{
 				"displayName":       baseLabel,
-				"model":             "MODEL_PLACEHOLDER_M318",
+				"model":             placeholderForCustomModelVariant(cliID, "high"),
 				"modelProvider":     modelProvider,
 				"apiProvider":       "API_PROVIDER_GOOGLE_GEMINI",
 				"supportsThinking":  true,
@@ -404,7 +477,7 @@ func (p *Proxy) augmentCatalog(r *http.Request, body []byte) []byte {
 		} else {
 			customMeta := map[string]interface{}{
 				"displayName":      label,
-				"model":            "MODEL_PLACEHOLDER_M318",
+				"model":            placeholderForCustomModelVariant(cliID, m.ThinkingLevel),
 				"modelProvider":    modelProvider,
 				"apiProvider":      "API_PROVIDER_GOOGLE_GEMINI",
 				"supportsThinking": m.SupportsThinking,
