@@ -984,11 +984,134 @@ func extractModelFromTranscript(tPath string) (modelName string, ok bool) {
 	return "", false
 }
 
+func resolveModelPlaceholder(raw string) (modelID, displayName, provider string, ok bool) {
+	normalized := strings.ToUpper(strings.TrimSpace(raw))
+	normalized = strings.TrimPrefix(normalized, "MODELS/")
+	normalized = strings.TrimSpace(stripEffortSuffix(normalized))
+	normalized = strings.TrimPrefix(normalized, "MODEL_PLACEHOLDER_")
+	switch normalized {
+	case "M417", "M418", "M419":
+		return "gemini-4-argon", "Gemini 4 Argon", "gemini", true
+	case "M525", "M526", "M527", "M528":
+		return "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini", true
+	case "M668":
+		return "gemini-pro-orchestrator-g1-pro", "Orchestrator (Argon)", "gemini", true
+	case "M318", "M319", "M320":
+		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini", true
+	case "M400", "M401", "M402":
+		return "claude-opus-5-5", "Claude Opus 5.5", "anthropic", true
+	case "M403", "M404", "M405":
+		return "claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic", true
+	default:
+		return "", "", "", false
+	}
+}
+
+func mapNativeModelNameToMetadata(raw string) (modelID, displayName, provider string, ok bool) {
+	lower := strings.ToLower(strings.TrimSpace(raw))
+	if lower == "" {
+		return "", "", "", false
+	}
+
+	// Gemini Native model family mappings.
+	// Check hydrogen and orchestrator BEFORE generic "gemini 4" / "gemini-4" / "argon" / "gemini pro".
+	if strings.Contains(lower, "hydrogen") {
+		return "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini", true
+	}
+	if strings.Contains(lower, "orchestrator") {
+		return "gemini-pro-orchestrator-g1-pro", "Orchestrator (Argon)", "gemini", true
+	}
+	if strings.Contains(lower, "argon") || strings.Contains(lower, "gemini 4") || strings.Contains(lower, "gemini-4") {
+		return "gemini-4-argon", "Gemini 4 Argon", "gemini", true
+	}
+	if strings.Contains(lower, "gemini 3.8 flash") || strings.Contains(lower, "gemini-3.8-flash") {
+		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini", true
+	}
+	if strings.Contains(lower, "gemini 3.7 flash") || strings.Contains(lower, "gemini-3.7-flash") {
+		return "gemini-3.7-flash", "Gemini 3.7 Flash", "gemini", true
+	}
+	if strings.Contains(lower, "gemini 3.6 flash") || strings.Contains(lower, "gemini-3.6-flash") {
+		return "gemini-3.6-flash", "Gemini 3.6 Flash", "gemini", true
+	}
+	if strings.Contains(lower, "gemini 3.1 pro") || strings.Contains(lower, "gemini-3.1-pro") || strings.Contains(lower, "gemini pro") {
+		return "gemini-3.1-pro", "Gemini 3.1 Pro", "gemini", true
+	}
+	if strings.Contains(lower, "gemini 3 flash") || strings.Contains(lower, "gemini-3-flash") {
+		return "gemini-3-flash", "Gemini 3 Flash", "gemini", true
+	}
+	if strings.Contains(lower, "gemini 2.5 pro") || strings.Contains(lower, "gemini-2.5-pro") {
+		return "gemini-2.5-pro", "Gemini 2.5 Pro", "gemini", true
+	}
+	if strings.Contains(lower, "gemini 2.5 flash") || strings.Contains(lower, "gemini-2.5-flash") {
+		return "gemini-2.5-flash", "Gemini 2.5 Flash", "gemini", true
+	}
+
+	// Anthropic models - strictly only when genuinely selected in settings
+	if strings.Contains(lower, "claude opus 5.5") ||
+		strings.Contains(lower, "claude-opus-5-5") ||
+		strings.Contains(lower, "claude-opus-5.5") ||
+		strings.Contains(lower, "claude opus 5-5") ||
+		strings.Contains(lower, "opus 5.5") ||
+		strings.Contains(lower, "opus-5-5") ||
+		strings.Contains(lower, "opus5.5") {
+		return "claude-opus-5-5", "Claude Opus 5.5", "anthropic", true
+	}
+	if strings.Contains(lower, "claude opus 4.6") || strings.Contains(lower, "claude-opus-4-6") ||
+		strings.Contains(lower, "claude opus 4-6") || strings.Contains(lower, "claude-opus-4.6") {
+		return "claude-opus-4-6", "Claude Opus 4.6", "anthropic", true
+	}
+	// Legacy unversioned Opus selections were treated as 4.6, but 5.5 must not fall through here.
+	if strings.Contains(lower, "claude opus") &&
+		!strings.Contains(lower, "5.5") && !strings.Contains(lower, "5-5") {
+		return "claude-opus-4-6", "Claude Opus 4.6", "anthropic", true
+	}
+	if strings.Contains(lower, "claude sonnet 5.5") ||
+		strings.Contains(lower, "claude-sonnet-5-5") ||
+		strings.Contains(lower, "claude-sonnet-5.5") ||
+		strings.Contains(lower, "claude sonnet 5-5") ||
+		strings.Contains(lower, "sonnet 5.5") ||
+		strings.Contains(lower, "sonnet-5-5") ||
+		strings.Contains(lower, "sonnet-5.5") ||
+		strings.Contains(lower, "sonnet 5-5") ||
+		strings.Contains(lower, "sonnet5.5") {
+		return "claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic", true
+	}
+	if strings.Contains(lower, "claude sonnet 4.6") ||
+		strings.Contains(lower, "claude-sonnet-4-6") ||
+		strings.Contains(lower, "claude-sonnet-4.6") ||
+		strings.Contains(lower, "claude sonnet 4-6") ||
+		strings.Contains(lower, "sonnet 4.6") ||
+		strings.Contains(lower, "sonnet-4-6") ||
+		strings.Contains(lower, "sonnet-4.6") ||
+		strings.Contains(lower, "sonnet 4-6") {
+		return "claude-sonnet-4-6", "Claude Sonnet 4.6", "anthropic", true
+	}
+	if strings.Contains(lower, "claude 3.7 sonnet") || strings.Contains(lower, "claude-3-7-sonnet") ||
+		(strings.Contains(lower, "claude sonnet") &&
+			!strings.Contains(lower, "5.5") && !strings.Contains(lower, "5-5") &&
+			!strings.Contains(lower, "4.6") && !strings.Contains(lower, "4-6")) {
+		return "claude-3-7-sonnet", "Claude 3.7 Sonnet", "anthropic", true
+	}
+
+	// OpenAI models
+	if strings.Contains(lower, "gpt-oss-120b") {
+		return "gpt-oss-120b", "GPT-OSS 120B", "openai", true
+	}
+
+	return "", "", "", false
+}
+
 // mapModelNameToMetadata maps raw model strings from settings to canonical modelID, displayName, and provider.
 func mapModelNameToMetadata(rawName string, customModels []custommodels.CustomModel, catalogModels []custommodels.CatalogModelInput) (modelID, displayName, provider string) {
 	rawTrimmed := strings.TrimSpace(rawName)
 	if rawTrimmed == "" {
 		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"
+	}
+
+	if strings.Contains(strings.ToUpper(rawTrimmed), "MODEL_PLACEHOLDER_") {
+		if id, disp, prov, ok := resolveModelPlaceholder(rawTrimmed); ok {
+			return id, disp, prov
+		}
 	}
 
 	cleanedName := stripEffortSuffix(rawTrimmed)
@@ -1012,67 +1135,32 @@ func mapModelNameToMetadata(rawName string, customModels []custommodels.CustomMo
 		}
 	}
 
+	// 1b. Resolve shorthand M* placeholder constants (e.g. M417, M525, M668)
+	if id, disp, prov, ok := resolveModelPlaceholder(rawTrimmed); ok {
+		return id, disp, prov
+	}
+
 	// 2. Match catalog models
 	for _, cat := range catalogModels {
 		if strings.EqualFold(cat.ID, rawTrimmed) || (cat.DisplayName != "" && strings.EqualFold(cat.DisplayName, rawTrimmed)) {
+			if id, disp, prov, ok := resolveModelPlaceholder(cat.ID); ok {
+				return id, disp, prov
+			}
+			if mID, mName, mProv, ok := mapNativeModelNameToMetadata(cat.ID); ok {
+				if cat.Provider != "" {
+					mProv = custommodels.NormalizePricingProvider(cat.Provider, mID)
+				}
+				return mID, mName, mProv
+			}
 			canID, canName := custommodels.NormalizeCanonicalNativeModel(cat.ID, cat.DisplayName)
 			prov := custommodels.NormalizePricingProvider(cat.Provider, canID)
 			return canID, canName, prov
 		}
 	}
 
-	// 3. Gemini Native model family mappings
-	if strings.Contains(lower, "gemini 4") || strings.Contains(lower, "gemini-4") {
-		return "gemini-4-argon", "Gemini 4 Argon", "gemini"
-	}
-	if strings.Contains(lower, "gemini 3.8 flash") || strings.Contains(lower, "gemini-3.8-flash") {
-		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"
-	}
-	if strings.Contains(lower, "gemini 3.7 flash") || strings.Contains(lower, "gemini-3.7-flash") {
-		return "gemini-3.7-flash", "Gemini 3.7 Flash", "gemini"
-	}
-	if strings.Contains(lower, "gemini 3.6 flash") || strings.Contains(lower, "gemini-3.6-flash") {
-		return "gemini-3.6-flash", "Gemini 3.6 Flash", "gemini"
-	}
-	if strings.Contains(lower, "gemini 3.1 pro") || strings.Contains(lower, "gemini-3.1-pro") || strings.Contains(lower, "gemini pro") {
-		return "gemini-3.1-pro", "Gemini 3.1 Pro", "gemini"
-	}
-	if strings.Contains(lower, "gemini 3 flash") || strings.Contains(lower, "gemini-3-flash") {
-		return "gemini-3-flash", "Gemini 3 Flash", "gemini"
-	}
-	if strings.Contains(lower, "gemini 2.5 pro") || strings.Contains(lower, "gemini-2.5-pro") {
-		return "gemini-2.5-pro", "Gemini 2.5 Pro", "gemini"
-	}
-	if strings.Contains(lower, "gemini 2.5 flash") || strings.Contains(lower, "gemini-2.5-flash") {
-		return "gemini-2.5-flash", "Gemini 2.5 Flash", "gemini"
-	}
-
-	// 4. Anthropic models - strictly only when genuinely selected in settings
-	if strings.Contains(lower, "claude opus 5.5") ||
-		strings.Contains(lower, "claude-opus-5-5") ||
-		strings.Contains(lower, "claude-opus-5.5") ||
-		strings.Contains(lower, "claude opus 5-5") ||
-		strings.Contains(lower, "opus 5.5") ||
-		strings.Contains(lower, "opus-5-5") ||
-		strings.Contains(lower, "opus5.5") {
-		return "claude-opus-5-5", "Claude Opus 5.5", "anthropic"
-	}
-	if strings.Contains(lower, "claude opus 4.6") || strings.Contains(lower, "claude-opus-4-6") ||
-		strings.Contains(lower, "claude opus 4-6") || strings.Contains(lower, "claude-opus-4.6") {
-		return "claude-opus-4-6", "Claude Opus 4.6", "anthropic"
-	}
-	// Legacy unversioned Opus selections were treated as 4.6, but 5.5 must not fall through here.
-	if strings.Contains(lower, "claude opus") &&
-		!strings.Contains(lower, "5.5") && !strings.Contains(lower, "5-5") {
-		return "claude-opus-4-6", "Claude Opus 4.6", "anthropic"
-	}
-	if strings.Contains(lower, "claude 3.7 sonnet") || strings.Contains(lower, "claude-3-7-sonnet") || strings.Contains(lower, "claude sonnet") {
-		return "claude-3-7-sonnet", "Claude 3.7 Sonnet", "anthropic"
-	}
-
-	// 5. OpenAI models
-	if strings.Contains(lower, "gpt-oss-120b") {
-		return "gpt-oss-120b", "GPT-OSS 120B", "openai"
+	// 3-5. Native Gemini, Anthropic, and OpenAI model family mappings
+	if mID, mName, mProv, ok := mapNativeModelNameToMetadata(rawTrimmed); ok {
+		return mID, mName, mProv
 	}
 
 	canID, canName := custommodels.NormalizeCanonicalNativeModel(rawTrimmed, rawTrimmed)

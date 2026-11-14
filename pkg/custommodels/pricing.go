@@ -367,6 +367,7 @@ func lookupOfficialProviderPricing(modelID, provider string) (*float64, *float64
 	}
 	// Normalize Vertex AI version tag '@' to '-' (e.g. claude-3-7-sonnet@20250219 -> claude-3-7-sonnet-20250219)
 	id = strings.ReplaceAll(id, "@", "-")
+	id = strings.ToLower(ResolveModelPlaceholder(id))
 
 	// Official provider pricing table (USD per 1M tokens)
 	type rate struct {
@@ -380,7 +381,18 @@ func lookupOfficialProviderPricing(modelID, provider string) (*float64, *float64
 		// with cached input at 95% off ($0.10); from 2026-12-01 it becomes
 		// $4.00 in / $20.00 out ($0.20 cached). Source: ai.google.dev pricing
 		// page for gemini-4-argon.
-		"gemini-4-argon": {2.00, 0.10, 10.00},
+		"gemini-4-argon":                {2.00, 0.10, 10.00},
+		"gemini-4-argon-high":           {2.00, 0.10, 10.00},
+		"gemini-4-argon-medium":         {2.00, 0.10, 10.00},
+		"gemini-4-argon-low":            {2.00, 0.10, 10.00},
+		"gemini-pro-orchestrator-g1-pro": {2.00, 0.10, 10.00},
+		"gemini-pro-orchestrator":       {2.00, 0.10, 10.00},
+		// Gemini 4 Hydrogen (shared Gemini Models quota pool with Gemini 3.8 Flash)
+		"gemini-4-hydrogen-xhigh":  {0.75, 0.075, 3.75},
+		"gemini-4-hydrogen-high":   {0.75, 0.075, 3.75},
+		"gemini-4-hydrogen-medium": {0.75, 0.075, 3.75},
+		"gemini-4-hydrogen-low":    {0.75, 0.075, 3.75},
+		"gemini-4-hydrogen":        {0.75, 0.075, 3.75},
 		// Google Gemini 3.8 / 3.7 / 3.6 / 3.5 Flash series
 		"gemini-3.8-flash-high":   {0.75, 0.075, 3.75},
 		"gemini-3.8-flash-medium": {0.75, 0.075, 3.75},
@@ -412,8 +424,17 @@ func lookupOfficialProviderPricing(modelID, provider string) (*float64, *float64
 		"gemini-2.5-flash":      {0.30, 0.03, 2.50},
 		"gemini-2.5-flash-lite": {0.10, 0.01, 0.40},
 		"gemini-2.0-flash":      {0.10, 0.025, 0.40},
-		// Anthropic Claude 4.6 / 3.7 / 3.5 / 3
+		// Anthropic Claude 5.5 / 4.6 / 3.7 / 3.5 / 3
+		"claude-sonnet-5-5-high":        {3.00, 0.30, 15.00},
+		"claude-sonnet-5-5-medium":      {3.00, 0.30, 15.00},
+		"claude-sonnet-5-5-low":         {3.00, 0.30, 15.00},
+		"claude-sonnet-5-5-thinking":    {3.00, 0.30, 15.00},
+		"claude-sonnet-5-5":             {3.00, 0.30, 15.00},
+		"claude-sonnet-4-6-thinking":    {3.00, 0.30, 15.00},
 		"claude-sonnet-4-6":             {3.00, 0.30, 15.00},
+		"claude-opus-5-5-high":          {15.00, 1.50, 75.00},
+		"claude-opus-5-5-medium":        {15.00, 1.50, 75.00},
+		"claude-opus-5-5-low":           {15.00, 1.50, 75.00},
 		"claude-opus-5-5-thinking":      {15.00, 1.50, 75.00},
 		"claude-opus-5-5":               {15.00, 1.50, 75.00},
 		"claude-opus-4-6-thinking":      {15.00, 1.50, 75.00},
@@ -450,14 +471,22 @@ func lookupOfficialProviderPricing(modelID, provider string) (*float64, *float64
 		return floatPtr(r.in), floatPtr(r.cached), floatPtr(r.out), true
 	}
 	// Strip vendor prefix if present ONLY when provider is an official vendor
+	lookupID := id
 	if idx := strings.LastIndex(id, "/"); idx != -1 {
 		prefix := id[:idx]
 		shortID := id[idx+1:]
 		if prefix == "google" || prefix == "gemini" || prefix == "anthropic" || prefix == "openai" || prefix == "deepseek" || prefix == "meta" || prefix == "mistralai" {
+			lookupID = shortID
 			if r, ok := exactRates[shortID]; ok {
 				return floatPtr(r.in), floatPtr(r.cached), floatPtr(r.out), true
 			}
 		}
+	}
+	stripped := strings.ToLower(stripEffortSuffix(lookupID))
+	stripped = strings.ReplaceAll(stripped, "claude-opus-5.5", "claude-opus-5-5")
+	stripped = strings.ReplaceAll(stripped, "claude-sonnet-5.5", "claude-sonnet-5-5")
+	if r, ok := exactRates[stripped]; ok {
+		return floatPtr(r.in), floatPtr(r.cached), floatPtr(r.out), true
 	}
 
 	return nil, nil, nil, false
@@ -763,15 +792,16 @@ func lookupDynamicGooglePricing(ctx context.Context, modelID string) (*float64, 
 	target := strings.ToLower(strings.TrimSpace(modelID))
 	target = strings.TrimPrefix(target, "models/")
 	target = strings.TrimPrefix(target, "google/")
+	target = strings.ToLower(ResolveModelPlaceholder(target))
 
 	// 1. Exact match
 	if e, ok := cached[target]; ok {
 		return floatPtr(e.inPerM), floatPtr(e.cachedPerM), floatPtr(e.outPerM), true
 	}
 
-	// 2. Try stripping thinking / tiered suffixes: -high, -medium, -low, -thinking, -tiered, -off
+	// 2. Try stripping thinking / tiered suffixes: -xhigh, -high, -medium, -low, -thinking, -tiered, -extra, -max, -off
 	stripped := target
-	for _, suffix := range []string{"-high", "-medium", "-low", "-thinking", "-tiered", "-off"} {
+	for _, suffix := range []string{"-xhigh", "-high", "-medium", "-low", "-thinking", "-tiered", "-extra", "-max", "-off"} {
 		if strings.HasSuffix(stripped, suffix) {
 			stripped = strings.TrimSuffix(stripped, suffix)
 			if e, ok := cached[stripped]; ok {
@@ -814,19 +844,18 @@ func (s *Store) allocateInternalIDLocked() int64 {
 	return next
 }
 
-// NormalizeCanonicalNativeModel strips thinking-level suffixes (e.g., -high, -medium, -low, -thinking)
-// and display-name annotations (e.g., "(High)", "(Medium)", "(Low)", "(Thinking)") so that a native
+// NormalizeCanonicalNativeModel strips thinking-level suffixes (e.g., -xhigh, -high, -medium, -low, -thinking)
+// and display-name annotations (e.g., "(XHigh)", "(High)", "(Medium)", "(Low)", "(Thinking)") so that a native
 // model with multiple thinking levels is treated as a single canonical model in Token Price and Monitoring.
 func NormalizeCanonicalNativeModel(modelID, displayName string) (canonicalID, canonicalName string) {
-	id := strings.TrimSpace(modelID)
-	id = strings.TrimPrefix(id, "models/")
+	id := ResolveModelPlaceholder(modelID)
 	lowID := strings.ToLower(id)
 
 	name := strings.TrimSpace(displayName)
 	for _, suffix := range []string{
-		" (High)", " (Medium)", " (Low)", " (Off)", " (Thinking)",
-		" (high)", " (medium)", " (low)", " (off)", " (thinking)",
-		" [High]", " [Medium]", " [Low]", " [Thinking]",
+		" (XHigh)", " (High)", " (Medium)", " (Low)", " (Extra)", " (Max)", " (Off)", " (Thinking)",
+		" (xhigh)", " (high)", " (medium)", " (low)", " (extra)", " (max)", " (off)", " (thinking)",
+		" [XHigh]", " [High]", " [Medium]", " [Low]", " [Extra]", " [Max]", " [Thinking]",
 	} {
 		if strings.HasSuffix(name, suffix) {
 			name = strings.TrimSpace(strings.TrimSuffix(name, suffix))
@@ -840,7 +869,7 @@ func NormalizeCanonicalNativeModel(modelID, displayName string) (canonicalID, ca
 		return "gemini-3-flash", "Gemini 3 Flash"
 	}
 
-	for _, suffix := range []string{"-thinking", "-tiered", "-high", "-medium", "-low", "-off"} {
+	for _, suffix := range []string{"-thinking", "-tiered", "-xhigh", "-high", "-medium", "-low", "-extra", "-max", "-off"} {
 		if strings.HasSuffix(lowID, suffix) {
 			id = id[:len(id)-len(suffix)]
 			lowID = lowID[:len(lowID)-len(suffix)]
@@ -849,8 +878,16 @@ func NormalizeCanonicalNativeModel(modelID, displayName string) (canonicalID, ca
 	}
 
 	switch lowID {
+	case "gemini-4-hydrogen":
+		return "gemini-4-hydrogen", "Gemini 4 Hydrogen"
+	case "gemini-4-argon":
+		return "gemini-4-argon", "Gemini 4 Argon"
+	case "gemini-pro-orchestrator-g1-pro", "gemini-pro-orchestrator":
+		return "gemini-pro-orchestrator-g1-pro", "Orchestrator (Argon)"
 	case "claude-opus-5-5", "claude-opus-5.5":
 		return "claude-opus-5-5", "Claude Opus 5.5"
+	case "claude-sonnet-5-5", "claude-sonnet-5.5":
+		return "claude-sonnet-5-5", "Claude Sonnet 5.5"
 	}
 
 	if name == "" {

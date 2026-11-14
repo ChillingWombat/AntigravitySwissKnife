@@ -348,7 +348,8 @@ func TestFetchArgonQuotaFromLanguageServerWeeklyOnlyBucket(t *testing.T) {
 
 func TestFetchArgonQuotaFromLanguageServerUserStatusFallback(t *testing.T) {
 	const csrfToken = "test-local-csrf-token"
-	resetTime := "2026-10-28T07:58:15Z"
+	now := time.Now().UTC().Truncate(time.Second)
+	resetTime := now.Add(72 * time.Hour).Format(time.RFC3339)
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = readGRPCWebRequest(t, r)
@@ -388,7 +389,7 @@ func TestFetchArgonQuotaFromLanguageServerUserStatusFallback(t *testing.T) {
 	got, err := fetchArgonQuotaFromEndpointWithProject(languageServerEndpoint{
 		origin:    server.URL,
 		csrfToken: csrfToken,
-	}, "fallback@example.com", "", time.Now())
+	}, "fallback@example.com", "", now)
 	if err != nil {
 		t.Fatalf("fetchArgonQuotaFromEndpointWithProject() fallback error = %v", err)
 	}
@@ -397,6 +398,164 @@ func TestFetchArgonQuotaFromLanguageServerUserStatusFallback(t *testing.T) {
 	}
 	if got.WeeklyResetTime.Format(time.RFC3339) != resetTime {
 		t.Errorf("fallback weekly reset time = %v, want %s", got.WeeklyResetTime, resetTime)
+	}
+}
+
+func TestExtractArgonQuota_IgnoresHydrogenAndClassifiesWindows(t *testing.T) {
+	now := time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
+	weeklyReset := now.Add(96 * time.Hour).Format(time.RFC3339)
+	fiveHourReset := now.Add(4 * time.Hour).Format(time.RFC3339)
+
+	hydrogenFrac := 0.99
+	argonWeeklyFrac := 0.62
+	argon5hFrac := 0.35
+
+	var resp languageServerUserStatusResponse
+	resp.UserStatus.CascadeModelConfigData.ClientModelConfigs = []languageServerClientModelConfig{
+		{
+			ModelID: "gemini-4-hydrogen-high",
+			Label:   "Gemini 4 Hydrogen (High)",
+			QuotaInfo: &languageServerModelQuotaInfo{
+				RemainingFraction: &hydrogenFrac,
+				ResetTime:         weeklyReset,
+			},
+		},
+		{
+			ModelOrAlias: &languageServerModelOrAlias{
+				Model: "MODEL_PLACEHOLDER_M417",
+				Alias: "gemini-4-argon-high",
+			},
+			Label: "Gemini 4 Argon (High)",
+			QuotaInfo: &languageServerModelQuotaInfo{
+				RemainingFraction: &argonWeeklyFrac,
+				ResetTime:         weeklyReset,
+			},
+		},
+		{
+			ModelOrAlias: &languageServerModelOrAlias{
+				Model: "MODEL_PLACEHOLDER_M668",
+				Alias: "gemini-pro-orchestrator-g1-pro",
+			},
+			Label: "Orchestrator (Argon)",
+			QuotaInfo: &languageServerModelQuotaInfo{
+				RemainingFraction: &argon5hFrac,
+				ResetTime:         fiveHourReset,
+			},
+		},
+	}
+
+	got := resp.extractArgonQuota(now)
+	if got == nil {
+		t.Fatalf("expected non-nil Argon quota")
+	}
+	if got.Weekly == nil || *got.Weekly != 0.62 {
+		t.Errorf("expected weekly Argon fraction 0.62 (not Hydrogen 0.99), got %v", got.Weekly)
+	}
+	if got.FiveHour == nil || *got.FiveHour != 0.35 {
+		t.Errorf("expected 5h Argon fraction 0.35, got %v", got.FiveHour)
+	}
+}
+
+func TestFetchLanguageServerModelCatalogFromEndpoint(t *testing.T) {
+	const csrfToken = "test-ls-catalog-csrf"
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = readGRPCWebRequest(t, r)
+		w.Header().Set("Content-Type", "application/grpc-web+json")
+		if r.URL.Path != languageServerUserStatusMethod {
+			http.NotFound(w, r)
+			return
+		}
+		writeGRPCWebJSON(t, w, map[string]any{
+			"userStatus": map[string]any{
+				"email": "ls@example.com",
+				"cascadeModelConfigData": map[string]any{
+					"defaultOverrideModelConfig": map[string]any{
+						"modelOrAlias": map[string]any{
+							"model": "MODEL_PLACEHOLDER_M525",
+							"alias": "gemini-4-hydrogen-high",
+						},
+					},
+					"clientModelConfigs": []any{
+						map[string]any{
+							"modelOrAlias":  map[string]any{"model": "MODEL_PLACEHOLDER_M417", "alias": "gemini-4-argon-high"},
+							"label":         "Gemini 4 Argon (High)",
+							"provider":      "MODEL_PROVIDER_GOOGLE",
+							"isRecommended": false,
+						},
+						map[string]any{
+							"modelOrAlias":  map[string]any{"model": "MODEL_PLACEHOLDER_M525", "alias": "gemini-4-hydrogen-high"},
+							"label":         "Gemini 4 Hydrogen (High)",
+							"provider":      "MODEL_PROVIDER_GOOGLE",
+							"isRecommended": true,
+						},
+						map[string]any{
+							"modelOrAlias":               map[string]any{"model": "MODEL_PLACEHOLDER_M668", "alias": "gemini-pro-orchestrator-g1-pro"},
+							"label":                      "Orchestrator (Argon)",
+							"provider":                   "MODEL_PROVIDER_GOOGLE",
+							"supportsThoughtCirculation": true,
+						},
+						map[string]any{
+							"modelOrAlias": map[string]any{"model": "MODEL_PLACEHOLDER_M670", "alias": "gemini-4-carbon-disabled"},
+							"label":        "Gemini 4 Carbon",
+							"tagTitle":     "Unavailable",
+							"provider":     "MODEL_PROVIDER_GOOGLE",
+						},
+						map[string]any{
+							"modelId":  "model-preview-unavailable",
+							"label":    "Preview Unavailable",
+							"tagTitle": "Unavailable",
+							"provider": "MODEL_PROVIDER_GOOGLE",
+						},
+						map[string]any{
+							"modelId":    "chat_20706",
+							"label":      "Internal Chat",
+							"isInternal": true,
+							"provider":   "MODEL_PROVIDER_GOOGLE",
+						},
+						map[string]any{
+							"modelOrAlias":  map[string]any{"model": "MODEL_PLACEHOLDER_M402", "alias": "claude-opus-5-5-high"},
+							"label":         "Claude Opus 5.5 (High)",
+							"provider":      "MODEL_PROVIDER_ANTHROPIC",
+							"isRecommended": true,
+						},
+						map[string]any{
+							"modelId":  "gpt-oss-120b-medium",
+							"label":    "GPT-OSS 120B (Medium)",
+							"provider": "MODEL_PROVIDER_OPENAI",
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	gemini, nonGemini, defaultID, err := fetchLanguageServerModelCatalogFromEndpoint(languageServerEndpoint{
+		origin:    server.URL,
+		csrfToken: csrfToken,
+	})
+	if err != nil {
+		t.Fatalf("fetchLanguageServerModelCatalogFromEndpoint() error = %v", err)
+	}
+	if defaultID != "gemini-4-hydrogen-high" {
+		t.Errorf("defaultID = %q, want gemini-4-hydrogen-high", defaultID)
+	}
+	if len(gemini) != 3 {
+		t.Fatalf("expected 3 Gemini models (carbon/unavailable/internal excluded), got %d: %+v", len(gemini), gemini)
+	}
+	if len(nonGemini) != 2 {
+		t.Fatalf("expected 2 Non-Gemini models, got %d: %+v", len(nonGemini), nonGemini)
+	}
+	for _, m := range append(append([]ModelOption(nil), gemini...), nonGemini...) {
+		if m.ID == "gemini-4-carbon-disabled" || m.ID == "model-preview-unavailable" || m.ID == "chat_20706" {
+			t.Errorf("filtered model %q leaked into LS catalog", m.ID)
+		}
+	}
+	if gemini[2].ID != "gemini-pro-orchestrator-g1-pro" || !gemini[2].SupportsThinking || len(gemini[2].ThinkingLevels) != 1 || gemini[2].ThinkingLevels[0] != "high" {
+		t.Errorf("unexpected orchestrator option: %+v", gemini[2])
+	}
+	if nonGemini[0].ID != "claude-opus-5-5-high" || nonGemini[0].Provider != "Anthropic" || !nonGemini[0].Recommended {
+		t.Errorf("unexpected non-gemini[0]: %+v", nonGemini[0])
 	}
 }
 

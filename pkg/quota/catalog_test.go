@@ -56,24 +56,62 @@ func TestGetAvailableModelCatalog_Defaults(t *testing.T) {
 	if len(cat.GeminiModels) != 12 {
 		t.Errorf("expected 12 baseline Gemini models, got %d", len(cat.GeminiModels))
 	}
-	if len(cat.NonGeminiModels) != 4 {
-		t.Errorf("expected 4 baseline Non-Gemini models, got %d", len(cat.NonGeminiModels))
+	if len(cat.NonGeminiModels) != 10 {
+		t.Errorf("expected 10 baseline Non-Gemini models, got %d", len(cat.NonGeminiModels))
 	}
-	if !containsCatalogModel(cat.GeminiModels, "gemini-4-argon") {
-		t.Errorf("expected gemini-4-argon in baseline Gemini models")
+	for _, wantID := range []string{
+		"gemini-4-argon-high",
+		"gemini-4-argon-medium",
+		"gemini-4-argon-low",
+		"gemini-4-argon",
+		"gemini-4-hydrogen-xhigh",
+		"gemini-4-hydrogen-high",
+		"gemini-4-hydrogen-medium",
+		"gemini-4-hydrogen-low",
+		"gemini-pro-orchestrator-g1-pro",
+		"gemini-3.8-flash-high",
+		"gemini-3.8-flash-medium",
+		"gemini-3.8-flash-low",
+	} {
+		if !containsCatalogModel(cat.GeminiModels, wantID) {
+			t.Errorf("expected %s in baseline Gemini models", wantID)
+		}
 	}
-	if !containsCatalogModel(cat.NonGeminiModels, "claude-opus-5-5") {
-		t.Errorf("expected claude-opus-5-5 in baseline Non-Gemini models")
+	for _, wantID := range []string{
+		"claude-opus-5-5-high",
+		"claude-opus-5-5-medium",
+		"claude-opus-5-5-low",
+		"claude-opus-5-5",
+		"claude-sonnet-5-5-high",
+		"claude-sonnet-5-5-medium",
+		"claude-sonnet-5-5-low",
+		"claude-sonnet-4-6",
+		"claude-opus-4-6-thinking",
+		"gpt-oss-120b-medium",
+	} {
+		if !containsCatalogModel(cat.NonGeminiModels, wantID) {
+			t.Errorf("expected %s in baseline Non-Gemini models", wantID)
+		}
 	}
 
-	// Verify first item of Gemini models is gemini-3.8-flash-high
-	if cat.GeminiModels[0].ID != "gemini-3.8-flash-high" {
-		t.Errorf("expected first Gemini model to be 'gemini-3.8-flash-high', got '%s'", cat.GeminiModels[0].ID)
+	if cat.GeminiModels[0].ID != "gemini-4-argon-high" {
+		t.Errorf("expected first Gemini model to be 'gemini-4-argon-high', got '%s'", cat.GeminiModels[0].ID)
 	}
-
-	// Verify first item of NonGemini models is claude-sonnet-4-6 (picker order)
-	if cat.NonGeminiModels[0].ID != "claude-sonnet-4-6" {
-		t.Errorf("expected first Non-Gemini model to be 'claude-sonnet-4-6', got '%s'", cat.NonGeminiModels[0].ID)
+	if cat.NonGeminiModels[0].ID != "claude-opus-5-5-high" {
+		t.Errorf("expected first Non-Gemini model to be 'claude-opus-5-5-high', got '%s'", cat.NonGeminiModels[0].ID)
+	}
+	for _, m := range cat.GeminiModels {
+		if m.ID == "gemini-4-hydrogen-high" && !m.Recommended {
+			t.Errorf("expected gemini-4-hydrogen-high to be marked Recommended")
+		}
+		if m.ID == "gemini-pro-orchestrator-g1-pro" && (!m.SupportsThinking || len(m.ThinkingLevels) != 1 || m.ThinkingLevels[0] != "high") {
+			t.Errorf("unexpected orchestrator thinking metadata: %+v", m)
+		}
+	}
+	for _, m := range cat.NonGeminiModels {
+		if (m.ID == "claude-opus-5-5-high" || m.ID == "claude-sonnet-5-5-high") && !m.Recommended {
+			t.Errorf("expected %s to be marked Recommended", m.ID)
+		}
 	}
 }
 
@@ -387,20 +425,26 @@ func TestGetAvailableModelCatalog_CloudCodePickerFixture(t *testing.T) {
 	}
 
 	wantGemini := []string{
+		"gemini-4-argon-high",
+		"gemini-4-argon-medium",
+		"gemini-4-argon-low",
+		"gemini-4-hydrogen-xhigh",
+		"gemini-4-hydrogen-high",
+		"gemini-4-hydrogen-medium",
+		"gemini-4-hydrogen-low",
+		"gemini-pro-orchestrator-g1-pro",
 		"gemini-3.8-flash-high",
 		"gemini-3.8-flash-medium",
 		"gemini-3.8-flash-low",
-		"gemini-3.7-flash-high",
-		"gemini-3.7-flash-medium",
-		"gemini-3.7-flash-low",
-		"gemini-3.6-flash-high",
-		"gemini-3.6-flash-medium",
-		"gemini-3.6-flash-low",
-		"gemini-pro-agent",
-		"gemini-3.1-pro-low",
 		"gemini-4-argon",
 	}
 	wantNonGemini := []string{
+		"claude-opus-5-5-high",
+		"claude-opus-5-5-medium",
+		"claude-opus-5-5-low",
+		"claude-sonnet-5-5-high",
+		"claude-sonnet-5-5-medium",
+		"claude-sonnet-5-5-low",
 		"claude-sonnet-4-6",
 		"claude-opus-4-6-thinking",
 		"gpt-oss-120b-medium",
@@ -456,6 +500,7 @@ func TestGetAvailableModelCatalog_CloudCodePickerFixture(t *testing.T) {
 		"gemini-2.5-pro",
 		"gemini-2.5-flash",
 		"gemini-3-flash-agent",
+		"gemini-4-carbon-disabled",
 	}
 	for _, f := range forbidden {
 		for _, m := range cat.GeminiModels {
@@ -471,11 +516,14 @@ func TestGetAvailableModelCatalog_CloudCodePickerFixture(t *testing.T) {
 	}
 
 	// Spot-check display names from the models map.
-	if cat.GeminiModels[0].DisplayName != "Gemini 3.8 Flash (High)" {
-		t.Errorf("expected display name 'Gemini 3.8 Flash (High)', got '%s'", cat.GeminiModels[0].DisplayName)
+	if cat.GeminiModels[0].DisplayName != "Gemini 4 Argon (High)" {
+		t.Errorf("expected display name 'Gemini 4 Argon (High)', got '%s'", cat.GeminiModels[0].DisplayName)
 	}
-	if cat.NonGeminiModels[1].DisplayName != "Claude Opus 4.6 (Thinking)" {
-		t.Errorf("expected display name 'Claude Opus 4.6 (Thinking)', got '%s'", cat.NonGeminiModels[1].DisplayName)
+	if cat.GeminiModels[7].DisplayName != "Orchestrator (Argon)" {
+		t.Errorf("expected display name 'Orchestrator (Argon)', got '%s'", cat.GeminiModels[7].DisplayName)
+	}
+	if cat.NonGeminiModels[0].DisplayName != "Claude Opus 5.5 (High)" {
+		t.Errorf("expected display name 'Claude Opus 5.5 (High)', got '%s'", cat.NonGeminiModels[0].DisplayName)
 	}
 }
 
@@ -571,5 +619,140 @@ func TestGetAvailableModelCatalogFleet(t *testing.T) {
 		if model.ID == "gemini-fleet-shared" && model.DisplayName != "Gemini Fleet Shared (Pro)" {
 			t.Errorf("expected active fleet metadata for shared model, got '%s'", model.DisplayName)
 		}
+	}
+}
+
+func TestIsArgonModel_HydrogenAndCarbonExclusion(t *testing.T) {
+	shouldMatch := [][]string{
+		{"gemini-4-argon-high"},
+		{"gemini-4-argon-medium", "Gemini 4 Argon (Medium)"},
+		{"gemini-4-argon-low"},
+		{"gemini-pro-orchestrator-g1-pro", "Orchestrator (Argon)"},
+		{"MODEL_PLACEHOLDER_M417"},
+		{"MODEL_PLACEHOLDER_M418"},
+		{"MODEL_PLACEHOLDER_M419"},
+		{"MODEL_PLACEHOLDER_M668"},
+		{"gemini-4-pro"},
+	}
+	for _, vals := range shouldMatch {
+		if !isArgonModel(vals...) {
+			t.Errorf("expected isArgonModel(%v) = true", vals)
+		}
+	}
+
+	shouldNotMatch := [][]string{
+		{"gemini-4-hydrogen-xhigh"},
+		{"gemini-4-hydrogen-high", "Gemini 4 Hydrogen (High)"},
+		{"gemini-4-hydrogen-medium"},
+		{"gemini-4-hydrogen-low"},
+		{"Gemini Models", "Models within this group: Gemini 4 Hydrogen, Gemini 3.8 Flash"},
+		{"gemini-4-carbon-disabled", "Gemini 4 Carbon"},
+		{"gemini-3.8-flash-high"},
+	}
+	for _, vals := range shouldNotMatch {
+		if isArgonModel(vals...) {
+			t.Errorf("expected isArgonModel(%v) = false", vals)
+		}
+	}
+}
+
+func TestIsInternalModelID_DisabledSuffix(t *testing.T) {
+	if !isInternalModelID("gemini-4-carbon-disabled") {
+		t.Errorf("expected gemini-4-carbon-disabled to be internal/filtered")
+	}
+	if !isInternalModelID("custom-model-DISABLED") {
+		t.Errorf("expected -disabled suffix to match case-insensitively")
+	}
+	if isInternalModelID("gemini-4-hydrogen-high") {
+		t.Errorf("did not expect gemini-4-hydrogen-high to be marked internal")
+	}
+}
+
+func TestIsTrialWarningText_GPTOssExclusionAndNov18Notice(t *testing.T) {
+	nonTrial := []string{
+		"GPT-OSS will be removed in an upcoming release.",
+		"gpt-oss will be removed soon; switch to Claude or Gemini.",
+		"GPT-OSS 120B will no longer be available on your current plan after deprecation.",
+	}
+	for _, msg := range nonTrial {
+		if IsTrialWarningText(msg) {
+			t.Errorf("expected IsTrialWarningText(%q) = false", msg)
+		}
+	}
+
+	trialNotices := []string{
+		"Third-party model access will no longer be available on your current plan starting on November 18, 2026.",
+		"Third-party model access will be restricted on your current plan starting November 18, 2026.",
+	}
+	for _, msg := range trialNotices {
+		if !IsTrialWarningText(msg) {
+			t.Errorf("expected IsTrialWarningText(%q) = true", msg)
+		}
+	}
+}
+
+func TestDetectTierFromAvailableModels_Antigravity2321(t *testing.T) {
+	origModelsURLs := CloudCodeModelsURLs
+	defer func() { CloudCodeModelsURLs = origModelsURLs }()
+
+	cases := []struct {
+		name     string
+		models   map[string]map[string]string
+		wantTier string
+	}{
+		{
+			name: "free account with hydrogen and flash",
+			models: map[string]map[string]string{
+				"gemini-4-hydrogen-high":   {"displayName": "Gemini 4 Hydrogen (High)"},
+				"gemini-3.8-flash-high":    {"displayName": "Gemini 3.8 Flash (High)"},
+				"gemini-4-carbon-disabled": {"displayName": "Gemini 4 Carbon"},
+			},
+			wantTier: PlanTierFree,
+		},
+		{
+			name: "pro trial with argon but without 5.5 third-party models",
+			models: map[string]map[string]string{
+				"gemini-4-argon-high":    {"displayName": "Gemini 4 Argon (High)"},
+				"gemini-4-hydrogen-high": {"displayName": "Gemini 4 Hydrogen (High)"},
+				"claude-sonnet-4-6":      {"displayName": "Claude Sonnet 4.6 (Thinking)"},
+			},
+			wantTier: PlanTierProTrial,
+		},
+		{
+			name: "paid pro with argon and claude sonnet 5.5",
+			models: map[string]map[string]string{
+				"gemini-4-argon-high":    {"displayName": "Gemini 4 Argon (High)"},
+				"gemini-4-hydrogen-high": {"displayName": "Gemini 4 Hydrogen (High)"},
+				"claude-sonnet-5-5-high": {"displayName": "Claude Sonnet 5.5 (High)"},
+			},
+			wantTier: PlanTierPro,
+		},
+		{
+			name: "paid pro with opus 5.5",
+			models: map[string]map[string]string{
+				"gemini-pro-orchestrator-g1-pro": {"displayName": "Orchestrator (Argon)"},
+				"claude-opus-5-5-high":           {"displayName": "Claude Opus 5.5 (High)"},
+			},
+			wantTier: PlanTierPro,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"models": tc.models})
+			}))
+			defer srv.Close()
+			CloudCodeModelsURLs = []string{srv.URL}
+
+			tier, err := DetectTierFromAvailableModels("mock-token")
+			if err != nil {
+				t.Fatalf("DetectTierFromAvailableModels() error = %v", err)
+			}
+			if tier != tc.wantTier {
+				t.Errorf("got tier %q, want %q", tier, tc.wantTier)
+			}
+		})
 	}
 }

@@ -37,12 +37,142 @@ type languageServerEndpoint struct {
 // ErrNoLanguageServers means there was no live Antigravity process to update.
 var ErrNoLanguageServers = errors.New("no running Antigravity language_server instances discovered")
 
+type languageServerModelOrAlias struct {
+	Model string `json:"model"`
+	Alias string `json:"alias"`
+}
+
+func (m *languageServerModelOrAlias) id() string {
+	if m == nil {
+		return ""
+	}
+	if alias := strings.TrimPrefix(strings.TrimSpace(m.Alias), "models/"); alias != "" {
+		return alias
+	}
+	return strings.TrimPrefix(strings.TrimSpace(m.Model), "models/")
+}
+
+func (m *languageServerModelOrAlias) rawModel() string {
+	if m == nil {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSpace(m.Model), "models/")
+}
+
 type languageServerClientModelConfig struct {
-	ModelID        string                        `json:"modelId"`
-	ModelIDSnake   string                        `json:"model_id"`
-	Label          string                        `json:"label"`
-	QuotaInfo      *languageServerModelQuotaInfo `json:"quotaInfo"`
-	QuotaInfoSnake *languageServerModelQuotaInfo `json:"quota_info"`
+	ModelID                  string                        `json:"modelId"`
+	ModelIDSnake             string                        `json:"model_id"`
+	ModelOrAlias             *languageServerModelOrAlias   `json:"modelOrAlias"`
+	ModelOrAliasSnake        *languageServerModelOrAlias   `json:"model_or_alias"`
+	Label                    string                        `json:"label"`
+	TagTitle                 string                        `json:"tagTitle"`
+	TagTitleSnake            string                        `json:"tag_title"`
+	Disabled                 bool                          `json:"disabled"`
+	IsRecommended            bool                          `json:"isRecommended"`
+	IsRecommendedSnake       bool                          `json:"is_recommended"`
+	Recommended              bool                          `json:"recommended"`
+	Provider                 string                        `json:"provider"`
+	ModelProvider            string                        `json:"modelProvider"`
+	ModelProviderSnake       string                        `json:"model_provider"`
+	APIProvider              string                        `json:"apiProvider"`
+	APIProviderSnake         string                        `json:"api_provider"`
+	SupportsThinking         bool                          `json:"supportsThinking"`
+	SupportsThinkingSnake    bool                          `json:"supports_thinking"`
+	SupportsThoughtCirc      bool                          `json:"supportsThoughtCirculation"`
+	SupportsThoughtCircSnake bool                          `json:"supports_thought_circulation"`
+	ThinkingLevels           []string                      `json:"thinkingLevels"`
+	ThinkingLevelsSnake      []string                      `json:"thinking_levels"`
+	IsInternal               bool                          `json:"isInternal"`
+	IsInternalSnake          bool                          `json:"is_internal"`
+	QuotaInfo                *languageServerModelQuotaInfo `json:"quotaInfo"`
+	QuotaInfoSnake           *languageServerModelQuotaInfo `json:"quota_info"`
+}
+
+func isPlaceholderModelIdentifier(id string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(id)), "MODEL_PLACEHOLDER_")
+}
+
+func (c languageServerClientModelConfig) resolvedModelID() string {
+	candidates := []string{
+		strings.TrimPrefix(strings.TrimSpace(c.ModelID), "models/"),
+		strings.TrimPrefix(strings.TrimSpace(c.ModelIDSnake), "models/"),
+		c.ModelOrAlias.id(),
+		c.ModelOrAliasSnake.id(),
+	}
+	for _, cand := range candidates {
+		if cand != "" && !isPlaceholderModelIdentifier(cand) {
+			return cand
+		}
+	}
+	for _, cand := range candidates {
+		if cand != "" {
+			return cand
+		}
+	}
+	return ""
+}
+
+func (c languageServerClientModelConfig) rawModelPlaceholder() string {
+	for _, cand := range []string{
+		c.ModelOrAlias.rawModel(),
+		c.ModelOrAliasSnake.rawModel(),
+		strings.TrimPrefix(strings.TrimSpace(c.ModelID), "models/"),
+		strings.TrimPrefix(strings.TrimSpace(c.ModelIDSnake), "models/"),
+	} {
+		if cand != "" {
+			return cand
+		}
+	}
+	return ""
+}
+
+func (c languageServerClientModelConfig) tagTitle() string {
+	if c.TagTitle != "" {
+		return c.TagTitle
+	}
+	return c.TagTitleSnake
+}
+
+func (c languageServerClientModelConfig) recommended() bool {
+	return c.IsRecommended || c.IsRecommendedSnake || c.Recommended
+}
+
+func (c languageServerClientModelConfig) providerName() string {
+	for _, p := range []string{c.Provider, c.ModelProvider, c.ModelProviderSnake} {
+		if strings.TrimSpace(p) != "" {
+			return p
+		}
+	}
+	return ""
+}
+
+func (c languageServerClientModelConfig) apiProviderName() string {
+	if strings.TrimSpace(c.APIProvider) != "" {
+		return c.APIProvider
+	}
+	return c.APIProviderSnake
+}
+
+func (c languageServerClientModelConfig) supportsThinking() bool {
+	return c.SupportsThinking || c.SupportsThinkingSnake || c.SupportsThoughtCirc || c.SupportsThoughtCircSnake || len(c.thinkingLevels()) > 0
+}
+
+func (c languageServerClientModelConfig) thinkingLevels() []string {
+	if len(c.ThinkingLevels) > 0 {
+		return c.ThinkingLevels
+	}
+	return c.ThinkingLevelsSnake
+}
+
+func (c languageServerClientModelConfig) isInternal() bool {
+	return c.IsInternal || c.IsInternalSnake
+}
+
+func (c languageServerClientModelConfig) quotaInfo() *languageServerModelQuotaInfo {
+	if c.QuotaInfo != nil {
+		return c.QuotaInfo
+	}
+	return c.QuotaInfoSnake
 }
 
 type languageServerModelQuotaInfo struct {
@@ -75,25 +205,69 @@ func (q *languageServerModelQuotaInfo) resetTime() string {
 	return q.ResetTimeSnake
 }
 
+type languageServerDefaultOverrideModelConfig struct {
+	ModelID           string                      `json:"modelId"`
+	ModelIDSnake      string                      `json:"model_id"`
+	ModelOrAlias      *languageServerModelOrAlias `json:"modelOrAlias"`
+	ModelOrAliasSnake *languageServerModelOrAlias `json:"model_or_alias"`
+}
+
+func (d *languageServerDefaultOverrideModelConfig) resolvedID() string {
+	if d == nil {
+		return ""
+	}
+	for _, cand := range []string{
+		strings.TrimPrefix(strings.TrimSpace(d.ModelID), "models/"),
+		strings.TrimPrefix(strings.TrimSpace(d.ModelIDSnake), "models/"),
+		d.ModelOrAlias.id(),
+		d.ModelOrAliasSnake.id(),
+	} {
+		if cand != "" && !isPlaceholderModelIdentifier(cand) {
+			return cand
+		}
+	}
+	return ""
+}
+
+type languageServerCascadeModelConfigData struct {
+	ClientModelConfigs              []languageServerClientModelConfig         `json:"clientModelConfigs"`
+	ClientModelConfigsSnake         []languageServerClientModelConfig         `json:"client_model_configs"`
+	DefaultOverrideModelConfig      *languageServerDefaultOverrideModelConfig `json:"defaultOverrideModelConfig"`
+	DefaultOverrideModelConfigSnake *languageServerDefaultOverrideModelConfig `json:"default_override_model_config"`
+	DefaultAgentModelID             string                                    `json:"defaultAgentModelId"`
+	DefaultAgentModelIDSnake        string                                    `json:"default_agent_model_id"`
+}
+
+func (d languageServerCascadeModelConfigData) configs() []languageServerClientModelConfig {
+	if len(d.ClientModelConfigs) > 0 {
+		return d.ClientModelConfigs
+	}
+	return d.ClientModelConfigsSnake
+}
+
+func (d languageServerCascadeModelConfigData) defaultID() string {
+	for _, cand := range []string{
+		strings.TrimPrefix(strings.TrimSpace(d.DefaultAgentModelID), "models/"),
+		strings.TrimPrefix(strings.TrimSpace(d.DefaultAgentModelIDSnake), "models/"),
+		d.DefaultOverrideModelConfig.resolvedID(),
+		d.DefaultOverrideModelConfigSnake.resolvedID(),
+	} {
+		if cand != "" {
+			return cand
+		}
+	}
+	return ""
+}
+
+type languageServerUserStatusBlock struct {
+	Email                   string                               `json:"email"`
+	CascadeModelConfigData  languageServerCascadeModelConfigData `json:"cascadeModelConfigData"`
+	CascadeModelConfigSnake languageServerCascadeModelConfigData `json:"cascade_model_config_data"`
+}
+
 type languageServerUserStatusResponse struct {
-	UserStatus struct {
-		Email                  string                           `json:"email"`
-		CascadeModelConfigData struct {
-			ClientModelConfigs []languageServerClientModelConfig `json:"clientModelConfigs"`
-		} `json:"cascadeModelConfigData"`
-		CascadeModelConfigSnake struct {
-			ClientModelConfigs []languageServerClientModelConfig `json:"client_model_configs"`
-		} `json:"cascade_model_config_data"`
-	} `json:"userStatus"`
-	UserStatusSnake struct {
-		Email                  string                           `json:"email"`
-		CascadeModelConfigData struct {
-			ClientModelConfigs []languageServerClientModelConfig `json:"clientModelConfigs"`
-		} `json:"cascadeModelConfigData"`
-		CascadeModelConfigSnake struct {
-			ClientModelConfigs []languageServerClientModelConfig `json:"client_model_configs"`
-		} `json:"cascade_model_config_data"`
-	} `json:"user_status"`
+	UserStatus      languageServerUserStatusBlock `json:"userStatus"`
+	UserStatusSnake languageServerUserStatusBlock `json:"user_status"`
 }
 
 func (s languageServerUserStatusResponse) email() string {
@@ -103,41 +277,71 @@ func (s languageServerUserStatusResponse) email() string {
 	return s.UserStatusSnake.Email
 }
 
-func (s languageServerUserStatusResponse) extractArgonQuota(now time.Time) *languageServerArgonQuota {
-	configs := s.UserStatus.CascadeModelConfigData.ClientModelConfigs
-	if len(configs) == 0 {
-		configs = s.UserStatus.CascadeModelConfigSnake.ClientModelConfigs
-	}
-	if len(configs) == 0 {
-		configs = s.UserStatusSnake.CascadeModelConfigData.ClientModelConfigs
-	}
-	if len(configs) == 0 {
-		configs = s.UserStatusSnake.CascadeModelConfigSnake.ClientModelConfigs
-	}
-	for _, m := range configs {
-		modelID := m.ModelID
-		if modelID == "" {
-			modelID = m.ModelIDSnake
+func (s languageServerUserStatusResponse) clientModelConfigs() []languageServerClientModelConfig {
+	for _, configs := range [][]languageServerClientModelConfig{
+		s.UserStatus.CascadeModelConfigData.configs(),
+		s.UserStatus.CascadeModelConfigSnake.configs(),
+		s.UserStatusSnake.CascadeModelConfigData.configs(),
+		s.UserStatusSnake.CascadeModelConfigSnake.configs(),
+	} {
+		if len(configs) > 0 {
+			return configs
 		}
-		if !isArgonQuotaIdentifier(modelID, m.Label) {
+	}
+	return nil
+}
+
+func (s languageServerUserStatusResponse) defaultModelID() string {
+	for _, id := range []string{
+		s.UserStatus.CascadeModelConfigData.defaultID(),
+		s.UserStatus.CascadeModelConfigSnake.defaultID(),
+		s.UserStatusSnake.CascadeModelConfigData.defaultID(),
+		s.UserStatusSnake.CascadeModelConfigSnake.defaultID(),
+	} {
+		if id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func (s languageServerUserStatusResponse) extractArgonQuota(now time.Time) *languageServerArgonQuota {
+	var result *languageServerArgonQuota
+	for _, m := range s.clientModelConfigs() {
+		modelID := m.resolvedModelID()
+		rawPlaceholder := m.rawModelPlaceholder()
+		if strings.Contains(strings.ToLower(modelID+" "+m.Label), "hydrogen") {
 			continue
 		}
-		info := m.QuotaInfo
-		if info == nil {
-			info = m.QuotaInfoSnake
+		if !isArgonQuotaIdentifier(modelID, rawPlaceholder, m.Label) {
+			continue
 		}
+		info := m.quotaInfo()
 		fract, ok := info.fraction()
 		if !ok {
 			continue
 		}
 		remaining := ClampFraction(fract)
 		resetAt := parseResetTime(info.resetTime())
-		return &languageServerArgonQuota{
-			Weekly:          &remaining,
-			WeeklyResetTime: resetAt,
+		if result == nil {
+			result = &languageServerArgonQuota{}
+		}
+		switch classifyQuotaWindow("", modelID, m.Label, resetAt, now) {
+		case "weekly":
+			if result.Weekly == nil {
+				r := remaining
+				result.Weekly = &r
+				result.WeeklyResetTime = resetAt
+			}
+		case "5h":
+			if result.FiveHour == nil {
+				r := remaining
+				result.FiveHour = &r
+				result.FiveHourResetTime = resetAt
+			}
 		}
 	}
-	return nil
+	return result
 }
 type languageServerQuotaBucket struct {
 	BucketID          string   `json:"bucketId"`
@@ -246,6 +450,118 @@ type languageServerArgonQuota struct {
 // language server exposes but the public CloudCode summary endpoint omits.
 func fetchLanguageServerArgonQuota(expectedEmail string, now time.Time) (*languageServerArgonQuota, error) {
 	return fetchLanguageServerArgonQuotaWithProject(expectedEmail, "", now)
+}
+
+// FetchLanguageServerModelCatalog queries the local Antigravity language server
+// GetUserStatus endpoint and converts active clientModelConfigs into ModelOptions.
+func FetchLanguageServerModelCatalog() ([]ModelOption, []ModelOption, string, error) {
+	if core.IsRunningTests() {
+		return nil, nil, "", fmt.Errorf("local language server catalog lookup disabled during tests")
+	}
+
+	var lastErr error
+	for _, endpoint := range discoverLanguageServerEndpoints() {
+		gemini, nonGemini, defaultID, err := fetchLanguageServerModelCatalogFromEndpoint(endpoint)
+		if err == nil && (len(gemini) > 0 || len(nonGemini) > 0) {
+			return gemini, nonGemini, defaultID, nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no local Antigravity language server model catalog discovered")
+	}
+	return nil, nil, "", lastErr
+}
+
+func fetchLanguageServerModelCatalogFromEndpoint(endpoint languageServerEndpoint) ([]ModelOption, []ModelOption, string, error) {
+	var status languageServerUserStatusResponse
+	if err := postLanguageServerRPC(endpoint, languageServerUserStatusMethod, map[string]any{}, &status); err != nil {
+		return nil, nil, "", err
+	}
+
+	baseByID := make(map[string]ModelOption)
+	for _, opt := range DefaultBaseGeminiModels() {
+		baseByID[opt.ID] = opt
+	}
+	for _, opt := range DefaultBaseNonGeminiModels() {
+		baseByID[opt.ID] = opt
+	}
+
+	var geminiOpts, nonGeminiOpts []ModelOption
+	seen := make(map[string]bool)
+
+	for _, m := range status.clientModelConfigs() {
+		modelID := m.resolvedModelID()
+		if modelID == "" || seen[modelID] {
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(modelID), "-disabled") ||
+			strings.EqualFold(strings.TrimSpace(m.tagTitle()), "Unavailable") ||
+			m.isInternal() ||
+			isInternalModelID(modelID) {
+			continue
+		}
+		seen[modelID] = true
+
+		disp := strings.TrimSpace(m.Label)
+		if disp == "" {
+			disp = formatDisplayNameFromID(modelID)
+		}
+
+		provider := detectModelProvider(modelID, m.providerName(), m.apiProviderName())
+		supports := m.supportsThinking()
+		levels := append([]string(nil), m.thinkingLevels()...)
+		recommended := m.recommended()
+
+		if baseOpt, ok := baseByID[modelID]; ok {
+			if len(levels) == 0 && len(baseOpt.ThinkingLevels) > 0 {
+				levels = append([]string(nil), baseOpt.ThinkingLevels...)
+			}
+			if !supports && baseOpt.SupportsThinking {
+				supports = baseOpt.SupportsThinking
+			}
+			if !recommended && baseOpt.Recommended {
+				recommended = baseOpt.Recommended
+			}
+			if (provider == "" || provider == "Native") && baseOpt.Provider != "" {
+				provider = baseOpt.Provider
+			}
+		} else if supports && len(levels) == 0 {
+			low := strings.ToLower(modelID)
+			switch {
+			case strings.Contains(low, "hydrogen"):
+				levels = []string{"low", "medium", "high", "xhigh"}
+			case strings.Contains(low, "orchestrator"):
+				levels = []string{"high"}
+			case isArgonModel(low) || strings.Contains(low, "5-5"):
+				levels = []string{"low", "medium", "high"}
+			default:
+				levels = []string{"off", "low", "medium", "high"}
+			}
+		}
+
+		opt := ModelOption{
+			ID:               modelID,
+			DisplayName:      disp,
+			SupportsThinking: supports,
+			ThinkingLevels:   levels,
+			Recommended:      recommended,
+			Provider:         provider,
+		}
+
+		if strings.EqualFold(provider, "Google") || strings.EqualFold(m.providerName(), "MODEL_PROVIDER_GOOGLE") || strings.Contains(strings.ToLower(modelID), "gemini") {
+			geminiOpts = append(geminiOpts, opt)
+		} else {
+			nonGeminiOpts = append(nonGeminiOpts, opt)
+		}
+	}
+
+	if len(geminiOpts) == 0 && len(nonGeminiOpts) == 0 {
+		return nil, nil, "", fmt.Errorf("no models in local language server response")
+	}
+	return geminiOpts, nonGeminiOpts, status.defaultModelID(), nil
 }
 
 func fetchLanguageServerArgonQuotaWithProject(expectedEmail, project string, now time.Time) (*languageServerArgonQuota, error) {

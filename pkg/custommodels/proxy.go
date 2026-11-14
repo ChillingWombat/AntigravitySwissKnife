@@ -7,8 +7,14 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 )
 
 var (
@@ -124,6 +130,14 @@ type Proxy struct {
 	// Subagent requests carry their own model choice and must not be hijacked by
 	// the globally active custom model selected in the main conversation.
 	IsSubagentConversation func(convID string) bool
+
+	// Optional multi-account orchestrator/subagent fleet router.
+	FleetRouter         *FleetSubagentRouter
+	DisableFleetRouting bool
+	FleetRoutingEnabled *bool
+
+	defaultFleetMu     sync.Mutex
+	defaultFleetRouter *FleetSubagentRouter
 }
 
 // NewProxy builds a proxy over the custom model store.
@@ -165,6 +179,10 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 	if action == "streamGenerateContent" || action == "generateContent" {
 		// /v1internal is the language server (app); /v1beta is the CLI gateway.
 		if p.tryCustomModel(w, r, body, action == "streamGenerateContent", strings.HasPrefix(r.URL.Path, "/v1internal")) {
+			return
+		}
+		if router := p.effectiveFleetRouter(); router != nil {
+			p.passthroughWithFleetRouting(w, r, body, router)
 			return
 		}
 	}
@@ -424,22 +442,31 @@ func (p *Proxy) findCustomModel(modelID string) *CustomModel {
 	}
 	// Cloud Code model names arrive as "models/<id>" or bare ids.
 	wanted = strings.TrimPrefix(wanted, "models/")
-	for _, m := range p.gw.enabledModels() {
-		if m.ID == wanted || m.Name == wanted || strings.EqualFold(m.DisplayName, modelID) {
-			copy := m
-			return &copy
+	candidates := []string{wanted}
+	if resolved := ResolveModelPlaceholder(wanted); resolved != "" && resolved != wanted {
+		candidates = append(candidates, resolved)
+	}
+	models := p.gw.enabledModels()
+	for _, cand := range candidates {
+		for _, m := range models {
+			if m.ID == cand || m.Name == cand || strings.EqualFold(m.DisplayName, modelID) || strings.EqualFold(m.DisplayName, cand) {
+				copy := m
+				return &copy
+			}
 		}
 	}
 	// Match with thinking effort suffix stripped, e.g. "deepseek-v4.1-flash-high" -> "deepseek-v4.1-flash"
-	lower := strings.ToLower(wanted)
-	for _, lvl := range []string{"high", "medium", "low", "xhigh", "max"} {
-		if strings.HasSuffix(lower, "-"+lvl) {
-			base := wanted[:len(wanted)-len(lvl)-1]
-			for _, m := range p.gw.enabledModels() {
-				if m.ID == base || m.Name == base || strings.EqualFold(m.DisplayName, base) {
-					copy := m
-					copy.ThinkingLevel = lvl
-					return &copy
+	for _, cand := range candidates {
+		lower := strings.ToLower(cand)
+		for _, lvl := range []string{"high", "medium", "low", "xhigh", "max"} {
+			if strings.HasSuffix(lower, "-"+lvl) {
+				base := cand[:len(cand)-len(lvl)-1]
+				for _, m := range models {
+					if m.ID == base || m.Name == base || strings.EqualFold(m.DisplayName, base) {
+						copy := m
+						copy.ThinkingLevel = lvl
+						return &copy
+					}
 				}
 			}
 		}
@@ -593,4 +620,188 @@ func isHopByHopHeader(key string) bool {
 		return true
 	}
 	return false
+}
+
+func (p *Proxy) effectiveFleetRouter() *FleetSubagentRouter {
+	if p.DisableFleetRouting {
+		return nil
+	}
+	if env := strings.TrimSpace(os.Getenv("SWISS_DISABLE_FLEET_ROUTING")); env == "1" || strings.EqualFold(env, "true") {
+		return nil
+	}
+	if p.FleetRoutingEnabled != nil && !*p.FleetRoutingEnabled {
+		return nil
+	}
+	if p.FleetRouter != nil {
+		return p.FleetRouter
+	}
+	if core.IsRunningTests() && !(p.FleetRoutingEnabled != nil && *p.FleetRoutingEnabled) {
+		return nil
+	}
+	p.defaultFleetMu.Lock()
+	if p.defaultFleetRouter == nil {
+		p.defaultFleetRouter = NewDefaultFleetSubagentRouter(func() string { return p.Upstream })
+	}
+	router := p.defaultFleetRouter
+	p.defaultFleetMu.Unlock()
+	if p.FleetRoutingEnabled != nil && *p.FleetRoutingEnabled {
+		return router
+	}
+	if router.CredentialedAccountCount() >= 2 {
+		return router
+	}
+	return nil
+}
+
+func (p *Proxy) passthroughWithFleetRouting(w http.ResponseWriter, r *http.Request, body []byte, router *FleetSubagentRouter) {
+	role, cascadeID, rootCascadeID, modelID := ClassifyCloudCodeTurn(body)
+	activeEmail := router.ResolveActiveEmail(r.Header.Get("Authorization"))
+
+	maxAttempts := router.CredentialedAccountCount()
+	if maxAttempts < 2 {
+		maxAttempts = 2
+	}
+	if maxAttempts > 5 {
+		maxAttempts = 5
+	}
+
+	target := strings.TrimRight(p.Upstream, "/") + r.URL.Path
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+
+	var lastResp *http.Response
+	var lastErrBody []byte
+	var lastChosenEmail string
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		chosen, err := router.SelectAccountForTurn(role, cascadeID, rootCascadeID, modelID, activeEmail)
+		if err != nil || chosen == nil {
+			break
+		}
+		token, project, err := router.ResolveCredentials(r.Context(), chosen)
+		if err != nil || strings.TrimSpace(token) == "" {
+			router.MarkCooldown(chosen.Email, modelID, 30*time.Second)
+			continue
+		}
+
+		forwardBody := body
+		if strings.TrimSpace(project) != "" {
+			forwardBody = rewriteCloudCodeProject(body, project)
+		}
+
+		req, err := http.NewRequestWithContext(r.Context(), r.Method, target, bytes.NewReader(forwardBody))
+		if err != nil {
+			http.Error(w, "build upstream request: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		for k, vals := range r.Header {
+			if isHopByHopHeader(k) || strings.EqualFold(k, "Authorization") || strings.EqualFold(k, "Content-Length") {
+				continue
+			}
+			for _, v := range vals {
+				req.Header.Add(k, v)
+			}
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Host", "")
+		req.Host = ""
+
+		resp, err := p.client.Do(req)
+		if err != nil {
+			if lastResp != nil {
+				break
+			}
+			http.Error(w, "upstream: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable) && attempt+1 < maxAttempts {
+			errBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			_ = resp.Body.Close()
+			cd := parseRetryAfterDuration(resp.Header.Get("Retry-After"))
+			router.MarkCooldown(chosen.Email, modelID, cd)
+			log.Printf("[proxy-fleet] failover %s -> next account (%s %d)", chosen.Email, modelID, resp.StatusCode)
+			lastResp = resp
+			lastErrBody = errBytes
+			lastChosenEmail = chosen.Email
+			continue
+		}
+
+		writeFleetResponse(w, resp, chosen.Email, role)
+		return
+	}
+
+	if lastResp != nil {
+		for k, vals := range lastResp.Header {
+			if isHopByHopHeader(k) {
+				continue
+			}
+			for _, v := range vals {
+				w.Header().Add(k, v)
+			}
+		}
+		if lastChosenEmail != "" {
+			w.Header().Set("X-Swiss-Routed-Account", lastChosenEmail)
+		}
+		w.Header().Set("X-Swiss-Turn-Role", role)
+		w.WriteHeader(lastResp.StatusCode)
+		_, _ = w.Write(lastErrBody)
+		return
+	}
+
+	w.Header().Set("X-Swiss-Turn-Role", role)
+	passthrough(w, r, body, p.Upstream, p.client)
+}
+
+func writeFleetResponse(w http.ResponseWriter, resp *http.Response, routedEmail, role string) {
+	defer resp.Body.Close()
+	for k, vals := range resp.Header {
+		if isHopByHopHeader(k) {
+			continue
+		}
+		for _, v := range vals {
+			w.Header().Add(k, v)
+		}
+	}
+	if routedEmail != "" {
+		w.Header().Set("X-Swiss-Routed-Account", routedEmail)
+	}
+	if role != "" {
+		w.Header().Set("X-Swiss-Turn-Role", role)
+	}
+	w.WriteHeader(resp.StatusCode)
+
+	flusher, canFlush := w.(http.Flusher)
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			_, _ = w.Write(buf[:n])
+			if canFlush {
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+}
+
+func parseRetryAfterDuration(header string) time.Duration {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(header); err == nil && secs > 0 {
+		d := time.Duration(secs) * time.Second
+		if d < 5*time.Second {
+			return 5 * time.Second
+		}
+		if d > 5*time.Minute {
+			return 5 * time.Minute
+		}
+		return d
+	}
+	return 0
 }

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/core"
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
 
@@ -45,32 +46,41 @@ var (
 // DefaultBaseGeminiModels returns the base up-to-date Gemini models list,
 // mirroring the CloudCode picker order (agentModelSorts).
 func DefaultBaseGeminiModels() []ModelOption {
-	think := []string{"off", "low", "medium", "high"}
+	argonThink := []string{"low", "medium", "high"}
+	hydrogenThink := []string{"low", "medium", "high", "xhigh"}
+	flashThink := []string{"off", "low", "medium", "high"}
 	return []ModelOption{
-		{ID: "gemini-3.8-flash-high", DisplayName: "Gemini 3.8 Flash (High)", SupportsThinking: true, ThinkingLevels: think, Recommended: true, Provider: "Google"},
-		{ID: "gemini-3.8-flash-medium", DisplayName: "Gemini 3.8 Flash (Medium)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
-		{ID: "gemini-3.8-flash-low", DisplayName: "Gemini 3.8 Flash (Low)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
-		{ID: "gemini-3.7-flash-high", DisplayName: "Gemini 3.7 Flash (High)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
-		{ID: "gemini-3.7-flash-medium", DisplayName: "Gemini 3.7 Flash (Medium)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
-		{ID: "gemini-3.7-flash-low", DisplayName: "Gemini 3.7 Flash (Low)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
-		{ID: "gemini-3.6-flash-high", DisplayName: "Gemini 3.6 Flash (High)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
-		{ID: "gemini-3.6-flash-medium", DisplayName: "Gemini 3.6 Flash (Medium)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
-		{ID: "gemini-3.6-flash-low", DisplayName: "Gemini 3.6 Flash (Low)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
-		{ID: "gemini-pro-agent", DisplayName: "Gemini 3.1 Pro (High)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
-		{ID: "gemini-3.1-pro-low", DisplayName: "Gemini 3.1 Pro (Low)", SupportsThinking: true, ThinkingLevels: think, Provider: "Google"},
-		{ID: "gemini-4-argon", DisplayName: "Gemini 4 Argon", SupportsThinking: true, ThinkingLevels: []string{"low", "medium", "high"}},
+		{ID: "gemini-4-argon-high", DisplayName: "Gemini 4 Argon (High)", SupportsThinking: true, ThinkingLevels: argonThink, Provider: "Google"},
+		{ID: "gemini-4-argon-medium", DisplayName: "Gemini 4 Argon (Medium)", SupportsThinking: true, ThinkingLevels: argonThink, Provider: "Google"},
+		{ID: "gemini-4-argon-low", DisplayName: "Gemini 4 Argon (Low)", SupportsThinking: true, ThinkingLevels: argonThink, Provider: "Google"},
+		{ID: "gemini-4-hydrogen-xhigh", DisplayName: "Gemini 4 Hydrogen (XHigh)", SupportsThinking: true, ThinkingLevels: hydrogenThink, Provider: "Google"},
+		{ID: "gemini-4-hydrogen-high", DisplayName: "Gemini 4 Hydrogen (High)", SupportsThinking: true, ThinkingLevels: hydrogenThink, Recommended: true, Provider: "Google"},
+		{ID: "gemini-4-hydrogen-medium", DisplayName: "Gemini 4 Hydrogen (Medium)", SupportsThinking: true, ThinkingLevels: hydrogenThink, Provider: "Google"},
+		{ID: "gemini-4-hydrogen-low", DisplayName: "Gemini 4 Hydrogen (Low)", SupportsThinking: true, ThinkingLevels: hydrogenThink, Provider: "Google"},
+		{ID: "gemini-pro-orchestrator-g1-pro", DisplayName: "Orchestrator (Argon)", SupportsThinking: true, ThinkingLevels: []string{"high"}, Provider: "Google"},
+		{ID: "gemini-3.8-flash-high", DisplayName: "Gemini 3.8 Flash (High)", SupportsThinking: true, ThinkingLevels: flashThink, Recommended: true, Provider: "Google"},
+		{ID: "gemini-3.8-flash-medium", DisplayName: "Gemini 3.8 Flash (Medium)", SupportsThinking: true, ThinkingLevels: flashThink, Provider: "Google"},
+		{ID: "gemini-3.8-flash-low", DisplayName: "Gemini 3.8 Flash (Low)", SupportsThinking: true, ThinkingLevels: flashThink, Provider: "Google"},
+		{ID: "gemini-4-argon", DisplayName: "Gemini 4 Argon", SupportsThinking: true, ThinkingLevels: argonThink, Provider: "Google"},
 	}
 }
 
 // DefaultBaseNonGeminiModels returns the base up-to-date Non-Gemini native models list,
 // mirroring the CloudCode picker order (agentModelSorts).
 func DefaultBaseNonGeminiModels() []ModelOption {
-	think := []string{"off", "low", "medium", "high"}
+	claudeThink := []string{"low", "medium", "high"}
+	legacyThink := []string{"off", "low", "medium", "high"}
 	return []ModelOption{
-		{ID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6 (Thinking)", SupportsThinking: true, ThinkingLevels: think, Recommended: true, Provider: "Anthropic"},
-		{ID: "claude-opus-4-6-thinking", DisplayName: "Claude Opus 4.6 (Thinking)", SupportsThinking: true, ThinkingLevels: think, Recommended: true, Provider: "Anthropic"},
-		{ID: "gpt-oss-120b-medium", DisplayName: "GPT-OSS 120B (Medium)", SupportsThinking: true, ThinkingLevels: think, Provider: "OpenAI"},
-		{ID: "claude-opus-5-5", DisplayName: "Claude Opus 5.5", ThinkingLevels: []string{"low", "medium", "high"}},
+		{ID: "claude-opus-5-5-high", DisplayName: "Claude Opus 5.5 (High)", SupportsThinking: true, ThinkingLevels: claudeThink, Recommended: true, Provider: "Anthropic"},
+		{ID: "claude-opus-5-5-medium", DisplayName: "Claude Opus 5.5 (Medium)", SupportsThinking: true, ThinkingLevels: claudeThink, Provider: "Anthropic"},
+		{ID: "claude-opus-5-5-low", DisplayName: "Claude Opus 5.5 (Low)", SupportsThinking: true, ThinkingLevels: claudeThink, Provider: "Anthropic"},
+		{ID: "claude-sonnet-5-5-high", DisplayName: "Claude Sonnet 5.5 (High)", SupportsThinking: true, ThinkingLevels: claudeThink, Recommended: true, Provider: "Anthropic"},
+		{ID: "claude-sonnet-5-5-medium", DisplayName: "Claude Sonnet 5.5 (Medium)", SupportsThinking: true, ThinkingLevels: claudeThink, Provider: "Anthropic"},
+		{ID: "claude-sonnet-5-5-low", DisplayName: "Claude Sonnet 5.5 (Low)", SupportsThinking: true, ThinkingLevels: claudeThink, Provider: "Anthropic"},
+		{ID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6 (Thinking)", SupportsThinking: true, ThinkingLevels: legacyThink, Provider: "Anthropic"},
+		{ID: "claude-opus-4-6-thinking", DisplayName: "Claude Opus 4.6 (Thinking)", SupportsThinking: true, ThinkingLevels: legacyThink, Provider: "Anthropic"},
+		{ID: "gpt-oss-120b-medium", DisplayName: "GPT-OSS 120B (Medium)", SupportsThinking: true, ThinkingLevels: legacyThink, Provider: "OpenAI"},
+		{ID: "claude-opus-5-5", DisplayName: "Claude Opus 5.5", SupportsThinking: true, ThinkingLevels: claudeThink, Provider: "Anthropic"},
 	}
 }
 
@@ -156,9 +166,19 @@ func GetAvailableModelCatalogFleet(accounts []*keyring.Account, activeAccount *k
 		}
 	}
 
-	cat.GeminiModels = mergeModelOptions(DefaultBaseGeminiModels(), liveGemini)
-	cat.NonGeminiModels = mergeModelOptions(DefaultBaseNonGeminiModels(), liveNonGemini)
-	cat.DefaultGemini = selectCatalogDefault(cat.GeminiModels, activeDefaultID, firstLiveDefaultID, "gemini-3.8-flash-high")
+	var lsGemini, lsNonGemini []ModelOption
+	var lsDefaultID string
+	if !core.IsRunningTests() {
+		if g, ng, defID, err := FetchLanguageServerModelCatalog(); err == nil {
+			lsGemini = g
+			lsNonGemini = ng
+			lsDefaultID = defID
+		}
+	}
+
+	cat.GeminiModels = mergeModelOptions(DefaultBaseGeminiModels(), lsGemini, liveGemini)
+	cat.NonGeminiModels = mergeModelOptions(DefaultBaseNonGeminiModels(), lsNonGemini, liveNonGemini)
+	cat.DefaultGemini = selectCatalogDefault(cat.GeminiModels, activeDefaultID, firstLiveDefaultID, lsDefaultID, "gemini-3.8-flash-high")
 	cat.DefaultNonGemini = selectCatalogDefault(cat.NonGeminiModels, "claude-opus-4-6-thinking")
 
 	cachedCatalog = cat
@@ -262,6 +282,7 @@ func isInternalModelID(id string) bool {
 		strings.HasPrefix(low, "chat_") ||
 		strings.HasSuffix(low, "_tiered") ||
 		strings.HasSuffix(low, "-tiered") ||
+		strings.HasSuffix(low, "-disabled") ||
 		strings.Contains(low, "observer")
 }
 
@@ -318,7 +339,7 @@ func fetchLiveAvailableModels(acc *keyring.Account) (gemini []ModelOption, nonGe
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+		req.Header.Set("User-Agent", "antigravity/2.32.1 linux/amd64")
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -336,7 +357,7 @@ func fetchLiveAvailableModels(acc *keyring.Account) (gemini []ModelOption, nonGe
 				if rErr == nil {
 					retryReq.Header.Set("Authorization", "Bearer "+token)
 					retryReq.Header.Set("Content-Type", "application/json")
-					retryReq.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+					retryReq.Header.Set("User-Agent", "antigravity/2.32.1 linux/amd64")
 					resp, err = client.Do(retryReq)
 					if err != nil {
 						lastErr = err

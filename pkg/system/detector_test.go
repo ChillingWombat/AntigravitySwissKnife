@@ -1,6 +1,9 @@
 package system
 
 import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,16 +16,16 @@ func TestCompareVersions(t *testing.T) {
 		v1, v2 string
 		want   int
 	}{
-		{"2.19.1", "2.19.1", 0},
-		{"v2.19.1", "2.19.1", 0},
-		{"2.19.2", "2.19.1", 1},
-		{"2.19.0", "2.19.1", -1},
-		{"2.20.0", "2.19.1", 1},
+		{"2.32.1", "2.32.1", 0},
+		{"v2.32.1", "2.32.1", 0},
+		{"2.32.2", "2.32.1", 1},
+		{"2.19.1", "2.32.1", -1},
+		{"2.33.0", "2.32.1", 1},
 		{"1.6.0", "1.6.0", 0},
 		{"1.7.0", "1.6.0", 1},
 		{"1.5.9", "1.6.0", -1},
-		{"2.19.1.5", "2.19.1", 1},
-		{"2.19", "2.19.0", 0},
+		{"2.32.1.5", "2.32.1", 1},
+		{"2.32", "2.32.0", 0},
 	}
 
 	for _, tc := range cases {
@@ -41,7 +44,7 @@ func TestDetector_MockedDesktopAndExtension(t *testing.T) {
 	resDir := filepath.Join(desktopDir, "resources")
 	_ = os.MkdirAll(resDir, 0755)
 	pkgJSON := filepath.Join(resDir, "package.json")
-	_ = os.WriteFile(pkgJSON, []byte(`{"name":"antigravity","version":"2.19.1"}`), 0644)
+	_ = os.WriteFile(pkgJSON, []byte(`{"name":"antigravity","version":"2.32.1"}`), 0644)
 
 	// Mock VS Code Extension
 	vscodeExtsDir := filepath.Join(tmpDir, ".vscode", "extensions")
@@ -61,8 +64,11 @@ func TestDetector_MockedDesktopAndExtension(t *testing.T) {
 	if !res.DesktopApp.Installed {
 		t.Errorf("expected DesktopApp.Installed to be true")
 	}
-	if res.DesktopApp.Version != "2.19.1" {
-		t.Errorf("expected DesktopApp.Version = 2.19.1, got %q", res.DesktopApp.Version)
+	if res.DesktopApp.Version != "2.32.1" {
+		t.Errorf("expected DesktopApp.Version = 2.32.1, got %q", res.DesktopApp.Version)
+	}
+	if res.DesktopApp.LatestVersion != "2.32.1" {
+		t.Errorf("expected DesktopApp.LatestVersion = 2.32.1, got %q", res.DesktopApp.LatestVersion)
 	}
 	if !res.DesktopApp.UpToDate {
 		t.Errorf("expected DesktopApp.UpToDate to be true")
@@ -217,5 +223,72 @@ func TestDetector_AgyVersionProbeUsesLatestVersionAndDoesNotFabricate(t *testing
 				t.Errorf("expected agy UpToDate=%v, got %v", tc.wantCurrent, info.UpToDate)
 			}
 		})
+	}
+}
+
+func buildTestASAR(pkgContent []byte) []byte {
+	indexJSON := []byte(fmt.Sprintf(`{"files":{"package.json":{"size":%d,"offset":"0"}}}`, len(pkgContent)))
+	pad := (4 - (len(indexJSON) % 4)) % 4
+	headerDataSize := uint32(8 + len(indexJSON) + pad)
+
+	var buf bytes.Buffer
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(4))
+	_ = binary.Write(&buf, binary.LittleEndian, headerDataSize)
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(4+len(indexJSON)))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(len(indexJSON)))
+	buf.Write(indexJSON)
+	for i := 0; i < pad; i++ {
+		buf.WriteByte(0)
+	}
+	buf.Write(pkgContent)
+	return buf.Bytes()
+}
+
+func TestDetector_ASARAndElectronWrapperVersion(t *testing.T) {
+	tmpDir := t.TempDir()
+	desktopDir := filepath.Join(tmpDir, "Antigravity")
+	resDir := filepath.Join(desktopDir, "resources")
+	if err := os.MkdirAll(resDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	binPath := filepath.Join(desktopDir, "antigravity")
+	if err := os.WriteFile(binPath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Electron wrapper version file contains 44.9.1 while app.asar carries app version 2.32.1.
+	if err := os.WriteFile(filepath.Join(desktopDir, "version"), []byte("44.9.1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	asarBytes := buildTestASAR([]byte(`{"name":"antigravity","version":"2.32.1"}`))
+	if err := os.WriteFile(filepath.Join(resDir, "app.asar"), asarBytes, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("ANTIGRAVITY_APP_PATH", desktopDir)
+	t.Setenv("ANTIGRAVITY_BIN_PATH", binPath)
+	t.Setenv("ANTIGRAVITY_RESOURCES_DIR", resDir)
+
+	res := NewDetector().DetectAll()
+	if !res.DesktopApp.Installed {
+		t.Fatalf("expected DesktopApp.Installed = true")
+	}
+	if res.DesktopApp.Version != "2.32.1" {
+		t.Errorf("DesktopApp.Version = %q, want 2.32.1", res.DesktopApp.Version)
+	}
+	if !res.DesktopApp.UpToDate {
+		t.Errorf("expected DesktopApp.UpToDate = true")
+	}
+	if res.DesktopApp.ElectronVersion != "44.9.1" {
+		t.Errorf("DesktopApp.ElectronVersion = %q, want 44.9.1", res.DesktopApp.ElectronVersion)
+	}
+
+	// Ensure Electron wrapper version 44.9.1 alone is never mistaken for Antigravity version.
+	_ = os.Remove(filepath.Join(resDir, "app.asar"))
+	resNoAsar := NewDetector().DetectAll()
+	if resNoAsar.DesktopApp.Version != "unknown" {
+		t.Errorf("DesktopApp.Version without package.json/app.asar = %q, want unknown", resNoAsar.DesktopApp.Version)
+	}
+	if resNoAsar.DesktopApp.ElectronVersion != "44.9.1" {
+		t.Errorf("DesktopApp.ElectronVersion without app.asar = %q, want 44.9.1", resNoAsar.DesktopApp.ElectronVersion)
 	}
 }

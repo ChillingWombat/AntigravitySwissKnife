@@ -1,8 +1,10 @@
 package system
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,21 +18,23 @@ import (
 )
 
 const (
-	LatestDesktopVersion   = "2.19.1"
+	LatestDesktopVersion   = "2.32.1"
+	LatestElectronVersion  = "44.9.1"
 	LatestAgyVersion       = "1.2.14"
 	LatestExtensionVersion = "1.6.0"
 )
 
 // InstallationInfo represents installation and update status for a component.
 type InstallationInfo struct {
-	Installed     bool   `json:"installed"`
-	Path          string `json:"path"`
-	CustomPath    string `json:"custom_path,omitempty"`
-	Version       string `json:"version"`
-	UpToDate      bool   `json:"up_to_date"`
-	LatestVersion string `json:"latest_version"`
-	ProcessState  string `json:"process_state,omitempty"`
-	TargetType    string `json:"target_type"`
+	Installed       bool   `json:"installed"`
+	Path            string `json:"path"`
+	CustomPath      string `json:"custom_path,omitempty"`
+	Version         string `json:"version"`
+	ElectronVersion string `json:"electron_version,omitempty"`
+	UpToDate        bool   `json:"up_to_date"`
+	LatestVersion   string `json:"latest_version"`
+	ProcessState    string `json:"process_state,omitempty"`
+	TargetType      string `json:"target_type"`
 }
 
 // SystemInstallations aggregates installation status for the desktop app, agy CLI, and VS Code extension.
@@ -86,6 +90,9 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 	appPath := core.GetAntigravityDesktopAppPath()
 	binPath := core.GetAntigravityBinaryPath()
 	resDir := core.GetAntigravityDesktopResourcesDir()
+	if os.Getenv("ANTIGRAVITY_APP_PATH") != "" && os.Getenv("ANTIGRAVITY_RESOURCES_DIR") == "" {
+		resDir = filepath.Join(appPath, "resources")
+	}
 
 	info := InstallationInfo{
 		Installed:     false,
@@ -112,6 +119,7 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 				}
 			}
 			applyDetectedVersion(&info, extractDesktopVersion(cfg.DesktopAppPath, resDir, info.Path), LatestDesktopVersion)
+			info.ElectronVersion = extractElectronVersion(cfg.DesktopAppPath, info.Path)
 			return info
 		}
 	}
@@ -168,8 +176,9 @@ func (d *Detector) detectDesktopApp() InstallationInfo {
 			}
 		}
 
-		// Attempt to extract version from package.json
+		// Attempt to extract version from package.json or resources/app.asar.
 		applyDetectedVersion(&info, extractDesktopVersion(appPath, resDir, info.Path), LatestDesktopVersion)
+		info.ElectronVersion = extractElectronVersion(appPath, info.Path)
 	}
 
 	// Check running process state
@@ -312,7 +321,7 @@ func (d *Detector) detectVSCodeExtension() InstallationInfo {
 }
 
 func extractDesktopVersion(appPath, resDir, binPath string) string {
-	return readPackageJSONVersion(
+	if v := readPackageJSONVersion(
 		filepath.Join(appPath, "resources", "app", "package.json"),
 		filepath.Join(appPath, "resources", "package.json"),
 		filepath.Join(appPath, "package.json"),
@@ -320,7 +329,34 @@ func extractDesktopVersion(appPath, resDir, binPath string) string {
 		filepath.Join(filepath.Dir(binPath), "resources", "package.json"),
 		filepath.Join(resDir, "app", "package.json"),
 		filepath.Join(resDir, "package.json"),
+	); v != "" {
+		return v
+	}
+	return readASARPackageJSONVersion(
+		filepath.Join(appPath, "resources", "app.asar"),
+		filepath.Join(appPath, "Contents", "Resources", "app.asar"),
+		filepath.Join(filepath.Dir(binPath), "resources", "app.asar"),
+		filepath.Join(resDir, "app.asar"),
+		filepath.Join(appPath, "app.asar"),
 	)
+}
+
+func extractElectronVersion(appPath, binPath string) string {
+	candidates := []string{
+		filepath.Join(appPath, "version"),
+	}
+	if binPath != "" {
+		candidates = append(candidates, filepath.Join(filepath.Dir(binPath), "version"))
+	}
+	for _, cand := range candidates {
+		if data, err := os.ReadFile(cand); err == nil {
+			v := strings.TrimSpace(string(data))
+			if v != "" {
+				return v
+			}
+		}
+	}
+	return ""
 }
 
 func extractAgyVersion(binPath string) string {
@@ -352,14 +388,89 @@ func readPackageJSONVersion(paths ...string) string {
 	for _, p := range paths {
 		if data, err := os.ReadFile(p); err == nil {
 			var pkg struct {
+				Name    string `json:"name"`
 				Version string `json:"version"`
 			}
-			if err := json.Unmarshal(data, &pkg); err == nil && pkg.Version != "" {
-				return pkg.Version
+			if err := json.Unmarshal(data, &pkg); err == nil && pkg.Version != "" && !strings.EqualFold(pkg.Name, "electron") {
+				return strings.TrimSpace(pkg.Version)
 			}
 		}
 	}
 	return ""
+}
+
+func readASARPackageJSONVersion(asarPaths ...string) string {
+	for _, p := range asarPaths {
+		if v := extractVersionFromASAR(p); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func extractVersionFromASAR(asarPath string) string {
+	if strings.TrimSpace(asarPath) == "" {
+		return ""
+	}
+	f, err := os.Open(asarPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil || info.IsDir() || info.Size() < 16 {
+		return ""
+	}
+
+	var hdr [16]byte
+	if _, err := io.ReadFull(f, hdr[:]); err != nil {
+		return ""
+	}
+	headerSize := binary.LittleEndian.Uint32(hdr[4:8])
+	jsonLen := binary.LittleEndian.Uint32(hdr[12:16])
+	dataStart := int64(8) + int64(headerSize)
+	if jsonLen == 0 || jsonLen > 16<<20 || dataStart <= 16 || dataStart > info.Size() || int64(16)+int64(jsonLen) > dataStart {
+		return ""
+	}
+
+	jsonBuf := make([]byte, jsonLen)
+	if _, err := io.ReadFull(f, jsonBuf); err != nil {
+		return ""
+	}
+
+	var index struct {
+		Files map[string]struct {
+			Offset json.Number `json:"offset"`
+			Size   int64       `json:"size"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(jsonBuf, &index); err != nil {
+		return ""
+	}
+	pkgEntry, ok := index.Files["package.json"]
+	if !ok || pkgEntry.Size <= 0 || pkgEntry.Size > 1<<20 {
+		return ""
+	}
+	offset, err := pkgEntry.Offset.Int64()
+	if err != nil || offset < 0 || dataStart+offset+pkgEntry.Size > info.Size() {
+		return ""
+	}
+	if _, err := f.Seek(dataStart+offset, io.SeekStart); err != nil {
+		return ""
+	}
+	pkgBuf := make([]byte, pkgEntry.Size)
+	if _, err := io.ReadFull(f, pkgBuf); err != nil {
+		return ""
+	}
+	var pkg struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(pkgBuf, &pkg); err != nil || strings.EqualFold(pkg.Name, "electron") {
+		return ""
+	}
+	return strings.TrimSpace(pkg.Version)
 }
 
 func pathExists(path string) bool {

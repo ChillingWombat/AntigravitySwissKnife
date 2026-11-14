@@ -265,6 +265,9 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
   describe('3. Normalization & Helper Invariants', () => {
     it('verifies GEMINI_SELECTOR_ORDER defines models in Antigravity selector sequence', () => {
       assert.deepEqual(GEMINI_SELECTOR_ORDER, [
+        'gemini-4-argon',
+        'gemini-4-hydrogen',
+        'gemini-pro-orchestrator-g1-pro',
         'gemini-3.8-flash',
         'gemini-3.7-flash',
         'gemini-3.6-flash',
@@ -273,10 +276,38 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
     })
 
     it('verifies getGeminiSelectorRank returns correct 0-based rank for selector models', () => {
-      assert.equal(getGeminiSelectorRank(sampleNativeModels[2]), 0) // gemini-3.8-flash
-      assert.equal(getGeminiSelectorRank(sampleNativeModels[3]), 1) // gemini-3.7-flash
-      assert.equal(getGeminiSelectorRank(sampleNativeModels[1]), 2) // gemini-3.6-flash
-      assert.equal(getGeminiSelectorRank(sampleNativeModels[0]), 3) // gemini-3.1-pro
+      const argonModel: ModelPricingRecord = {
+        ...sampleNativeModels[0],
+        internal_id: 5,
+        canonical_id: 'gemini-4-argon',
+        model_id: 'gemini-4-argon-high',
+        model_name: 'Gemini 4 Argon (High)',
+        name: 'Gemini 4 Argon (High)',
+      }
+      const hydrogenModel: ModelPricingRecord = {
+        ...sampleNativeModels[0],
+        internal_id: 6,
+        canonical_id: 'gemini-4-hydrogen',
+        model_id: 'gemini-4-hydrogen-xhigh',
+        model_name: 'Gemini 4 Hydrogen (XHigh)',
+        name: 'Gemini 4 Hydrogen (XHigh)',
+      }
+      const orchestratorModel: ModelPricingRecord = {
+        ...sampleNativeModels[0],
+        internal_id: 7,
+        canonical_id: 'gemini-pro-orchestrator-g1-pro',
+        model_id: 'gemini-pro-orchestrator-g1-pro',
+        model_name: 'Orchestrator (Argon)',
+        name: 'Orchestrator (Argon)',
+      }
+
+      assert.equal(getGeminiSelectorRank(argonModel), 0)
+      assert.equal(getGeminiSelectorRank(hydrogenModel), 1)
+      assert.equal(getGeminiSelectorRank(orchestratorModel), 2)
+      assert.equal(getGeminiSelectorRank(sampleNativeModels[2]), 3) // gemini-3.8-flash
+      assert.equal(getGeminiSelectorRank(sampleNativeModels[3]), 4) // gemini-3.7-flash
+      assert.equal(getGeminiSelectorRank(sampleNativeModels[1]), 5) // gemini-3.6-flash
+      assert.equal(getGeminiSelectorRank(sampleNativeModels[0]), 6) // gemini-3.1-pro
 
       const nonGeminiNative: ModelPricingRecord = {
         ...sampleNativeModels[0],
@@ -284,7 +315,99 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
         model_name: 'Claude Sonnet 4.6',
         provider: 'Anthropic',
       }
+      const claudeSonnet55: ModelPricingRecord = {
+        ...sampleNativeModels[0],
+        canonical_id: 'claude-sonnet-5-5',
+        model_id: 'claude-sonnet-5-5-high',
+        model_name: 'Claude Sonnet 5.5',
+        name: 'Claude Sonnet 5.5',
+        provider: 'Anthropic',
+      }
+      const claudeOpus55: ModelPricingRecord = {
+        ...sampleNativeModels[0],
+        canonical_id: 'claude-opus-5-5',
+        model_id: 'claude-opus-5-5-high',
+        model_name: 'Claude Opus 5.5',
+        name: 'Claude Opus 5.5',
+        provider: 'Anthropic',
+      }
       assert.equal(getGeminiSelectorRank(nonGeminiNative), 200)
+      assert.equal(getGeminiSelectorRank(claudeSonnet55), 200)
+      assert.equal(getGeminiSelectorRank(claudeOpus55), 200)
+    })
+
+    it('orders Gemini 4, Orchestrator, Gemini 3.x, and Claude 5.5 models consistently and pins defaults', () => {
+      const models232: ModelPricingRecord[] = [
+        {
+          ...sampleNativeModels[0],
+          internal_id: 30,
+          canonical_id: 'claude-sonnet-5-5',
+          model_id: 'claude-sonnet-5-5-high',
+          model_name: 'Claude Sonnet 5.5',
+          name: 'Claude Sonnet 5.5',
+          provider: 'Anthropic',
+        },
+        {
+          ...sampleNativeModels[0],
+          internal_id: 25,
+          canonical_id: 'claude-opus-5-5',
+          model_id: 'claude-opus-5-5-high',
+          model_name: 'Claude Opus 5.5',
+          name: 'Claude Opus 5.5',
+          provider: 'Anthropic',
+        },
+        ...sampleNativeModels,
+        {
+          ...sampleNativeModels[0],
+          internal_id: 8,
+          canonical_id: 'gemini-pro-orchestrator-g1-pro',
+          model_id: 'gemini-pro-orchestrator-g1-pro',
+          model_name: 'Orchestrator (Argon)',
+          name: 'Orchestrator (Argon)',
+        },
+        {
+          ...sampleNativeModels[0],
+          internal_id: 6,
+          canonical_id: 'gemini-4-hydrogen',
+          model_id: 'gemini-4-hydrogen-xhigh',
+          model_name: 'Gemini 4 Hydrogen (XHigh)',
+          name: 'Gemini 4 Hydrogen (XHigh)',
+        },
+        {
+          ...sampleNativeModels[0],
+          internal_id: 5,
+          canonical_id: 'gemini-4-argon',
+          model_id: 'gemini-4-argon-high',
+          model_name: 'Gemini 4 Argon (High)',
+          name: 'Gemini 4 Argon (High)',
+        },
+      ]
+
+      const sorted = sortPricingModels(models232)
+      assert.deepEqual(
+        sorted.map((m) => m.canonical_id),
+        [
+          'gemini-4-argon',
+          'gemini-4-hydrogen',
+          'gemini-pro-orchestrator-g1-pro',
+          'gemini-3.8-flash',
+          'gemini-3.7-flash',
+          'gemini-3.6-flash',
+          'gemini-3.1-pro',
+          'claude-opus-5-5',
+          'claude-sonnet-5-5',
+        ],
+      )
+
+      const pinnedHydrogen = sortPricingModels(models232, {
+        defaultGeminiModel: 'gemini-4-hydrogen-xhigh',
+      })
+      assert.equal(pinnedHydrogen[0].canonical_id, 'gemini-4-hydrogen')
+
+      const pinnedOrchestrator = sortPricingModels(models232, {
+        defaultGeminiModel: 'gemini-pro-orchestrator-g1-pro',
+      })
+      assert.equal(pinnedOrchestrator[0].canonical_id, 'gemini-pro-orchestrator-g1-pro')
     })
 
     it('verifies isModelDefaultNative detects default native model accurately', () => {
@@ -292,6 +415,31 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
       assert.equal(isModelDefaultNative(sampleNativeModels[3], 'gemini-3.8-flash-high'), false)
       assert.equal(isModelDefaultNative(sampleNativeModels[3], 'gemini-3.7-flash'), true)
       assert.equal(isModelDefaultNative(sampleCustomModels[0], 'gemini-3.8-flash'), false)
+
+      const hydrogen: ModelPricingRecord = {
+        ...sampleNativeModels[0],
+        canonical_id: 'gemini-4-hydrogen',
+        model_id: 'gemini-4-hydrogen-xhigh',
+        model_name: 'Gemini 4 Hydrogen (XHigh)',
+      }
+      const argon: ModelPricingRecord = {
+        ...sampleNativeModels[0],
+        canonical_id: 'gemini-4-argon',
+        model_id: 'gemini-4-argon-high',
+        model_name: 'Gemini 4 Argon (High)',
+      }
+      const orchestrator: ModelPricingRecord = {
+        ...sampleNativeModels[0],
+        canonical_id: 'gemini-pro-orchestrator-g1-pro',
+        model_id: 'gemini-pro-orchestrator-g1-pro',
+        model_name: 'Orchestrator (Argon)',
+      }
+
+      assert.equal(isModelDefaultNative(hydrogen, 'gemini-4-hydrogen-xhigh'), true)
+      assert.equal(isModelDefaultNative(argon, 'gemini-4-argon-high'), true)
+      assert.equal(isModelDefaultNative(orchestrator, 'gemini-pro-orchestrator-g1-pro'), true)
+      assert.equal(isModelDefaultNative(orchestrator, 'gemini-4-argon'), false)
+      assert.equal(isModelDefaultNative(orchestrator, 'gemini-3.1-pro'), false)
     })
 
     it('verifies isModelDefaultCustom detects default custom model accurately', () => {
@@ -307,6 +455,22 @@ describe('Token Price Table Sorting & Edit Rate Modal (Milestone 3 / R3)', () =>
       assert.equal(normalizeModelIdentifier('gemini-3.6-flash-low'), 'gemini-3.6-flash')
       assert.equal(normalizeModelIdentifier('gemini-pro-agent'), 'gemini-3.1-pro')
       assert.equal(normalizeModelIdentifier('Gemini 3.8 Flash'), 'gemini-3.8-flash')
+      assert.equal(normalizeModelIdentifier('gemini-4-hydrogen-xhigh'), 'gemini-4-hydrogen')
+      assert.equal(normalizeModelIdentifier('Gemini 4 Hydrogen (XHigh)'), 'gemini-4-hydrogen')
+      assert.equal(normalizeModelIdentifier('gemini-4-argon-high'), 'gemini-4-argon')
+      assert.equal(normalizeModelIdentifier('Gemini 4 Argon (High)'), 'gemini-4-argon')
+      assert.equal(
+        normalizeModelIdentifier('gemini-pro-orchestrator-g1-pro'),
+        'gemini-pro-orchestrator-g1-pro',
+      )
+      assert.equal(
+        normalizeModelIdentifier('Orchestrator (Argon)'),
+        'gemini-pro-orchestrator-g1-pro',
+      )
+      assert.equal(normalizeModelIdentifier('claude-sonnet-5-5-high'), 'claude-sonnet-5-5')
+      assert.equal(normalizeModelIdentifier('Claude Sonnet 5.5'), 'claude-sonnet-5-5')
+      assert.equal(normalizeModelIdentifier('claude-opus-5-5-high'), 'claude-opus-5-5')
+      assert.equal(normalizeModelIdentifier('Claude Opus 5.5'), 'claude-opus-5-5')
     })
 
     it('handles empty, null, or undefined model lists immutably', () => {

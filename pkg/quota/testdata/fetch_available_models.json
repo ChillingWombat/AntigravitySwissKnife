@@ -5,17 +5,24 @@
       "groups": [
         {
           "modelIds": [
+            "gemini-4-argon-high",
+            "gemini-4-argon-medium",
+            "gemini-4-argon-low",
+            "gemini-4-hydrogen-xhigh",
+            "gemini-4-hydrogen-high",
+            "gemini-4-hydrogen-medium",
+            "gemini-4-hydrogen-low",
+            "gemini-pro-orchestrator-g1-pro",
             "gemini-3.8-flash-high",
             "gemini-3.8-flash-medium",
             "gemini-3.8-flash-low",
-            "gemini-3.7-flash-high",
-            "gemini-3.7-flash-medium",
-            "gemini-3.7-flash-low",
-            "gemini-3.6-flash-high",
-            "gemini-3.6-flash-medium",
-            "gemini-3.6-flash-low",
-            "gemini-pro-agent",
-            "gemini-3.1-pro-low",
+            "gemini-4-carbon-disabled",
+            "claude-opus-5-5-high",
+            "claude-opus-5-5-medium",
+            "claude-opus-5-5-low",
+            "claude-sonnet-5-5-high",
+            "claude-sonnet-5-5-medium",
+            "claude-sonnet-5-5-low",
             "claude-sonnet-4-6",
             "claude-opus-4-6-thinking",
             "gpt-oss-120b-medium"
@@ -58,10 +65,48 @@
       "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
       "supportsThinking": true
     },
+    "claude-opus-5-5-high": {
+      "displayName": "Claude Opus 5.5 (High)",
+      "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+      "recommended": true,
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high"]
+    },
+    "claude-opus-5-5-low": {
+      "displayName": "Claude Opus 5.5 (Low)",
+      "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high"]
+    },
+    "claude-opus-5-5-medium": {
+      "displayName": "Claude Opus 5.5 (Medium)",
+      "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high"]
+    },
     "claude-sonnet-4-6": {
       "displayName": "Claude Sonnet 4.6 (Thinking)",
       "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
       "supportsThinking": true
+    },
+    "claude-sonnet-5-5-high": {
+      "displayName": "Claude Sonnet 5.5 (High)",
+      "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+      "recommended": true,
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high"]
+    },
+    "claude-sonnet-5-5-low": {
+      "displayName": "Claude Sonnet 5.5 (Low)",
+      "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high"]
+    },
+    "claude-sonnet-5-5-medium": {
+      "displayName": "Claude Sonnet 5.5 (Medium)",
+      "modelProvider": "MODEL_PROVIDER_ANTHROPIC",
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high"]
     },
     "gemini-2.5-flash": {
       "displayName": "Gemini 3.5 Flash Lite",
@@ -106,87 +151,86 @@
       "modelProvider": "MODEL_PROVIDER_GOOGLE",
       "supportsThinking": true
     },
-    "gemini-3.1-pro-low": {
-      "displayName": "Gemini 3.1 Pro (Low)",
-      "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
-    },
-    "gemini-3.5-flash-extra-low": {
-      "displayName": "Gemini 3.5 Flash (Low)",
-      "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
-    },
     "gemini-3.5-flash-lite": {
       "displayName": "Gemini 3.5 Flash Lite",
-      "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
-    },
-    "gemini-3.5-flash-low": {
-      "displayName": "Gemini 3.5 Flash (Medium)",
-      "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
-    },
-    "gemini-3.6-flash-high": {
-      "displayName": "Gemini 3.6 Flash (High)",
-      "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
-    },
-    "gemini-3.6-flash-low": {
-      "displayName": "Gemini 3.6 Flash (Low)",
-      "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
-    },
-    "gemini-3.6-flash-medium": {
-      "displayName": "Gemini 3.6 Flash (Medium)",
-      "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
-    },
-    "gemini-3.6-flash-tiered": {
-      "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
-    },
-    "gemini-3.7-flash-high": {
-      "displayName": "Gemini 3.7 Flash (High)",
-      "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
-    },
-    "gemini-3.7-flash-low": {
-      "displayName": "Gemini 3.7 Flash (Low)",
-      "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
-    },
-    "gemini-3.7-flash-medium": {
-      "displayName": "Gemini 3.7 Flash (Medium)",
-      "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
-    },
-    "gemini-3.7-flash-tiered": {
       "modelProvider": "MODEL_PROVIDER_GOOGLE",
       "supportsThinking": true
     },
     "gemini-3.8-flash-high": {
       "displayName": "Gemini 3.8 Flash (High)",
       "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
+      "recommended": true,
+      "supportsThinking": true,
+      "thinkingLevels": ["off", "low", "medium", "high"]
     },
     "gemini-3.8-flash-low": {
       "displayName": "Gemini 3.8 Flash (Low)",
       "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
+      "supportsThinking": true,
+      "thinkingLevels": ["off", "low", "medium", "high"]
     },
     "gemini-3.8-flash-medium": {
       "displayName": "Gemini 3.8 Flash (Medium)",
       "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
+      "supportsThinking": true,
+      "thinkingLevels": ["off", "low", "medium", "high"]
     },
     "gemini-3.8-flash-tiered": {
       "modelProvider": "MODEL_PROVIDER_GOOGLE",
       "supportsThinking": true
     },
-    "gemini-pro-agent": {
-      "displayName": "Gemini 3.1 Pro (High)",
+    "gemini-4-argon-high": {
+      "displayName": "Gemini 4 Argon (High)",
       "modelProvider": "MODEL_PROVIDER_GOOGLE",
-      "supportsThinking": true
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high"]
+    },
+    "gemini-4-argon-low": {
+      "displayName": "Gemini 4 Argon (Low)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high"]
+    },
+    "gemini-4-argon-medium": {
+      "displayName": "Gemini 4 Argon (Medium)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high"]
+    },
+    "gemini-4-carbon-disabled": {
+      "displayName": "Gemini 4 Carbon",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "gemini-4-hydrogen-high": {
+      "displayName": "Gemini 4 Hydrogen (High)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "recommended": true,
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high", "xhigh"]
+    },
+    "gemini-4-hydrogen-low": {
+      "displayName": "Gemini 4 Hydrogen (Low)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high", "xhigh"]
+    },
+    "gemini-4-hydrogen-medium": {
+      "displayName": "Gemini 4 Hydrogen (Medium)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high", "xhigh"]
+    },
+    "gemini-4-hydrogen-xhigh": {
+      "displayName": "Gemini 4 Hydrogen (XHigh)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true,
+      "thinkingLevels": ["low", "medium", "high", "xhigh"]
+    },
+    "gemini-pro-orchestrator-g1-pro": {
+      "displayName": "Orchestrator (Argon)",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsThinking": true,
+      "thinkingLevels": ["high"]
     },
     "gpt-oss-120b-medium": {
       "displayName": "GPT-OSS 120B (Medium)",
@@ -215,7 +259,7 @@
       "gemini-3.5-flash-lite"
     ],
     "pro": [
-      "gemini-3.1-pro-low"
+      "gemini-4-argon-high"
     ]
   },
   "webSearchModelIds": [

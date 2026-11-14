@@ -208,7 +208,7 @@ func Send1TokenKeepAliveProbeWithContext(ctx context.Context, accessToken string
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", "antigravity/2.19.1 linux/amd64")
+		req.Header.Set("User-Agent", "antigravity/2.32.1 linux/amd64")
 
 		resp, err := client.Do(req)
 		if err != nil {

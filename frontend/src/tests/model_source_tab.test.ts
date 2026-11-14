@@ -5,6 +5,14 @@ import { createRoot, type Root } from 'react-dom/client'
 import { cancelAllInFlightRequests } from '../api'
 import { CustomModelsPage } from '../pages/CustomModelsPage'
 import { ModelSourceTab } from '../components/ModelSourceTab'
+import {
+  SwitcherSettingsPage,
+  THINKING_LEVEL_ORDER,
+  THINKING_SUFFIX_RE,
+  MODEL_LEVEL_SUFFIX_RE,
+  buildGeminiBaseModels,
+  formatThinkingLevel,
+} from '../pages/SwitcherSettingsPage'
 import { initDOM, mount, type RenderResult } from '../test-dom'
 
 const integration = {
@@ -320,5 +328,301 @@ describe('Custom model navigation and integration mode layout', () => {
     const privateKeyInput = view.querySelector<HTMLInputElement>('input[placeholder="Configured"]')
     assert.ok(privateKeyInput, 'Configured PIN placeholder must render')
     assert.equal(privateKeyInput.value, '', 'Stored PIN must not be sent to the renderer')
+  })
+})
+describe('SwitcherSettingsPage Gemini 4, Orchestrator (Argon), and Claude 5.5 support', () => {
+  const originalFetch = globalThis.fetch
+  let view: RenderResult | null = null
+
+  afterEach(() => {
+    view?.unmount()
+    view = null
+    globalThis.fetch = originalFetch
+    cancelAllInFlightRequests()
+  })
+
+  it('includes xhigh in THINKING_LEVEL_ORDER and suffix regexes while preserving (Argon)', () => {
+    assert.deepEqual(THINKING_LEVEL_ORDER, ['off', 'low', 'medium', 'high', 'xhigh'])
+    assert.equal(THINKING_SUFFIX_RE.test('Gemini 4 Hydrogen (XHigh)'), true)
+    assert.equal(THINKING_SUFFIX_RE.test('Gemini 4 Argon (High)'), true)
+    assert.equal(THINKING_SUFFIX_RE.test('Orchestrator (Argon)'), false)
+    assert.equal(MODEL_LEVEL_SUFFIX_RE.test('gemini-4-hydrogen-xhigh'), true)
+    assert.equal(MODEL_LEVEL_SUFFIX_RE.test('gemini-pro-orchestrator-g1-pro'), false)
+    assert.equal(formatThinkingLevel('xhigh'), 'XHigh')
+    assert.equal(formatThinkingLevel('high'), 'High')
+    assert.equal(formatThinkingLevel('off'), 'Off')
+  })
+
+  it('groups Gemini 4 Hydrogen (XHigh), Gemini 4 Argon (High), and preserves Orchestrator (Argon)', () => {
+    const baseModels = buildGeminiBaseModels([
+      {
+        id: 'gemini-4-argon-high',
+        display_name: 'Gemini 4 Argon (High)',
+        supports_thinking: true,
+        thinking_levels: ['low', 'medium', 'high'],
+        provider: 'Google',
+      },
+      {
+        id: 'gemini-4-argon-medium',
+        display_name: 'Gemini 4 Argon (Medium)',
+        supports_thinking: true,
+        thinking_levels: ['low', 'medium', 'high'],
+        provider: 'Google',
+      },
+      {
+        id: 'gemini-4-argon-low',
+        display_name: 'Gemini 4 Argon (Low)',
+        supports_thinking: true,
+        thinking_levels: ['low', 'medium', 'high'],
+        provider: 'Google',
+      },
+      {
+        id: 'gemini-4-hydrogen-xhigh',
+        display_name: 'Gemini 4 Hydrogen (XHigh)',
+        supports_thinking: true,
+        thinking_levels: ['low', 'medium', 'high', 'xhigh'],
+        provider: 'Google',
+      },
+      {
+        id: 'gemini-4-hydrogen-high',
+        display_name: 'Gemini 4 Hydrogen (High)',
+        supports_thinking: true,
+        thinking_levels: ['low', 'medium', 'high', 'xhigh'],
+        recommended: true,
+        provider: 'Google',
+      },
+      {
+        id: 'gemini-4-hydrogen-medium',
+        display_name: 'Gemini 4 Hydrogen (Medium)',
+        supports_thinking: true,
+        thinking_levels: ['low', 'medium', 'high', 'xhigh'],
+        provider: 'Google',
+      },
+      {
+        id: 'gemini-4-hydrogen-low',
+        display_name: 'Gemini 4 Hydrogen (Low)',
+        supports_thinking: true,
+        thinking_levels: ['low', 'medium', 'high', 'xhigh'],
+        provider: 'Google',
+      },
+      {
+        id: 'gemini-pro-orchestrator-g1-pro',
+        display_name: 'Orchestrator (Argon)',
+        supports_thinking: true,
+        thinking_levels: ['high'],
+        provider: 'Google',
+      },
+      {
+        id: 'gemini-3.8-flash-high',
+        display_name: 'Gemini 3.8 Flash (High)',
+        supports_thinking: true,
+        thinking_levels: ['off', 'low', 'medium', 'high'],
+        provider: 'Google',
+      },
+      {
+        id: 'gemini-pro-agent',
+        display_name: 'Gemini 3.1 Pro (High)',
+        supports_thinking: true,
+        thinking_levels: ['off', 'low', 'medium', 'high'],
+        provider: 'Google',
+      },
+      {
+        id: 'gemini-3.1-pro-low',
+        display_name: 'Gemini 3.1 Pro (Low)',
+        supports_thinking: true,
+        thinking_levels: ['off', 'low', 'medium', 'high'],
+        provider: 'Google',
+      },
+    ])
+
+    const byId = new Map(baseModels.map((m) => [m.id, m]))
+
+    const argon = byId.get('gemini-4-argon')
+    assert.ok(argon, 'Gemini 4 Argon base model must exist')
+    assert.equal(argon.displayName, 'Gemini 4 Argon')
+    assert.equal(argon.supportsThinking, true)
+    assert.deepEqual(argon.thinkingLevels, ['low', 'medium', 'high'])
+    assert.deepEqual(argon.modelIds, ['gemini-4-argon-high', 'gemini-4-argon-medium', 'gemini-4-argon-low'])
+
+    const hydrogen = byId.get('gemini-4-hydrogen')
+    assert.ok(hydrogen, 'Gemini 4 Hydrogen base model must exist')
+    assert.equal(hydrogen.displayName, 'Gemini 4 Hydrogen')
+    assert.equal(hydrogen.supportsThinking, true)
+    assert.deepEqual(hydrogen.thinkingLevels, ['low', 'medium', 'high', 'xhigh'])
+    assert.deepEqual(hydrogen.modelIds, [
+      'gemini-4-hydrogen-xhigh',
+      'gemini-4-hydrogen-high',
+      'gemini-4-hydrogen-medium',
+      'gemini-4-hydrogen-low',
+    ])
+
+    const orchestrator = byId.get('gemini-pro-orchestrator-g1-pro')
+    assert.ok(orchestrator, 'Orchestrator (Argon) must preserve canonical ID gemini-pro-orchestrator-g1-pro')
+    assert.equal(orchestrator.displayName, 'Orchestrator (Argon)')
+    assert.equal(orchestrator.supportsThinking, true)
+    assert.deepEqual(orchestrator.thinkingLevels, ['high'])
+    assert.deepEqual(orchestrator.modelIds, ['gemini-pro-orchestrator-g1-pro'])
+
+    const flash38 = byId.get('gemini-3.8-flash')
+    assert.ok(flash38, 'Gemini 3.8 Flash base model must exist')
+    assert.deepEqual(flash38.thinkingLevels, ['off', 'low', 'medium', 'high'])
+
+    const pro31 = byId.get('gemini-3.1-pro')
+    assert.ok(pro31, 'Gemini 3.1 Pro variants must still group cleanly')
+    assert.deepEqual(pro31.modelIds, ['gemini-pro-agent', 'gemini-3.1-pro-low'])
+  })
+
+  it('infers xhigh thinking level when thinking_levels is omitted on an (XHigh) variant', () => {
+    const [hydrogen] = buildGeminiBaseModels([
+      {
+        id: 'gemini-4-hydrogen-xhigh',
+        display_name: 'Gemini 4 Hydrogen (XHigh)',
+        supports_thinking: true,
+      },
+    ])
+    assert.equal(hydrogen.id, 'gemini-4-hydrogen')
+    assert.equal(hydrogen.displayName, 'Gemini 4 Hydrogen')
+    assert.equal(hydrogen.supportsThinking, true)
+    assert.deepEqual(hydrogen.thinkingLevels, ['off', 'low', 'medium', 'high', 'xhigh'])
+  })
+
+  it('renders Gemini 4 Hydrogen (XHigh), Gemini 4 Argon, Orchestrator (Argon), and Claude 5.5 selectors in SwitcherSettingsPage', async () => {
+    initDOM()
+    globalThis.fetch = (async (url: unknown) => {
+      const target = String(url)
+      if (target.includes('/api/models/available')) {
+        return jsonResponse({
+          success: true,
+          default_gemini: 'gemini-3.8-flash-high',
+          default_non_gemini: 'claude-opus-5-5-high',
+          gemini_models: [
+            {
+              id: 'gemini-4-argon-high',
+              display_name: 'Gemini 4 Argon (High)',
+              supports_thinking: true,
+              thinking_levels: ['low', 'medium', 'high'],
+              provider: 'Google',
+            },
+            {
+              id: 'gemini-4-hydrogen-xhigh',
+              display_name: 'Gemini 4 Hydrogen (XHigh)',
+              supports_thinking: true,
+              thinking_levels: ['low', 'medium', 'high', 'xhigh'],
+              provider: 'Google',
+            },
+            {
+              id: 'gemini-4-hydrogen-high',
+              display_name: 'Gemini 4 Hydrogen (High)',
+              supports_thinking: true,
+              thinking_levels: ['low', 'medium', 'high', 'xhigh'],
+              recommended: true,
+              provider: 'Google',
+            },
+            {
+              id: 'gemini-pro-orchestrator-g1-pro',
+              display_name: 'Orchestrator (Argon)',
+              supports_thinking: true,
+              thinking_levels: ['high'],
+              provider: 'Google',
+            },
+            {
+              id: 'gemini-3.8-flash-high',
+              display_name: 'Gemini 3.8 Flash (High)',
+              supports_thinking: true,
+              thinking_levels: ['off', 'low', 'medium', 'high'],
+              provider: 'Google',
+            },
+          ],
+          non_gemini_models: [
+            {
+              id: 'claude-opus-5-5-high',
+              display_name: 'Claude Opus 5.5 (High)',
+              supports_thinking: true,
+              thinking_levels: ['low', 'medium', 'high'],
+              recommended: true,
+              provider: 'Anthropic',
+            },
+            {
+              id: 'claude-sonnet-5-5-high',
+              display_name: 'Claude Sonnet 5.5 (High)',
+              supports_thinking: true,
+              thinking_levels: ['low', 'medium', 'high'],
+              recommended: true,
+              provider: 'Anthropic',
+            },
+          ],
+        })
+      }
+      if (target.includes('/api/custom_models')) {
+        return jsonResponse({ models: [] })
+      }
+      return jsonResponse({
+        desktop_app: { installed: true },
+        agy_cli: { installed: false },
+        vscode_extension: { installed: false },
+      })
+    }) as typeof fetch
+
+    view = await mount(React.createElement(SwitcherSettingsPage, { initialRules: null, onSaved: () => {} }))
+    await flush()
+
+    const geminiSelect = view.querySelector<HTMLSelectElement>('select[aria-label="Default Gemini Model"]')
+    const thinkingSelect = view.querySelector<HTMLSelectElement>('select[aria-label="Default Gemini Thinking Level"]')
+    const nonGeminiSelect = view.querySelector<HTMLSelectElement>('select[aria-label="Default Non-Gemini Native Model"]')
+
+    assert.ok(geminiSelect, 'Default Gemini Model select must render')
+    assert.ok(thinkingSelect, 'Default Gemini Thinking Level select must render')
+    assert.ok(nonGeminiSelect, 'Default Non-Gemini Native Model select must render')
+
+    const geminiOptions = Array.from(geminiSelect.querySelectorAll('option')).map((opt) => ({
+      value: opt.value,
+      label: compactText(opt.textContent),
+    }))
+    assert.deepEqual(geminiOptions, [
+      { value: 'gemini-4-argon', label: 'Gemini 4 Argon' },
+      { value: 'gemini-4-hydrogen', label: 'Gemini 4 Hydrogen' },
+      { value: 'gemini-pro-orchestrator-g1-pro', label: 'Orchestrator (Argon)' },
+      { value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
+    ])
+
+    const nonGeminiOptions = Array.from(nonGeminiSelect.querySelectorAll('option')).map((opt) => ({
+      value: opt.value,
+      label: compactText(opt.textContent),
+    }))
+    assert.deepEqual(nonGeminiOptions, [
+      { value: 'claude-opus-5.5', label: 'Claude Opus 5.5' },
+      { value: 'claude-sonnet-5.5', label: 'Claude Sonnet 5.5' },
+    ])
+
+    const selectOption = async (el: HTMLSelectElement, nextValue: string) => {
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set
+        setter?.call(el, nextValue)
+        el.dispatchEvent(new window.Event('change', { bubbles: true }))
+      })
+      await flush()
+    }
+
+    await selectOption(geminiSelect, 'gemini-4-hydrogen')
+    assert.equal(thinkingSelect.disabled, false)
+    const hydrogenLevels = Array.from(thinkingSelect.querySelectorAll('option')).map((opt) => ({
+      value: opt.value,
+      label: compactText(opt.textContent),
+    }))
+    assert.deepEqual(hydrogenLevels, [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+      { value: 'xhigh', label: 'XHigh' },
+    ])
+
+    await selectOption(geminiSelect, 'gemini-pro-orchestrator-g1-pro')
+    assert.equal(thinkingSelect.disabled, false, 'Orchestrator (Argon) thinking level selector must remain enabled')
+    const orchestratorLevels = Array.from(thinkingSelect.querySelectorAll('option')).map((opt) => ({
+      value: opt.value,
+      label: compactText(opt.textContent),
+    }))
+    assert.deepEqual(orchestratorLevels, [{ value: 'high', label: 'High' }])
+    assert.equal(thinkingSelect.value, 'high')
   })
 })
