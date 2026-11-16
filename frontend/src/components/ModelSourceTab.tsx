@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { AlertCircle, AlertTriangle, Copy, Check, Play, RefreshCw } from 'lucide-react'
-import { api } from '../api'
+import { AlertCircle, AlertTriangle, Copy, Check, Play, RefreshCw, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { api, type FleetProtectionStatus } from '../api'
 
 type AppKey = 'antigravity' | 'vscode'
 
@@ -121,6 +121,8 @@ export const ModelSourceTab: React.FC = () => {
   const [copiedGemini, setCopiedGemini] = useState(false)
   const [cliStatus, setCliStatus] = useState<{ installed: boolean; configured: boolean; cli_path: string } | null>(null)
   const [configuringCli, setConfiguringCli] = useState(false)
+  const [protection, setProtection] = useState<FleetProtectionStatus | null>(null)
+  const [resettingCircuit, setResettingCircuit] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -130,6 +132,7 @@ export const ModelSourceTab: React.FC = () => {
       setEndpoint(res?.endpoint || '')
       setGeminiBase(res?.gemini_base || '')
       setPinSet(Boolean(res?.pin_set))
+      setProtection(res?.protection ?? null)
       try {
         const cliRes = await api.getCLIGatewayStatus()
         if (cliRes?.status) setCliStatus(cliRes.status)
@@ -153,10 +156,26 @@ export const ModelSourceTab: React.FC = () => {
       const res = await api.updateCustomModelIntegration(next)
       if (res?.integration) setIntegration({ ...DEFAULT_INTEGRATION, ...res.integration })
       if (typeof res?.pin_set === 'boolean') setPinSet(res.pin_set)
+      if (res?.protection !== undefined) setProtection(res.protection)
     } catch (err) {
       setFeedback({ text: `Save failed: ${(err as Error).message}`, isError: true })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const resetCircuit = async () => {
+    setResettingCircuit(true)
+    setFeedback(null)
+    try {
+      const res = await api.resetProxyCircuitBreaker(integration)
+      if (res?.integration) setIntegration({ ...DEFAULT_INTEGRATION, ...res.integration })
+      if (typeof res?.pin_set === 'boolean') setPinSet(res.pin_set)
+      if (res?.protection !== undefined) setProtection(res.protection)
+    } catch (err) {
+      setFeedback({ text: `Reset failed: ${(err as Error).message}`, isError: true })
+    } finally {
+      setResettingCircuit(false)
     }
   }
 
@@ -249,6 +268,15 @@ export const ModelSourceTab: React.FC = () => {
 
   const isProxy = integration.mode === 'api_proxy'
   const isExternal = integration.proxy.scope === 'external'
+  const blockedEvents =
+    (protection?.anomalous_429_blocked || 0) +
+    (protection?.correlated_429_aborts || 0) +
+    (protection?.blocked_external_clients || 0)
+  const sanitizedEvents = protection?.sanitized_requests || 0
+  const guardCounterParts: string[] = []
+  if (blockedEvents > 0) guardCounterParts.push(`${blockedEvents} blocked`)
+  if (sanitizedEvents > 0) guardCounterParts.push(`${sanitizedEvents} sanitized`)
+  const guardCounterSummary = guardCounterParts.join(' · ')
 
   return (
     <div style={{ ...wrappingTextStyle, display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -433,6 +461,91 @@ export const ModelSourceTab: React.FC = () => {
               </div>
             </>
           )}
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap',
+              paddingTop: '10px',
+              borderTop: '1px solid var(--border)',
+            }}
+          >
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+              {protection?.circuit_open ? (
+                <ShieldAlert size={14} color="#b91c1c" style={{ flexShrink: 0 }} />
+              ) : (
+                <ShieldCheck size={14} color="var(--green)" style={{ flexShrink: 0 }} />
+              )}
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>
+                429 Anti-Cascade Guard
+              </span>
+            </div>
+
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {protection?.circuit_open ? (
+                <>
+                  <span
+                    title={protection.circuit_reason || undefined}
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      padding: '2px 8px',
+                      borderRadius: '9999px',
+                      backgroundColor: 'var(--red-bg)',
+                      border: '1px solid var(--border-danger)',
+                      color: '#b91c1c',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Circuit Tripped
+                  </span>
+                  {protection.circuit_reason && (
+                    <span style={{ ...wrappingTextStyle, fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {protection.circuit_reason}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={resetCircuit}
+                    disabled={resettingCircuit || saving}
+                    style={{
+                      ...actionStyle,
+                      fontSize: '11px',
+                      padding: '4px 10px',
+                    }}
+                  >
+                    <RotateCcw size={12} />
+                    {resettingCircuit ? 'Resetting…' : 'Reset'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {guardCounterSummary && (
+                    <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                      {guardCounterSummary}
+                    </span>
+                  )}
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      padding: '2px 8px',
+                      borderRadius: '9999px',
+                      backgroundColor: 'var(--green-bg)',
+                      border: '1px solid var(--border-success)',
+                      color: 'var(--green)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Protected
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

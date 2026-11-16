@@ -138,6 +138,10 @@ type Proxy struct {
 
 	defaultFleetMu     sync.Mutex
 	defaultFleetRouter *FleetSubagentRouter
+
+	protectionMu           sync.Mutex
+	sanitizedRequests      int
+	blockedExternalClients int
 }
 
 // NewProxy builds a proxy over the custom model store.
@@ -181,8 +185,39 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 		if p.tryCustomModel(w, r, body, action == "streamGenerateContent", strings.HasPrefix(r.URL.Path, "/v1internal")) {
 			return
 		}
+		scope := ProxyScopeAntigravity
+		if p.store != nil {
+			if configuredScope := strings.TrimSpace(p.store.IntegrationSettings().Proxy.Scope); configuredScope != "" {
+				scope = configuredScope
+			}
+		}
+		guard := InspectAndSanitizeCloudCodeRequest(r, body, scope)
+		if guard.Block {
+			p.recordBlockedClient()
+			status := guard.BlockStatus
+			if status == 0 {
+				status = http.StatusForbidden
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Swiss-Protection", guard.BlockReason)
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error": map[string]any{
+					"code":    status,
+					"message": "Blocked third-party client signature on native Cloud Code endpoint.",
+					"status":  "PERMISSION_DENIED",
+					"reason":  guard.BlockReason,
+				},
+			})
+			return
+		}
+		if guard.Sanitized {
+			p.recordSanitizedRequest()
+			body = guard.Body
+			w.Header().Set("X-Swiss-Protection", "sanitized-prompt-signature")
+		}
 		if router := p.effectiveFleetRouter(); router != nil {
-			p.passthroughWithFleetRouting(w, r, body, router)
+			p.passthroughWithFleetRouting(w, r, body, router, guard.PinSingleAccount)
 			return
 		}
 	}
@@ -653,16 +688,86 @@ func (p *Proxy) effectiveFleetRouter() *FleetSubagentRouter {
 	return nil
 }
 
-func (p *Proxy) passthroughWithFleetRouting(w http.ResponseWriter, r *http.Request, body []byte, router *FleetSubagentRouter) {
+func (p *Proxy) currentFleetRouter() *FleetSubagentRouter {
+	if p == nil {
+		return nil
+	}
+	if p.FleetRouter != nil {
+		return p.FleetRouter
+	}
+	p.defaultFleetMu.Lock()
+	defer p.defaultFleetMu.Unlock()
+	return p.defaultFleetRouter
+}
+
+func (p *Proxy) recordSanitizedRequest() {
+	if p == nil {
+		return
+	}
+	p.protectionMu.Lock()
+	p.sanitizedRequests++
+	p.protectionMu.Unlock()
+}
+
+func (p *Proxy) recordBlockedClient() {
+	if p == nil {
+		return
+	}
+	p.protectionMu.Lock()
+	p.blockedExternalClients++
+	p.protectionMu.Unlock()
+}
+
+// ProtectionStatus returns the combined proxy request guard and fleet 429
+// circuit-breaker telemetry.
+func (p *Proxy) ProtectionStatus() FleetProtectionStatus {
+	if p == nil {
+		return FleetProtectionStatus{}
+	}
+	p.protectionMu.Lock()
+	sanitized := p.sanitizedRequests
+	blocked := p.blockedExternalClients
+	p.protectionMu.Unlock()
+
+	var status FleetProtectionStatus
+	if router := p.currentFleetRouter(); router != nil {
+		status = router.ProtectionStatus()
+	}
+	status.SanitizedRequests += sanitized
+	status.BlockedExternalClients += blocked
+	return status
+}
+
+// ResetCircuitBreaker clears any open anti-429 circuit breaker on the active
+// fleet router.
+func (p *Proxy) ResetCircuitBreaker() {
+	if router := p.currentFleetRouter(); router != nil {
+		router.ResetCircuitBreaker()
+	}
+}
+
+func (p *Proxy) passthroughWithFleetRouting(w http.ResponseWriter, r *http.Request, body []byte, router *FleetSubagentRouter, pinSingleAccount bool) {
 	role, cascadeID, rootCascadeID, modelID := ClassifyCloudCodeTurn(body)
 	activeEmail := router.ResolveActiveEmail(r.Header.Get("Authorization"))
 
+	circuitOpen, circuitReason, _ := router.IsCircuitOpen()
+	selectRole := role
 	maxAttempts := router.CredentialedAccountCount()
 	if maxAttempts < 2 {
 		maxAttempts = 2
 	}
 	if maxAttempts > 5 {
 		maxAttempts = 5
+	}
+	if pinSingleAccount || circuitOpen {
+		maxAttempts = 1
+		selectRole = TurnRoleRootOrchestrator
+	}
+	if circuitOpen {
+		w.Header().Set("X-Swiss-Circuit-Breaker", "open")
+		if circuitReason != "" {
+			w.Header().Set("X-Swiss-Circuit-Reason", circuitReason)
+		}
 	}
 
 	target := strings.TrimRight(p.Upstream, "/") + r.URL.Path
@@ -673,9 +778,10 @@ func (p *Proxy) passthroughWithFleetRouting(w http.ResponseWriter, r *http.Reque
 	var lastResp *http.Response
 	var lastErrBody []byte
 	var lastChosenEmail string
+	fortyTwoNineCount := 0
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		chosen, err := router.SelectAccountForTurn(role, cascadeID, rootCascadeID, modelID, activeEmail)
+		chosen, err := router.SelectAccountForTurn(selectRole, cascadeID, rootCascadeID, modelID, activeEmail)
 		if err != nil || chosen == nil {
 			break
 		}
@@ -716,7 +822,46 @@ func (p *Proxy) passthroughWithFleetRouting(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable) && attempt+1 < maxAttempts {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			fortyTwoNineCount++
+			errBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			_ = resp.Body.Close()
+
+			cls := ClassifyUpstream429(resp, errBytes)
+			abortFailover, tripReason := router.Record429Outcome(chosen.Email, modelID, cls, fortyTwoNineCount)
+			if abortFailover || attempt+1 >= maxAttempts {
+				for k, vals := range resp.Header {
+					if isHopByHopHeader(k) {
+						continue
+					}
+					for _, v := range vals {
+						w.Header().Add(k, v)
+					}
+				}
+				if chosen.Email != "" {
+					w.Header().Set("X-Swiss-Routed-Account", chosen.Email)
+				}
+				w.Header().Set("X-Swiss-Turn-Role", role)
+				if abortFailover {
+					w.Header().Set("X-Swiss-Protection", "abort-429-failover")
+					if tripReason != "" {
+						w.Header().Set("X-Swiss-Circuit-Reason", tripReason)
+					}
+					log.Printf("[proxy-fleet] ABORT 429 failover on %s (%s): %s", chosen.Email, modelID, tripReason)
+				}
+				w.WriteHeader(resp.StatusCode)
+				_, _ = w.Write(errBytes)
+				return
+			}
+
+			log.Printf("[proxy-fleet] failover %s -> next account (%s 429: %s)", chosen.Email, modelID, cls.Reason)
+			lastResp = resp
+			lastErrBody = errBytes
+			lastChosenEmail = chosen.Email
+			continue
+		}
+
+		if resp.StatusCode == http.StatusServiceUnavailable && attempt+1 < maxAttempts {
 			errBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 			_ = resp.Body.Close()
 			cd := parseRetryAfterDuration(resp.Header.Get("Retry-After"))

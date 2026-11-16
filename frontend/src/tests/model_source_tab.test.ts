@@ -329,6 +329,117 @@ describe('Custom model navigation and integration mode layout', () => {
     assert.ok(privateKeyInput, 'Configured PIN placeholder must render')
     assert.equal(privateKeyInput.value, '', 'Stored PIN must not be sent to the renderer')
   })
+
+  it('renders 429 Anti-Cascade Guard status in API Proxy mode and resets a tripped circuit breaker', async () => {
+    const proxyIntegration = {
+      mode: 'api_proxy',
+      apps: {
+        antigravity: { source: 'native', subagents: 'app' },
+        vscode: { source: 'native', subagents: 'app' },
+      },
+      proxy: { scope: 'antigravity', pin: '' },
+    }
+
+    initDOM()
+    globalThis.fetch = (async () => jsonResponse({
+      success: true,
+      integration: proxyIntegration,
+      endpoint: 'http://127.0.0.1:8765/v1',
+      gemini_base: 'http://127.0.0.1:8765/v1beta',
+      pin_set: false,
+      protection: {
+        circuit_open: false,
+        anomalous_429_blocked: 1,
+        correlated_429_aborts: 0,
+        sanitized_requests: 2,
+        blocked_external_clients: 0,
+      },
+    })) as typeof fetch
+
+    view = await mount(React.createElement(ModelSourceTab))
+    await flush()
+
+    const closedText = compactText(view.container.textContent)
+    assert.match(closedText, /429 Anti-Cascade Guard/)
+    assert.match(closedText, /Protected/)
+    assert.match(closedText, /1 blocked · 2 sanitized/)
+    assert.doesNotMatch(closedText, /Circuit Tripped/)
+    assert.equal(
+      view.querySelectorAll<HTMLButtonElement>('button').some((b) => compactText(b.textContent) === 'Reset'),
+      false,
+      'Reset button must not appear when circuit is closed'
+    )
+
+    view.unmount()
+    view = null
+
+    initDOM()
+    const postedBodies: Array<Record<string, unknown>> = []
+    let protectionState = {
+      circuit_open: true,
+      circuit_reason: 'anomalous_trap_429: missing Retry-After',
+      circuit_open_until: '2026-11-17T01:45:00Z',
+      anomalous_429_blocked: 1,
+      correlated_429_aborts: 0,
+      sanitized_requests: 0,
+      blocked_external_clients: 0,
+    }
+
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      const target = String(url)
+      if (init?.method === 'POST' && target === '/api/custom_models/integration' && init.body) {
+        const parsed = JSON.parse(String(init.body)) as Record<string, unknown>
+        postedBodies.push(parsed)
+        if (parsed.reset_circuit_breaker === true) {
+          protectionState = {
+            ...protectionState,
+            circuit_open: false,
+            circuit_reason: '',
+            circuit_open_until: '',
+          }
+        }
+        return jsonResponse({
+          success: true,
+          integration: proxyIntegration,
+          pin_set: false,
+          protection: protectionState,
+        })
+      }
+      return jsonResponse({
+        success: true,
+        integration: proxyIntegration,
+        endpoint: 'http://127.0.0.1:8765/v1',
+        gemini_base: 'http://127.0.0.1:8765/v1beta',
+        pin_set: false,
+        protection: protectionState,
+      })
+    }) as typeof fetch
+
+    view = await mount(React.createElement(ModelSourceTab))
+    await flush()
+
+    const openText = compactText(view.container.textContent)
+    assert.match(openText, /429 Anti-Cascade Guard/)
+    assert.match(openText, /Circuit Tripped/)
+    assert.match(openText, /anomalous_trap_429: missing Retry-After/)
+
+    const resetBtn = view.querySelectorAll<HTMLButtonElement>('button')
+      .find((b) => compactText(b.textContent) === 'Reset')
+    assert.ok(resetBtn, 'Reset button must render when circuit breaker is open')
+    assert.equal(resetBtn.style.whiteSpace, 'nowrap')
+    assert.ok(resetBtn.querySelector('svg'), 'Reset button must render a Lucide SVG icon')
+
+    await view.click(resetBtn)
+    await flush()
+
+    assert.equal(postedBodies.length, 1, 'Clicking Reset must send one POST to /api/custom_models/integration')
+    assert.equal(postedBodies[0].reset_circuit_breaker, true)
+    assert.equal(postedBodies[0].mode, 'api_proxy')
+
+    const afterResetText = compactText(view.container.textContent)
+    assert.match(afterResetText, /Protected/)
+    assert.doesNotMatch(afterResetText, /Circuit Tripped/)
+  })
 })
 describe('SwitcherSettingsPage Gemini 4, Orchestrator (Argon), and Claude 5.5 support', () => {
   const originalFetch = globalThis.fetch

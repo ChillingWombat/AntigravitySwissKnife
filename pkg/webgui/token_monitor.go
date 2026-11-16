@@ -996,7 +996,7 @@ func resolveModelPlaceholder(raw string) (modelID, displayName, provider string,
 		return "gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini", true
 	case "M668":
 		return "gemini-pro-orchestrator-g1-pro", "Orchestrator (Argon)", "gemini", true
-	case "M318", "M319", "M320":
+	case "M318", "M319", "M320", "M669":
 		return "gemini-3.8-flash", "Gemini 3.8 Flash", "gemini", true
 	case "M400", "M401", "M402":
 		return "claude-opus-5-5", "Claude Opus 5.5", "anthropic", true

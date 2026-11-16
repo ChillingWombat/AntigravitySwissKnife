@@ -1538,8 +1538,9 @@ func (d *Daemon) Stop() error {
 		if err := custommodels.CleanShellRCHooks(); err != nil {
 			stopErrors = append(stopErrors, fmt.Errorf("clean shell RC hooks during stop: %w", err))
 		}
-		_ = quota.SetLanguageServerCloudCodeURL("")
-		_ = process.RestartAntigravityAppsToNative(d.Shield)
+		if !core.IsRunningTests() && os.Getenv("ANTIGRAVITY_TEST_MODE") != "1" {
+			_ = quota.SetLanguageServerCloudCodeURL(quota.DefaultNativeCloudCodeURL)
+		}
 	}
 	if d.GUIStore != nil {
 		d.mu.RLock()
@@ -2149,12 +2150,22 @@ func (d *Daemon) pollStandbyAccounts(r *rand.Rand, jitterSec int) {
 	scheduler := &quota.WarmupScheduler{
 		PostResetDelay: time.Duration(postResetDelaySec * float64(time.Second)),
 	}
+	abortIfBackoff := func() bool {
+		if active, rem := quota.IsQuotaBackoffActive(); active {
+			log.Printf("[Daemon] Aborting standby quota sweep: CloudCode rate-limit backoff active (%v remaining)", rem.Round(time.Second))
+			return true
+		}
+		return false
+	}
 
 	for _, acc := range standby {
 		select {
 		case <-d.ctx.Done():
 			return
 		default:
+		}
+		if abortIfBackoff() {
+			return
 		}
 
 		now := time.Now()
@@ -2189,12 +2200,19 @@ func (d *Daemon) pollStandbyAccounts(r *rand.Rand, jitterSec int) {
 
 			// 3. Delay window elapsed (now >= resetTime + postResetDelay): poll to verify reset
 			freshSum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
+			if abortIfBackoff() {
+				return
+			}
 			if freshSum != nil {
 				if !freshSum.IsCooldown(thresh) && freshSum.OverallHealth != core.StatusExhausted {
 					if warmupEnabled && d.shouldIgniteAccount(acc.Email, freshSum, thresh) {
 						if err := quota.IgniteAccountPostReset(acc, d.Keyring); err == nil {
 							d.recordIgnition(acc.Email)
-							if postSum, _ := quota.PollAndCacheAccount(acc, d.Keyring); postSum != nil {
+							postSum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
+							if abortIfBackoff() {
+								return
+							}
+							if postSum != nil {
 								freshSum = postSum
 							}
 						}
@@ -2205,11 +2223,18 @@ func (d *Daemon) pollStandbyAccounts(r *rand.Rand, jitterSec int) {
 		} else {
 			// Normal standby account refresh (not in cooldown)
 			sum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
+			if abortIfBackoff() {
+				return
+			}
 			if sum != nil {
 				if warmupEnabled && d.shouldIgniteAccount(acc.Email, sum, thresh) {
 					if err := quota.IgniteAccountPostReset(acc, d.Keyring); err == nil {
 						d.recordIgnition(acc.Email)
-						if postSum, _ := quota.PollAndCacheAccount(acc, d.Keyring); postSum != nil {
+						postSum, _ := quota.PollAndCacheAccount(acc, d.Keyring)
+						if abortIfBackoff() {
+							return
+						}
+						if postSum != nil {
 							sum = postSum
 						}
 					}

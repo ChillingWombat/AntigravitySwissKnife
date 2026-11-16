@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -303,5 +304,136 @@ func TestAdversarial_ShouldIgniteAccount_StandbyUnanchored5HourWindow(t *testing
 	if d.shouldIgniteAccount(email2, tickingSum, thresh) {
 		t.Errorf("expected false for account whose 5h timer is already ticking down (3h left)")
 	}
+}
+
+// TestAdversarial_PollStandbyAccounts_AbortsOn429 verifies that when the first
+// standby account receives a 429 during pollStandbyAccounts, the sweep aborts
+// immediately and sends zero HTTP requests for remaining standby accounts.
+func TestAdversarial_PollStandbyAccounts_AbortsOn429(t *testing.T) {
+	quota.ResetQuotaBackoffForTesting()
+	defer quota.ResetQuotaBackoffForTesting()
+
+	origLoadURLs := quota.CloudCodeLoadProjectURLs
+	origQuotaURLs := quota.CloudCodeRetrieveQuotaURLs
+	origModelsURLs := quota.CloudCodeModelsURLs
+	defer func() {
+		quota.CloudCodeLoadProjectURLs = origLoadURLs
+		quota.CloudCodeRetrieveQuotaURLs = origQuotaURLs
+		quota.CloudCodeModelsURLs = origModelsURLs
+	}()
+
+	setupDaemonWithStandby := func(t *testing.T) *Daemon {
+		t.Helper()
+		tmpDir := t.TempDir()
+		t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", tmpDir)
+		t.Setenv("HOME", tmpDir)
+		t.Setenv("ANTIGRAVITY_TEST_MODE", "1")
+		t.Setenv("ANTIGRAVITY_TEST_DRY_RUN", "1")
+
+		cfg := core.DefaultConfig()
+		cfg.WarmupEnabled = false
+		cfg.PostResetDelaySec = 10
+
+		d, err := NewDaemon(cfg, filepath.Join(tmpDir, "daemon.sock"))
+		if err != nil {
+			t.Fatalf("NewDaemon error: %v", err)
+		}
+
+		_ = d.Keyring.AddOrUpdateAccount(&keyring.Account{
+			Email:       "active@example.com",
+			AccessToken: "Bearer-active",
+			TokenExpiry: time.Now().Add(time.Hour),
+		})
+		_ = d.Keyring.SetActiveAccount("active@example.com")
+
+		for _, acc := range []*keyring.Account{
+			{Email: "standby1@example.com", AccessToken: "tok-1", TokenExpiry: time.Now().Add(time.Hour)},
+			{Email: "standby2@example.com", AccessToken: "tok-2", TokenExpiry: time.Now().Add(time.Hour)},
+			{Email: "standby3@example.com", AccessToken: "tok-3", TokenExpiry: time.Now().Add(time.Hour)},
+		} {
+			if err := d.Keyring.AddOrUpdateAccount(acc); err != nil {
+				t.Fatalf("AddOrUpdateAccount(%s) error: %v", acc.Email, err)
+			}
+		}
+		return d
+	}
+
+	runSweepTest := func(t *testing.T, withCooldownRecovery bool) {
+		t.Helper()
+		quota.ResetQuotaBackoffForTesting()
+		defer quota.ResetQuotaBackoffForTesting()
+
+		d := setupDaemonWithStandby(t)
+		if withCooldownRecovery {
+			pastReset := time.Now().Add(-30 * time.Second)
+			d.setQuotaSummary("standby1@example.com", &quota.QuotaSummary{
+				AccountEmail:  "standby1@example.com",
+				OverallHealth: core.StatusExhausted,
+				MinFraction:   0.0,
+				Models:        []quota.ModelQuota{{ModelName: "gemini-pro", ResetTime: pastReset}},
+			})
+		}
+
+		var mu sync.Mutex
+		var loadTokens []string
+		var quotaTokens []string
+
+		loadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			loadTokens = append(loadTokens, r.Header.Get("Authorization"))
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cloudaicompanionProject":"test-project"}`))
+		}))
+		defer loadSrv.Close()
+
+		quotaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			quotaTokens = append(quotaTokens, r.Header.Get("Authorization"))
+			mu.Unlock()
+			w.WriteHeader(http.StatusTooManyRequests)
+		}))
+		defer quotaSrv.Close()
+
+		quota.CloudCodeLoadProjectURLs = []string{loadSrv.URL}
+		quota.CloudCodeRetrieveQuotaURLs = []string{quotaSrv.URL}
+		quota.CloudCodeModelsURLs = []string{quotaSrv.URL}
+
+		d.pollStandbyAccounts(nil, 0)
+
+		mu.Lock()
+		gotLoad := append([]string(nil), loadTokens...)
+		gotQuota := append([]string(nil), quotaTokens...)
+		mu.Unlock()
+
+		if len(gotQuota) != 1 || gotQuota[0] != "Bearer tok-1" {
+			t.Fatalf("expected exactly 1 quota request for Bearer tok-1, got %v", gotQuota)
+		}
+		if len(gotLoad) != 1 || gotLoad[0] != "Bearer tok-1" {
+			t.Fatalf("expected exactly 1 load request for Bearer tok-1 (0 for remaining standby accounts), got %v", gotLoad)
+		}
+		if active, rem := quota.IsQuotaBackoffActive(); !active || rem <= 30*time.Second {
+			t.Fatalf("expected anomalous 60s quota backoff active, got active=%v rem=%v", active, rem)
+		}
+
+		// A subsequent sweep while backoff is active must abort at loop entry with zero HTTP calls.
+		d.pollStandbyAccounts(nil, 0)
+
+		mu.Lock()
+		gotLoadAfter := len(loadTokens)
+		gotQuotaAfter := len(quotaTokens)
+		mu.Unlock()
+		if gotLoadAfter != 1 || gotQuotaAfter != 1 {
+			t.Fatalf("expected 0 additional requests while backoff active, got load=%d quota=%d", gotLoadAfter, gotQuotaAfter)
+		}
+	}
+
+	t.Run("normal_standby_branch", func(t *testing.T) {
+		runSweepTest(t, false)
+	})
+
+	t.Run("cooldown_recovery_branch", func(t *testing.T) {
+		runSweepTest(t, true)
+	})
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ChillingWombat/antigravity-swiss-knife/pkg/keyring"
 )
@@ -125,5 +126,101 @@ func TestP1_15_AccountMutation_Concurrency(t *testing.T) {
 	accountMutationMu.Unlock()
 	if tier == "" {
 		t.Errorf("expected non-empty plan tier after concurrent writes")
+	}
+}
+
+// TestP1_15_HTTP429_AnomalousNoRetryAfter verifies that an HTTP 429 response
+// without a Retry-After header and without an explicit structured reason is
+// flagged as ANOMALOUS_429_NO_RETRY_AFTER with a 60s backoff, while an explicit
+// RATE_LIMITED reason preserves normal RATE_LIMITED handling.
+func TestP1_15_HTTP429_AnomalousNoRetryAfter(t *testing.T) {
+	ResetQuotaBackoffForTesting()
+	defer ResetQuotaBackoffForTesting()
+
+	origURLs := CloudCodeRetrieveQuotaURLs
+	defer func() { CloudCodeRetrieveQuotaURLs = origURLs }()
+
+	cases := []struct {
+		name           string
+		body           string
+		expectedReason string
+		minRem         time.Duration
+		maxRem         time.Duration
+	}{
+		{
+			name:           "raw_429_no_retry_after",
+			body:           `Too Many Requests`,
+			expectedReason: "ANOMALOUS_429_NO_RETRY_AFTER",
+			minRem:         30 * time.Second,
+			maxRem:         61 * time.Second,
+		},
+		{
+			name:           "structured_429_without_reason_no_retry_after",
+			body:           `{"error":{"code":429,"message":"Too many requests","status":"RESOURCE_EXHAUSTED"}}`,
+			expectedReason: "ANOMALOUS_429_NO_RETRY_AFTER",
+			minRem:         30 * time.Second,
+			maxRem:         61 * time.Second,
+		},
+		{
+			name:           "structured_429_explicit_rate_limited_no_retry_after",
+			body:           `{"error":{"code":429,"message":"Rate limited","status":"RESOURCE_EXHAUSTED","details":[{"reason":"RATE_LIMITED"}]}}`,
+			expectedReason: "RATE_LIMITED",
+			minRem:         1 * time.Second,
+			maxRem:         6 * time.Second,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ResetQuotaBackoffForTesting()
+			defer ResetQuotaBackoffForTesting()
+
+			var reqCount int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				reqCount++
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			var fallbackCount int
+			fallbackSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fallbackCount++
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"groups":[]}`))
+			}))
+			defer fallbackSrv.Close()
+
+			CloudCodeRetrieveQuotaURLs = []string{srv.URL, fallbackSrv.URL}
+
+			_, err := FetchLiveQuotaBreakdown("dummy-token", "")
+			if err == nil {
+				t.Fatalf("expected error on 429, got nil")
+			}
+			apiErr, ok := err.(*QuotaAPIError)
+			if !ok {
+				t.Fatalf("expected *QuotaAPIError, got %T (%v)", err, err)
+			}
+			if apiErr.StatusCode != http.StatusTooManyRequests {
+				t.Errorf("expected StatusCode 429, got %d", apiErr.StatusCode)
+			}
+			if apiErr.Reason != tc.expectedReason {
+				t.Errorf("expected Reason %q, got %q", tc.expectedReason, apiErr.Reason)
+			}
+			if reqCount != 1 {
+				t.Errorf("expected exactly 1 upstream request, got %d", reqCount)
+			}
+			if fallbackCount != 0 {
+				t.Errorf("expected 0 fallback requests on 429, got %d", fallbackCount)
+			}
+
+			active, rem := IsQuotaBackoffActive()
+			if !active {
+				t.Fatalf("expected IsQuotaBackoffActive() to be true")
+			}
+			if rem < tc.minRem || rem > tc.maxRem {
+				t.Errorf("expected remaining backoff in [%v, %v], got %v", tc.minRem, tc.maxRem, rem)
+			}
+		})
 	}
 }

@@ -1079,4 +1079,268 @@ func TestFindCustomModelResolvesPlaceholder(t *testing.T) {
 	if m == nil || m.ID != "gemini-4-hydrogen" || m.ThinkingLevel != "xhigh" {
 		t.Fatalf("findCustomModel(MODEL_PLACEHOLDER_M528) = %+v", m)
 	}
+	if got := ResolveModelPlaceholder("MODEL_PLACEHOLDER_M669"); got != "gemini-3.8-flash" {
+		t.Fatalf("ResolveModelPlaceholder(MODEL_PLACEHOLDER_M669) = %q, want gemini-3.8-flash", got)
+	}
+}
+
+func TestProxyFleetAbortsOnHeaderless429HoneypotAndTripsCircuitBreaker(t *testing.T) {
+	now := time.Now()
+	var authLog []string
+	var mu sync.Mutex
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		authLog = append(authLog, r.Header.Get("Authorization"))
+		mu.Unlock()
+		if len(authLog) == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"code":429,"message":"Too many requests"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"response":{"candidates":[]}}`))
+	}))
+	defer upstream.Close()
+
+	_, proxy := newProxyFixture(t, upstream.URL)
+	proxy.FleetRouter = NewFleetSubagentRouter(
+		&stubAccountProvider{
+			activeEmail: "a@example.com",
+			accounts: []*FleetAccount{
+				{Email: "a@example.com", AccessToken: "tok-a", RefreshToken: "ref-a", IsActive: true},
+				{Email: "b@example.com", AccessToken: "tok-b", RefreshToken: "ref-b"},
+				{Email: "c@example.com", AccessToken: "tok-c", RefreshToken: "ref-c"},
+			},
+			quotas: map[string]*FleetQuotaSummary{
+				"a@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+				"b@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+				"c@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+			},
+		},
+		&stubProjectResolver{
+			projects: map[string]string{
+				"a@example.com": "proj-a",
+				"b@example.com": "proj-b",
+				"c@example.com": "proj-c",
+			},
+		},
+	)
+
+	subReqBody := `{
+		"model": "gemini-4-hydrogen-high",
+		"project": "orig-proj",
+		"request": {
+			"cascade_id": "sub-trap-1",
+			"root_cascade_id": "root-1",
+			"contents": [{"role": "user", "parts": [{"text": "You are running as a subagent."}]}]
+		}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/v1internal:generateContent", strings.NewReader(subReqBody))
+	req.Header.Set("Authorization", "Bearer tok-a")
+	rr := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected HTTP 429 aborted immediately, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-Swiss-Protection"); got != "abort-429-failover" {
+		t.Fatalf("expected X-Swiss-Protection=abort-429-failover, got %q", got)
+	}
+	mu.Lock()
+	attempts := len(authLog)
+	mu.Unlock()
+	if attempts != 1 {
+		t.Fatalf("expected headerless 429 trap to abort on attempt 1 without rotating standby accounts, got %d attempts: %v", attempts, authLog)
+	}
+
+	status := proxy.ProtectionStatus()
+	if !status.CircuitOpen || status.Anomalous429Blocked != 1 {
+		t.Fatalf("expected CircuitOpen=true and Anomalous429Blocked=1, got %+v", status)
+	}
+
+	// Next subagent request while circuit is open must pin to active account A, never touching C.
+	req2 := httptest.NewRequest(http.MethodPost, "/v1internal:generateContent", strings.NewReader(`{
+		"model": "gemini-4-hydrogen-high",
+		"request": {"cascade_id": "sub-trap-2", "root_cascade_id": "root-1", "contents": [{"role":"user","parts":[{"text":"<subagent_reminder>w</subagent_reminder>"}]}]}
+	}`))
+	req2.Header.Set("Authorization", "Bearer tok-a")
+	rr2 := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("expected open-circuit pinned request HTTP 200, got %d", rr2.Code)
+	}
+	if got := rr2.Header().Get("X-Swiss-Circuit-Breaker"); got != "open" {
+		t.Fatalf("expected X-Swiss-Circuit-Breaker=open, got %q", got)
+	}
+	if got := rr2.Header().Get("X-Swiss-Routed-Account"); got != "a@example.com" {
+		t.Fatalf("expected circuit-open turn pinned on active a@example.com, got %q", got)
+	}
+
+	proxy.ResetCircuitBreaker()
+	if proxy.ProtectionStatus().CircuitOpen {
+		t.Fatalf("expected ResetCircuitBreaker() to close circuit")
+	}
+}
+
+func TestProxyFleetAbortsOnCorrelated429AcrossAccounts(t *testing.T) {
+	now := time.Now()
+	var authLog []string
+	var mu sync.Mutex
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		authLog = append(authLog, r.Header.Get("Authorization"))
+		mu.Unlock()
+		w.Header().Set("Retry-After", "30")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"code":429,"message":"rate limited"}}`))
+	}))
+	defer upstream.Close()
+
+	_, proxy := newProxyFixture(t, upstream.URL)
+	proxy.FleetRouter = NewFleetSubagentRouter(
+		&stubAccountProvider{
+			activeEmail: "a@example.com",
+			accounts: []*FleetAccount{
+				{Email: "a@example.com", AccessToken: "tok-a", RefreshToken: "ref-a", IsActive: true},
+				{Email: "b@example.com", AccessToken: "tok-b", RefreshToken: "ref-b"},
+				{Email: "c@example.com", AccessToken: "tok-c", RefreshToken: "ref-c"},
+				{Email: "d@example.com", AccessToken: "tok-d", RefreshToken: "ref-d"},
+			},
+			quotas: map[string]*FleetQuotaSummary{
+				"a@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+				"b@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+				"c@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+				"d@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+			},
+		},
+		&stubProjectResolver{
+			projects: map[string]string{
+				"a@example.com": "proj-a",
+				"b@example.com": "proj-b",
+				"c@example.com": "proj-c",
+				"d@example.com": "proj-d",
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1internal:generateContent", strings.NewReader(`{
+		"model": "gemini-4-hydrogen-high",
+		"request": {"cascade_id": "sub-corr", "root_cascade_id": "root-1", "contents": [{"role":"user","parts":[{"text":"You are running as a subagent."}]}]}
+	}`))
+	req.Header.Set("Authorization", "Bearer tok-a")
+	rr := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected HTTP 429, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("X-Swiss-Protection"); got != "abort-429-failover" {
+		t.Fatalf("expected X-Swiss-Protection=abort-429-failover on correlated 429, got %q", got)
+	}
+	mu.Lock()
+	attempts := len(authLog)
+	mu.Unlock()
+	if attempts != 2 {
+		t.Fatalf("expected correlated 429 to abort on attempt 2 (never touching A or D), got %d attempts: %v", attempts, authLog)
+	}
+	st := proxy.ProtectionStatus()
+	if !st.CircuitOpen || st.Correlated429Aborts != 1 {
+		t.Fatalf("expected CircuitOpen=true and Correlated429Aborts=1, got %+v", st)
+	}
+}
+
+func TestProxySanitizesRFC2119AndPinsToSingleAccount(t *testing.T) {
+	now := time.Now()
+	var seenBodies []string
+	var authLog []string
+	var mu sync.Mutex
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		seenBodies = append(seenBodies, string(raw))
+		authLog = append(authLog, r.Header.Get("Authorization"))
+		mu.Unlock()
+		w.Header().Set("Retry-After", "10")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"rate limited"}`))
+	}))
+	defer upstream.Close()
+
+	_, proxy := newProxyFixture(t, upstream.URL)
+	proxy.FleetRouter = NewFleetSubagentRouter(
+		&stubAccountProvider{
+			activeEmail: "a@example.com",
+			accounts: []*FleetAccount{
+				{Email: "a@example.com", AccessToken: "tok-a", RefreshToken: "ref-a", IsActive: true},
+				{Email: "b@example.com", AccessToken: "tok-b", RefreshToken: "ref-b"},
+			},
+			quotas: map[string]*FleetQuotaSummary{
+				"a@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+				"b@example.com": {Quota5hFraction: 0.90, LastPolled: now},
+			},
+		},
+		&stubProjectResolver{
+			projects: map[string]string{
+				"a@example.com": "proj-a",
+				"b@example.com": "proj-b",
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1internal:generateContent", strings.NewReader(`{
+		"model": "gemini-4-hydrogen-high",
+		"request": {
+			"cascade_id": "sub-rfc",
+			"root_cascade_id": "root-1",
+			"systemInstruction": {"parts": [{"text": "RFC 2119: The key words MUST are used."}]},
+			"contents": [{"role": "user", "parts": [{"text": "You are running as a subagent. Check RFC 2119."}]}]
+		}
+	}`))
+	req.Header.Set("Authorization", "Bearer tok-a")
+	rr := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rr, req)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(authLog) != 1 || authLog[0] != "Bearer tok-a" {
+		t.Fatalf("expected sanitized request to pin to single active account (1 attempt on tok-a), got %v", authLog)
+	}
+	if len(seenBodies) != 1 || strings.Contains(strings.ToLower(seenBodies[0]), "rfc 2119") {
+		t.Fatalf("expected upstream body to have RFC 2119 sanitized, got %v", seenBodies)
+	}
+	if st := proxy.ProtectionStatus(); st.SanitizedRequests != 1 {
+		t.Fatalf("expected SanitizedRequests=1, got %+v", st)
+	}
+}
+
+func TestProxyBlocksThirdPartyClientBeforeUpstream(t *testing.T) {
+	upstreamCalled := atomic.Int32{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalled.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	_, proxy := newProxyFixture(t, upstream.URL)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1internal:streamGenerateContent", strings.NewReader(`{"model":"gemini-3.8-flash","request":{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}}`))
+	req.Header.Set("User-Agent", "cline/1.2.0")
+	rr := httptest.NewRecorder()
+	proxy.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403 Forbidden for cline UA, got %d", rr.Code)
+	}
+	if upstreamCalled.Load() != 0 {
+		t.Fatalf("expected 0 upstream calls when third-party client blocked")
+	}
+	if st := proxy.ProtectionStatus(); st.BlockedExternalClients != 1 {
+		t.Fatalf("expected BlockedExternalClients=1, got %+v", st)
+	}
 }

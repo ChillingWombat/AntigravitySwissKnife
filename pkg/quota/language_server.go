@@ -26,6 +26,7 @@ const (
 	languageServerUserStatusMethod         = "/exa.language_server_pb.LanguageServerService/GetUserStatus"
 	languageServerQuotaSummaryMethod       = "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
 	languageServerSetCloudCodeURLMethod    = "/exa.language_server_pb.LanguageServerService/SetCloudCodeURL"
+	DefaultNativeCloudCodeURL              = "https://daily-cloudcode-pa.googleapis.com"
 	languageServerResponseMaxBytes   int64 = 8 << 20
 )
 
@@ -987,20 +988,28 @@ func decodeGRPCWebMessage(data []byte) ([]byte, error) {
 }
 
 // SetLanguageServerCloudCodeURLForEndpoint instructs a specific Antigravity language_server
-// endpoint to route Cloud Code API requests to targetURL.
+// endpoint to route Cloud Code API requests to targetURL (defaulting empty string to
+// DefaultNativeCloudCodeURL so the upstream endpoint is never wiped to "").
 func SetLanguageServerCloudCodeURLForEndpoint(endpoint languageServerEndpoint, targetURL string) error {
+	resolvedURL := strings.TrimSpace(targetURL)
+	if resolvedURL == "" {
+		resolvedURL = DefaultNativeCloudCodeURL
+	}
 	payload := map[string]any{
-		"url":            targetURL,
-		"cloudCodeUrl":   targetURL,
-		"cloud_code_url": targetURL,
+		"url":            resolvedURL,
+		"cloudCodeUrl":   resolvedURL,
+		"cloud_code_url": resolvedURL,
 	}
 	return postLanguageServerRPC(endpoint, languageServerSetCloudCodeURLMethod, payload, nil)
 }
 
 // SetLanguageServerCloudCodeURL instructs all discovered running Antigravity
 // language_server instances to route their Cloud Code requests to targetURL
-// (e.g. "http://127.0.0.1:8765").
+// (e.g. "http://127.0.0.1:8765"). No-ops during Go tests.
 func SetLanguageServerCloudCodeURL(targetURL string) error {
+	if core.IsRunningTests() || os.Getenv("ANTIGRAVITY_TEST_MODE") == "1" {
+		return nil
+	}
 	return setLanguageServerCloudCodeURL(targetURL, discoverLanguageServerEndpoints)
 }
 

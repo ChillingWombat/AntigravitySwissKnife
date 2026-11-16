@@ -28,9 +28,11 @@ const (
 )
 
 const (
-	minHealthyQuotaFraction = 0.02
-	topHealthyPoolFloor     = 0.30
-	defaultAccountCooldown  = 30 * time.Second
+	minHealthyQuotaFraction       = 0.02
+	topHealthyPoolFloor           = 0.30
+	defaultAccountCooldown        = 30 * time.Second
+	defaultCircuitBreakerDuration = 10 * time.Minute
+	defaultCorrelationWindow      = 15 * time.Second
 )
 
 // ClassifyCloudCodeTurn inspects a Cloud Code generateContent/streamGenerateContent
@@ -689,6 +691,18 @@ func (r *defaultProjectResolver) ResolveProject(ctx context.Context, acc *FleetA
 	return "", fmt.Errorf("unable to resolve Cloud Code project for %s", acc.Email)
 }
 
+// FleetProtectionStatus reports anti-429 circuit-breaker state and request guard counters.
+type FleetProtectionStatus struct {
+	CircuitOpen            bool      `json:"circuit_open"`
+	CircuitReason          string    `json:"circuit_reason,omitempty"`
+	CircuitOpenUntil       string    `json:"circuit_open_until,omitempty"`
+	Anomalous429Blocked    int       `json:"anomalous_429_blocked"`
+	Correlated429Aborts    int       `json:"correlated_429_aborts"`
+	SanitizedRequests      int       `json:"sanitized_requests"`
+	BlockedExternalClients int       `json:"blocked_external_clients"`
+	LastTrippedAt          time.Time `json:"-"`
+}
+
 // FleetSubagentRouter distributes Antigravity orchestrator subagent, swarm,
 // and post-plan execution turns across healthy fleet accounts while keeping
 // the root planning conversation on the active account.
@@ -704,7 +718,19 @@ type FleetSubagentRouter struct {
 
 	OffloadPostPlanExecution bool
 	DefaultCooldown          time.Duration
+	CircuitBreakerDuration   time.Duration
+	CorrelationWindow        time.Duration
 	nowFn                    func() time.Time
+
+	circuitOpenUntil       time.Time
+	circuitReason          string
+	last429At              time.Time
+	last429Email           string
+	anomalous429Blocked    int
+	correlated429Aborts    int
+	sanitizedRequests      int
+	blockedExternalClients int
+	lastTrippedAt          time.Time
 }
 
 // NewFleetSubagentRouter creates a FleetSubagentRouter backed by custom AccountProvider and ProjectResolver.
@@ -718,6 +744,8 @@ func NewFleetSubagentRouter(accounts AccountProvider, projects ProjectResolver) 
 		cooldownUntil:            make(map[string]time.Time),
 		OffloadPostPlanExecution: true,
 		DefaultCooldown:          defaultAccountCooldown,
+		CircuitBreakerDuration:   defaultCircuitBreakerDuration,
+		CorrelationWindow:        defaultCorrelationWindow,
 		nowFn:                    time.Now,
 	}
 }
@@ -798,6 +826,178 @@ func (r *FleetSubagentRouter) IsOnCooldown(email, modelID string) bool {
 	exp, ok := r.cooldownUntil[cooldownKey(email, bucket)]
 	r.mu.RUnlock()
 	return ok && now.Before(exp)
+}
+
+// IsCircuitOpen reports whether the anti-429 circuit breaker is active, along
+// with its trip reason and expiration timestamp.
+func (r *FleetSubagentRouter) IsCircuitOpen() (bool, string, time.Time) {
+	if r == nil {
+		return false, "", time.Time{}
+	}
+	now := r.now()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if !r.circuitOpenUntil.IsZero() && now.Before(r.circuitOpenUntil) {
+		return true, r.circuitReason, r.circuitOpenUntil
+	}
+	return false, "", time.Time{}
+}
+
+// TripCircuitBreaker opens the anti-429 circuit breaker for duration d (or the
+// router's configured CircuitBreakerDuration when d <= 0).
+func (r *FleetSubagentRouter) TripCircuitBreaker(reason string, d time.Duration) {
+	if r == nil {
+		return
+	}
+	if d <= 0 {
+		d = r.CircuitBreakerDuration
+		if d <= 0 {
+			d = defaultCircuitBreakerDuration
+		}
+	}
+	now := r.now()
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "anti_proxy_429_circuit_open"
+	}
+	r.mu.Lock()
+	r.circuitOpenUntil = now.Add(d)
+	r.circuitReason = reason
+	r.lastTrippedAt = now
+	r.mu.Unlock()
+}
+
+// ResetCircuitBreaker closes the anti-429 circuit breaker and clears correlation state.
+func (r *FleetSubagentRouter) ResetCircuitBreaker() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.circuitOpenUntil = time.Time{}
+	r.circuitReason = ""
+	r.last429At = time.Time{}
+	r.last429Email = ""
+	r.mu.Unlock()
+}
+
+// RecordSanitizedRequest increments the counter of requests whose bait markers were sanitized.
+func (r *FleetSubagentRouter) RecordSanitizedRequest() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.sanitizedRequests++
+	r.mu.Unlock()
+}
+
+// RecordBlockedClient increments the counter of blocked third-party client requests.
+func (r *FleetSubagentRouter) RecordBlockedClient() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.blockedExternalClients++
+	r.mu.Unlock()
+}
+
+// Record429Outcome records an upstream HTTP 429 response for email/modelID,
+// places the account on cooldown, and trips the circuit breaker when an
+// anomalous trap or cross-account 429 correlation is detected.
+func (r *FleetSubagentRouter) Record429Outcome(email, modelID string, classification Upstream429Classification, request429Count int) (abortFailover bool, tripReason string) {
+	if r == nil {
+		if classification.Kind == RateLimit429AnomalousTrap {
+			return true, "anomalous_429_trap"
+		}
+		if request429Count >= 2 {
+			return true, "correlated_429_across_accounts"
+		}
+		return false, ""
+	}
+
+	now := r.now()
+	bucket := modelQuotaBucket(modelID)
+	normEmail := strings.ToLower(strings.TrimSpace(email))
+
+	cooldownDur := classification.RetryAfter
+	if cooldownDur <= 0 {
+		cooldownDur = r.DefaultCooldown
+		if cooldownDur <= 0 {
+			cooldownDur = defaultAccountCooldown
+		}
+	}
+
+	cbDur := r.CircuitBreakerDuration
+	if cbDur <= 0 {
+		cbDur = defaultCircuitBreakerDuration
+	}
+	corrWin := r.CorrelationWindow
+	if corrWin <= 0 {
+		corrWin = defaultCorrelationWindow
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if normEmail != "" {
+		r.cooldownUntil[cooldownKey(normEmail, bucket)] = now.Add(cooldownDur)
+	}
+
+	switch {
+	case classification.Kind == RateLimit429AnomalousTrap:
+		r.anomalous429Blocked++
+		abortFailover = true
+		if classification.Reason != "" {
+			tripReason = "anomalous_429_trap: " + classification.Reason
+		} else {
+			tripReason = "anomalous_429_trap"
+		}
+	case request429Count >= 2:
+		r.correlated429Aborts++
+		abortFailover = true
+		tripReason = fmt.Sprintf("correlated_429_across_accounts (count=%d)", request429Count)
+	case !r.last429At.IsZero() && now.Sub(r.last429At) >= 0 && now.Sub(r.last429At) <= corrWin && r.last429Email != "" && normEmail != "" && !strings.EqualFold(r.last429Email, normEmail):
+		r.correlated429Aborts++
+		abortFailover = true
+		tripReason = fmt.Sprintf("correlated_429_window (%s -> %s)", r.last429Email, normEmail)
+	}
+
+	if normEmail != "" {
+		r.last429At = now
+		r.last429Email = normEmail
+	}
+
+	if abortFailover {
+		r.circuitOpenUntil = now.Add(cbDur)
+		r.circuitReason = tripReason
+		r.lastTrippedAt = now
+	}
+
+	return abortFailover, tripReason
+}
+
+// ProtectionStatus returns a snapshot of circuit-breaker and guard telemetry.
+func (r *FleetSubagentRouter) ProtectionStatus() FleetProtectionStatus {
+	if r == nil {
+		return FleetProtectionStatus{}
+	}
+	now := r.now()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	open := !r.circuitOpenUntil.IsZero() && now.Before(r.circuitOpenUntil)
+	status := FleetProtectionStatus{
+		CircuitOpen:            open,
+		Anomalous429Blocked:    r.anomalous429Blocked,
+		Correlated429Aborts:    r.correlated429Aborts,
+		SanitizedRequests:      r.sanitizedRequests,
+		BlockedExternalClients: r.blockedExternalClients,
+		LastTrippedAt:          r.lastTrippedAt,
+	}
+	if open {
+		status.CircuitReason = r.circuitReason
+		status.CircuitOpenUntil = r.circuitOpenUntil.UTC().Format(time.RFC3339)
+	}
+	return status
 }
 
 // CredentialedAccountCount returns the number of non-banned accounts with tokens.
@@ -932,6 +1132,17 @@ func (r *FleetSubagentRouter) SelectAccountForTurn(role, cascadeID, rootCascadeI
 	}
 
 	sortFleetCandidates(healthy)
+
+	if !r.circuitOpenUntil.IsZero() && now.Before(r.circuitOpenUntil) {
+		if activeEmail != "" {
+			for _, c := range healthy {
+				if strings.EqualFold(c.acc.Email, activeEmail) {
+					return cloneKeyringAccount(c.acc), nil
+				}
+			}
+		}
+		return cloneKeyringAccount(healthy[0].acc), nil
+	}
 
 	switch role {
 	case TurnRoleRootOrchestrator:

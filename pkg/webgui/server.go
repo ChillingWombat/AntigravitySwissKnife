@@ -371,6 +371,25 @@ func (s *Server) getCloudCodeProxy() *custommodels.Proxy {
 	return s.cloudCodeProxy
 }
 
+func (s *Server) getProxyProtectionStatus() custommodels.FleetProtectionStatus {
+	if s == nil {
+		return custommodels.FleetProtectionStatus{}
+	}
+	if proxy := s.getCloudCodeProxy(); proxy != nil {
+		return proxy.ProtectionStatus()
+	}
+	return custommodels.FleetProtectionStatus{}
+}
+
+func (s *Server) resetProxyCircuitBreaker() {
+	if s == nil {
+		return
+	}
+	if proxy := s.getCloudCodeProxy(); proxy != nil {
+		proxy.ResetCircuitBreaker()
+	}
+}
+
 func (s *Server) getCustomModelsGateway() *custommodels.Gateway {
 	store := s.getCustomModelsStore()
 	if store == nil {
@@ -3642,26 +3661,37 @@ func (s *Server) handleCustomModelIntegration(w http.ResponseWriter, r *http.Req
 			"endpoint":    "http://" + loopbackAddr(s.addr) + "/v1",
 			"gemini_base": "http://" + loopbackAddr(s.addr) + "/v1beta",
 			"pin_set":     pinSet,
+			"protection":  s.getProxyProtectionStatus(),
 		})
 	case http.MethodPost:
-		var payload custommodels.IntegrationSettings
+		var payload struct {
+			custommodels.IntegrationSettings
+			ResetCircuitBreaker bool `json:"reset_circuit_breaker"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
-		existing := store.IntegrationSettings()
-		if payload.Proxy.PIN == "" || payload.Proxy.PIN == "[REDACTED]" {
-			payload.Proxy.PIN = existing.Proxy.PIN
+		if payload.ResetCircuitBreaker {
+			s.resetProxyCircuitBreaker()
 		}
-		if err := store.SetIntegrationSettings(payload); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+		hasSettings := strings.TrimSpace(payload.Mode) != "" || len(payload.Apps) > 0
+		if hasSettings || !payload.ResetCircuitBreaker {
+			existing := store.IntegrationSettings()
+			if payload.Proxy.PIN == "" || payload.Proxy.PIN == "[REDACTED]" {
+				payload.Proxy.PIN = existing.Proxy.PIN
+			}
+			if err := store.SetIntegrationSettings(payload.IntegrationSettings); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		integration, pinSet := redactIntegrationSettings(store.IntegrationSettings())
 		writeJSON(w, map[string]interface{}{
 			"success":     true,
 			"integration": integration,
 			"pin_set":     pinSet,
+			"protection":  s.getProxyProtectionStatus(),
 		})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
