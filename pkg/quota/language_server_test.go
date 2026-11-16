@@ -602,3 +602,29 @@ func TestSetLanguageServerCloudCodeURLNoRunningInstances(t *testing.T) {
 		t.Fatalf("error = %v, want ErrNoLanguageServers", err)
 	}
 }
+
+func TestSetLanguageServerCloudCodeURLEmptyDefaultsToNativeURL(t *testing.T) {
+	var receivedPayload map[string]any
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqBytes := readGRPCWebRequest(t, r)
+		_ = json.Unmarshal(reqBytes, &receivedPayload)
+		w.Header().Set("Content-Type", "application/grpc-web+json")
+		writeGRPCWebJSON(t, w, map[string]any{})
+	}))
+	defer server.Close()
+
+	endpoint := languageServerEndpoint{origin: server.URL, csrfToken: "csrf"}
+	if err := SetLanguageServerCloudCodeURLForEndpoint(endpoint, ""); err != nil {
+		t.Fatalf("SetLanguageServerCloudCodeURLForEndpoint() error = %v", err)
+	}
+	if urlVal, ok := receivedPayload["url"].(string); !ok || urlVal != DefaultNativeCloudCodeURL {
+		t.Fatalf("received payload url = %v, want %q", receivedPayload["url"], DefaultNativeCloudCodeURL)
+	}
+	if ccVal, ok := receivedPayload["cloudCodeUrl"].(string); !ok || ccVal != DefaultNativeCloudCodeURL {
+		t.Fatalf("received payload cloudCodeUrl = %v, want %q", receivedPayload["cloudCodeUrl"], DefaultNativeCloudCodeURL)
+	}
+	// Public SetLanguageServerCloudCodeURL must no-op during test execution.
+	if err := SetLanguageServerCloudCodeURL(""); err != nil {
+		t.Fatalf("SetLanguageServerCloudCodeURL() during test returned error = %v", err)
+	}
+}

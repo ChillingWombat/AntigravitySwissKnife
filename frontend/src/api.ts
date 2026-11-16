@@ -406,6 +406,16 @@ export async function request<T>(url: string, options?: RequestOptions): Promise
 
 
 /** Quick Memos daemon-persisted configuration (new fields optional until the daemon reports them). */
+export interface FleetProtectionStatus {
+  circuit_open: boolean
+  circuit_reason?: string
+  circuit_open_until?: string
+  anomalous_429_blocked: number
+  correlated_429_aborts: number
+  sanitized_requests: number
+  blocked_external_clients: number
+}
+
 export interface MemoConfigPatch {
   storage_location?: string;
   view_scope?: string;
@@ -792,13 +802,18 @@ export const api = {
     }),
 
   getCustomModelIntegration: () =>
-    request<{ success: boolean; integration: any; endpoint: string; gemini_base: string; pin_set: boolean }>(
+    request<{ success: boolean; integration: any; endpoint: string; gemini_base: string; pin_set: boolean; protection?: FleetProtectionStatus }>(
       '/api/custom_models/integration'
     ),
   updateCustomModelIntegration: (integration: any) =>
-    request<{ success: boolean; integration: any; pin_set: boolean }>('/api/custom_models/integration', {
+    request<{ success: boolean; integration: any; pin_set: boolean; protection?: FleetProtectionStatus }>('/api/custom_models/integration', {
       method: 'POST',
       body: JSON.stringify(integration),
+    }),
+  resetProxyCircuitBreaker: (integration?: any) =>
+    request<{ success: boolean; integration: any; pin_set: boolean; protection?: FleetProtectionStatus }>('/api/custom_models/integration', {
+      method: 'POST',
+      body: JSON.stringify({ ...(integration || {}), reset_circuit_breaker: true }),
     }),
   launchCustomModelApp: (app: 'antigravity' | 'vscode') =>
     request<{ success: boolean; app: string; source: string; pid?: number; settings?: string; launch_note?: string }>(

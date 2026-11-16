@@ -250,6 +250,7 @@ var modelPlaceholderToID = map[string]string{
 	"MODEL_PLACEHOLDER_M527": "gemini-4-hydrogen-low",
 	"MODEL_PLACEHOLDER_M528": "gemini-4-hydrogen-xhigh",
 	"MODEL_PLACEHOLDER_M668": "gemini-pro-orchestrator-g1-pro",
+	"MODEL_PLACEHOLDER_M669": "gemini-3.8-flash",
 }
 
 var modelIDToPlaceholder = func() map[string]string {

@@ -46,6 +46,12 @@ func checkQuotaBackoff() time.Duration {
 	return 0
 }
 
+// IsQuotaBackoffActive reports whether CloudCode quota backoff is currently active and its remaining duration.
+func IsQuotaBackoffActive() (bool, time.Duration) {
+	rem := checkQuotaBackoff()
+	return rem > 0, rem
+}
+
 // ResetQuotaBackoffForTesting clears any active quota backoff timer (useful for unit tests).
 func ResetQuotaBackoffForTesting() {
 	quotaBackoffMu.Lock()
@@ -722,6 +728,45 @@ func (e *QuotaAPIError) Error() string {
 	return e.Message
 }
 
+// buildQuota429Error records rate-limit backoff and returns a QuotaAPIError for 429/RESOURCE_EXHAUSTED responses.
+// Headerless HTTP 429 responses with no explicit structured reason are flagged as anomalous and backed off for 60s.
+func buildQuota429Error(resp *http.Response, reason, msg, actionURL, defaultMsg string) *QuotaAPIError {
+	retryAfter := strings.TrimSpace(resp.Header.Get("Retry-After"))
+	backoffDur := 5 * time.Second
+	if resp.StatusCode == http.StatusTooManyRequests && retryAfter == "" && reason == "" {
+		reason = "ANOMALOUS_429_NO_RETRY_AFTER"
+		backoffDur = 60 * time.Second
+		if msg == "" {
+			msg = "Anomalous HTTP 429 rate limit without Retry-After header."
+		}
+	} else {
+		if reason == "" {
+			reason = "RATE_LIMITED"
+		}
+		if msg == "" {
+			msg = defaultMsg
+		}
+		if retryAfter != "" {
+			if secs, err := strconv.Atoi(retryAfter); err == nil && secs > 0 {
+				backoffDur = time.Duration(secs) * time.Second
+			} else if t, err := http.ParseTime(retryAfter); err == nil && t.After(time.Now()) {
+				backoffDur = time.Until(t)
+			}
+		}
+	}
+	if backoffDur > 60*time.Second {
+		backoffDur = 60 * time.Second
+	}
+	recordQuotaBackoff(backoffDur)
+	return &QuotaAPIError{
+		StatusCode: resp.StatusCode,
+		Status:     "ERROR",
+		Reason:     reason,
+		Message:    msg,
+		ActionURL:  actionURL,
+	}
+}
+
 // FetchLiveQuotaBreakdown fetches complete quota buckets for Gemini and Claude/GPT models.
 func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBreakdown, error) {
 	if accessToken == "" {
@@ -806,33 +851,7 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 							msg = "Session expired or unauthenticated."
 						}
 					} else if resp.StatusCode == http.StatusTooManyRequests || errPayload.Error.Status == "RESOURCE_EXHAUSTED" {
-						errStatus = "ERROR"
-						if reason == "" {
-							reason = "RATE_LIMITED"
-						}
-						if msg == "" {
-							msg = "Rate limit exceeded. Backing off before retrying."
-						}
-						backoffDur := 5 * time.Second
-						retryAfter := resp.Header.Get("Retry-After")
-						if retryAfter != "" {
-							if secs, err := strconv.Atoi(retryAfter); err == nil && secs > 0 {
-								backoffDur = time.Duration(secs) * time.Second
-							} else if t, err := http.ParseTime(retryAfter); err == nil && t.After(time.Now()) {
-								backoffDur = time.Until(t)
-							}
-						}
-						if backoffDur > 60*time.Second {
-							backoffDur = 60 * time.Second
-						}
-						recordQuotaBackoff(backoffDur)
-						return nil, &QuotaAPIError{
-							StatusCode: resp.StatusCode,
-							Status:     errStatus,
-							Reason:     reason,
-							Message:    msg,
-							ActionURL:  actionURL,
-						}
+						return nil, buildQuota429Error(resp, reason, msg, actionURL, "Rate limit exceeded. Backing off before retrying.")
 					}
 					lastAPIError = &QuotaAPIError{
 						StatusCode: resp.StatusCode,
@@ -846,25 +865,7 @@ func FetchLiveQuotaBreakdown(accessToken string, project string) (*LiveQuotaBrea
 					}
 				}
 				if resp.StatusCode == http.StatusTooManyRequests {
-					backoffDur := 5 * time.Second
-					retryAfter := resp.Header.Get("Retry-After")
-					if retryAfter != "" {
-						if secs, err := strconv.Atoi(retryAfter); err == nil && secs > 0 {
-							backoffDur = time.Duration(secs) * time.Second
-						} else if t, err := http.ParseTime(retryAfter); err == nil && t.After(time.Now()) {
-							backoffDur = time.Until(t)
-						}
-					}
-					if backoffDur > 60*time.Second {
-						backoffDur = 60 * time.Second
-					}
-					recordQuotaBackoff(backoffDur)
-					return nil, &QuotaAPIError{
-						StatusCode: http.StatusTooManyRequests,
-						Status:     "ERROR",
-						Reason:     "RATE_LIMITED",
-						Message:    "Rate limit exceeded (HTTP 429).",
-					}
+					return nil, buildQuota429Error(resp, "", "", "", "Rate limit exceeded (HTTP 429).")
 				}
 				if resp.StatusCode == http.StatusForbidden && attempt == 0 {
 					continue // retry without project
