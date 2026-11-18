@@ -180,7 +180,7 @@ func ReadCloudAccountsDB(homeDir string) ([]DiscoveredCloudAccount, error) {
 			Name:     name,
 			IsActive: isActive,
 			Status:   status,
-			PlanTier: "Pro", // default for subscribed accounts
+			PlanTier: "", // tier is determined by upstream quota data, not assumed
 		}
 
 		if tokenEnc != "" {
