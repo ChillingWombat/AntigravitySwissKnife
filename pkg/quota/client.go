@@ -114,6 +114,28 @@ func IsTrialWarningText(text string) bool {
 	return false
 }
 
+// isVerificationRequiredError returns true when the error indicates the account
+// needs verification (VALIDATION_REQUIRED). Checks both a *QuotaAPIError and
+// a free-text error message (e.g. from cached quota_cache.json / accounts.json).
+func isVerificationRequiredError(apiErr *QuotaAPIError, errMsg string) bool {
+	if apiErr != nil {
+		if strings.EqualFold(apiErr.Reason, "VALIDATION_REQUIRED") ||
+			strings.Contains(strings.ToLower(apiErr.Message), "verify your account") ||
+			strings.TrimSpace(apiErr.ActionURL) != "" {
+			return true
+		}
+	}
+	if errMsg != "" {
+		low := strings.ToLower(errMsg)
+		if strings.Contains(low, "validation_required") ||
+			strings.Contains(low, "verify your account") ||
+			strings.Contains(low, "(verification:") {
+			return true
+		}
+	}
+	return false
+}
+
 // isPaidProModelIdentifier identifies models that family-shared trials do not receive.
 // Claude/GPT quota alone is not a paid-Pro signal because trials include the older models.
 func isPaidProModelIdentifier(modelID, displayName string) bool {
@@ -2136,6 +2158,16 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		tier = PlanTierFree
 	}
 	tier = NormalizePlanTier(tier)
+
+	// Final verification-error guard: when the quota API returned VALIDATION_REQUIRED,
+	// loadCodeAssist may have set tier to "Pro" (from paidTier or allowedTiers) before
+	// the quota endpoint could confirm trial status. Downgrade unconfirmed "Pro" and
+	// "Free" to "Pro - Trial" since the account exists but cannot be verified.
+	if isVerificationRequiredError(apiErr, "") && !explicitTrial && !catalogResolvedTier {
+		if tier == PlanTierPro || tier == PlanTierFree || tier == "" {
+			tier = PlanTierProTrial
+		}
+	}
 
 	// Persist detected tier & credits back to account struct
 	accountMutationMu.Lock()

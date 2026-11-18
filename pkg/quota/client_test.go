@@ -1895,3 +1895,107 @@ func TestIssue496_ValidationRequiredPreservesProTrialNotPro(t *testing.T) {
 		})
 	}
 }
+
+
+func TestIssue496_LoadCodeAssistReturnsProButQuotaReturnsValidationRequired(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+
+	tests := []struct {
+		name         string
+		loadPayload  map[string]interface{}
+		existingTier string
+		wantTier     string
+	}{
+		{
+			name: "explicit paidTier Google AI Pro + VALIDATION_REQUIRED -> Pro-Trial",
+			loadPayload: map[string]interface{}{
+				"cloudaicompanionProject": "projects/trial-user",
+				"paidTier":                map[string]interface{}{"id": "g1-pro-tier", "name": "Google AI Pro"},
+			},
+			existingTier: PlanTierPro,
+			wantTier:     PlanTierProTrial,
+		},
+		{
+			name: "ambiguous allowedTiers Pro + VALIDATION_REQUIRED -> Pro-Trial",
+			loadPayload: map[string]interface{}{
+				"cloudaicompanionProject": "projects/trial-user",
+				"allowedTiers":            []interface{}{map[string]interface{}{"name": "Pro"}},
+			},
+			existingTier: "",
+			wantTier:     PlanTierProTrial,
+		},
+		{
+			name: "explicit paidTier Ultra 20X + VALIDATION_REQUIRED -> preserved Ultra",
+			loadPayload: map[string]interface{}{
+				"cloudaicompanionProject": "projects/ultra-user",
+				"paidTier":                map[string]interface{}{"id": "g1-ultra-20x", "name": "Ultra 20X"},
+			},
+			existingTier: "Ultra 20X",
+			wantTier:     "Ultra 20X",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			origLoadURLs := CloudCodeLoadProjectURLs
+			origQuotaURLs := CloudCodeRetrieveQuotaURLs
+			origModelsURLs := CloudCodeModelsURLs
+			origUserInfoURLs := GoogleUserInfoURLs
+			defer func() {
+				CloudCodeLoadProjectURLs = origLoadURLs
+				CloudCodeRetrieveQuotaURLs = origQuotaURLs
+				CloudCodeModelsURLs = origModelsURLs
+				GoogleUserInfoURLs = origUserInfoURLs
+				ResetQuotaBackoffForTesting()
+			}()
+
+			// loadCodeAssist returns the tier successfully
+			loadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(tc.loadPayload)
+			}))
+			defer loadSrv.Close()
+
+			// retrieveUserQuotaSummary returns VALIDATION_REQUIRED
+			quotaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{
+					"error": {
+						"code": 403,
+						"message": "Verify your account to continue.",
+						"status": "PERMISSION_DENIED",
+						"details": [{
+							"@type": "type.googleapis.com/google.rpc.ErrorInfo",
+							"reason": "VALIDATION_REQUIRED",
+							"metadata": {"validation_url": "https://accounts.google.com/signin/continue"}
+						}]
+					}
+				}`))
+			}))
+			defer quotaSrv.Close()
+
+			CloudCodeLoadProjectURLs = []string{loadSrv.URL}
+			CloudCodeRetrieveQuotaURLs = []string{quotaSrv.URL}
+			CloudCodeModelsURLs = []string{quotaSrv.URL} // models also blocked
+			GoogleUserInfoURLs = []string{quotaSrv.URL}  // userinfo also blocked
+			ResetQuotaBackoffForTesting()
+
+			summary, err := PollAccountLiveQuota(&keyring.Account{
+				Email:        "trial-explicit@example.com",
+				AccessToken:  "mock-token",
+				RefreshToken: "mock-refresh",
+				PlanTier:     tc.existingTier,
+			})
+			if err == nil {
+				t.Fatalf("expected error from VALIDATION_REQUIRED, got nil")
+			}
+			if summary == nil {
+				t.Fatalf("expected non-nil summary even on error")
+			}
+			if summary.PlanTier != tc.wantTier {
+				t.Fatalf("PlanTier = %q, want %q", summary.PlanTier, tc.wantTier)
+			}
+		})
+	}
+}

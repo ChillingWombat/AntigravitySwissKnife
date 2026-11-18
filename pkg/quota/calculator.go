@@ -789,6 +789,12 @@ func BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts []*keyring.
 		if (tier == PlanTierPro || tier == PlanTierFree || tier == "") && (IsTrialWarningText(acc.Notes) || IsTrialWarningText(acc.Label) || IsTrialWarningText(acc.PlanTier)) {
 			tier = PlanTierProTrial
 		}
+		// Accounts with VALIDATION_REQUIRED errors cannot have their tier
+		// confirmed by the quota API. Downgrade bare "Pro" or "Free" to
+		// "Pro - Trial" since the account exists but needs verification.
+		if (tier == PlanTierPro || tier == PlanTierFree || tier == "") && isVerificationRequiredError(nil, errorMessage) {
+			tier = PlanTierProTrial
+		}
 		if tier == PlanTierProTrial {
 			cur5hArgon = nil
 			curWeeklyArgon = nil
