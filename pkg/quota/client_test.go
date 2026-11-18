@@ -1802,3 +1802,96 @@ func TestPollAccountLiveQuotaProFallbackArgon(t *testing.T) {
 		t.Fatalf("Free 5h Argon = %v, want nil", freeSummary.Quota5hArgon)
 	}
 }
+
+
+func TestIssue496_ValidationRequiredPreservesProTrialNotPro(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_SWISS_CONFIG_DIR", t.TempDir())
+
+	origQuotaURLs := CloudCodeRetrieveQuotaURLs
+	origLoadURLs := CloudCodeLoadProjectURLs
+	origModelsURLs := CloudCodeModelsURLs
+	origUserInfoURLs := GoogleUserInfoURLs
+	defer func() {
+		CloudCodeRetrieveQuotaURLs = origQuotaURLs
+		CloudCodeLoadProjectURLs = origLoadURLs
+		CloudCodeModelsURLs = origModelsURLs
+		GoogleUserInfoURLs = origUserInfoURLs
+		ResetQuotaBackoffForTesting()
+	}()
+
+	// Simulate a VALIDATION_REQUIRED error from every endpoint.
+	validationSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{
+			"error": {
+				"code": 403,
+				"message": "Verify your account to continue.",
+				"status": "PERMISSION_DENIED",
+				"details": [
+					{
+						"@type": "type.googleapis.com/google.rpc.ErrorInfo",
+						"reason": "VALIDATION_REQUIRED",
+						"metadata": {
+							"validation_url": "https://accounts.google.com/signin/continue"
+						}
+					}
+				]
+			}
+		}`))
+	}))
+	defer validationSrv.Close()
+
+	CloudCodeLoadProjectURLs = []string{validationSrv.URL + "/load"}
+	CloudCodeRetrieveQuotaURLs = []string{validationSrv.URL + "/quota"}
+	CloudCodeModelsURLs = []string{validationSrv.URL + "/models"}
+	GoogleUserInfoURLs = []string{validationSrv.URL + "/userinfo"}
+	ResetQuotaBackoffForTesting()
+
+	tests := []struct {
+		name         string
+		existingTier string
+		wantTier     string
+	}{
+		{
+			name:         "existing Pro should not be preserved on validation error",
+			existingTier: PlanTierPro,
+			wantTier:     PlanTierProTrial,
+		},
+		{
+			name:         "existing Pro-Trial is preserved on validation error",
+			existingTier: PlanTierProTrial,
+			wantTier:     PlanTierProTrial,
+		},
+		{
+			name:         "empty tier defaults to Pro-Trial on validation error",
+			existingTier: "",
+			wantTier:     PlanTierProTrial,
+		},
+		{
+			name:         "existing Ultra 20X is preserved on validation error",
+			existingTier: PlanTierUltra20X,
+			wantTier:     PlanTierUltra20X,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			summary, err := PollAccountLiveQuota(&keyring.Account{
+				Email:        "verify@example.com",
+				AccessToken:  "mock-token",
+				RefreshToken: "mock-refresh",
+				PlanTier:     tc.existingTier,
+			})
+			if err == nil {
+				t.Fatalf("expected error from VALIDATION_REQUIRED, got nil")
+			}
+			if summary == nil {
+				t.Fatalf("expected non-nil summary even on error")
+			}
+			if summary.PlanTier != tc.wantTier {
+				t.Fatalf("PlanTier = %q, want %q", summary.PlanTier, tc.wantTier)
+			}
+		})
+	}
+}

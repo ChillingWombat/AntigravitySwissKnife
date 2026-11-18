@@ -2110,11 +2110,26 @@ func PollAccountLiveQuota(acc *keyring.Account) (*QuotaSummary, error) {
 		}
 	}
 
-	// Step 7: Anti-Downgrade Safeguard: preserve existing non-free tier ONLY on transient error or incomplete upstream responses
+	// Step 7: Anti-Downgrade Safeguard: preserve existing non-free tier ONLY on transient error or incomplete upstream responses.
+	// When the error is VALIDATION_REQUIRED, bare "Pro" cannot be confirmed as paid (vs trial)
+	// since the quota API never ran. Downgrade unconfirmed "Pro" to "Pro - Trial" to avoid
+	// misclassifying trial accounts that need verification.
 	if tier == "" && acc.PlanTier != "" && acc.PlanTier != PlanTierFree {
 		if apiErr != nil || breakdown == nil || (breakdown.SubscriptionTier == "" && len(breakdown.Models) == 0) {
-			tier = acc.PlanTier
+			preserved := acc.PlanTier
+			if apiErr != nil && apiErr.Reason == "VALIDATION_REQUIRED" {
+				if preserved == PlanTierPro {
+					preserved = PlanTierProTrial
+				}
+			}
+			tier = preserved
 		}
+	}
+
+	// When VALIDATION_REQUIRED occurs and tier is still empty (no prior tier stored),
+	// the account was discovered but never classified — treat as trial, not free.
+	if tier == "" && apiErr != nil && apiErr.Reason == "VALIDATION_REQUIRED" {
+		tier = PlanTierProTrial
 	}
 
 	if tier == "" {

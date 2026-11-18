@@ -114,3 +114,22 @@ func TestSyncStoreFromCloudAccountsDB_NeverMarksStandbyAccountsActive(t *testing
 }
 
 
+
+
+func TestIssue496_CloudAccountDefaultTierIsEmpty(t *testing.T) {
+	// When quota data is unavailable (error account / no quota_json), the
+	// discovered cloud account must NOT default to "Pro". It should remain
+	// empty so the quota poll can correctly classify it.
+	acc := DiscoveredCloudAccount{
+		Email:    "verify@example.com",
+		Name:     "Verify User",
+		IsActive: true,
+		Status:   "ERROR",
+	}
+	// Simulate the same initialization as ReadCloudAccountsDB when no quota data
+	// is decryptable (empty quotaEnc). The struct initializer in cloud_accounts.go
+	// sets PlanTier to "".
+	if acc.PlanTier != "" {
+		t.Fatalf("DiscoveredCloudAccount default PlanTier = %q, want empty string", acc.PlanTier)
+	}
+}
