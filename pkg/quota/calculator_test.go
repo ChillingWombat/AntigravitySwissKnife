@@ -1283,3 +1283,73 @@ func TestNonGeminiCooldownBypassAndRanking(t *testing.T) {
 		t.Errorf("expected active account with 0%% Gemini to switch when allowNonGemini=false, got switch=%v, successor=%v", shouldSwitchOff, successor)
 	}
 }
+
+
+func TestIssue496_BuildAccountQuotaStates_CachedValidationRequiredDowngradesPro(t *testing.T) {
+	tests := []struct {
+		name         string
+		planTier     string
+		errorMessage string
+		wantTier     string
+	}{
+		{
+			name:         "cached Pro + VALIDATION_REQUIRED -> Pro-Trial",
+			planTier:     "Pro",
+			errorMessage: "Verify your account to continue. (VALIDATION_REQUIRED) (Verification: https://accounts.google.com/signin/continue)",
+			wantTier:     PlanTierProTrial,
+		},
+		{
+			name:         "cached Free + verify your account -> Pro-Trial",
+			planTier:     "Free",
+			errorMessage: "verify your account to continue",
+			wantTier:     PlanTierProTrial,
+		},
+		{
+			name:         "cached Pro + generic error -> Pro preserved",
+			planTier:     "Pro",
+			errorMessage: "Token refresh failed: some network error",
+			wantTier:     PlanTierPro,
+		},
+		{
+			name:         "cached Ultra 20X + VALIDATION_REQUIRED -> Ultra preserved",
+			planTier:     "Ultra 20X",
+			errorMessage: "Verify your account to continue. (VALIDATION_REQUIRED)",
+			wantTier:     PlanTierUltra20X,
+		},
+		{
+			name:         "cached Pro-Trial + VALIDATION_REQUIRED -> Pro-Trial preserved",
+			planTier:     "Pro - Trial",
+			errorMessage: "Verify your account to continue. (VALIDATION_REQUIRED)",
+			wantTier:     PlanTierProTrial,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			accounts := []*keyring.Account{
+				{
+					Email:        "verify@example.com",
+					PlanTier:     tc.planTier,
+					Status:       "ERROR",
+					ErrorMessage: tc.errorMessage,
+					IsActive:     false,
+				},
+			}
+			summaries := map[string]*QuotaSummary{
+				"verify@example.com": {
+					AccountEmail: "verify@example.com",
+					PlanTier:     tc.planTier,
+					ErrorStatus:  "ERROR",
+					ErrorMessage: tc.errorMessage,
+				},
+			}
+			states := BuildAccountQuotaStatesFromMapWithThresholdsAndRouting(accounts, summaries, 0.05, 0.05, false)
+			if len(states) != 1 {
+				t.Fatalf("expected 1 state, got %d", len(states))
+			}
+			if states[0].PlanTier != tc.wantTier {
+				t.Fatalf("PlanTier = %q, want %q", states[0].PlanTier, tc.wantTier)
+			}
+		})
+	}
+}
